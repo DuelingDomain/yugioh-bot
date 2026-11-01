@@ -24,6 +24,12 @@ async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runt
 let sessions: ModelSession[] = [];
 let learningCache:LearningCache|undefined;
 let learningTimer:ReturnType<typeof setInterval>|undefined;
+const aiWarps=new Map<string,RGBAImage>(),cropScope=crypto.randomUUID();let cropSerial=0;
+function keepAIWarp(image:RGBAImage):string {
+  const token=`${cropScope}:${++cropSerial}`;aiWarps.set(token,image);
+  while(aiWarps.size>6)aiWarps.delete(aiWarps.keys().next().value!);
+  return token;
+}
 async function checkedJson(url: string): Promise<IndexMeta> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Cannot load ${url}: HTTP ${response.status}. Build the index first.`);
@@ -101,7 +107,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare'} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare'} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data;
@@ -112,6 +118,11 @@ scope.onmessage = (event: MessageEvent<Request>) => {
       else {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
         if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor)});return;}
+        if(message.type==='aiCrop') {
+          const warp=aiWarps.get(message.token);if(!warp)throw new Error('Card image expired. Read the card again before asking AI.');
+          const encoded=await jpeg(warp,warp.width,256*1024);if(!encoded)throw new Error('Could not encode the card image');
+          scope.postMessage({id:message.id,result:encoded});return;
+        }
         if(!pipeline)await initialize(configuration.profile,configuration.backend,configuration.runtimeBase);
         if(message.type==='prepare'){scope.postMessage({id:message.id,result:null});return;}
         if(learningCache)pipeline!.setLearning(learningCache.current());
@@ -123,7 +134,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         const result = await pipeline!.recognize(images, message.opts);
         const {warpedCard,aiWarpedCard,...publicResult}=result;
         if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
-        if(aiWarpedCard) publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
+        if(aiWarpedCard) {
+          if(message.opts?.deferAICrop)publicResult.aiCropToken=keepAIWarp(aiWarpedCard);
+          else publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
+        }
         scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }

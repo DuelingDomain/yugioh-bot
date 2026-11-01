@@ -152,7 +152,7 @@ describe("vision lab source and selected cards", () => {
     fireEvent.click(preview(), { detail: 1, clientX: 450, clientY: 240 });
     await screen.findByRole("dialog", { name: "Card matches" });
     expect(state.hitTestQuad).toHaveBeenCalledWith(quads, { x: 450 / 640, y: .5 }, { width: 640, height: 480 });
-    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, includeRaw:false, earlyExit:true, card: quads[1] });
+    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, deferAICrop:true, includeFeedback:false, includeRaw:false, earlyExit:true, card: quads[1] });
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[1]);
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Recognize selected card" }));
@@ -181,7 +181,7 @@ describe('live card inspection and owner capture',()=>{
     expect(document.querySelector('video')).not.toHaveAttribute('hidden');
     expect(screen.getByRole('button',{name:'Freeze & outline cards'})).toBeInTheDocument();
     await waitFor(()=>expect(state.recognize).toHaveBeenCalled());
-    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1});
+    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1,deferAICrop:true});
     await act(async()=>{pending.resolve({...result,detectedCard:quads[0]});await pending.promise;});
     expect(screen.getByLabelText('Selected card outline').querySelector('polygon')).toHaveAttribute('points','64,48 256,48 256,432 64,432');
     expect(state.detectCards).not.toHaveBeenCalled();expect(state.stop).not.toHaveBeenCalled();
@@ -393,13 +393,20 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
 
 // Field watcher lifecycle shares this existing browser test file.
 import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+it('keeps Ask AI available when the large source crop is deferred in the worker',async()=>{
+  state.recognize.mockResolvedValue({...result,aiCropJpeg:undefined,aiCropToken:'scoped-crop-1'});
+  state.askAI.mockResolvedValue({name:null,match:null});await renderLab();await recognizeCenter();
+  expect(screen.getByRole('button',{name:'Ask AI'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'Ask AI'}));
+  await waitFor(()=>expect(state.askAI).toHaveBeenCalledWith(expect.objectContaining({aiCropToken:'scoped-crop-1'}),expect.any(Object)));
+});
 it('desktop outlined clicks read the exact held frame once without resampling or redetecting',async()=>{
   const {readCard,disposeRecognizer}=await import('../src/components/remote/ui/recognizer');
   const first=document.createElement('canvas'),second=document.createElement('canvas');first.width=second.width=640;first.height=second.height=480;
   try {
     await readCard(null,{x:.25,y:.5},{decklist:[],seen:[]},new AbortController().signal,quads[0],[first,second]);
     expect(createBitmap).toHaveBeenCalledTimes(1);expect(createBitmap).toHaveBeenCalledWith(first);
-    expect(state.recognize).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({card:quads[0],maxFrames:1}));
+    expect(state.recognize).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({card:quads[0],maxFrames:1,deferAICrop:true}));
     expect(state.detectCards).not.toHaveBeenCalled();
   }finally{disposeRecognizer();}
 });

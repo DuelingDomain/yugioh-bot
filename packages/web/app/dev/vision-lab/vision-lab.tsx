@@ -164,7 +164,7 @@ function ManualVisionLab() {
       }
       // The worker takes ownership of these clones; the source keeps its originals.
       const live=source.source==='camera'&&!frozenRef.current;
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(live&&!captureMode?{maxFrames:1 as const}:{}),...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
+      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,deferAICrop:!captureMode,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(live&&!captureMode?{maxFrames:1 as const}:{}),...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
       if (run === runRef.current) {
         if(live&&!next.detectedCard&&!captureMode)throw new Error('No card detected under this click.');
         setResult(next);setConfirmed(null);setQuery('');if(live&&next.detectedCard)setFlash(next.detectedCard);
@@ -359,7 +359,7 @@ function ManualVisionLab() {
             </div>}
           </div>
           {result ? <div className={styles.ai}>
-            <button type="button" onClick={()=>{void askAI();}} disabled={!result.aiCropJpeg || busy || aiBusy}>{aiBusy?'Reading…':'Ask AI'}</button>
+            <button type="button" onClick={()=>{void askAI();}} disabled={!(result.aiCropJpeg||result.aiCropToken) || busy || aiBusy}>{aiBusy?'Reading…':'Ask AI'}</button>
             <span>Sends this high-resolution card crop to Anthropic. Owner access and server opt-in required.</span>
             {result.quality.fullArt && !result.quality.fullArtReferences ? <p>Possible full-art layout; no verified full-art references. Use name correction or Ask AI.</p> : null}
             {aiError ? <p role="alert">{aiError}</p> : null}

@@ -42,7 +42,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-field-fast-v2', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-field-fast-v3', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
@@ -102,7 +102,9 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');
       if(result.tier==='sure' && !options.explicitRequest) throw new Error('AI requires uncertainty or an explicit request');
-      const jpeg=result.aiCropJpeg??result.cropJpeg; // Compatible with pre-upgrade explicit crop callers.
+      let jpeg=result.aiCropJpeg;
+      if(!jpeg&&result.aiCropToken){await initialize();options.signal?.throwIfAborted();jpeg=await request({type:'aiCrop',token:result.aiCropToken}) as string;}
+      jpeg??=result.cropJpeg; // Compatible with pre-upgrade explicit crop callers.
       if(!jpeg) throw new Error('Recognize with includeCrop to ask AI');
       const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:jpeg,candidateNames:result.aiCandidateNames,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
       if(!response.ok) throw new Error(response.status===404?'AI reading is disabled or requires owner access':response.status===429?'AI rate limit reached':response.status===504?'AI reading timed out':'AI reading unavailable');

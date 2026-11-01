@@ -6,6 +6,7 @@ import { cpus } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
+import sharp from 'sharp';
 
 const root=resolve(import.meta.dirname,'../..'),data=resolve(process.env.VISION_DATA_DIR??join(root,'data/vision'));
 const directory=join(data,'benchmark/latency');await mkdir(directory,{recursive:true});
@@ -57,10 +58,12 @@ const browser=await chromium.launch({channel:'chromium',headless:true,args:['--d
 const percentile=(values:number[],p:number)=>{const sorted=[...values].sort((a,b)=>a-b);return sorted[Math.max(0,Math.ceil(sorted.length*p)-1)]??null;};
 const distribution=(values:number[])=>({n:values.length,p50Ms:percentile(values,.5),p95Ms:percentile(values,.95),maxMs:values.length?Math.max(...values):null});
 try {
-  const page=await browser.newPage(),errors:string[]=[],requests:string[]=[];
+  const page=await browser.newPage(),errors:string[]=[],requests:string[]=[],aiBodies:{jpegBase64:string}[]=[];
   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));page.on('console',m=>console.log('browser:',m.type(),m.text()));
   await page.addInitScript('window.__name = (value) => value;');
-  await page.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());await page.goto(origin+'/dev/vision-lab');
+  await page.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());
+  await page.route('**/api/remote-vision/ai',r=>{aiBodies.push(r.request().postDataJSON());return r.fulfill({json:{name:null,match:null}});});
+  await page.goto(origin+'/dev/vision-lab');
   const search=await page.evaluate(()=>new Promise<any>((resolve,reject)=>{
     const worker=new Worker('/dev/vision-assets/benchmark/latency/search-benchmark.js',{type:'module'});
     worker.onmessage=e=>{worker.terminate();e.data.error?reject(new Error(e.data.error)):resolve(e.data);};worker.onerror=e=>reject(new Error(e.message));worker.postMessage(null);
@@ -97,11 +100,14 @@ try {
         // A desktop live click uses one held native frame and returns the full result/crop.
         // Includes frame clone, detector, warp, embedding, full catalog and worker reply.
         const start=performance.now();
-        const read=await reader.recognize([await createImageBitmap(video)],{clickPoint:{x:(x+90)/1280,y:301/720},maxFrames:1,includeCrop:true,priors});
+        const read=await reader.recognize([await createImageBitmap(video)],{clickPoint:{x:(x+90)/1280,y:301/720},maxFrames:1,includeCrop:true,deferAICrop:true,priors});
         clicks.push({deck,wallMs:performance.now()-start,result:read});
         if(n%10===9)console.info('completed',n+1,'placements and clicks');
       }
-      return {placements,clicks};
+      let expiredRefused=false;
+      if(clicks.length>6)try{await reader.askAI(clicks[0].result,{explicitRequest:true});}catch(error){expiredRefused=/expired/i.test(String(error));}
+      await reader.askAI(clicks.at(-1).result,{explicitRequest:true});
+      return {placements,clicks,expiredRefused};
     }finally{buffer.stop();clearInterval(painter);(video.srcObject as MediaStream).getTracks().forEach(t=>t.stop());video.remove();canvas.remove();bitmap.close();reader.dispose();}
   },trials);
   const summarize=(deck:boolean)=>({
@@ -111,8 +117,10 @@ try {
     correctClicks:measurements.clicks.filter((t:any)=>t.deck===deck&&t.result.tier==='sure'&&t.result.candidates[0]?.cardId==='45725480').length,
   });
   const assetRequests={index:requests.filter(r=>r.endsWith('/yugioh-index.bin')).length,meta:requests.filter(r=>r.endsWith('/yugioh-index.meta.json')).length,embedder:requests.filter(r=>r.endsWith('/dinov2-small-duel.q8.onnx')).length,detector:requests.filter(r=>r.endsWith('/card-detector.onnx')).length};
-  const report={at:new Date().toISOString(),baseline,node:process.version,browser:browser.version(),cpu:cpus()[0]?.model,logicalCores:cpus().length,backend:'wasm',runtime:measurements.clicks[0]?.result.runtime,ready,search:{...search,before:distribution(search.samples.before),catalog:distribution(search.samples.catalog),deck:distribution(search.samples.deck)},withDeck:summarize(true),withoutDeck:summarize(false),assetRequests,browserErrors:errors,notes:'Synthetic indexed standard card on plain mat, canvas captureStream, 1280x720 native ring. Actual CPU worker. Warm-ready desktop measurements; cold-ready reported separately. Balanced alternating deck/no-deck trials; p95 uses nearest rank. Placement ends at identified event; remote action/network rendering is covered by e2e, not this API timing. No webcam accuracy or WebGPU hardware latency claim.',measurements};
+  const cropBytes=Buffer.from(aiBodies[0]?.jpegBase64??'','base64'),cropMeta=cropBytes.length?await sharp(cropBytes).metadata():undefined;
+  const deferredCrop={mockRequests:aiBodies.length,width:cropMeta?.width,height:cropMeta?.height,bytes:cropBytes.length,expiredRefused:measurements.expiredRefused};
+  const report={at:new Date().toISOString(),baseline,node:process.version,browser:browser.version(),cpu:cpus()[0]?.model,logicalCores:cpus().length,backend:'wasm',runtime:measurements.clicks[0]?.result.runtime,ready,search:{...search,before:distribution(search.samples.before),catalog:distribution(search.samples.catalog),deck:distribution(search.samples.deck)},withDeck:summarize(true),withoutDeck:summarize(false),assetRequests,deferredCrop,browserErrors:errors,notes:'Synthetic indexed standard card on plain mat, canvas captureStream, 1280x720 native ring. Actual CPU worker. Warm-ready desktop measurements; cold-ready reported separately. Balanced alternating deck/no-deck trials; p95 uses nearest rank. Placement ends at identified event; remote action/network rendering is covered by e2e, not this API timing. One explicit AI request is mocked after timing to verify the deferred large crop; no provider call. No webcam accuracy or WebGPU hardware latency claim.',measurements};
   await writeFile(join(directory,`${label}.json`),JSON.stringify(report,null,2)+'\n');
-  console.log(JSON.stringify({ready:report.ready,search:{before:report.search.before,catalog:report.search.catalog,deck:report.search.deck},withDeck:report.withDeck,withoutDeck:report.withoutDeck,assetRequests,browserErrors:errors},null,2));
-  if(errors.length||search.mismatches||assetRequests.index!==1||assetRequests.embedder!==1||[report.withDeck,report.withoutDeck].some(r=>r.correctPlacements!==trials||r.correctClicks!==trials||r.placement.p95Ms===null||r.placement.p95Ms>2000||r.click.p95Ms===null||r.click.p95Ms>=300)||report.search.catalog.p95Ms===null||report.search.catalog.p95Ms>6)process.exitCode=1;
+  console.log(JSON.stringify({ready:report.ready,search:{before:report.search.before,catalog:report.search.catalog,deck:report.search.deck},withDeck:report.withDeck,withoutDeck:report.withoutDeck,assetRequests,deferredCrop,browserErrors:errors},null,2));
+  if(errors.length||search.mismatches||assetRequests.index!==1||assetRequests.embedder!==1||deferredCrop.mockRequests!==1||deferredCrop.width!==640||(trials*2>6&&!deferredCrop.expiredRefused)||[report.withDeck,report.withoutDeck].some(r=>r.correctPlacements!==trials||r.correctClicks!==trials||r.placement.p95Ms===null||r.placement.p95Ms>2000||r.click.p95Ms===null||r.click.p95Ms>=300)||report.search.catalog.p95Ms===null||report.search.catalog.p95Ms>6)process.exitCode=1;
 }finally{await browser.close();await new Promise<void>(done=>server.close(()=>done()));}

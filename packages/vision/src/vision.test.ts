@@ -153,6 +153,21 @@ test('AI client blocks automatic sure calls and only sends the requested small c
     assert.deepEqual(body,{jpegBase64:'jpeg',localTier:'sure',explicitRequest:true});
   } finally {globalThis.fetch=oldFetch;reader.dispose();}
 });
+test('a deferred AI crop is encoded only when asked and keeps the large source crop',async()=>{
+  const originalWorker=globalThis.Worker,originalFetch=globalThis.fetch,messages:string[]=[],bodies:any[]=[];
+  class FakeWorker {
+    onmessage?: (event:{data:unknown})=>void;
+    postMessage(message:{id:number;type:string;token?:string}){messages.push(message.type);queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:message.type==='aiCrop'?'source-640-jpeg':null}}));}
+    terminate(){}
+  }
+  globalThis.Worker=FakeWorker as unknown as typeof Worker;globalThis.fetch=async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return Response.json({name:null,match:null});};
+  const reader=createRecognizer();
+  try {
+    const result={tier:'not sure',cropJpeg:'small-training-jpeg',aiCropToken:'scoped-read-1',candidates:[]} as any;
+    assert.equal(messages.length,0);await reader.askAI(result,{explicitRequest:true});
+    assert.deepEqual(messages,['init','aiCrop']);assert.equal(bodies[0].jpegBase64,'source-640-jpeg');
+  }finally{reader.dispose();globalThis.Worker=originalWorker;globalThis.fetch=originalFetch;}
+});
 
 test('tiny outlines have a 24 CSS pixel target without taking direct polygon hits',()=>{
   const tiny={quad:[{x:.49,y:.49},{x:.51,y:.49},{x:.51,y:.51},{x:.49,y:.51}],kind:'face-up' as const,confidence:1,partial:false};

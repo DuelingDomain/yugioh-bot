@@ -202,7 +202,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5,maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5,maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true,deferAICrop:true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
     const wire = toRemoteRecognitionResult(result, byId, "local");
