@@ -24,5 +24,11 @@ for (const backend of ['wasm', 'webgpu']) {
   for (const suffix of ['mjs', 'wasm']) await copyFile(`node_modules/onnxruntime-web/dist/${name}.${suffix}`, `dist/ort/${name}.${suffix}`);
 }
 await copyFile('measure.html', 'dist/index.html');
+await build({ entryPoints: ['worker-tiny.js'], outfile: 'dist/worker-tiny.js', bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
+await mkdir('dist/ort-tiny', { recursive: true });
+for (const suffix of ['mjs', 'wasm']) {
+  const name = `ort-wasm-simd-threaded.asyncify.${suffix}`;
+  await copyFile(`node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/${name}`, `dist/ort-tiny/${name}`);
+}
 await copyFile('METAPHONE-LICENSE', 'dist/METAPHONE-LICENSE');
-console.log('Built browser API, two workers and local ORT assets in dist/');
+console.log('Built browser API, Parakeet/tiny workers and local ORT assets in dist/');

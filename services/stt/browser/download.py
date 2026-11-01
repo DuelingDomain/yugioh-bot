@@ -16,11 +16,24 @@ FILES = {
     'vocab.txt': None,
     'config.json': None,
 }
+TINY_REPO = 'onnx-community/whisper-tiny.en'
+TINY_REVISION = '2575352d61be1bf7225cf8f8b268a4678025fc58'
+TINY_FILES = ['config.json', 'generation_config.json', 'preprocessor_config.json',
+              'tokenizer.json', 'tokenizer_config.json',
+              'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx']
+TINY_HASHES = {
+    'onnx/encoder_model_quantized.onnx': 'e93ec822f16a8fd264e7de972ad17d615ea7334b75a52d54c50c2e18dd503a25',
+    'onnx/decoder_model_merged_quantized.onnx': 'c0592d0749413c960569e1c7fb806b060d5d18f3ebad4a95cbf9a77dc6e9be52',
+}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--model', choices=['parakeet', 'whisper-tiny.en'], default='parakeet')
     parser.add_argument('--catalog', type=Path, help='Optional cards.cdb or names JSON; default: service catalog discovery')
     args = parser.parse_args()
+    if args.model == 'whisper-tiny.en':
+        TARGET = ROOT / 'data/stt-models/browser-whisper-tiny.en'
+        REPO, REVISION, FILES = TINY_REPO, TINY_REVISION, {name: TINY_HASHES.get(name) for name in TINY_FILES}
     for name, digest in FILES.items():
         path = Path(hf_hub_download(REPO, name, revision=REVISION, local_dir=TARGET))
         if digest:

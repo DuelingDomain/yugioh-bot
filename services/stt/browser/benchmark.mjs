@@ -18,12 +18,16 @@ for (const clip of [...manifest.clips, ...manifest.probes]) {
 }
 // Default to Playwright's managed browser; use CHROME_PATH for an existing install.
 const executablePath = process.env.CHROME_PATH;
-const output = resolve(root, process.env.OUTPUT ?? 'services/stt/benchmarks/browser-parakeet.json');
+const tiny = process.env.MODEL === 'whisper-tiny.en';
+if (process.env.MODEL && !['parakeet', 'whisper-tiny.en'].includes(process.env.MODEL)) throw new Error('Unknown MODEL');
+const output = resolve(root, process.env.OUTPUT ?? `services/stt/benchmarks/browser-${tiny ? 'whisper-tiny' : 'parakeet'}.json`);
 const { server, transfers, origin } = await serve(0, true);
 const report = {
-  model: 'Parakeet TDT 0.6B v3 int8', repository: 'istupakov/parakeet-tdt-0.6b-v3-onnx',
-  revision: '8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce',
-  runtime: { parakeetJs: '1.4.4', onnxruntimeWeb: '1.24.1', playwright: '1.61.1' },
+  model: tiny ? 'Whisper tiny.en int8' : 'Parakeet TDT 0.6B v3 int8',
+  repository: tiny ? 'onnx-community/whisper-tiny.en' : 'istupakov/parakeet-tdt-0.6b-v3-onnx',
+  revision: tiny ? '2575352d61be1bf7225cf8f8b268a4678025fc58' : '8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce',
+  modelDirectory: tiny ? 'browser-whisper-tiny.en' : 'browser-parakeet-v3',
+  runtime: tiny ? { transformersJs: '4.3.2', onnxruntimeWeb: '1.31.0-dev.20260914-8d85527a0', playwright: '1.61.1' } : { parakeetJs: '1.4.4', onnxruntimeWeb: '1.24.1', playwright: '1.61.1' },
   measuredAt: new Date().toISOString(), host: { cpu: cpus()[0]?.model, logicalCpus: cpus().length, ramGiB: totalmem() / 2**30, platform: platform(), release: release(), node: process.version },
   manifestSha256: createHash('sha256').update(manifestBytes).digest('hex'),
   notes: ['Fresh browser/context for each mode; no-store loopback static server; OS file cache not flushed.', 'Cold load includes local model/runtime transfer and session setup; excludes internet download.', 'Release latency includes PCM assembly, worker messaging, features, ASR and full-catalog JS matcher; no pacing, VAD, microphone or network RTT.', 'RSS sampled every 100 ms across Chrome descendant processes; shared pages counted per process. GPU VRAM is not measured.'],
@@ -53,7 +57,7 @@ try {
     { name: 'wasm', backend: 'wasm', flags: ['--disable-webgpu'] },
     { name: 'webgpu-default', backend: 'webgpu', flags: [] },
     { name: 'webgpu-swiftshader', backend: 'webgpu', flags: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--enable-features=Vulkan', '--disable-vulkan-surface'] },
-  ].filter(m => !process.env.MODE || m.name === process.env.MODE)) {
+  ].filter(m => (!tiny || m.backend === 'wasm') && (!process.env.MODE || m.name === process.env.MODE))) {
     console.log(`Starting ${mode.name}`, new Date().toISOString());
     const row = { mode: mode.name, flags: mode.flags };
     report.runs.push(row);
@@ -79,10 +83,10 @@ try {
         const adapter = await navigator.gpu?.requestAdapter();
         return { crossOriginIsolated, hardwareConcurrency: navigator.hardwareConcurrency, gpuApi: !!navigator.gpu, adapter: adapter ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture, description: adapter.info.description, isFallbackAdapter: adapter.info.isFallbackAdapter ?? adapter.isFallbackAdapter ?? null } : null };
       });
-      row.load = await page.evaluate(async ({ backend, hotwords }) => {
-        window.stt = window.createBrowserSTT({ backend, modelBaseUrl: '/models/', threads: 4 });
+      row.load = await page.evaluate(async ({ model, backend, hotwords }) => {
+        window.stt = window.createBrowserSTT({ model, backend, threads: 4 });
         return stt.start({ hotwords });
-      }, { backend: mode.backend, hotwords: manifest.hotwords });
+      }, { model: tiny ? 'whisper-tiny.en' : 'parakeet', backend: mode.backend, hotwords: manifest.hotwords });
       row.coldPageToReadyMs = performance.now() - started;
       row.loadedRssMiB = memory(pid);
       row.coldTransfers = transfers.slice(transferStart).map(t => ({ ...t }));

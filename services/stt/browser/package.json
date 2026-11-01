@@ -9,6 +9,7 @@
     "benchmark": "node benchmark.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.2",
     "parakeet.js": "1.4.4"
   },
   "devDependencies": {

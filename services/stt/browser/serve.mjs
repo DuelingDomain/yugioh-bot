@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const here = fileURLToPath(new URL('.', import.meta.url));
 export async function serve(port = 4021, benchmark = false) {
   const roots = { '/': resolve(here, 'dist'), '/models/': resolve(here, '../../../data/stt-models/browser-parakeet-v3') };
+  roots['/models-tiny/'] = resolve(here, '../../../data/stt-models/browser-whisper-tiny.en');
   if (benchmark) roots['/corpus/'] = resolve(here, '../../../data/stt-benchmark');
   const transfers = [];
   const server = createServer(async (req, res) => {

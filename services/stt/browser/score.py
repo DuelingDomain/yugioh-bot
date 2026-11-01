@@ -17,7 +17,7 @@ report = json.loads(args.report.read_text())
 manifest = json.loads((ROOT / 'data/stt-benchmark/manifest.json').read_text())
 assert report['manifestSha256'] == hashlib.sha256((ROOT / 'data/stt-benchmark/manifest.json').read_bytes()).hexdigest()
 cards, _ = load_catalog(args.catalog)
-exported_path = ROOT / 'data/stt-models/browser-parakeet-v3/cards.json'
+exported_path = ROOT / 'data/stt-models' / report.get('modelDirectory', 'browser-parakeet-v3') / 'cards.json'
 exported = json.loads(exported_path.read_text())
 assert sorted((c.name, c.passcode) for c in cards) == sorted((c['name'], c['passcode']) for c in exported), 'Browser catalog differs from scoring catalog; rerun download.py --catalog'
 matcher = CardMatcher(cards)

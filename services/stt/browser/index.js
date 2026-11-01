@@ -1,13 +1,15 @@
 /** Browser-only push-to-talk. Caller supplies mono 16 kHz Float32 PCM and mic UI. */
 export function createBrowserSTT({
-  backend = 'wasm', modelBaseUrl = new URL('./models/', import.meta.url).href,
+  model = 'parakeet', backend = 'wasm', modelBaseUrl,
   catalogUrl, cards, threads = 4, maxSeconds = 15,
 } = {}) {
   if (!['wasm', 'webgpu'].includes(backend)) throw new Error('backend must be wasm or webgpu');
+  if (!['parakeet', 'whisper-tiny.en'].includes(model)) throw new Error('model must be parakeet or whisper-tiny.en');
+  if (model === 'whisper-tiny.en' && backend !== 'wasm') throw new Error('whisper-tiny.en requires wasm');
   if (!Number.isInteger(threads) || threads < 1 || threads > 16) throw new Error('threads must be 1..16');
   if (!(maxSeconds > 0 && maxSeconds <= 15)) throw new Error('maxSeconds must be >0 and <=15');
-  const base = new URL(modelBaseUrl, globalThis.location.href).href.replace(/\/?$/, '/');
-  const worker = new Worker(new URL(`./worker-${backend}.js`, import.meta.url), { type: 'module' });
+  const base = new URL(modelBaseUrl ?? new URL(model === 'parakeet' ? './models/' : './models-tiny/', import.meta.url), globalThis.location.href).href.replace(/\/?$/, '/');
+  const worker = new Worker(new URL(model === 'parakeet' ? `./worker-${backend}.js` : './worker-tiny.js', import.meta.url), { type: 'module' });
   const pending = new Map();
   let sequence = 0, state = 'idle', loaded, chunks = [], length = 0, hotwords = [];
   function fail(error) {
