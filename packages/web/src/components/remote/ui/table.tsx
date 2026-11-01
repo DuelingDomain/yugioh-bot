@@ -15,7 +15,7 @@ import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf,
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { SeatPanel } from "./seat-panel";
 import { useLayers } from "./use-layers";
-import { useRemoteRoom, type RoomController } from "./use-remote-room";
+import { serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
@@ -73,7 +73,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const deckCodes = seatIds.flatMap(seat => deckIdsOf(room, seat));
   const [subject, setSubject] = useState<Subject | null>(null);
   const info = useCardInfo([...twinCodes, ...deckCodes, subject?.cardId]);
-  const nameOfCard = (id: number | undefined) => cardInfo(id)?.name;
+  const nameOfCard = (id: number | undefined) => info(id)?.name;
 
   // ---- toasts, banner, peek ----
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
@@ -128,12 +128,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
 
   // ---- undo ----
-  const undo = state.undo; const [clock, setClock] = useState(0); const seenAt = useRef<{ id: string; at: number } | null>(null); const [flash, setFlash] = useState(0);
-  if (undo && seenAt.current?.id !== undo.actionId) seenAt.current = { id: undo.actionId, at: Date.now() };
-  if (!undo) seenAt.current = null;
+  const undo = state.undo; const [clock, setClock] = useState(0); const [flash, setFlash] = useState(0);
   useEffect(() => { if (!undo) return; const timer = setInterval(() => setClock(n => n + 1), 250); return () => clearInterval(timer); }, [undo]);
   void clock;
-  const left = undo && seenAt.current ? Math.ceil((UNDO_MS - (Date.now() - seenAt.current.at)) / 1000) : 0;
+  // The server decides the window from its own clock (undo.at + 5 s), so count down from that time, not from first sight.
+  const left = undo ? Math.ceil((undo.at + UNDO_MS - serverNow()) / 1000) : 0;
   const canUndo = !!undo && left > 0 && (room.status === "active" || room.status === "ended");
   const undoEvent = undo ? room.events.find(event => event.id === undo.actionId) : undefined;
   const undoText = undoEvent ? undoLabel(describeEvent(undoEvent, name, nameOfCard)?.text ?? "last action") : "last action";
@@ -141,7 +140,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const doUndo = useCallback(async () => {
     const { state: current, room: now } = R.current; const u = current.undo; if (!u) return;
     const event = now.events.find(item => item.id === u.actionId);
-    const done = await act({ type: "undo", actorSeat: event?.actorSeat ?? now.mySeat, targetActionId: u.actionId });
+    // Any seated player may undo, but the server accepts only the session seat (a solo table may act for its bots).
+    const done = await act({ type: "undo", actorSeat: now.solo ? (event?.actorSeat ?? now.mySeat) : now.mySeat, targetActionId: u.actionId });
     if (done) { setFlash(n => n + 1); toast(<>Undid <b>{undoText}</b></>); }
   }, [act, toast, undoText]);
 
@@ -334,7 +334,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const root = stage.current; if (!attack || !root) { setArrow(null); return; }
     const draw = () => {
       const place = (seat: number, ref?: string) => {
-        const card = findCard(seat, ref); const key = card ? cellKeyOf(card) : null;
+        const card = findCard(seat, ref); const key = card ? cellKeyOf(card, state.seats[seat]?.twin) : null;
         return (key && root.querySelector<HTMLElement>(`[data-seat="${seat}"][data-zone="${key}"]`)) || root.querySelector<HTMLElement>(`[data-plate="${seat}"]`);
       };
       const a = place(attack.attackerSeat, attack.attackerCardRef); const b = place(attack.targetSeat, attack.direct ? undefined : attack.targetCardRef);

@@ -62,8 +62,9 @@ export function cellsFor(twin: readonly TwinCard[]): Record<ZoneKey, Cell> {
   }
   return cells;
 }
-export const cellKeyOf = (card: TwinCard): ZoneKey | null => {
-  for (const [k, cell] of Object.entries(cellsFor([card]))) if (cell.card?.ref === card.ref) return k as ZoneKey;
+/** The grid cell of one card. Pass the whole field of its seat: loose cards take the first free slot. */
+export const cellKeyOf = (card: TwinCard, twin: readonly TwinCard[] = [card]): ZoneKey | null => {
+  for (const [k, cell] of Object.entries(cellsFor(twin))) if (cell.card?.ref === card.ref) return k as ZoneKey;
   return null;
 };
 
@@ -122,7 +123,7 @@ export function battleMath(args: {
   const diff = attacker.atk - value;
   let damageSeat: number | null = null; let damage = 0; let destroyTarget = false; let destroyAttacker = false;
   if (diff > 0) { destroyTarget = true; if (!target.defense) { damageSeat = target.seat; damage = -diff; } }
-  else if (diff < 0) { damageSeat = attacker.seat; damage = diff; }
+  else if (diff < 0) { damageSeat = attacker.seat; damage = diff; destroyAttacker = !target.defense; }
   else if (!target.defense) { destroyTarget = true; destroyAttacker = true; }
   const bits = [`${attacker.atk} vs ${value} ${target.defense ? "DEF" : "ATK"}`];
   if (destroyTarget) bits.push(`${target.name} destroyed`);
