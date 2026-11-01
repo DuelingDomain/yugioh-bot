@@ -46,6 +46,7 @@ export type CardEdit = {
 export type CardActions = {
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
+  onActivate?: () => void; onReveal?: () => void;
   onWrong?: () => void; onPin?: () => void;
   /** Opens the deck warning layer. Set only when this card's seat has a live warning. */
   onFlag?: (button: HTMLElement) => void;
@@ -56,6 +57,8 @@ export type CardActions = {
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
+    {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}
+    {a.onReveal ? <button type="button" className={s.btn} onClick={a.onReveal}>Reveal card</button> : null}
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
     {a.onFlag ? <button type="button" className={`${s.btn} ${s.q}`} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
     {a.edit ? <CardEditRow edit={a.edit} /> : null}

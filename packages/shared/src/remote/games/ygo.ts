@@ -5,6 +5,8 @@ import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
 
+import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
+
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
   { id: "battle", name: "Battle" }, { id: "main2", name: "Main 2" }, { id: "end", name: "End" },
@@ -103,6 +105,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       break;
     }
+    case "effect.activated": case "effect.choose": case "effect.announce": case "effect.context.clear": case "effect.note.dismiss": break;
     case "deck.add": ownField(action.seat); break;
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
@@ -119,6 +122,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         card.zone = action.zone;
+        if(["deck","extra"].includes(card.zone)) delete card.publicIdentity;
       }
       if (action.type === "twin.flip") card.faceUp = action.faceUp;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
@@ -126,7 +130,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
+  applyRemoteEffectTracking(next, state, action, context);
   next = applyLiveDeckChecks(next, action, context);
+  for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
+    origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
@@ -141,6 +148,6 @@ export const ygoModule: GameModule = {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
     return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
-      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), updatedAt: 0, undo: null };
+      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
 };

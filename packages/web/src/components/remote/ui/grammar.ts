@@ -1,7 +1,8 @@
-import { ygoModule, type AttackResolution, type RemoteState } from "@yugidraft/shared/remote";
+import { ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
 export type VoiceIntent =
+  | { kind: "effect"; proposal: RemoteActionProposal }
   | { kind: "wake" }
   | { kind: "undo" }
   | { kind: "turn" }
@@ -62,6 +63,8 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   if (!text) return { kind: "none" };
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   if (/^(undo|take (that|it) back|cancel that)\b/.test(text)) return { kind: "undo" };
+  const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state});
+  if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
   if (ctx.trayOpen) {
     const pick = /^(?:number|pick|choose|option|guess)?\s*(one|two|three|four|five|1|2|3|4|5)$/.exec(text)
       ?? /^(?:number|pick|choose|option|guess)\s+(one|two|three|four|five|1|2|3|4|5)\b/.exec(text);
