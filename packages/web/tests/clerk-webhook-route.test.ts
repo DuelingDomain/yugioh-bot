@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
+import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
@@ -52,6 +53,23 @@ afterEach(() => {
 });
 
 describe("POST /api/webhooks/clerk", () => {
+  it("includes creator and heard-from context in the legacy webhook fallback", async () => {
+    vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
+    const service = createCreatorAccessService(state.db!, { now: () => createdAt - 60_000 });
+    const creator = service.createCreator({ name: "Kaiba Plays", actorUserId: 1 });
+    const link = service.createLink(creator.id, { maxUses: 1, expiresInDays: 14, actorUserId: 1 })!;
+    const claim = service.claimLinkGrant(link.code, "player@example.test");
+    if (claim.kind !== "claimed") throw new Error("Expected creator grant");
+    const payload = { ...signup, data: { ...signup.data, public_metadata: { ddGrant: claim.grantId },
+      unsafe_metadata: { heardFrom: "friend", heardFromDetail: "player@example.test" } } };
+    expect((await POST(signed(payload))).status).toBe(200);
+    expect(messages()[0].embeds[0].fields).toEqual(expect.arrayContaining([
+      { name: "Creator invite", value: "Kaiba Plays \\(Personal\\)" },
+      { name: "Heard from", value: "A friend · \\[email hidden\\]" },
+    ]));
+    expect(JSON.stringify(messages())).not.toContain("player@example.test");
+  });
+
   it("accepts a signed waitlist event and sends the masked event time and source", async () => {
     const response = await POST(signed());
     expect(response.status).toBe(200);
