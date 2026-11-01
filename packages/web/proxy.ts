@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextMiddleware, type NextFetchEvent } from "next/server";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
-import { fxLabEnabled, isFxLabPublicPath } from "@/lib/fx-lab";
+import { fxLabEnabled, isFxLabPublicPath, visionAssetsEnabled } from "@/lib/fx-lab";
 const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/join/(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
@@ -26,7 +26,8 @@ let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
   // Keep local models and the camera lab unavailable even if Clerk cannot initialize.
-  if ((path === "/dev/vision-lab" || path.startsWith("/dev/vision-lab/assets/") || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !fxLabEnabled()) {
+  if (path === "/dev/vision-lab" && !fxLabEnabled()) return new NextResponse(null, { status: 404 });
+  if ((path.startsWith("/dev/vision-lab/assets/") || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !visionAssetsEnabled()) {
     return new NextResponse(null, { status: 404 });
   }
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();

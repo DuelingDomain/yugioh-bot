@@ -11,6 +11,15 @@ export function fxLabEnabled(): boolean {
 }
 
 /**
+ * The local vision worker, ONNX runtime and models. The Remote Duels table loads them from /dev/vision-lab/assets and
+ * /dev/vision-assets, so they are served when Remote Duels is on. Only the lab switch makes them public: under
+ * REMOTE_DUELS alone the normal sign-in still applies (see isFxLabPublicPath, which proxy.ts checks with fxLabEnabled).
+ */
+export function visionAssetsEnabled(): boolean {
+  return fxLabEnabled() || process.env.REMOTE_DUELS === "1";
+}
+
+/**
  * Paths that need no login while the lab is on: the lab page, the multiplayer table preview (/dev/table-preview
  * and the pages under it), the 3D mode preview (/dev/solid-preview and the pages under it), the sign-in step preview (/dev/sign-in-preview),
  * the delete-account preview (/dev/delete-account-preview), the vision lab and its local assets, and the card art route.

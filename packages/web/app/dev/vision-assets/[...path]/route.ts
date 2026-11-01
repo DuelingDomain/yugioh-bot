@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
-import { fxLabEnabled } from "@/lib/fx-lab";
+import { visionAssetsEnabled } from "@/lib/fx-lab";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ function inside(root: string, candidate: string): boolean {
 
 /** Local, generated assets stay outside public/ so the request-time lab gate always applies. */
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
-  if (!fxLabEnabled()) return new Response(null, { status: 404 });
+  if (!visionAssetsEnabled()) return new Response(null, { status: 404 });
 
   const { path } = await params;
   if (!path.length || path.some(part => !part || part === "." || part === ".." || /[/\\\0]/.test(part))) {
