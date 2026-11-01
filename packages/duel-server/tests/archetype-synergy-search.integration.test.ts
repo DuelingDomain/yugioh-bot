@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createCardInsightService } from "@yugidraft/shared/services";
 import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
@@ -117,6 +117,21 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     expect(result.effectGroups?.map(group => [group.archetype, group.cards.map(card => card.name)])).toEqual([
       ["Temple of the Kings", ["Trap Trick"]], ["Blue-Eyes", ["Sage with Eyes of Blue"]],
     ]);
+  });
+  it("skips discarded relaxation scans in empty nested groups but retains top-level hints", () => {
+    const readings = vi.spyOn(effects, "readQuery");
+    try {
+      const result = search("synergy with Temple of the Kings and Blue-Eyes", { passcodes: [10515412] });
+      expect(result.effectGroups?.map(group => group.cards)).toEqual([[], []]);
+      expect(readings).toHaveBeenCalledTimes(1);
+      expect(search("Temple of the Kings synergy", { passcodes: [10515412] }).relax?.length).toBeGreaterThan(0);
+    } finally { readings.mockRestore(); }
+  });
+  it("bounds named synergy targets and fallback groups to four", () => {
+    const result = search("synergy with Temple of the Kings and Blue-Eyes and Monarch and Labrynth and Spright and Dark World", { passcodes: [10515412] });
+    const targets = ["Temple of the Kings", "Blue-Eyes", "Monarch", "Labrynth"];
+    expect(result.reading?.query.supports?.archetypes).toEqual(targets);
+    expect(result.effectGroups?.map(group => group.archetype)).toEqual(targets);
   });
   it.each(["Monarch synergy", "Labrynth synergy", "Blue-Eyes synergy"])("caps before pagination and preserves named support order: %s", text => {
     const result = search(text);

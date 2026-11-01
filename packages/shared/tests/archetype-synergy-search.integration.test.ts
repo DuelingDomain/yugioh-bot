@@ -2,10 +2,11 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
+import { createInsightCatalog } from "../src/services/card-insight-catalog.js";
 
 const db = new Database(":memory:");
 const service = createCardInsightService(db, { dataDirectory: "/tmp/no-synergy-test-engine" });
@@ -92,6 +93,25 @@ it("shows separate lists when no candidate has a specific hook into both archety
   expect(result.groups?.map(group => group.archetype)).toEqual(["Temple of the Kings", "Blue-Eyes"]);
   expect(result.groups?.[0]?.cards.map(card => card.passcode)).toContain(80101899);
   expect(result.groups?.[1]?.cards.map(card => card.passcode)).toContain(62265044);
+});
+
+it("skips discarded relaxation scans for empty nested groups but retains top-level hints", () => {
+  const catalog = createInsightCatalog(db, "/tmp/no-synergy-test-engine");
+  const scans = vi.spyOn(catalog, "candidates");
+  try {
+    const scoped = createCardInsightService(db, { catalog });
+    const result = scoped.effectSearch("synergy with Temple of the Kings and Blue-Eyes", [62265044]);
+    expect(result.groups?.map(group => group.cards.map(card => card.passcode))).toEqual([[], [62265044]]);
+    expect(scans).toHaveBeenCalledTimes(3);
+    expect(scoped.effectSearch("Temple of the Kings synergy", [62265044]).relax?.length).toBeGreaterThan(0);
+  } finally { scans.mockRestore(); catalog.close(); }
+});
+
+it("bounds named synergy targets and fallback groups to four", () => {
+  const result = service.effectSearch("synergy with Temple of the Kings and Blue-Eyes and Monarch and Labrynth and Spright and Dark World");
+  const targets = ["Temple of the Kings", "Blue-Eyes", "Monarch", "Labrynth"];
+  expect(result.reading?.query.supports?.archetypes).toEqual(targets);
+  expect(result.groups?.map(group => group.archetype)).toEqual(targets);
 });
 
 it("preserves explicit pools, card-kind constraints, omitted chips and exact text", () => {

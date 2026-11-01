@@ -28,7 +28,7 @@ import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
 import { effectSearchEnabled, dateSearchEligible, describeFormat, formatStaples, stapleReason, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
-import { SYNERGY_SEARCH_LIMIT, selectSynergyResults, type SynergyCategory } from "@yugidraft/shared/cards/effects";
+import { SYNERGY_SEARCH_LIMIT, MAX_SYNERGY_TARGETS, selectSynergyResults, type SynergyCategory } from "@yugidraft/shared/cards/effects";
 import type { Interpretation } from "@yugidraft/shared/cards/effects";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -309,7 +309,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number>; guildId?: string; reading?: Interpretation } = {}): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number>; guildId?: string; reading?: Interpretation; skipRelax?: boolean } = {}): CardQueryResult {
   const index = indexFor(cards);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const blocked = blocksFor(cards, entries);
@@ -403,16 +403,16 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     ...hit, synergyCategory: effects!.synergyCategory?.(hit.entry.card.code, reading!),
   })), hit => index.archetypes.filter(archetype => archetype.codes.some(code => inArchetype(hit.entry.card.setcodes, code))).map(archetype => archetype.name));
   const effectGroups = supportSearch && !effectFound.length && reading!.query.supports!.archetypes.length > 1
-    ? reading!.query.supports!.archetypes.map(archetype => {
+    ? reading!.query.supports!.archetypes.slice(0, MAX_SYNERGY_TARGETS).map(archetype => {
       const single = { ...reading!, query: { ...reading!.query, supports: { ...reading!.query.supports!, archetypes: [archetype] } } };
       // Reuse all pool, format, date and card filters. Each independent list is capped and
       // returned whole; it has its own heading and is never paginated as an intersection.
-      const result = queryCards(cards, { ...query, offset: 0, effectOffset: 0, limit: SYNERGY_SEARCH_LIMIT }, entries, genesysPoints, { ...options, reading: single });
+      const result = queryCards(cards, { ...query, offset: 0, effectOffset: 0, limit: SYNERGY_SEARCH_LIMIT }, entries, genesysPoints, { ...options, reading: single, skipRelax: true });
       return { archetype, cards: result.effectHits ?? [], total: result.effectTotal ?? 0 };
     }) : undefined;
   const effectOffset = query.effectOffset ?? query.offset;
   const relax: Array<{ chip: string; count: number }> = [];
-  if (reading && !effectGroups && !effectFound.length && !sorted.length) {
+  if (!options.skipRelax && reading && !effectGroups && !effectFound.length && !sorted.length) {
     for (const chip of reading.chips) {
       if (chip.startsWith("Text:") || chip.startsWith("Sort:") || describeFormat(reading.query.formatFilter).includes(chip)) continue;
       const relaxed = effects!.readQuery(query.text, [...(query.effectOmit ?? []), chip]);
