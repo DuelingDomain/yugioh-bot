@@ -2,7 +2,7 @@
 
 On-device card recognition for the Remote Duels prototype. This is a port of
 [Duel Lens](https://github.com/mathulbrich/duel-lens/tree/f6968f3682d53a79c4a9fef591300615eda61c11),
-with game data separated from the recognition engine. Local recognition keeps images in the browser; the optional owner-only **Ask AI** action sends one small warped JPEG to Anthropic.
+with game data separated from the recognition engine. Local recognition keeps images in the browser. Separately, explicit per-user feedback opt-in can share a small warped card crop and confirmed label; the optional owner-only **Ask AI** action sends one small warped JPEG to Anthropic.
 
 ## Run the lab
 
@@ -41,7 +41,7 @@ click. **Upload photo** exercises the same path with one frame. The page shows
 five cached artwork thumbnails/scores, confidence tier, frame quality and stage timings. Click
 a candidate or press 1–5, or search the local index by name/passcode to correct
 it. **Export confirmations** downloads a local JSON log; it contains IDs and
-quality, no photos. Confirmations live only for the current page session.
+quality, no photos. The local export remains session-only. Opted-in users can also share confirmations with this deployment; see the feedback loop below.
 
 On a frozen image, **hover or focus** an outline for a small best-name/tier peek
 after 250 ms. It caches per outline until Resume/source/backend reset, stays
@@ -547,3 +547,61 @@ fetch plus body reading to four seconds. Images/provider error payloads are
 never logged or stored. Only an unambiguous exact `card_catalog` identity with
 consistent readable hints is returned; otherwise it abstains. Tests mock the
 provider; no live AI accuracy claim is made.
+
+## Player feedback loop
+
+Collection requires literal `REMOTE_VISION_FEEDBACK=1` and a signed-in user's
+explicit **Help improve card recognition** opt-in. It defaults OFF for everyone,
+including alpha testers. The lab asks once; `/settings/account` changes sharing
+and deletes samples. With collection off, local recognition/export still work.
+The owner reviews samples at `/admin#vision`.
+
+```ts
+// Read /api/remote-vision/feedback first; only request feedback evidence after opt-in.
+const result = await reader.recognize(frames, {
+  includeFeedback: settings.enabled && settings.collectionEnabled,
+});
+// After a real user confirms a suggestion or resolves a name/AI/voice correction:
+await reader.recordFeedback(result, chosenCardId, 'pick');
+// source: 'pick' | 'search' | 'voice' | 'ai'. Accept AI explicitly before recording.
+```
+
+Eligible results carry a crop-bound normalized vector, game/model/hash, index
+and preprocessing identity. The Worker makes only a 224px JPEG. Fallback,
+partial, covered and card-back results have no feedback evidence. The client
+sends the original top five, tier, source, frame class and sharpness; it never
+sends source frames or audio. The server re-decodes/re-encodes JPEGs without
+metadata and validates index/card identities, consent, rate and storage limits.
+
+Shared tables: `vision_feedback_preferences`, `vision_samples`. Private JPEGs
+live at `<DATA dir>/vision-feedback/`, beside SQLite by default. Retention is
+30 days; caps are 5,000 samples and 64 MiB of crops, <=32 KiB each. Worker cleanup
+runs at startup/hourly, including while collection is disabled. Samples also
+prune on access. User/account deletion removes crops and derived contributions.
+
+The deployment-wide delta requires two distinct authenticated users confirming
+the same card with cosine >= .97, or owner approval. It is scoped by model,
+index and preprocessing space, refreshed before each recognition/peek/board read,
+and discarded on refresh failure. Known confusion pairs require two users and
+force additional visual checks with a stricter margin; they never raise scores.
+Admin metrics include top-1/top-5 and **sure-but-wrong** per UTC day/original tier,
+with explicit submitted-feedback denominators.
+
+Offline commands (Node 22, repo root, absolute `DATABASE_PATH` and
+`VISION_DATA_DIR`; prepare trainer inputs before exporting):
+
+```sh
+npx tsx scripts/vision/feedback.ts export --out /private/new-approved-dataset
+npx tsx scripts/vision/feedback.ts benchmark --no-learning --out /private/before.json
+npx tsx scripts/vision/feedback.ts benchmark --out /private/after.json --baseline /private/before.json
+npx tsx scripts/vision/feedback.ts prune
+```
+
+Export uses admin-approved samples only and produces a labelled manifest plus
+`list.json` for `train.py --real`. The benchmark re-embeds retained warped JPEGs
+through the actual pipeline, holding out the contributor/identical-crop users.
+It does not evaluate source-frame detection. Baseline comparison fails on
+lower top-1/top-5, increased sure-but-wrong, changed corpus or errors. No-baseline
+runs are labelled BASELINE. No real-player accuracy improvement is claimed yet.
+Full operating details, model/index overrides, offline-export deletion limits
+and browser smoke commands: [feedback runbook](../../docs/runbooks/vision-feedback.md).

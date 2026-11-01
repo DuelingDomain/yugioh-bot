@@ -207,3 +207,102 @@ truncation, not hands/objects occluding pixels inside the frame.
 - Small feature commits: AI `b74dd8503`, vision core `e20ad909d`, lab `d4d0ce489`.
   Final documentation commit and pushed branch head are reported in the final
   response. No PR or merge.
+
+## Player feedback continuation — 2026-11-01
+
+Delivered on `feat/remote-vision-feedback`, starting at `d6a712928`. Work stayed
+in `.worktrees/remote-vision-feedback`; the main checkout, port 3000 and port 3417
+were untouched. No PR, merge, deployment, training run or paid AI request.
+
+Implemented: default-off per-account consent and a once-only lab prompt; explicit
+pick/search/voice/accepted-AI `recordFeedback`; safe detected-card JPEG capture;
+bounded shared SQLite/private-disk storage; independent-user consensus or owner
+approval for deployment-wide learned references; confusion-pair second checks;
+owner review and daily tier metrics; user/account deletion and hourly retention;
+admin-approved trainer export; actual-pipeline crop comparison/regression gate.
+
+Tables: `vision_feedback_preferences` (choice, prompt time, rate window) and
+`vision_samples` (private user ownership, JPEG size, normalized embedding, original
+top-five scores, chosen ID, tier/source, frame class, sharpness, game/model/hash,
+index/preprocessing space, review state). JPEGs are UUID-named private files under
+`vision-feedback/` beside SQLite. Limits are 30 days, 5,000 samples, 64 MiB of
+crops, 32 KiB per JPEG and 60 submissions per user/hour. Fallback, partial,
+covered and card-back results do not produce feedback evidence.
+
+The learned delta is derived from live eligible samples, never an independently
+retained index file. Deletion/rejection therefore withdraws references and
+confusion evidence on the next worker request. Compatible model/index/layout
+identity is required. Consensus requires another authenticated user with the same
+label and cosine >= .97. Confusion pairs require two different users; extra
+views and a .06 margin cannot manufacture a higher similarity. At most 512
+references and 256 confusion pairs are served. Accuracy labels explicitly say
+“among submitted feedback”; this is not a denominator for all recognition scans.
+
+Fresh verification with Node **22.23.3**:
+
+| Check | Result |
+| --- | --- |
+| Targeted vision pipeline/client/board cases | **27 passed** |
+| Shared feedback integration, account deletion and DB connection | **27 passed** |
+| Existing web lab, feedback/admin routes, AI-route and live-stats files | **82 passed** |
+| Existing real worker-process lifecycle cases | **5 passed** |
+| Total targeted automated cases | **141 passed**, zero failures |
+| Shared + worker TypeScript builds; vision/web/worker typechecks | Passed |
+| Worker/runtime bundle | Passed |
+| Real Chromium/WASM consent → capture → owner review → delete | Passed; **0 page errors** |
+
+The real browser smoke used Chromium **153.0.8010.12**, GPU disabled, an isolated
+E2E account/database and port **3438**. It verified default-off consent, decline,
+no repeat prompt, account opt-in, one confirmation upload with **384 embedding
+values and five candidates**, private admin crop retrieval, approve/reject delta
+withdrawal and deletion of the user's sample. The server-retained JPEG was
+**13,898 bytes**. A React StrictMode prompt race was reproduced and fixed, with
+an existing-file regression case. Desktop/mobile admin and account screenshots
+were inspected. The temporary server was stopped by its PID.
+
+A separate native-ONNX smoke used the full **14,817-vector / 14,652-card** index
+and five existing clean synthetic photo fixtures. The detector first produced
+eligible exact card crops, which were saved through the real feedback service
+under an isolated fixture user. The benchmark then decoded/re-embedded those
+retained JPEGs through `RecognitionPipeline`'s selected-card path:
+
+| Metric | Baseline, no delta | Candidate, contributor held out |
+| --- | --- | --- |
+| Top-1 | **5/5 (100%)** | **5/5 (100%)** |
+| Top-5 | **5/5 (100%)** | **5/5 (100%)** |
+| Sure / sure-but-wrong | **5 / 0** | **5 / 0** |
+| Recognition errors | **0** | **0** |
+| Comparison gate | Baseline only | **PASS**, same corpus/hash |
+
+The five approved samples exported as trainer-compatible `list.json` plus a
+labelled manifest and **84,618 bytes** of JPEGs. Exact warped cards use
+`mCrop:0`; there is no upstream padded-harvest assumption. Temporary smoke data,
+reports and screenshots occupy about **2 MiB**, all ignored. Existing models and
+index files were reused without downloads or duplicate model storage.
+
+These five indexed-card synthetic fixtures demonstrate the workflow and absence
+of a regression, **not a measured real-player accuracy gain**. No real-player
+samples or physical webcam test corpus were available. The crop benchmark cannot
+measure source-frame detection because those frames are deliberately not retained.
+Contributor/identical-crop holdout prevents self-reference gains; evaluating a
+model trained on the same corpus still needs a separate held-out dataset. Offline
+exports are private copies and need owner deletion/rebuilding after a privacy
+request; live deletion cannot erase copies moved elsewhere or undo trained weights.
+
+Run with `REMOTE_VISION_FEEDBACK=1`, matching `WEB_URL`, absolute `DATABASE_PATH`
+and prepared `VISION_DATA_DIR`, then opt in at `/settings/account`. The lab is
+`/dev/vision-lab`; owner review is `/admin#vision`. Native offline commands:
+
+```sh
+npx tsx scripts/vision/feedback.ts export --out /private/new-approved-dataset
+npx tsx scripts/vision/feedback.ts benchmark --no-learning --out /private/before.json
+npx tsx scripts/vision/feedback.ts benchmark --out /private/after.json --baseline /private/before.json
+npx tsx scripts/vision/feedback.ts prune
+```
+
+Raw ignored evidence: `data/vision-feedback-smoke/{before,after,browser}.json`,
+`export/{manifest,list}.json`, private JPEGs and screenshots. Operational commands,
+version overrides, browser smoke configuration and privacy limitations are in
+[the feedback runbook](../../docs/runbooks/vision-feedback.md). The canonical
+marketing privacy page was updated; the app's legal links point there and it has
+no separate privacy/terms page.

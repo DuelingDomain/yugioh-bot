@@ -26,7 +26,7 @@ All target paths are relative to the repository root. `—` means intentionally 
 | Optional AI | adapted | `client.ts` askAI and lab Ask AI use explicit owner/env-gated server route/client, bounded selected-card JPEG, four-second deadline, per-user rate limit and exact catalog resolution. Upstream extension BYOK and automatic AI fallback are intentionally replaced; tests mock HTTP. |
 | Hover/focus peek | adapted | `createRecognizer().peek` returns best local name/tier without crop, history or AI. `use-outline-reads.ts` adds a 250ms dwell, snapshot cache, hoverable compact tooltip, focus access, Escape dismissal and stale-result cleanup. Placement is clamped beside the card; upstream facts/chips and overlap-cost placement are omitted. |
 | Whole-board recognition and near/far assignment | adapted | `createRecognizer().readAll` detects once or uses same-frame outlines, reads up to 60 sequentially, groups normalized centers at y > .5 near / otherwise far, retains uncertain/error/face-down slots, and supports worker cancellation. Lab chooses side and seat for a session-only board twin; extension session storage, side panel and remote-room persistence are omitted. |
-| Local correction/export | adapted | Current lab records selected IDs, guess, tier and sharpness in session JSON; upstream persists image crops + top-five for retraining. |
+| Local correction/export | adapted | Session JSON export remains; opted-in confirmations now persist bounded warped crops, embeddings, top-five/quality/version metadata in shared SQLite/private disk, with owner review and offline trainer export. |
 | Synthetic training | adapted | Seven embedding + seven detector Python files retained and input adapter added. Syntax/input preparation checked previously; no CPU retraining/export accuracy claim. Detailed module list below. |
 
 ## Upstream application modules
@@ -37,7 +37,7 @@ All target paths are relative to the repository root. `—` means intentionally 
 | `src/background/card-store.ts` | adapted | scripts/vision/catalog.ts; packages/vision/src/index-builder.ts | Build-time catalog snapshot and index metadata replace extension IndexedDB; weekly card refresh/crop store absent. |
 | `src/background/card-text.ts` | not ported | — | On-demand localized card text/download databases are outside recognition and the local lab. |
 | `src/background/consent.ts` | not ported | — | Extension first-install consent page/storage; camera permission remains the browser permission. |
-| `src/background/corrections.ts` | adapted | packages/web/app/dev/vision-lab/vision-lab.tsx | Session confirmations and JSON export; does not retain image crops or persist the upstream capped retraining store. |
+| `src/background/corrections.ts` | adapted | packages/web/app/dev/vision-lab/vision-lab.tsx; packages/shared/src/services/vision-feedback.ts | Explicit per-user consent, bounded crop/metadata retention, review/deletion, session export and offline approved trainer export replace extension storage. |
 | `src/background/debug-hook.ts` | not ported | — | Build-only extension E2E hook; local browser benchmark calls the public worker API. |
 | `src/background/e2e-bridge.ts` | not ported | — | Firefox-only test bridge; no extension contexts in the app. |
 | `src/background/find-card.ts` | adapted | packages/web/app/dev/vision-lab/vision-lab.tsx | Local candidate correction search; global browser shortcut and side-panel focus request omitted. |
@@ -85,7 +85,7 @@ All target paths are relative to the repository root. `—` means intentionally 
 | `src/legal/policy.ts` | not ported | — | Extension-specific privacy text not adopted as app policy; recognition stays local except explicit optional AI. |
 | `src/offscreen/badge.ts` | not ported | — | Simulator pile-count digit detection/inpainting is unrelated to physical camera cards; no general occlusion reconstruction claimed. |
 | `src/offscreen/decode.ts` | adapted | packages/vision/src/worker.ts; packages/web/app/dev/vision-lab/use-vision-source.ts | Transferred ImageBitmap -> RGBA replaces extension PNG data-URL payload decoder. |
-| `src/offscreen/delta-index.ts` | not ported | — | No IndexedDB live delta-index merge; separately rebuilt local index is loaded whole. |
+| `src/offscreen/delta-index.ts` | adapted | packages/vision/src/learning.ts; packages/shared/src/services/vision-feedback.ts | Derived per-deployment learned references beside main/whole-card indexes; independent-user consensus or admin approval, compatible versions and withdrawal on deletion. No extension IndexedDB/update downloader. |
 | `src/offscreen/detect-cards.ts` | adapted | packages/vision/src/pipeline.ts; packages/vision/src/client.ts; packages/vision/src/worker.ts | Public detectCards returns every refined normalized face-up/face-down quad with confidence/partial markers. Separate recognize card option selects a specific quad; no upstream queue priority/native-video frame skip policy. |
 | `src/offscreen/detector/decode.ts` | ported | packages/vision/src/detector/decode.ts | Detector head decoding retained with local imports/types. |
 | `src/offscreen/detector/detector.ts` | adapted | packages/vision/src/detector/detector.ts; packages/vision/src/detector/run.ts | Detector inference, crop scale and corner refinement adapted for profile/runtime contracts. |
@@ -322,3 +322,16 @@ The local input adapter `scripts/vision/prepare-training.ts` is new integration 
 5. Keep exact full-art reference provenance/coverage separate from standard framed-card availability. Catalog inclusion, a full render URL, standard art crops and synthetic foil/overframe augmentation do not prove that a real full-art print was indexed.
 
 Round-2 plan review (`docs/superpowers/plans/2026-11-01-remote-vision-round2.md`): the high-level architecture is consistent with these boundaries. Its acceptance checks should explicitly cover image/detection generation binding and stale request cancellation on thaw/source/backend changes; contain-letterbox/DPR mapping; overlapping and tiny outline targets; face-down handling; reading order and keyboard focus restoration/form-key preservation; absent/invalid full-art references and index-identity mismatch; AI owner/env/body/deadline/rate-limit/catalog guards; and separate synthetic versus held-out physical-photo evidence. These details are review recommendations, not claims that the current tests pass them.
+
+## Feedback continuation
+
+The feedback loop is an application-specific adaptation, with shared server
+consent/retention, owner console review, and client `recordFeedback` for Remote
+Duel consumers. The optional improvement store is default-off, independent of
+camera permission and optional Anthropic requests. It does not call an upstream
+relay or ingest videos. `scripts/vision/feedback.ts` provides approved labelled
+export and a real-pipeline crop benchmark with a regression gate and contributor
+holdout. See the current [runbook](../../docs/runbooks/vision-feedback.md) and
+[REPORT.md](REPORT.md). Historical inventory counts in the earlier report predate
+the delta-index adaptation above; current application rows: 4 ported, 53 adapted,
+58 not ported (115 total).
