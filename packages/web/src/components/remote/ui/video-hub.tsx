@@ -100,14 +100,20 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const selectCamera = useCallback((id: string) => guard(() => solo ? startLocal(id) : controller ? controller.selectCamera(id) : Promise.resolve()), [guard, solo, startLocal, controller]);
   const setMic = useCallback((on: boolean) => { setMicOn(on); if (controller && connected) void controller.setMicrophone(on).catch(e => controller.fail(e)); }, [controller, connected]);
 
+  // The same source object must come back while the stream is the same. A new object on every render would re-attach the <video> and reset it.
+  const sources = useRef(new Map<number, { key: unknown; source: FeedSource }>());
   const sourceFor = useCallback((seat: number): FeedSource | null => {
+    const cached = (key: unknown, make: () => FeedSource): FeedSource => {
+      const old = sources.current.get(seat); if (old && old.key === key) return old.source;
+      const source = make(); sources.current.set(seat, { key, source }); return source;
+    };
     if (solo) {
-      if (seat !== mySeat || !local) return null;
-      return { local: true, attach: el => { el.srcObject = local; void el.play().catch(() => undefined); return () => { if (el.srcObject === local) el.srcObject = null; }; } };
+      if (seat !== mySeat || !local) { sources.current.delete(seat); return null; }
+      return cached(local, () => ({ local: true, attach: el => { el.srcObject = local; void el.play().catch(() => undefined); return () => { if (el.srcObject === local) el.srcObject = null; }; } }));
     }
     const track = snap.feeds.find(f => f.seat === seat)?.video;
-    if (!track) return null;
-    return { local: track.isLocal, attach: el => { track.attach(el); return () => { track.detach(el); }; } };
+    if (!track) { sources.current.delete(seat); return null; }
+    return cached(track, () => ({ local: track.isLocal, attach: el => { track.attach(el); return () => { track.detach(el); }; } }));
   }, [solo, mySeat, local, snap.feeds]);
 
   const health = useCallback((seat: number): Health => {
