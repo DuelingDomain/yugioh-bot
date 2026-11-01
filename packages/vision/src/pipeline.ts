@@ -75,11 +75,12 @@ export class RecognitionPipeline {
     validateOptions(opts);
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
     const start = performance.now();
-    const ranked = frames.map((frame, index) => ({ frame, index, sharpness: sharpness(frame, opts.clickPoint) })).sort((a, b) => b.sharpness - a.sharpness).slice(0, 3);
+    const ranked = frames.map((frame, index) => ({ frame, index, sharpness: sharpness(frame, opts.clickPoint) })).sort((a, b) => b.sharpness - a.sharpness).slice(0, opts.maxFrames ?? 3);
     const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0 };
     const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; crop: RGBAImage; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
     let covered=Boolean(opts.card?.covered);
+    let detectedCard:DetectedQuad|undefined;
     for (const { frame } of ranked) {
       let t = performance.now();
       let scene=opts.card?[]:await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
@@ -147,6 +148,7 @@ export class RecognitionPipeline {
       const confusionChecked=this.confused(merged);
       const checks=winningIndex===this.fullArtIndex?fullLists:lists;
       const independentlyClear=!confusionChecked || (checks.length>=2 && checks.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
+      if(!views.length&&found)detectedCard=opts.card??{quad:corners.map(p=>({x:p.x/frame.width,y:p.y/frame.height})),kind:card!.kind,confidence:card!.conf,partial,covered};
       views.push({ confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || opts.card), corners: found, unambiguous: independentlyClear && decide(merged, thresholds, this.profile.cardBack.cardId).confident, frameClass });
     }
     const t = performance.now(), k = opts.k ?? 5;
@@ -181,6 +183,6 @@ export class RecognitionPipeline {
     const evidence=views[0];
     const collect=opts.includeFeedback && evidence?.corners && !fallback && !covered && !views.some(v=>v.partial) && opts.card?.kind!=='face-down' && candidates[0]?.cardId!==this.profile.cardBack.cardId;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
-    return { candidates: candidates.slice(0, k), feedback, ...((opts.includeCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: ranked.map(v => v.index), fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+    return { candidates: candidates.slice(0, k), detectedCard, feedback, ...((opts.includeCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: ranked.map(v => v.index), fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }

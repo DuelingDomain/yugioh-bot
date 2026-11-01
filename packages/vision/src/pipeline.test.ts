@@ -30,6 +30,16 @@ test('selected quad skips detector and returns its warp even without full-art re
   assert.equal(result.warpedCard?.width,10);
   assert.equal(result.warpedCard?.height,15);
   assert.equal(result.quality.fallback,false);
+  assert.deepEqual(result.detectedCard,selected);
+});
+test('live reads use only the sharpest buffered frame and return that frame outline',async()=>{
+  const noisy={...frame,data:frame.data.slice()};
+  for(let i=0;i<noisy.data.length;i+=4){noisy.data[i]=noisy.data[i+1]=noisy.data[i+2]=Math.floor(i/4)%2?255:0;noisy.data[i+3]=255;}
+  const result=await fixture(false).recognize([frame,noisy,frame],{card:selected,maxFrames:1});
+  assert.equal(result.quality.framesUsed,1);
+  assert.deepEqual(result.quality.selectedFrameIndices,[1]);
+  assert.deepEqual(result.detectedCard,selected);
+  await assert.rejects(()=>fixture(false).recognize([frame],{maxFrames:2 as 1}),/maxFrames/);
 });
 test('clipped selected quad preserves whole-card shape and cannot be sure',async()=>{
   const result=await fixture(false).recognize([frame],{card:{...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},includeCrop:true});
