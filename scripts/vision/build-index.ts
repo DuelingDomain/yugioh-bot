@@ -29,6 +29,7 @@ import { layoutKey, validateIndexProfile } from '../../packages/vision/src/profi
 import type { IndexEntry, IndexMeta } from '../../packages/vision/src/types';
 
 const API = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes';
+const defaultData = resolve(process.env.VISION_DATA_DIR ?? 'data/vision');
 const CACHE_VERSION = 'art224-jpeg90-v1';
 type CatalogCard = {
   id: number; name: string; frameType: string; type: string;
@@ -157,7 +158,7 @@ function diskBytes(path: string): number {
 async function main() {
   const { values } = parseArgs({ options: {
     selection: { type: 'string', default: 'auto' }, limit: { type: 'string' },
-    output: { type: 'string', default: 'data/vision' }, cache: { type: 'string', default: 'data/vision/cache' },
+    output: { type: 'string', default: defaultData }, cache: { type: 'string', default: join(defaultData, 'cache') },
     'image-cache': { type: 'string' }, catalog: { type: 'string' }, 'refresh-catalog': { type: 'boolean', default: false },
     threads: { type: 'string', default: '4' }, help: { type: 'boolean', default: false },
   } });
@@ -172,7 +173,7 @@ async function main() {
   if (!Number.isSafeInteger(threads) || threads < 1 || threads > availableParallelism()) throw new Error('Invalid threads');
   const started = Date.now();
   const root = process.cwd(), output = resolve(values.output!), cache = resolve(values.cache!);
-  const modelPath = join(root, 'data/vision/models/dinov2-small-duel.q8.onnx');
+  const modelPath = join(defaultData, 'models/dinov2-small-duel.q8.onnx');
   const modelHash = sha(await readFile(modelPath));
   if (modelHash !== yugioh.embedding.sha256) throw new Error('Embedding model SHA256 does not match the game profile');
   const identity = sha(JSON.stringify({ layout: layoutKey(yugioh), modelHash, cache: CACHE_VERSION })).slice(0, 24);
