@@ -558,16 +558,22 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
       if(!origin) return null;
-      return <EffectPicker origin={origin} at={popAt}
+      return <EffectPicker origin={origin} showCardsSetFromDeck={room.showCardsSetFromDeck!==false} at={popAt}
         alternatives={(state.effectTracking?.origins ?? []).filter(o=>o.seat===origin.seat && o.destination===origin.destination && state.seats[o.seat].twin.some(c=>c.ref===o.ref && !c.faceUp)).map(o=>({id:o.id,label:`Set by ${o.source.name} · ${state.seats[o.seat].twin.find(c=>c.ref===o.ref)?.zone} ${state.seats[o.seat].twin.find(c=>c.ref===o.ref)?.slot ?? ""}`}))}
         onOrigin={setEffectOrigin}
         onActivate={origin.destination==="set" && origin.chosenCardId ? ()=>{void act({type:"effect.activated",actorSeat:origin.seat,source:{cardId:origin.chosenCardId,cardRef:origin.ref}}).then(done=>{if(done) layers.close("effect");});} : undefined}
         onClose={()=>layers.close("effect")}
         onPick={id=>{void act({type:"effect.choose",actorSeat:origin.seat,originId:origin.id,cardId:id}).then(done=>{if(done) layers.close("effect");});}}
         onReveal={origin.destination==="set" && origin.chosenCardId ? ()=>{void act({type:"twin.flip",actorSeat:origin.seat,seat:origin.seat,cardRef:origin.ref,faceUp:true});layers.close("effect");} : undefined}
-        onRecognize={origin.destination==="set" ? ()=>{
-          ctx.current={seat:origin.seat,x:ctx.current?.x ?? .5,y:ctx.current?.y ?? .5,at:popAt,id:++readCounter.current,cardRef:origin.ref};
-          setTray({seat:origin.seat,ownerName:name(origin.seat),status:"empty",guesses:[],note:"Select the revealed card. Its identity will be public.",reader:"",at:popAt});layers.open("tray");
+        onRecognize={origin.destination==="set" || room.showCardsSetFromDeck!==false ? ()=>{
+          void (async()=>{
+            if(origin.destination==="hand" && !R.current.state.seats[origin.seat].twin.some(c=>c.ref===origin.ref)) {
+              const done=await act({type:"twin.place",actorSeat:origin.seat,seat:origin.seat,zone:"hand",card:{ref:origin.ref,faceUp:false,position:"attack"}});
+              if(!done) return;
+            }
+            ctx.current={seat:origin.seat,x:ctx.current?.x ?? .5,y:ctx.current?.y ?? .5,at:popAt,id:++readCounter.current,cardRef:origin.ref};
+            setTray({seat:origin.seat,ownerName:name(origin.seat),status:"empty",guesses:[],note:"Select the shown card. Its identity will be public.",reader:"",at:popAt});layers.open("tray");
+          })();
         } : undefined} />;
     })() : null}
     <Peek peek={peek} />

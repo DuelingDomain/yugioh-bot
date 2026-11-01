@@ -31,12 +31,13 @@ function TableLinks({ title, tables, error }: { title: string; tables?: RemoteTa
 /** /duels/remote: create a table and list yours and the open ones. */
 export function RemoteLobby() {
   const [seatCount, setSeatCount] = useState(2); const [solo, setSolo] = useState(false); const [format, setFormat] = useState<string>("normal");
+  const [showCardsSetFromDeck,setShowCardsSetFromDeck]=useState(true);
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const mine = useSWR("remote:mine", () => remoteApi<{ tables: RemoteTable[] }>("?scope=mine"), { refreshInterval: 5000 });
   const open = useSWR("remote:open", () => remoteApi<{ tables: RemoteTable[] }>("?scope=open"), { refreshInterval: 5000 });
   async function create() {
     setBusy(true); setError("");
-    try { const room = await remoteApi<RemoteRoom>("", { gameId: "ygo", seatCount, solo, format }); window.location.assign(go(room.slug)); }
+    try { const room = await remoteApi<RemoteRoom>("", { gameId: "ygo", seatCount, solo, format, showCardsSetFromDeck }); window.location.assign(go(room.slug)); }
     catch (e) { setError((e as Error).message); setBusy(false); }
   }
   return <div className={`${duelFontClasses} ${l.lobby}`} data-testid="remote-lobby">
@@ -50,8 +51,10 @@ export function RemoteLobby() {
         <label className={l.field}>Seats<select value={seatCount} onChange={e => setSeatCount(Number(e.target.value))} data-testid="create-seats">
           {[2, 3, 4].map(n => <option key={n} value={n}>{n === 2 ? "2 (1 v 1)" : n === 3 ? "3 (free for all)" : "4 (free for all)"}</option>)}</select></label>
         <label className={l.check}><input type="checkbox" checked={solo} onChange={e => setSolo(e.target.checked)} data-testid="create-solo" />Solo test with bots</label>
+        <label className={l.check}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e=>setShowCardsSetFromDeck(e.target.checked)} />Cards Set from Deck are shown to all</label>
         <button className={`${l.btn} ${l.go}`} disabled={busy} data-testid="create-table">{busy ? "Creating…" : "Create table"}</button>
       </div>
+      <p className={l.note}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
       {solo ? <p className={l.note}>One webcam player with {seatCount - 1} test {seatCount === 2 ? "opponent" : "opponents"} you control. The camera stays on this device. No video server needed.</p> : null}
       {error ? <p className={l.err} role="alert">{error}</p> : null}
     </form>
@@ -75,6 +78,8 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   const [banlist, setBanlist] = useState(current.settings.banlist);
   const [points, setPoints] = useState(current.settings.genesys?.pointCap ?? 100);
   const [lp, setLp] = useState(current.settings.startingLP);
+  const [publicityDraft,setPublicityDraft]=useState<boolean|null>(null);
+  const showCardsSetFromDeck=publicityDraft ?? room.showCardsSetFromDeck ?? true;
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
@@ -86,7 +91,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
     {error ? <p className={l.err} role="alert">{error}</p> : saved.error ? <p className={l.err} role="alert">{saved.error.message}</p> : null}
 
     <form className={l.card} aria-label="Rules" onSubmit={e => { e.preventDefault();
-      void operation("format", { format, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }); }}>
+      void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
       <h2>Rules</h2>
       <fieldset disabled={busy || !host} className={l.row} style={{ border: 0, padding: 0, margin: 0 }}>
         <label className={l.field}>Duel format<select value={format} data-testid="room-format" onChange={e => { setFormat(e.target.value); setBanlist(normalizeRemoteFormat(e.target.value).settings.banlist); }}>
@@ -96,8 +101,10 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
           : <label className={l.field}>Banlist<select value={banlist} onChange={e => setBanlist(e.target.value)}>
             {DUEL_BANLIST_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
         <label className={l.field}>Starting LP<input type="number" min={1} max={100000} value={lp} onChange={e => setLp(Number(e.target.value))} /></label>
+        <label className={l.check}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e=>setPublicityDraft(e.target.checked)} />Cards Set from Deck are shown to all</label>
         {host ? <button className={l.btn} data-testid="apply-rules">Apply rules</button> : null}
       </fieldset>
+      <p className={l.note}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
       <p className={l.note}>{host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
     </form>
 

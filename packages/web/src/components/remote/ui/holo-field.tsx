@@ -61,9 +61,10 @@ export function HoloField({ seat, name, twin, info, rv, onRv, picking, selectedR
         if (pile && cell.count) { desc = `${cell.count} cards`; inner = <><div className={`${s.cd} ${s.back}`} /><span className={s.cnt}>{cell.count}</span></>; }
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
         else if (down) {
-          desc = `Face-down${card.setBy ? " · Set by "+card.setBy.name : ""}${cardCode(card) ? " · "+cardName(card,cardInfo) : ""}`;
+          const origin=card.publicIdentity && card.setBy && cardCode(card) ? `Set from Deck by ${card.setBy.name}: ${cardName(card,cardInfo)}` : card.setBy ? `Set by ${card.setBy.name}` : "";
+          desc = `Face-down${origin ? " · "+origin : ""}${cardCode(card) && !card.publicIdentity ? " · "+cardName(card,cardInfo) : ""}`;
           inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
-            <span className={s.originLabel}>{card.setBy ? "Face-down · Set by "+card.setBy.name : "Face-down"}</span></>;
+            <span className={s.originLabel}>{desc}</span></>;
         }
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
         return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat}
