@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker
   // `node packages/web/server.js` would miss the emitted server.
   outputFileTracingRoot: worktreeRoot,
+  // Local recognition assets are prepared separately and served only by the gated lab.
+  outputFileTracingExcludes: { "/*": ["../../data/vision/**/*"] },
   transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },

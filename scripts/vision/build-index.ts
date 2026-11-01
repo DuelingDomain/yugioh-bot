@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile, link, copyFile } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -178,6 +178,7 @@ async function main() {
   const identity = sha(JSON.stringify({ layout: layoutKey(yugioh), modelHash, cache: CACHE_VERSION })).slice(0, 24);
   const derived = join(cache, identity), imageDir = join(derived, 'artwork'), vectorDir = join(derived, 'vectors');
   await mkdir(imageDir, { recursive: true }); await mkdir(vectorDir, { recursive: true });
+  await mkdir(join(output, 'thumbnails'), { recursive: true });
   const localImages = values['image-cache'] ? resolve(values['image-cache'])
     : [join(root, 'data/card-images'), resolve(root, '../../data/card-images')].find(existsSync);
   const catalog = await catalogAt(join(cache, 'catalog.json'), values.catalog, values['refresh-catalog']);
@@ -255,7 +256,13 @@ async function main() {
         vector.forEach((value, n) => bytes.writeFloatLE(value, n * 4));
         await atomic(vectorPath, bytes);
       }
-      entries.push(art.entry); vectors.push(vector); indexedIds.add(art.entry.cardId);
+      // Hardlink the existing artwork cache for a database-free, self-hosted lab thumbnail.
+      const thumbnail = join(output, 'thumbnails', `${imageId}.jpg`);
+      if (!existsSync(thumbnail)) {
+        try { await link(imagePath, thumbnail); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'EXDEV') await copyFile(imagePath, thumbnail); else throw error; }
+      }
+      entries.push({ ...art.entry, thumbnailUrl: `/dev/vision-assets/thumbnails/${imageId}.jpg` }); vectors.push(vector); indexedIds.add(art.entry.cardId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push({ imageId, name: art.entry.name, error: message });

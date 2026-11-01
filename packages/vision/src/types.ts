@@ -43,6 +43,6 @@ export interface RecognitionResult {
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
   backend: 'webgpu' | 'wasm';
 }
-export interface IndexEntry { cardId: string; passcode: number; name: string; imageId?: number; frameClass?: string; imageUrl?: string }
+export interface IndexEntry { cardId: string; passcode: number; name: string; imageId?: number; frameClass?: string; imageUrl?: string; thumbnailUrl?: string }
 export interface IndexMeta { version: 1; gameId?: string; layoutKey?: string; modelId: string; modelSha256: string; dim: number; count: number; dtype: 'float32' | 'int8'; quant?: 'float32' | 'int8'; builtAt?: string; entries: IndexEntry[]; generatedAt?: string; catalog?: string }
 export interface LoadedIndex { meta: IndexMeta; vectors: Float32Array | Int8Array }
