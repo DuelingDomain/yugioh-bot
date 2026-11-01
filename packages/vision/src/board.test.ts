@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const board = await import('./board').catch(() => ({} as typeof import('./board')));
+import * as board from './board';
 import { RecognitionPipeline } from './pipeline';
 import { yugioh } from './games/yugioh';
 import type { DetectedQuad, LoadedIndex } from './types';
