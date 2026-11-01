@@ -12,6 +12,7 @@ import { DuelsView } from "./views/duels";
 import { WaitlistView } from "./views/waitlist";
 import { CreatorsView } from "./views/creators";
 import { HealthView } from "./views/health";
+import { VisionView } from "./views/vision";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
 
@@ -221,12 +222,13 @@ export function AdminConsole() {
               : view === "waitlist" ? <WaitlistView s={s} actions={actions} />
               : view === "creators" ? <CreatorsView s={s} actions={actions} />
               : view === "health" ? <HealthView s={s} />
+              : view === "vision" ? <VisionView />
               : <InsightsView s={s} />}
           </section>
         </div>
       </main>
 
-      <nav className={`${styles.tabbar} ${styles.tabbar7}`} aria-label="Admin views">
+      <nav className={`${styles.tabbar} ${styles.tabbar8}`} aria-label="Admin views">
         {VIEWS.map((v) => (
           <button key={v} type="button" className={styles.tab} aria-current={view === v ? "page" : undefined} onClick={() => go(v)}>
             <Icon name={VIEW_META[v].icon} />{VIEW_META[v].label}{badges.tabs[v] ?? null}

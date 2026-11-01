@@ -4,6 +4,7 @@ import { SheetRoot } from "@/components/sheet";
 import { DeleteAccountSection } from "@/components/account/delete-account-section";
 import { SignOutRow } from "@/components/account/sign-out-row";
 import { LegalLinks } from "@/components/layout/legal-links";
+import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { DuelViewToggle } from "@/components/settings/duel-view-toggle";
 import { createUserService } from "@yugidraft/shared/services";
 import { DEFAULT_MARKETING_URL } from "@/components/auth/marketing-links";
@@ -43,6 +44,7 @@ export default async function AccountPage() {
           </Suspense>
         </section>
         <DuelViewToggle />
+        <VisionFeedbackSetting />
         <section className="set-sec" aria-labelledby="set-session">
           <div className="set-intro">
             <h2 id="set-session">This session</h2>

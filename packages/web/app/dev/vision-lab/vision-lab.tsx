@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult } from "@yugidraft/vision";
+import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult, type FeedbackSource } from "@yugidraft/vision";
+import { VisionFeedbackSetting, type FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { useVisionSource } from "./use-vision-source";
 import { useOutlineReads } from "./use-outline-reads";
+import { VisionResult } from "./vision-result";
 import styles from "./vision-lab.module.css";
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
@@ -36,7 +38,7 @@ export function VisionLab() {
   const [frozenUrl, setFrozenUrl] = useState<string | null>(null);
   const [quads, setQuads] = useState<DetectedQuad[]>([]);
   const [popover, setPopover] = useState(false);
-  const [popoverPosition,setPopoverPosition]=useState({left:16,top:16});
+  const [flash,setFlash]=useState<DetectedQuad|null>(null);
   const [aiReading, setAiReading] = useState<AIReading | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -50,7 +52,11 @@ export function VisionLab() {
   const [query, setQuery] = useState("");
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [feedbackPreference,setFeedbackPreference]=useState<FeedbackPreference|null>(null);
+  const [feedbackStatus,setFeedbackStatus]=useState('');
+  const feedbackEnabled=Boolean(feedbackPreference?.enabled&&feedbackPreference.collectionEnabled);
   const [metadataError, setMetadataError] = useState(false);
+  useEffect(()=>{if(!flash)return;const timer=setTimeout(()=>setFlash(null),1400);return()=>clearTimeout(timer);},[flash]);
   function reader() {
     if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
       recognizerRef.current?.value.dispose();recognizerRef.current={backend,value:createRecognizer({game:'yugioh',backend})};
@@ -71,7 +77,7 @@ export function VisionLab() {
     resetOutlineReads();
     frozenRef.current?.close(); frozenRef.current=null;
     if(frozenUrlRef.current) URL.revokeObjectURL(frozenUrlRef.current);
-    frozenUrlRef.current=null;setFrozenUrl(null);setQuads([]);setPopover(false);setSelection(null);
+    frozenUrlRef.current=null;setFrozenUrl(null);setQuads([]);setPopover(false);setSelection(null);setFlash(null);
   },[resetOutlineReads]);
   const reset = useCallback(() => {
     clearFrozen(); aiControllerRef.current?.abort(); setAiBusy(false);setAiReading(null);setAiError(null);
@@ -132,14 +138,15 @@ export function VisionLab() {
   };
 
   const recognize = async (point = selection?.point ?? { x: 0.5, y: 0.5 }, selectedCard=frozenRef.current?selection?.card:undefined) => {
-    if (busyRef.current || !source.source) return;
+    if (busyRef.current || !source.source || !feedbackPreference) return;
     busyRef.current = true;
     const run = ++runRef.current;
     setBusy(true);
-    setError(null);setPopover(false);setResult(null);setConfirmed(null);aiControllerRef.current?.abort();setAiBusy(false);setAiReading(null);setAiError(null);
+    setError(null);setPopover(true);setFlash(null);setResult(null);setConfirmed(null);setFeedbackStatus('');aiControllerRef.current?.abort();setAiBusy(false);setAiReading(null);setAiError(null);
     let frames: ImageBitmap[] = [];
     try {
       await outlineReads.cancelPeek();
+      if(run!==runRef.current)return;
       frames = frozenRef.current ? [await createImageBitmap(frozenRef.current)] : await source.snapshot();
       if (run !== runRef.current) return;
       if (!recognizerRef.current || recognizerRef.current.backend !== backend) {
@@ -147,8 +154,12 @@ export function VisionLab() {
         recognizerRef.current = { backend, value: createRecognizer({ game: "yugioh", backend }) };
       }
       // The worker takes ownership of these clones; the source keeps its originals.
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true, card:selectedCard });
-      if (run === runRef.current) { setResult(next); setConfirmed(null); setQuery("");setPopover(true); }
+      const live=source.source==='camera'&&!frozenRef.current;
+      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,includeFeedback:feedbackEnabled, card:selectedCard,...(live?{maxFrames:1 as const}:{}) });
+      if (run === runRef.current) {
+        if(live&&!next.detectedCard)throw new Error('No card detected under this click.');
+        setResult(next);setConfirmed(null);setQuery('');if(live)setFlash(next.detectedCard!);
+      }
     } catch (cause) {
       if (run === runRef.current) setError(cause instanceof Error ? cause.message : "Recognition failed. Try again.");
     } finally {
@@ -163,7 +174,7 @@ export function VisionLab() {
 
   const recognizeAt = (event: MouseEvent<HTMLDivElement>) => {
     const { width, height } = source.dimensions;
-    if (!width || !height || busyRef.current || !source.source) return;
+    if (!width || !height || busyRef.current || !source.source || !feedbackPreference) return;
     const rect = event.currentTarget.getBoundingClientRect();
     // object-fit: contain adds letterboxing. Map only the visible image to [0, 1].
     const scale = Math.min(rect.width / width, rect.height / height);
@@ -178,23 +189,26 @@ export function VisionLab() {
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
     const hit=frozenRef.current?hitTestQuad(quads,{x,y},{width:visibleWidth,height:visibleHeight}):-1;
     if(frozenRef.current && hit<0) return;
-    setPopoverPosition({left:Math.min(window.innerWidth-410,Math.max(16,event.clientX)),top:Math.min(window.innerHeight-340,Math.max(16,event.clientY))});
     const next = { card:hit>=0?quads[hit]:undefined, point: { x, y }, left: localX / rect.width * 100, top: localY / rect.height * 100 };
     setSelection(next);
     void recognize(next.point,hit>=0?quads[hit]:undefined);
   };
 
-  const confirm = useCallback((cardId: string) => {
+  const confirm = useCallback((cardId: string, source:FeedbackSource="pick") => {
     if (!result || busy) return;
     setConfirmed(cardId);setPopover(false);previewRef.current?.focus();
+    if(feedbackEnabled && result.feedback && recognizerRef.current) {
+      setFeedbackStatus('Saving recognition sample…');
+      void recognizerRef.current.value.recordFeedback(result,cardId,source).then(()=>setFeedbackStatus('Recognition sample saved.'),error=>setFeedbackStatus(error instanceof Error?error.message:'Feedback could not be saved.'));
+    }
     setCorrections(log => [...log, { at: new Date().toISOString(), guessed: result.candidates[0]?.cardId,
       chosen: cardId, tier: result.tier, sharpness: result.quality.sharpness }]);
-  }, [result, busy]);
+  }, [result, busy,feedbackEnabled]);
   useEffect(() => {
     const pick = (event: KeyboardEvent) => {
       if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
-      if(event.key==='Escape' && outlineReads.peek) {event.preventDefault();void outlineReads.cancelPeek();return;}
       if(event.key==='Escape' && popover) {event.preventDefault();setPopover(false);previewRef.current?.focus();return;}
+      if(event.key==='Escape' && outlineReads.peek) {event.preventDefault();void outlineReads.cancelPeek();return;}
       if (event.target instanceof HTMLElement && (event.target.matches("input,select,textarea") || event.target.isContentEditable)) return;
       if(event.key==='ArrowDown' || event.key==='ArrowUp') {
         if(!popover) return;const buttons=[...(popoverRef.current?.querySelectorAll<HTMLButtonElement>('button')??[])];
@@ -209,11 +223,9 @@ export function VisionLab() {
   useEffect(()=>{
     if(!popover) return;
     popoverRef.current?.focus();
-    const clamp=()=>{const rect=popoverRef.current?.getBoundingClientRect();if(rect)setPopoverPosition(pos=>({left:Math.max(16,Math.min(pos.left,window.innerWidth-rect.width-16)),top:Math.max(16,Math.min(pos.top,window.innerHeight-rect.height-16))}));};
-    clamp();window.addEventListener('resize',clamp);
     const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !popoverRef.current?.contains(event.target)) {setPopover(false);previewRef.current?.focus();}};
     document.addEventListener('pointerdown',outside);
-    return ()=>{document.removeEventListener('pointerdown',outside);window.removeEventListener('resize',clamp);};
+    return ()=>document.removeEventListener('pointerdown',outside);
   },[popover]);
   const matches = query.trim().length >= 2 ? [...cards.values()].filter(card =>
     card.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || String(card.passcode).includes(query.trim())).slice(0, 8) : [];
@@ -223,7 +235,7 @@ export function VisionLab() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const ready = source.source !== null && source.frameCount > 0 && !source.preparing;
+  const ready = source.source !== null && source.frameCount > 0 && !source.preparing && feedbackPreference!==null;
   const activeError = error ?? source.error;
 
   return (
@@ -237,6 +249,8 @@ export function VisionLab() {
         <span className={styles.local}>Recognition runs in your browser</span>
       </header>
 
+      <VisionFeedbackSetting onChange={setFeedbackPreference} promptOnly />
+      {feedbackStatus?<p role="status">{feedbackStatus}</p>:null}
       <div className={styles.workspace}>
         <section className={styles.capture} aria-labelledby="capture-heading">
           <div className={styles.sectionHead}>
@@ -271,6 +285,7 @@ export function VisionLab() {
                 onBlur={()=>outlineReads.leavePeek()}
                 onKeyDown={event=>{if(event.key==='Enter' || event.key===' ') {event.preventDefault();event.stopPropagation();const x=card.quad.reduce((s,p)=>s+p.x,0)/4,y=card.quad.reduce((s,p)=>s+p.y,0)/4;const point={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};setSelection({point,card,left:point.x*100,top:point.y*100});void recognize(point,card);}}} />)}
             </svg> : null}
+            {flash&&!frozenUrl?<svg className={`${styles.outlines} ${styles.liveFlash}`} viewBox={`0 0 ${source.dimensions.width} ${source.dimensions.height}`} aria-label="Selected card outline"><polygon points={flash.quad.map(p=>`${p.x*source.dimensions.width},${p.y*source.dimensions.height}`).join(' ')} /></svg>:null}
             {selection && source.source ? <span className={styles.target} style={{ left: `${selection.left}%`, top: `${selection.top}%` }} aria-hidden="true" /> : null}
             {busy ? <span className={styles.working}>Recognizing…</span> : null}
           </div>
@@ -337,24 +352,22 @@ export function VisionLab() {
             <span>Sends this small card crop to Anthropic. Owner access and server opt-in required.</span>
             {result.quality.fullArt && !result.quality.fullArtReferences ? <p>Possible full-art layout; no verified full-art references. Use name correction or Ask AI.</p> : null}
             {aiError ? <p role="alert">{aiError}</p> : null}
-            {aiReading ? <p role="status">{aiReading.match ? <><strong>{aiReading.match.name}</strong>{aiReading.setCode?` · ${aiReading.setCode}`:''} <button type="button" onClick={()=>confirm(String(aiReading.match!.passcode))}>Confirm AI match</button></> : 'AI could not identify a catalog card.'}</p> : null}
+            {aiReading ? <p role="status">{aiReading.match ? <><strong>{aiReading.match.name}</strong>{aiReading.setCode?` · ${aiReading.setCode}`:''} <button type="button" onClick={()=>confirm(String(aiReading.match!.passcode),"ai")}>Confirm AI match</button></> : 'AI could not identify a catalog card.'}</p> : null}
           </div> : null}
           {confirmed ? <p className={styles.confirmed} role="status">Confirmed: {cards.get(confirmed)?.name ?? confirmed}</p> : null}
           <div className={styles.correction}>
             <label htmlFor="vision-correction">Wrong card? Find it by name or passcode</label>
             <input id="vision-correction" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search the local index…" disabled={!result || busy} />
-            {matches.length ? <ul>{matches.map(card => <li key={card.cardId}><button type="button" onClick={() => confirm(card.cardId)}>{card.name}</button></li>)}</ul> : query.trim().length >= 2 ? <p>No match in this index. Build the full catalog to add more cards.</p> : null}
+            {matches.length ? <ul>{matches.map(card => <li key={card.cardId}><button type="button" onClick={() => confirm(card.cardId,"search")}>{card.name}</button></li>)}</ul> : query.trim().length >= 2 ? <p>No match in this index. Build the full catalog to add more cards.</p> : null}
             <button type="button" onClick={exportCorrections} disabled={!corrections.length}>Export {corrections.length} confirmation{corrections.length === 1 ? "" : "s"}</button>
           </div>
           <p className={styles.hint}>Similarity ranks artwork matches; it is not a confidence percentage.</p>
         </section>
       </div>
 
-      {popover && result?.candidates.length ? <div ref={popoverRef} className={styles.popover} style={{left:Math.max(16,popoverPosition.left),top:Math.max(16,popoverPosition.top)}} role="dialog" aria-label="Card matches" tabIndex={-1}>
+      {popover ? <div ref={popoverRef} className={styles.popover} role="dialog" aria-label="Card matches" aria-busy={busy} tabIndex={-1}>
         <button type="button" aria-label="Close card matches" onClick={()=>{setPopover(false);previewRef.current?.focus();}}>×</button>
-        <strong>{result.tier}</strong>
-        {result.candidates.slice(0,5).map((candidate,index)=><button type="button" key={candidate.cardId} onClick={()=>{confirm(candidate.cardId);setPopover(false);previewRef.current?.focus();}}>{index+1}. {cards.get(candidate.cardId)?.name ?? candidate.cardId} · {candidate.score.toFixed(3)}</button>)}
-        <span>1–5 confirm · ↑/↓ move · Escape closes</span>
+        <VisionResult result={result} cards={cards} busy={busy} error={error} onConfirm={confirm} />
       </div> : null}
       {outlineReads.peek ? <div id="card-peek" role="tooltip" className={styles.peek} style={{left:outlineReads.peek.left,top:outlineReads.peek.top}} onMouseEnter={outlineReads.keepPeek} onMouseLeave={outlineReads.leavePeek}>
         <strong>{outlineReads.peek.value?.faceDown?'Face down':outlineReads.peek.value?.name??(outlineReads.peek.error?'Peek unavailable':outlineReads.peek.value?'No match':'Reading…')}</strong>
