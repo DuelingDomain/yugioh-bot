@@ -17,7 +17,7 @@ import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
 import { normalize, topK, mergeCandidates, decide, tierFor } from './search';
-import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
+import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
 
 function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad {
   const h = Math.min(img.height * profile.fallbackHeight, img.width * profile.card.height / profile.card.width);
@@ -28,11 +28,14 @@ function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad
 }
 
 export class RecognitionPipeline {
-  constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor, private fullArtIndex?: LoadedIndex) {}
+  constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor, private fullArtIndex?: LoadedIndex) {
+    this.catalog=new Map([...index.meta.entries,...(fullArtIndex?.meta.entries??[])].map(e=>[e.cardId,e]));
+  }
+  private catalog:Map<string,IndexEntry>;
   private learning:LearningSnapshot=emptyLearning();
   setLearning(value:LearningSnapshot) { this.learning=value; }
   private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string) {
-    return learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',k,priors,frameClass);
+    return learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',k,priors,frameClass,this.catalog);
   }
   private confused(list:Candidate[]) {return this.learning.confusions.some(p=>p.a===list[0]?.cardId||p.b===list[0]?.cardId);}
   async detectCards(frame: RGBAImage): Promise<DetectedQuad[]> {
@@ -118,13 +121,14 @@ export class RecognitionPipeline {
         vectors.push(vector); lists.push(this.search(vector, this.index, 10));
         merged = mergeCandidates(lists, 10);
         timings.search += performance.now() - t;
-        if (decide(merged, thresholds, this.profile.cardBack.cardId).confident && !this.confused(merged)) break;
+        if (decide(merged, thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
       }
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
       for (let i = 1; i < lists.length; i++) if ((lists[i][0]?.score ?? -Infinity) > (lists[winner][0]?.score ?? -Infinity)) winner = i;
       const alternatives=[{index:this.index,vector:vectors[winner]}];
       let fullBest:{vector:Float32Array;score:number}|undefined;
+      const fullLists:Candidate[][]=[];
       let winningIndex=this.index, winningVector=vectors[winner], winningRotation=hypotheses[winner]?.rotation ?? 0;
       // Compare whole-card pixels only to whole-card references. Always run both
       // when references exist, even if the standard crop was confident.
@@ -133,7 +137,7 @@ export class RecognitionPipeline {
           t=performance.now();
           const [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[rotation ? rotate180(warped) : warped]);
           timings.embed+=performance.now()-t; t=performance.now();
-          const list=this.search(vector,this.fullArtIndex,10);
+          const list=this.search(vector,this.fullArtIndex,10);fullLists.push(list);
           if(!fullBest || (list[0]?.score ?? -Infinity)>fullBest.score) fullBest={vector,score:list[0]?.score ?? -Infinity};
           if((list[0]?.score ?? -Infinity)>(merged[0]?.score ?? -Infinity)) {winningIndex=this.fullArtIndex;winningVector=vector;winningRotation=rotation;}
           merged=mergeCandidates([merged,list],10);timings.search+=performance.now()-t;
@@ -141,7 +145,8 @@ export class RecognitionPipeline {
       }
       if(this.fullArtIndex && fullBest) alternatives.push({index:this.fullArtIndex,vector:fullBest.vector});
       const confusionChecked=this.confused(merged);
-      const independentlyClear=!confusionChecked || (lists.length>=2 && lists.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
+      const checks=winningIndex===this.fullArtIndex?fullLists:lists;
+      const independentlyClear=!confusionChecked || (checks.length>=2 && checks.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
       views.push({ confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || opts.card), corners: found, unambiguous: independentlyClear && decide(merged, thresholds, this.profile.cardBack.cardId).confident, frameClass });
     }
     const t = performance.now(), k = opts.k ?? 5;
@@ -169,6 +174,7 @@ export class RecognitionPipeline {
     let tier = tierFor(candidates.length ? visual : [], thresholds, fallback, this.profile.cardBack.cardId, views.every(v => v.unambiguous));
     if(tier==='sure' && (views.some(v=>v.partial) || (views.some(v=>v.fullArt) && !this.fullArtIndex?.meta.count))) tier='not sure';
     if(tier==='sure' && covered) tier='not sure';
+    if(tier==='sure' && this.confused(visual) && (visual[0].score-(visual[1]?.score??0)<.06 || !views.every(v=>v.confusionChecked)))tier='not sure';
     // A prior may improve the suggestions but cannot promote an uncertain visual result.
     if (tier === 'sure' && candidates[0]?.cardId !== visual[0]?.cardId) tier = 'not sure';
     timings.search += performance.now() - t; timings.total = performance.now() - start;

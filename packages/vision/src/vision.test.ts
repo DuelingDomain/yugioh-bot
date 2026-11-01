@@ -125,3 +125,11 @@ test('tiny outlines have a 24 CSS pixel target without taking direct polygon hit
   const direct={...tiny,quad:[{x:.55,y:.45},{x:.65,y:.45},{x:.65,y:.55},{x:.55,y:.55}]};
   assert.equal(hitTestQuad([tiny,direct],{x:.58,y:.5},{width:100,height:100}),1);
 });
+test('feedback client sends only eligible crop evidence and the confirmed source',async()=>{
+  const reader=createRecognizer(),oldFetch=globalThis.fetch;let body:any;
+  globalThis.fetch=(async(_url,init)=>{body=JSON.parse(init!.body as string);return Response.json({id:'sample'});}) as typeof fetch;
+  const result={tier:'not sure',cropJpeg:'jpeg',warpedCard:{data:'private pixels'},candidates:[{cardId:'A',score:.9}],feedback:{embedding:[1,0],gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:'v',layoutKey:'layout',space:'art-box',deltaVersion:'delta'},quality:{sharpness:42,frameClass:'Effect'}} as any;
+  try{await assert.rejects(reader.recordFeedback({...result,feedback:undefined},'B','voice'),/eligible/);assert.equal(body,undefined);
+    await reader.recordFeedback(result,'B','voice');const sent:any=body;assert.equal(sent.source,'voice');assert.equal(sent.chosenCardId,'B');assert.equal(sent.jpegBase64,'jpeg');assert.equal(sent.warpedCard,undefined);assert.equal(sent.deltaVersion,undefined);
+  }finally{globalThis.fetch=oldFetch;reader.dispose();}
+});
