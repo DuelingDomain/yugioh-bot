@@ -1686,4 +1686,51 @@ function migrateCreatorAccess(db: Database.Database) {
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
   addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
   addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
+  // Independent from engine duels: remote calls never count as deploy-blocking activity.
+  db.exec(`
+    create table if not exists remote_tables (
+      id integer primary key autoincrement,
+      slug text not null unique,
+      guild_id text not null,
+      game_id text not null,
+      seat_count integer not null check (seat_count in (2,3,4)),
+      status text not null check (status in ('lobby','active','ended')),
+      created_by integer not null references users(id),
+      state_json text not null,
+      last_seq integer not null default 0,
+      created_at integer not null,
+      started_at integer,
+      ended_at integer,
+      last_event_at integer not null,
+      idle_warning_at integer,
+      end_reason text
+    );
+    create index if not exists remote_tables_guild_status_idx on remote_tables(guild_id,status);
+    create index if not exists remote_tables_idle_idx on remote_tables(last_event_at) where status != 'ended';
+    create table if not exists remote_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 0 and 3),
+      user_id integer not null references users(id),
+      display_name text not null,
+      ready integer not null default 0 check (ready in (0,1)),
+      primary key (table_id,seat), unique (table_id,user_id)
+    );
+    create index if not exists remote_seats_user_idx on remote_seats(user_id,table_id);
+    create table if not exists remote_events (
+      id integer primary key autoincrement,
+      table_id integer not null references remote_tables(id),
+      seq integer not null,
+      idempotency_key text not null,
+      actor_seat integer check (actor_seat between 0 and 3),
+      user_id integer references users(id),
+      action_json text not null,
+      created_at integer not null,
+      unique (table_id,seq), unique (table_id,idempotency_key)
+    );
+    create trigger if not exists remote_events_no_update before update on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+    create trigger if not exists remote_events_no_delete before delete on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+  `);
+
 }
