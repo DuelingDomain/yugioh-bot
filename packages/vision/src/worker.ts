@@ -2,6 +2,7 @@
 import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } from './runtime';
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline } from './pipeline';
+import { detectScene } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
 import { LearningCache } from './learning-cache';
@@ -12,6 +13,13 @@ import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, PeekOptions
 import type { RGBAImage } from './pixels';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
+let detectorSession:ModelSession|undefined;
+let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string}|undefined;
+async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runtimeBase:string) {
+  configuration={profile,backend,runtimeBase};
+  detectorSession=await createModelSession(profile.detector.url,profile.detector.sha256,backend,runtimeBase);
+  sessions.push(detectorSession);
+}
 let sessions: ModelSession[] = [];
 let learningCache:LearningCache|undefined;
 let learningTimer:ReturnType<typeof setInterval>|undefined;
@@ -34,7 +42,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
       else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
     }
     // Sequential session creation avoids simultaneous WASM runtime initialization.
-    const detector = await createModelSession(profile.detector.url, profile.detector.sha256, backend, runtimeBase); sessions.push(detector);
+    const detector = detectorSession!;
     const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase); sessions.push(embedder);
     let fullArtIndex:LoadedIndex|undefined;
     if(profile.fullArtIndex) {
@@ -62,7 +70,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     learningTimer=setInterval(()=>{void learningCache?.refresh();},60_000);
 
   } catch (error) {
-    await Promise.allSettled(sessions.map(s => s.release())); sessions = []; throw error;
+    await Promise.allSettled(sessions.map(s => s.release())); sessions = []; detectorSession=undefined; throw error;
   }
 }
 function pixels(frame: ImageBitmap | ImageData): RGBAImage {
@@ -96,17 +104,18 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   // The ONNX sessions are never run concurrently. Failed requests do not poison the queue.
   queue = queue.then(async () => {
     try {
-      if (message.type === 'init') { await initialize(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null }); }
       else {
-        if (!pipeline) throw new Error('Recognizer has not initialized');
-        if(message.type!=='detect' && learningCache)pipeline.setLearning(learningCache.current());
-        if(message.type==='detect') { scope.postMessage({id:message.id,result:await pipeline.detectCards(pixels(message.frame))});return; }
-        if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline.peek(pixels(message.frame),message.opts)});return;}
-        if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline.readAll(pixels(message.frame),message.opts)});return;}
+        if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
+        if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor)});return;}
+        if(!pipeline)await initialize(configuration.profile,configuration.backend,configuration.runtimeBase);
+        if(learningCache)pipeline!.setLearning(learningCache.current());
+        if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline!.peek(pixels(message.frame),message.opts)});return;}
+        if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline!.readAll(pixels(message.frame),message.opts)});return;}
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }
-        const result = await pipeline.recognize(images, message.opts);
+        const result = await pipeline!.recognize(images, message.opts);
         const {warpedCard,aiWarpedCard,...publicResult}=result;
         if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
         if(aiWarpedCard) publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);

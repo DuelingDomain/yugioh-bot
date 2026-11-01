@@ -11,7 +11,7 @@ export function createOwnFeedBuffer(video:HTMLVideoElement,onFrame?:(count:numbe
   async function capture() {
     try {
       await serial(async()=>{
-        if(stopped || video.readyState<2 || video.videoWidth*video.videoHeight>16_000_000)return;
+        if(stopped || (typeof document!=='undefined'&&document.hidden) || video.readyState<2 || video.videoWidth*video.videoHeight>16_000_000)return;
         const bitmap=await createImageBitmap(video); // No 1280px resize or canvas downscale.
         if(stopped){bitmap.close();return;}
         const at=performance.now();frames.push({bitmap,at});evict(at);onFrame?.(frames.length);
@@ -21,6 +21,13 @@ export function createOwnFeedBuffer(video:HTMLVideoElement,onFrame?:(count:numbe
   }
   void capture();
   return {
+    sample:()=>serial(async()=>{
+      if(stopped)throw new Error('Frame buffer is stopped');
+      evict(performance.now());
+      const latest=frames.at(-1);
+      if(!latest)throw new Error('Waiting for a camera frame');
+      return {frame:await createImageBitmap(latest.bitmap),at:latest.at};
+    }),
     snapshot:()=>serial(async()=>{
       if(stopped)throw new Error('Frame buffer is stopped');
       evict(performance.now());

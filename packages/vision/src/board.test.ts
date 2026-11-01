@@ -13,7 +13,7 @@ const card = (x: number, y: number, w = .15, h = .25): DetectedQuad => ({
 });
 const frame = {width:100,height:100,data:new Uint8ClampedArray(40_000).fill(120)};
 function pipeline() {
-  const profile = {...yugioh,card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  const profile = {...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   const index = {meta:{dim:2,count:2,entries:[{cardId:'A',name:'Alpha'},{cardId:'B',name:'Beta'}]},vectors:new Float32Array([1,0,0,1])} as LoadedIndex;
   class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
   const detector = {backend:'wasm',run:()=>{throw new Error('supplied outlines must avoid repeated detection');}} as unknown as ModelSession;
@@ -85,4 +85,71 @@ test('read all preserves slots and face-down uncertainty, groups sides and limit
   assert.ok(result.timingsMs.total>=0);
   await assert.rejects(reader.readAll(frame,{cards:Array(61).fill(cards[0])}),/60/);
   await assert.rejects(reader.readAll(frame,{cards:[{...cards[0],quad:[]}]}),/quad/);
+});
+
+// The field watcher is deterministic with timestamped native-frame samples.
+import * as field from './field-watcher';
+import * as zones from './field-zones';
+import type { RecognitionResult } from './types';
+const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
+function fieldRig(tier: RecognitionResult['tier'] = 'sure') {
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=1, hidden=false, busy=false, reads=0, detects=0;
+  const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
+  const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return sureResult(tier);}};
+  const watcher=field.createFieldWatcher({recognizer:reader,profile:yugioh,buffer:{sample:async()=>({frame:{...frame,data:new Uint8ClampedArray(frame.data).fill(detail)} as ImageData,at})},
+    getPriors:()=>({decklist:['A']}),hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
+    analyze:()=>({motion:()=>motion,sharpness:()=>detail}),clone:async f=>f});
+  watcher.subscribe(event=>events.push(event));
+  return {watcher,events,inputs,get reads(){return reads;},get detects(){return detects;},
+    async tick(ms=333){at+=ms;await watcher.tick();},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
+}
+test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
+  const r=fieldRig();await r.tick();await r.tick();r.detail=20;await r.tick();r.detail=2;await r.tick();await r.tick();
+  assert.equal(r.reads,1);assert.equal(r.events.filter(e=>e.type==='placed').length,1);
+  assert.equal(r.inputs[0].frame.data[0],20);assert.deepEqual(r.inputs[0].opts.priors,{decklist:['A']});
+  assert.deepEqual(r.inputs[0].opts.card.quad,card(.3,.3).quad);
+  for(let i=0;i<8;i++)await r.tick();assert.equal(r.reads,1);
+  const id=r.watcher.getSnapshot().tracks[0].id;r.outlines=[card(.4,.3)];for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.equal(r.reads,1);assert.ok(r.events.some(e=>e.type==='moved'));
+  r.watcher.dispose();
+});
+test('field watcher rejects motion, low confidence, partial and covered placements',async()=>{
+  for(const obstacle of ['motion','confidence','partial','covered']) {
+    const r=fieldRig();if(obstacle==='motion')r.motion=.2;
+    else r.outlines=[{...card(.3,.3),...(obstacle==='confidence'?{confidence:.45}:obstacle==='partial'?{partial:true}:{covered:true})}];
+    for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0,obstacle);assert.equal(r.events.length,0,obstacle);r.watcher.dispose();
+  }
+});
+test('uncertain results prompt with five alternatives, require confirmation and do not retry',async()=>{
+  const r=fieldRig('not sure');for(let i=0;i<8;i++)await r.tick();
+  assert.equal(r.events.filter(e=>e.type==='placed').length,0);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.reads,1);
+  r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
+});
+test('face-down placements contain no identity or embedder call; turning up reads under the same id',async()=>{
+  const r=fieldRig();r.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.reads,0);const placed=r.events.find(e=>e.type==='placed')!;assert.equal(placed.track.cardId,undefined);const id=placed.track.id;
+  r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.ok(r.events.some(e=>e.type==='flipped'));r.watcher.dispose();
+});
+test('disappearance needs two clear seconds and emits a suggestion once, preserving id on occlusion',async()=>{
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
+  r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
+  r.outlines=[card(.3,.3)];r.motion=0;await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.equal(r.reads,1);
+  r.outlines=[];for(let i=0;i<5;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
+  for(let i=0;i<6;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
+});
+test('hidden and busy tabs do not infer or count time toward a stable placement',async()=>{
+  const r=fieldRig();await r.tick();r.hidden=true;for(let i=0;i<10;i++)await r.tick();assert.equal(r.detects,1);
+  r.hidden=false;r.busy=true;await r.tick();assert.equal(r.detects,1);r.busy=false;await r.tick();assert.equal(r.reads,0);
+  for(let i=0;i<5;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
+});
+test('field calibration maps perspective grid, side piles, EMZ and defense orientation',()=>{
+  const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.15},{x:.85,y:.95},{x:.15,y:.9}]);
+  assert.equal(zones.mapFieldZone(card(.44,.35,.04,.06),calibration).zone,'M3');
+  assert.equal(zones.mapFieldZone(card(.44,.68,.04,.06),calibration).zone,'S3');
+  assert.equal(zones.mapFieldZone(card(.84,.35,.04,.06)).zone,'GY');
+  assert.equal(zones.mapFieldZone(card(.84,.7,.04,.06)).zone,'DECK');
+  assert.equal(zones.mapFieldZone(card(.1,.7,.04,.06)).zone,'EXTRA');
+  assert.equal(zones.mapFieldZone(card(.35,.05,.04,.06)).zone,'EMZ1');
+  assert.equal(zones.fieldOrientation(card(.3,.3,.3,.12),1920,1080),'defense');
+  assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
