@@ -28,7 +28,7 @@ export type SeatPanelProps = {
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
-  deckWarning?: string; cameraControl?: ReactNode; emptyFeedText: string; turnIn: boolean;
+  deckWarning?: string; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
 export function SeatPanel(p: SeatPanelProps) {
@@ -54,7 +54,7 @@ export function SeatPanel(p: SeatPanelProps) {
       </button>
     </header>
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReadBoard={p.onReadBoard} emptyText={p.emptyFeedText}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReadBoard={p.onReadBoard} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         extra={<>
           {p.cameraControl}
           <div className={s.fz} aria-live="off">FEED FROZEN<small>Last good frame shown</small></div>

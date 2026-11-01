@@ -67,7 +67,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
   onBegin: (seat: number, start: FeedStart) => void;
@@ -77,7 +77,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   /** Called with the cards read from the whole frame. Resolves to a short summary for the feed. */
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
-  holdSelection: boolean; extra?: ReactNode; emptyText: string;
+  holdSelection: boolean; extra?: ReactNode; emptyText: string; emptyAction?: ReactNode;
 }) {
   const hub = useVideoHub();
   const source = hub.sourceFor(seat);
@@ -361,7 +361,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
       {source ? <video ref={video} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
-        <Icon name="cam" /><span>{emptyText}</span>
+        <Icon name="cam" /><span>{emptyText}</span>{emptyAction}
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
