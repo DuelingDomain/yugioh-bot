@@ -25,6 +25,7 @@
     "posthog-js": "^1.438.9",
     "react": "19.2.5",
     "react-dom": "19.2.5",
+    "sharp": "^0.35.5",
     "socket.io-client": "^4.8.0",
     "swr": "^2.3.0",
     "tailwind-merge": "^3.5.0",

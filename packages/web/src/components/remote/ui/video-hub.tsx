@@ -6,7 +6,7 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { deckIdsOf, seenCardIds } from "./model";
-import { makeRecognizeRawFeed, readCard, disposeRecognizer, type ReadResult } from "./recognizer";
+import { makeRecognizeRawFeed, readCard, askAi, disposeRecognizer, type AiAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
 /** Something a <video> element can show. Local previews and LiveKit tracks look the same to the tile. */
@@ -29,12 +29,14 @@ type Hub = {
   selectCamera(id: string): Promise<void>;
   setMic(on: boolean): void;
   /** Reads the card at a normalized point of a seat's feed. */
-  read(seat: number, x: number, y: number): Promise<ReadResult>;
+  read(seat: number, x: number, y: number, card?: ReadCard): Promise<ReadResult>;
+  /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
+  askAi(token: number): Promise<AiAnswer>;
 };
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
-  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }) });
+  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
 
 const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
@@ -124,14 +126,14 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     done({ guesses: result.message.candidates.map(c => ({ cardId: c.cardId, name: c.name, score: c.score })), reader: "vision", frames: 0, note: `Read on seat ${result.fromSeat + 1}'s device` });
   }, [snap.result]);
 
-  const read = useCallback(async (seat: number, x: number, y: number): Promise<ReadResult> => {
+  const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard): Promise<ReadResult> => {
     const current = roomRef.current;
     const priors = { decklist: deckIdsOf(current, seat), seen: seenCardIds(current) };
     const abort = new AbortController(); const timer = setTimeout(() => abort.abort(), 10_000);
     try {
       if (seat === mySeat) {
         const track = solo ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
-        return await readCard(track ?? null, { x, y }, priors, abort.signal);
+        return await readCard(track ?? null, { x, y }, priors, abort.signal, card);
       }
       if (!controller) return await readCard(null, { x, y }, priors, abort.signal);
       const early = new Promise<ReadResult>(resolve => {
@@ -149,7 +151,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     solo, connection: solo ? (local ? "local" : "off") : snap.connection, cameraOn: solo ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: solo ? localDevices : snap.devices, cameraId: solo ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, setFrozen: (seat, value) => setFrozenState(old => old[seat] === value ? old : { ...old, [seat]: value }),
-    enableCamera, disableCamera, selectCamera, setMic, read,
+    enableCamera, disableCamera, selectCamera, setMic, read, askAi,
   }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, read]);
   return <Ctx value={value}>{children}</Ctx>;
 }

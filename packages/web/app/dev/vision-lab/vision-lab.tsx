@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { createRecognizer, yugioh, type IndexMeta, type RecognitionResult } from "@yugidraft/vision";
+import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult } from "@yugidraft/vision";
 import { useVisionSource } from "./use-vision-source";
 import styles from "./vision-lab.module.css";
 
@@ -12,7 +12,7 @@ interface Correction { at: string; guessed?: string; chosen: string; tier: Recog
 type Backend = "auto" | "wasm";
 type Recognizer = ReturnType<typeof createRecognizer>;
 type CardEntry = IndexMeta["entries"][number];
-interface Selection { point: { x: number; y: number }; left: number; top: number }
+interface Selection { card?:DetectedQuad; point: { x: number; y: number }; left: number; top: number }
 const STAGES = ["sharpness", "detect", "warp", "embed", "search", "total"] as const;
 
 function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
@@ -27,6 +27,18 @@ export function VisionLab() {
   const recognizerRef = useRef<{ backend: Backend; value: Recognizer } | null>(null);
   const runRef = useRef(0);
   const busyRef = useRef(false);
+  const frozenRef = useRef<ImageBitmap | null>(null);
+  const frozenUrlRef = useRef<string | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const aiControllerRef = useRef<AbortController | null>(null);
+  const [frozenUrl, setFrozenUrl] = useState<string | null>(null);
+  const [quads, setQuads] = useState<DetectedQuad[]>([]);
+  const [popover, setPopover] = useState(false);
+  const [popoverPosition,setPopoverPosition]=useState({left:16,top:16});
+  const [aiReading, setAiReading] = useState<AIReading | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const [backend, setBackend] = useState<Backend>("auto");
   const [busy, setBusy] = useState(false);
@@ -46,7 +58,13 @@ export function VisionLab() {
     recognizerRef.current = null;
   }, []);
 
+  const clearFrozen = useCallback(() => {
+    frozenRef.current?.close(); frozenRef.current=null;
+    if(frozenUrlRef.current) URL.revokeObjectURL(frozenUrlRef.current);
+    frozenUrlRef.current=null;setFrozenUrl(null);setQuads([]);setPopover(false);setSelection(null);
+  },[]);
   const reset = useCallback(() => {
+    clearFrozen(); aiControllerRef.current?.abort(); setAiBusy(false);setAiReading(null);setAiError(null);
     disposeRecognizer();
     setBusy(false);
     setResult(null);
@@ -54,7 +72,7 @@ export function VisionLab() {
     setSelection(null);
     setConfirmed(null);
     setQuery("");
-  }, [disposeRecognizer]);
+  }, [disposeRecognizer,clearFrozen]);
   const source = useVisionSource(reset);
 
   useEffect(() => {
@@ -70,25 +88,62 @@ export function VisionLab() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => disposeRecognizer, [disposeRecognizer]);
+  useEffect(() => () => { disposeRecognizer(); frozenRef.current?.close(); if(frozenUrlRef.current) URL.revokeObjectURL(frozenUrlRef.current); aiControllerRef.current?.abort(); }, [disposeRecognizer]);
+  const reader = () => {
+    if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
+      recognizerRef.current?.value.dispose();recognizerRef.current={backend,value:createRecognizer({game:'yugioh',backend})};
+    }
+    return recognizerRef.current.value;
+  };
+  const freeze = async () => {
+    if(busyRef.current) return;
+    if(frozenRef.current) { clearFrozen();setResult(null);aiControllerRef.current?.abort();setAiBusy(false);return; }
+    const run=++runRef.current;busyRef.current=true;setBusy(true);setError(null);
+    let snapshots:ImageBitmap[]=[],detectionFrame:ImageBitmap|undefined;
+    try {
+      snapshots=await source.snapshot();if(run!==runRef.current) return;
+      const frame=snapshots[snapshots.length-1];
+      const canvas=document.createElement('canvas');canvas.width=frame.width;canvas.height=frame.height;
+      canvas.getContext('2d')!.drawImage(frame,0,0);
+      const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('Freeze failed')),'image/jpeg',.9));
+      if(run!==runRef.current) return;
+      const frozen=await createImageBitmap(frame);
+      if(run!==runRef.current) {frozen.close();return;}
+      frozenRef.current=frozen;
+      frozenUrlRef.current=URL.createObjectURL(blob);setFrozenUrl(frozenUrlRef.current);
+      detectionFrame=await createImageBitmap(frame);
+      if(run!==runRef.current) return;
+      const detections=await reader().detectCards(detectionFrame);
+      if(run===runRef.current) {setQuads(detections);setResult(null);setSelection(null);}
+    } catch(cause) {if(run===runRef.current) {clearFrozen();setError(cause instanceof Error?cause.message:'Freeze failed');}}
+    finally {detectionFrame?.close();for(const f of snapshots) f.close();if(run===runRef.current){busyRef.current=false;setBusy(false);}}
+  };
+  const askAI = async () => {
+    if(!result || aiBusy) return;
+    aiControllerRef.current?.abort();const controller=new AbortController();aiControllerRef.current=controller;
+    setAiBusy(true);setAiError(null);setAiReading(null);
+    try {const reading=await reader().askAI(result,{explicitRequest:true,signal:controller.signal});if(!controller.signal.aborted)setAiReading(reading);}
+    catch(cause) {if(!controller.signal.aborted)setAiError(cause instanceof Error?cause.message:'AI reading failed');}
+    finally {if(!controller.signal.aborted)setAiBusy(false);}
+  };
 
-  const recognize = async (point = selection?.point ?? { x: 0.5, y: 0.5 }) => {
+  const recognize = async (point = selection?.point ?? { x: 0.5, y: 0.5 }, selectedCard=frozenRef.current?selection?.card:undefined) => {
     if (busyRef.current || !source.source) return;
     busyRef.current = true;
     const run = ++runRef.current;
     setBusy(true);
-    setError(null);
+    setError(null);setPopover(false);setResult(null);setConfirmed(null);aiControllerRef.current?.abort();setAiBusy(false);setAiReading(null);setAiError(null);
     let frames: ImageBitmap[] = [];
     try {
-      frames = await source.snapshot();
+      frames = frozenRef.current ? [await createImageBitmap(frozenRef.current)] : await source.snapshot();
       if (run !== runRef.current) return;
       if (!recognizerRef.current || recognizerRef.current.backend !== backend) {
         recognizerRef.current?.value.dispose();
         recognizerRef.current = { backend, value: createRecognizer({ game: "yugioh", backend }) };
       }
       // The worker takes ownership of these clones; the source keeps its originals.
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5 });
-      if (run === runRef.current) { setResult(next); setConfirmed(null); setQuery(""); }
+      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true, card:selectedCard });
+      if (run === runRef.current) { setResult(next); setConfirmed(null); setQuery("");setPopover(true); }
     } catch (cause) {
       if (run === runRef.current) setError(cause instanceof Error ? cause.message : "Recognition failed. Try again.");
     } finally {
@@ -101,9 +156,9 @@ export function VisionLab() {
     }
   };
 
-  const recognizeAt = (event: MouseEvent<HTMLButtonElement>) => {
+  const recognizeAt = (event: MouseEvent<HTMLDivElement>) => {
     const { width, height } = source.dimensions;
-    if (!width || !height || busyRef.current) return;
+    if (!width || !height || busyRef.current || !source.source) return;
     const rect = event.currentTarget.getBoundingClientRect();
     // object-fit: contain adds letterboxing. Map only the visible image to [0, 1].
     const scale = Math.min(rect.width / width, rect.height / height);
@@ -116,26 +171,44 @@ export function VisionLab() {
     const x = (localX - offsetX) / visibleWidth;
     const y = (localY - offsetY) / visibleHeight;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    const next = { point: { x, y }, left: localX / rect.width * 100, top: localY / rect.height * 100 };
+    const hit=frozenRef.current?hitTestQuad(quads,{x,y},{width:visibleWidth,height:visibleHeight}):-1;
+    if(frozenRef.current && hit<0) return;
+    setPopoverPosition({left:Math.min(window.innerWidth-410,Math.max(16,event.clientX)),top:Math.min(window.innerHeight-340,Math.max(16,event.clientY))});
+    const next = { card:hit>=0?quads[hit]:undefined, point: { x, y }, left: localX / rect.width * 100, top: localY / rect.height * 100 };
     setSelection(next);
-    void recognize(next.point);
+    void recognize(next.point,hit>=0?quads[hit]:undefined);
   };
 
   const confirm = useCallback((cardId: string) => {
     if (!result || busy) return;
-    setConfirmed(cardId);
+    setConfirmed(cardId);setPopover(false);previewRef.current?.focus();
     setCorrections(log => [...log, { at: new Date().toISOString(), guessed: result.candidates[0]?.cardId,
       chosen: cardId, tier: result.tier, sharpness: result.quality.sharpness }]);
   }, [result, busy]);
   useEffect(() => {
     const pick = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement && (event.target.matches("input,select,textarea,button") || event.target.isContentEditable)) return;
+      if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
+      if(event.key==='Escape' && popover) {event.preventDefault();setPopover(false);previewRef.current?.focus();return;}
+      if (event.target instanceof HTMLElement && (event.target.matches("input,select,textarea") || event.target.isContentEditable)) return;
+      if(event.key==='ArrowDown' || event.key==='ArrowUp') {
+        if(!popover) return;const buttons=[...(popoverRef.current?.querySelectorAll<HTMLButtonElement>('button')??[])];
+        const at=buttons.indexOf(document.activeElement as HTMLButtonElement);if(buttons.length){event.preventDefault();buttons[at<0?(event.key==='ArrowDown'?0:buttons.length-1):(at+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}return;
+      }
       const index = Number(event.key) - 1;
       if (index >= 0 && index < 5 && result?.candidates[index]) { event.preventDefault(); confirm(result.candidates[index].cardId); }
     };
     window.addEventListener("keydown", pick);
     return () => window.removeEventListener("keydown", pick);
-  }, [confirm, result]);
+  }, [confirm, result,popover]);
+  useEffect(()=>{
+    if(!popover) return;
+    popoverRef.current?.focus();
+    const clamp=()=>{const rect=popoverRef.current?.getBoundingClientRect();if(rect)setPopoverPosition(pos=>({left:Math.max(16,Math.min(pos.left,window.innerWidth-rect.width-16)),top:Math.max(16,Math.min(pos.top,window.innerHeight-rect.height-16))}));};
+    clamp();window.addEventListener('resize',clamp);
+    const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !popoverRef.current?.contains(event.target)) {setPopover(false);previewRef.current?.focus();}};
+    document.addEventListener('pointerdown',outside);
+    return ()=>{document.removeEventListener('pointerdown',outside);window.removeEventListener('resize',clamp);};
+  },[popover]);
   const matches = query.trim().length >= 2 ? [...cards.values()].filter(card =>
     card.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || String(card.passcode).includes(query.trim())).slice(0, 8) : [];
   const exportCorrections = () => {
@@ -167,6 +240,7 @@ export function VisionLab() {
           <div className={styles.controls}>
             <button className={styles.primary} type="button" onClick={() => { void source.startCamera(); }} disabled={source.preparing}>Start camera</button>
             <button type="button" onClick={() => uploadRef.current?.click()}>Upload photo</button>
+            <button type="button" onClick={() => {void freeze();}} disabled={!ready || busy}>{frozenUrl ? "Resume" : "Freeze & outline cards"}</button>
             <button type="button" onClick={source.stop} disabled={!source.source && !source.preparing}>Stop</button>
             <input ref={uploadRef} type="file" accept="image/*" className={styles.fileInput} aria-label="Upload a card photo" onChange={event => {
               const file = event.target.files?.[0];
@@ -175,18 +249,22 @@ export function VisionLab() {
             }} />
           </div>
 
-          <button type="button" className={styles.preview} onClick={recognizeAt} disabled={!ready || busy} aria-label="Recognize a card: click its center in the image, or press Enter to use the image center">
-            <video ref={source.videoRef} autoPlay muted playsInline hidden={source.source !== "camera"} />
-            {source.photoUrl ? <img src={source.photoUrl} alt="Uploaded card photo" /> : null}
+          <div ref={previewRef} role="button" tabIndex={0} className={styles.preview} onClick={recognizeAt} aria-disabled={!ready || busy} onKeyDown={event=>{if(event.target===event.currentTarget && (event.key==='Enter' || event.key===' ')) {event.preventDefault();if(ready && !busy) void recognize();}}} aria-label="Recognize a card: click its center in the image, or press Enter to use the image center">
+            <video ref={source.videoRef} autoPlay muted playsInline hidden={source.source !== "camera" || !!frozenUrl} />
+            {frozenUrl || source.photoUrl ? <img src={frozenUrl ?? source.photoUrl!} alt="Uploaded card photo" /> : null}
             {!source.source ? <span className={styles.placeholder}>
               <span className={styles.cardOutline} aria-hidden="true" />
               <strong>{source.preparing ? "Preparing image…" : "Bring a card into view"}</strong>
               <span>{source.preparing ? "Your image will appear here." : "Start the camera or upload a photo."}</span>
             </span> : null}
+            {frozenUrl ? <svg className={styles.outlines} viewBox={`0 0 ${source.dimensions.width} ${source.dimensions.height}`} aria-label="Detected card outlines">
+              {quads.map((card,index)=><polygon key={index} points={card.quad.map(p=>`${p.x*source.dimensions.width},${p.y*source.dimensions.height}`).join(' ')} role="button" tabIndex={0} aria-label={`Read card ${index+1}${card.kind==='face-down'?' (face down)':''}${card.partial?' (partial)':''}`} onKeyDown={event=>{if(event.key==='Enter' || event.key===' ') {event.preventDefault();event.stopPropagation();const x=card.quad.reduce((s,p)=>s+p.x,0)/4,y=card.quad.reduce((s,p)=>s+p.y,0)/4;const point={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};setSelection({point,card,left:point.x*100,top:point.y*100});void recognize(point,card);}}} />)}
+            </svg> : null}
             {selection && source.source ? <span className={styles.target} style={{ left: `${selection.left}%`, top: `${selection.top}%` }} aria-hidden="true" /> : null}
             {busy ? <span className={styles.working}>Recognizing…</span> : null}
-          </button>
+          </div>
 
+          {frozenUrl ? <p className={styles.hint}>{quads.length} detected card{quads.length===1?'':'s'} · gold outlines · Tab then Enter to read</p> : null}
           <div className={styles.sourceInfo}>
             <span>{source.dimensions.width ? `${source.dimensions.width} × ${source.dimensions.height}` : "Full-resolution capture"}</span>
             <span>{source.source === "camera" ? `${source.frameCount}/6 buffered · 5 fps max · 1 second` : source.source === "photo" ? "1 photo frame" : "Camera permission required"}</span>
@@ -237,6 +315,13 @@ export function VisionLab() {
               <p>{result ? "Try a clearer image with the card artwork visible." : "Choose an image, then click the center of a card. Ranked artwork matches will appear here."}</p>
             </div>}
           </div>
+          {result ? <div className={styles.ai}>
+            <button type="button" onClick={()=>{void askAI();}} disabled={!result.cropJpeg || busy || aiBusy}>{aiBusy?'Reading…':'Ask AI'}</button>
+            <span>Sends this small card crop to Anthropic. Owner access and server opt-in required.</span>
+            {result.quality.fullArt && !result.quality.fullArtReferences ? <p>Possible full-art layout; no verified full-art references. Use name correction or Ask AI.</p> : null}
+            {aiError ? <p role="alert">{aiError}</p> : null}
+            {aiReading ? <p role="status">{aiReading.match ? <><strong>{aiReading.match.name}</strong>{aiReading.setCode?` · ${aiReading.setCode}`:''} <button type="button" onClick={()=>confirm(String(aiReading.match!.passcode))}>Confirm AI match</button></> : 'AI could not identify a catalog card.'}</p> : null}
+          </div> : null}
           {confirmed ? <p className={styles.confirmed} role="status">Confirmed: {cards.get(confirmed)?.name ?? confirmed}</p> : null}
           <div className={styles.correction}>
             <label htmlFor="vision-correction">Wrong card? Find it by name or passcode</label>
@@ -248,6 +333,12 @@ export function VisionLab() {
         </section>
       </div>
 
+      {popover && result?.candidates.length ? <div ref={popoverRef} className={styles.popover} style={{left:Math.max(16,popoverPosition.left),top:Math.max(16,popoverPosition.top)}} role="dialog" aria-label="Card matches" tabIndex={-1}>
+        <button type="button" aria-label="Close card matches" onClick={()=>{setPopover(false);previewRef.current?.focus();}}>×</button>
+        <strong>{result.tier}</strong>
+        {result.candidates.slice(0,5).map((candidate,index)=><button type="button" key={candidate.cardId} onClick={()=>{confirm(candidate.cardId);setPopover(false);previewRef.current?.focus();}}>{index+1}. {cards.get(candidate.cardId)?.name ?? candidate.cardId} · {candidate.score.toFixed(3)}</button>)}
+        <span>1–5 confirm · ↑/↓ move · Escape closes</span>
+      </div> : null}
       <section className={styles.diagnostics} aria-labelledby="diagnostics-heading">
         <div className={styles.sectionHead}><h2 id="diagnostics-heading">Recognition diagnostics</h2><span>{result ? `${result.quality.framesUsed} frame${result.quality.framesUsed === 1 ? "" : "s"} used` : "Run recognition to inspect"}</span></div>
         <dl className={styles.quality}>

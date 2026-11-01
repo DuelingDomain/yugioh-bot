@@ -18,6 +18,7 @@ export interface GameProfile {
   artWindow: FractionalBox;
   /** Optional alternative windows (e.g. full-art variants); all use the same artwork index. */
   alternateArtWindows?: FractionalBox[];
+  fullArtIndex?: { indexUrl: string; metaUrl: string };
   cardBack: { cardId: string; imageUrl: string };
   /** Border sample windows avoid art, text and sleeves. RGB prototypes are conservative hints. */
   frameClasses: { id: string; rgb: [number, number, number] }[];
@@ -34,15 +35,17 @@ export interface RecognitionPriors {
   /** Explicit caller restriction; inferred border colour remains a soft filter. */
   frameClasses?: string[];
 }
-export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors }
-/** One card found in a frame. `quad` has four corners (clockwise from top-left) as fractions of the frame (0..1). */
-export interface DetectedCardQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; refined: boolean }
-export interface DetectionResult { cards: DetectedCardQuad[]; width: number; height: number; timingMs: number; backend: 'webgpu' | 'wasm' }
+export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean }
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];
+  /** Present only on request; never uploaded automatically. */
+  cropJpeg?: string;
+  /** Core-only pixels; worker converts to JPEG and removes these. */
+  warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
   tier: RecognitionTier;
-  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean };
+  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */

@@ -82,3 +82,46 @@ test('isolated WASM enables four threads and SIMD; other pages keep one thread',
   webRuntime({...deps, crossOriginIsolated: false});
   assert.equal(ort!.env.wasm.numThreads, 1);
 });
+
+import { detectFullArtLayout, fullArtProfile } from './full-art';
+import { hitTestQuad } from './scene';
+test('frameless texture suggests full art; a pale text box rejects it', () => {
+  const width=100,height=150,data=new Uint8ClampedArray(width*height*4);
+  for(let y=0;y<height;y++) for(let x=0;x<width;x++) { const p=(y*width+x)*4; data[p]=(x*17+y*5)%220; data[p+1]=(x*9+y*13)%220; data[p+2]=(x*7+y*19)%220; data[p+3]=255; }
+  assert.equal(detectFullArtLayout({width,height,data},yugioh), true);
+  for(let y=110;y<143;y++) for(let x=8;x<92;x++) data.set([226,214,186,255],(y*width+x)*4);
+  assert.equal(detectFullArtLayout({width,height,data},yugioh), false);
+  assert.notEqual(layoutKey(fullArtProfile(yugioh)),layoutKey(yugioh));
+});
+test('quad hit testing uses polygons and smallest overlapping card, including partials', () => {
+  const outer={quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],kind:'face-up' as const,confidence:.9,partial:false};
+  const inner={...outer,quad:[{x:.2,y:.1},{x:.6,y:.4},{x:.4,y:.8},{x:0,y:.5}]};
+  assert.equal(hitTestQuad([outer,inner],{x:.3,y:.4}),1);
+  assert.equal(hitTestQuad([inner],{x:.59,y:.12}),-1);
+  assert.equal(hitTestQuad([{...outer,partial:true}],{x:0,y:.5}),0);
+});
+
+import { layoutKey } from './profile';
+
+test('selected scene quad validates before entering the worker', () => {
+  assert.throws(()=>validateOptions({card:{quad:[{x:NaN,y:0}],kind:'face-up',partial:false,confidence:1}}),/card/);
+});
+test('AI client blocks automatic sure calls and only sends the requested small crop', async () => {
+  const reader=createRecognizer({game:'yugioh'}),oldFetch=globalThis.fetch;
+  let body:any;
+  globalThis.fetch=(async (_url,init)=>{body=JSON.parse(init!.body as string);return Response.json({name:'Known',match:{name:'Known',passcode:1}});}) as typeof fetch;
+  const result={tier:'sure',cropJpeg:'jpeg',candidates:[]} as any;
+  try {
+    await assert.rejects(reader.askAI(result),/explicit/);
+    assert.equal(body,undefined);
+    await reader.askAI(result,{explicitRequest:true});
+    assert.deepEqual(body,{jpegBase64:'jpeg',localTier:'sure',explicitRequest:true});
+  } finally {globalThis.fetch=oldFetch;reader.dispose();}
+});
+
+test('tiny outlines have a 24 CSS pixel target without taking direct polygon hits',()=>{
+  const tiny={quad:[{x:.49,y:.49},{x:.51,y:.49},{x:.51,y:.51},{x:.49,y:.51}],kind:'face-up' as const,confidence:1,partial:false};
+  assert.equal(hitTestQuad([tiny],{x:.58,y:.5},{width:100,height:100}),0);
+  const direct={...tiny,quad:[{x:.55,y:.45},{x:.65,y:.45},{x:.65,y:.55},{x:.55,y:.55}]};
+  assert.equal(hitTestQuad([tiny,direct],{x:.58,y:.5},{width:100,height:100}),1);
+});

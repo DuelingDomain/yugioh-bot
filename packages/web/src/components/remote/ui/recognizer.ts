@@ -1,16 +1,25 @@
 import type { RecognizeRawFeed } from "@/lib/remote/video";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
-export type Guess = { cardId: number; name: string; score: number | null };
+export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
 export type Priors = { decklist: number[]; seen: number[] };
 export type ReaderStatus = "vision" | "priors" | "none";
-export type ReadResult = { guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match" };
+export type ReadResult = {
+  guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match";
+  /** Set when this browser read the card itself. Lets the tray ask for an optional AI second opinion on the same crop. */
+  aiToken?: number;
+};
+/** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
+export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean };
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
-type DetectedQuad = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean };
+type DetectedQuad = ReadCard & { refined: boolean };
+type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string };
+type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type VisionRecognizer = {
-  recognize(frames: ImageBitmap[], opts?: object): Promise<{ candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match" }>;
-  detect(frame: ImageBitmap): Promise<{ cards: DetectedQuad[]; timingMs: number }>;
+  recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
+  detectCards(frame: ImageBitmap): Promise<ReadCard[]>;
+  askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   dispose(): void;
 };
 
@@ -61,15 +70,36 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
 }
 
 let chain: Promise<unknown> = Promise.resolve();
-/** The reader handles one read at a time. Later reads wait their turn. */
-export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal): Promise<ReadResult> {
-  const run = chain.then(() => readCardNow(track, point, priors, signal), () => readCardNow(track, point, priors, signal));
+/** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
+function enqueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = chain.then(job, job);
   chain = run.catch(() => undefined);
   return run;
 }
+export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard): Promise<ReadResult> {
+  return enqueue(() => readCardNow(track, point, priors, signal, card));
+}
+
+/** Last raw reads, kept so Ask AI can reuse the crop. The crop stays in this browser until the person asks. */
+const raws = new Map<number, RawResult>(); let rawCount = 0;
+function keep(raw: RawResult) { const id = ++rawCount; raws.set(id, raw); for (const old of raws.keys()) if (old <= id - 6) raws.delete(old); return id; }
+export type AiAnswer = { status: "ok"; guess: Guess } | { status: "none" | "off" | "error"; note: string };
+/** Sends the kept crop for an optional AI second opinion. Only the owner can use it. */
+export async function askAi(token: number, signal?: AbortSignal): Promise<AiAnswer> {
+  const raw = raws.get(token); const vision = await loadRecognizer();
+  if (!raw?.cropJpeg || !vision) return { status: "error", note: "No card image is kept for this read. Click the card again." };
+  try {
+    const answer = await vision.askAI(raw, { explicitRequest: true, signal });
+    if (answer.match) return { status: "ok", guess: { cardId: answer.match.passcode, name: answer.match.name, score: null, source: "ai" } };
+    return { status: "none", note: "The AI could not read this card either." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "AI reading failed";
+    return { status: /disabled|owner/i.test(message) ? "off" : "error", note: message };
+  }
+}
 
 /** Reads one card at a click point. Frames stay in this browser; only public passcodes leave it. */
-async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal): Promise<ReadResult> {
+async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard): Promise<ReadResult> {
   const fallback = (note: string): ReadResult => {
     const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
     return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
@@ -84,13 +114,13 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   const idsFor = (passcodes: number[]) => passcodes.map(code => byPasscode.get(code)?.cardId).filter((id): id is string => !!id);
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5, priors: { decklist: idsFor(priors.decklist), seen: idsFor(priors.seen) } });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card } : {}), includeCrop: true, priors: { decklist: idsFor(priors.decklist), seen: idsFor(priors.seen) } });
     signal.throwIfAborted();
     const guesses = result.candidates.flatMap(candidate => {
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: `Sharpest of ${frames.length} frames`, tier: result.tier };
+    return { guesses, reader: "vision", frames: frames.length, note: `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");
@@ -99,11 +129,16 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
 
 export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
 /** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
-export async function detectCards(frame: ImageBitmap): Promise<Detection> {
-  const vision = await loadRecognizer(); const found = await loadMeta();
-  if (!vision || !found) { frame.close(); return { status: "unavailable", cards: [], note: "The card reader is not installed here." }; }
-  try { const result = await vision.detect(frame); return { status: "ready", cards: result.cards, ms: Math.round(result.timingMs) }; }
-  catch (error) { return { status: "error", cards: [], note: error instanceof Error ? error.message : "The card detector failed." }; }
+export function detectCards(frame: ImageBitmap): Promise<Detection> {
+  return enqueue(async () => {
+    const vision = await loadRecognizer(); const found = await loadMeta();
+    if (!vision || !found) { frame.close(); return { status: "unavailable" as const, cards: [] as [], note: "The card reader is not installed here." }; }
+    const start = performance.now();
+    try {
+      const cards = await vision.detectCards(frame);
+      return { status: "ready" as const, cards: cards.map(card => ({ ...card, refined: !card.partial })), ms: Math.round(performance.now() - start) };
+    } catch (error) { return { status: "error" as const, cards: [] as [], note: error instanceof Error ? error.message : "The card detector failed." }; }
+  });
 }
 
 /** Adapter for RemoteVideo: answers a remote request from the raw local track. */
