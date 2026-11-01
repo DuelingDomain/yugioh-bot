@@ -108,7 +108,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
       origin.chosenCardId=code;
       origin.announcedCard={cardId:code,name:context.facts?.[code]?.name ?? twin.name ?? "Card "+code};
     }
-    if(twin && code && remotePublicCard(twin) && origin.revealedCardId!==code) {
+    if(twin && code && (context.showCardsSetFromDeck===undefined ? remotePublicZone(twin.zone,twin.faceUp) : remotePublicCard(twin)) && origin.revealedCardId!==code) {
       origin.revealedCardId=code;
       if(!origin.eligibleIds?.includes(code)) {
         const message=`${context.facts?.[code]?.name ?? twin.name ?? "Card "+code} could not be ${origin.destination==="set" ? "Set" : "added to hand"} by ${origin.source.name}`;

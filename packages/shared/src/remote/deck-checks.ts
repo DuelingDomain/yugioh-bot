@@ -97,7 +97,7 @@ export function instanceLocation(instance: Pick<RemoteCardInstance, "zone" | "sl
   const slot = remotePhysicalSlot(instance.zone, instance.slot);
   return name + (slot ? " zone " + slot : "");
 }
-type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; publicIdentity?: boolean; observationId?: string; distinct?: boolean };
+type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; publicIdentity?: boolean; observationId?: string; distinct?: boolean; legacyVisibility?: boolean };
 /** Pure. Unlocated/repeated sightings cannot prove new copies. */
 export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, actionId: string, used: ReadonlySet<string> = new Set()): { checks: RemoteDeckChecks; instance: RemoteCardInstance } {
   const checks = structuredClone(input);
@@ -105,7 +105,7 @@ export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, acti
   const slot = remotePhysicalSlot(zone, sight.slot);
   // Separate resolved Deck choices prove separate copies, even in an unslotted hand pile.
   const same = sight.distinct ? [] : checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
-  const publicView = remotePublicCard(sight);
+  const publicView = sight.legacyVisibility ? remotePublicZone(zone,sight.faceUp) : remotePublicCard(sight);
   const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && !remoteLocationsDistinct(i, { zone, slot });
   const pinned = ref ? checks.instances.find(i => i.seat === seat && i.refs.includes(ref)) : undefined;
   // A batch's distinct physical regions exclude already-used instances; a repeated coordinate does not.

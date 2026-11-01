@@ -908,7 +908,7 @@ function originSession(showCardsSetFromDeck = false) {
 }
 const originOf = (s: ReturnType<typeof originSession>) => s.room.state.effectTracking!.origins.at(-1)!;
 describe("remote effect origins and hidden information", () => {
-  it.each(["set-private","set-camera","hand-private","hand-announced"])("preserves old private-event semantics across migration and replay (%s)", mode => {
+  it.each(["set-private","set-camera","hand-private","hand-announced","extra"])("preserves old private-event semantics across migration and replay (%s)", mode => {
     const hand=mode.startsWith("hand");
     const s=originSession(); s.act({type:"effect.activated",source:{cardId:hand ? 73628505 : 70825459}});
     if(!hand) s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"legacy-set",faceUp:false}});
@@ -923,6 +923,13 @@ describe("remote effect origins and hidden information", () => {
       legacyState.deckChecks.instances=[];
       const origin=legacyState.effectTracking!.origins[0]; delete origin.revealedCardId;
       origin.candidates=structuredClone(origin.pool);
+    }
+    if(mode==="extra") {
+      s.act({type:"twin.place",seat:0,zone:"extra",card:{ref:"legacy-extra",cardId:5318639,name:"Mystical Space Typhoon"}});
+      Object.assign(legacyState,structuredClone(s.room.state));
+      // The old reducer marked extra instances public internally; projections still hid the Extra Deck.
+      const extra=legacyState.deckChecks.instances.find(i=>i.refs.includes("legacy-extra"))!;
+      extra.public=true; extra.anchored=true;
     }
     delete legacyState.showCardsSetFromDeck;
     if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
