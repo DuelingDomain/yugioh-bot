@@ -80,7 +80,7 @@ export function SheetSelect<T extends string | number | boolean>({
 
 /** Two to four mutually exclusive options as a radio group (arrow keys and labels work natively). */
 export function SheetSegmented<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false, full = false, hideLabel = false,
+  label, value, choices, onChange, disabled = false, full = false, hideLabel = false, describedBy,
 }: {
   label: string;
   value: T;
@@ -89,10 +89,12 @@ export function SheetSegmented<T extends string | number | boolean>({
   disabled?: boolean;
   full?: boolean;
   hideLabel?: boolean;
+  /** Id of the hint that explains the group. */
+  describedBy?: string;
 }) {
   const name = useId();
   return (
-    <div role="radiogroup" aria-label={label} style={{ minWidth: 0 }}>
+    <div role="radiogroup" aria-label={label} aria-describedby={describedBy} style={{ minWidth: 0 }}>
       {hideLabel ? null : <span className={ui.label}>{label}</span>}
       <div className={cx(ui.seg, full && ui.segFull)}>
         {choices.map((choice) => (

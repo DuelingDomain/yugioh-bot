@@ -246,6 +246,117 @@ test.describe("remote duels screen, solo", () => {
   }
 });
 
+const BASE_URL = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+const remoteRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Remote Duel" }) });
+const onlineRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Online" }) });
+
+test.describe("Remote Duel on the Duels screens (flag on)", () => {
+  test.skip(process.env.E2E_REMOTE_OFF === "1", "the stack runs with REMOTE_DUELS off");
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, BASE_URL); });
+
+  test("Duels → New → Remote Duel → Create room lands on the table", async ({ page }) => {
+    await page.goto("/duels");
+    await expect(page.getByTestId("remote-tables-panel")).toBeVisible();
+    for (const [w, h] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto("/duels");
+      await expect(page.getByRole("heading", { name: "Remote Duels" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "New Remote Duel" })).toBeVisible();
+      await shot(page, `duels-${w}x${h}`);
+      await page.goto("/duels/new");
+      await expect(page.getByRole("heading", { name: "Play" })).toBeVisible();
+      await shot(page, `new-online-${w}x${h}`);
+      await remoteRadio(page).click();
+      await expect(page.getByTestId("remote-setup")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Create room" })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await shot(page, `new-remote-${w}x${h}`);
+    }
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto("/duels");
+    await page.getByRole("link", { name: "Create game" }).click();
+    await remoteRadio(page).click();
+    // The address follows the Play mode: a reload keeps Remote Duel, and Online drops the type.
+    await expect(page).toHaveURL(/\/duels\/new\?type=remote$/);
+    await page.reload();
+    await expect(page.getByRole("radio", { name: "Remote Duel" })).toBeChecked();
+    await expect(page.getByTestId("remote-setup")).toBeVisible();
+    // The same duel type and Genesys controls as Online, and the rule on by default.
+    await expect(page.getByRole("radiogroup", { name: "Duel type" })).toBeVisible();
+    await expect(page.getByTestId("genesys-toggle")).toBeVisible();
+    await expect(page.getByTestId("create-show-set")).toBeChecked();
+    await onlineRadio(page).click();
+    await expect(page).toHaveURL(/\/duels\/new$/);
+    await expect(page.getByTestId("remote-setup")).toHaveCount(0);
+    await remoteRadio(page).click();
+    await page.getByTestId("create-solo").check();
+    await page.getByTestId("create-room").click();
+    await expect(page).toHaveURL(/\/duels\/remote\/[^/]+$/);
+    await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
+    await shot(page, "created-room-1920");
+    // The new table is listed on the Duels page. It is yours and solo, so it is still being set up, not open to join.
+    await page.goto("/duels");
+    const panel = page.getByTestId("remote-tables-panel");
+    await expect(panel.getByText("Your table")).toBeVisible();
+    await expect(panel.getByText("Setting up").first()).toBeVisible();
+    await shot(page, "duels-with-table-1920");
+  });
+
+  test("Genesys Domain chosen on the create screen reaches the room", async ({ page }) => {
+    await page.goto("/duels/new?type=remote");
+    await page.getByTestId("genesys-toggle").check();
+    await page.locator("label", { has: page.getByRole("radio", { name: "Domain" }) }).click();
+    await page.getByTestId("create-solo").check();
+    const created = page.waitForResponse(response => response.url().endsWith("/api/remote") && response.request().method() === "POST");
+    await page.getByTestId("create-room").click();
+    const body = (await created).request().postDataJSON();
+    expect(body).toMatchObject({ format: "genesys-domain", solo: true, showCardsSetFromDeck: true });
+    await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
+    await expect(page.getByTestId("room-format")).toHaveValue("genesys-domain");
+  });
+
+  test("Online create is unchanged with the flag on: Remote, back to Online, Create game sends the usual request", async ({ page }) => {
+    await page.goto("/duels/new");
+    await remoteRadio(page).click();
+    await onlineRadio(page).click();
+    let request: { body: Record<string, unknown>; key: string | undefined } | undefined;
+    await page.route("**/api/duels", async route => {
+      if (route.request().method() !== "POST") return route.continue();
+      request = { body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] };
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "stubbed" }) });
+    });
+    await page.getByRole("button", { name: "Create game" }).click();
+    await expect.poll(() => request).toBeTruthy();
+    expect(Object.keys(request!.body).sort()).toEqual(["bestOf", "masterRule", "mode", "name", "ranked", "settings"]);
+    // No `format` for 1v1 and no `opponentPlayerId` without a challenge: the body the server has always read.
+    expect(request!.body).toMatchObject({ mode: "normal", masterRule: 5, bestOf: 1, ranked: false });
+    expect(request!.key).toBeTruthy();
+    // The online error stays in Online; Remote shows none of it.
+    await expect(page.getByRole("alert").filter({ hasText: "stubbed" })).toBeVisible();
+    await remoteRadio(page).click();
+    await expect(page.getByRole("alert").filter({ hasText: "stubbed" })).toHaveCount(0);
+  });
+});
+
+// Run with E2E_REMOTE_OFF=1: the stack then starts without REMOTE_DUELS.
+test.describe("Remote Duel with the flag off leaves no trace", () => {
+  test.skip(process.env.E2E_REMOTE_OFF !== "1", "needs a stack with REMOTE_DUELS off (E2E_REMOTE_OFF=1)");
+  test("no Play mode, no Remote Duels panel, no remote or deck requests", async ({ page, context }) => {
+    await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, BASE_URL);
+    const seen: string[] = [];
+    page.on("request", request => { const path = new URL(request.url()).pathname; if (path.startsWith("/api/remote") || path === "/api/decks") seen.push(path); });
+    await page.goto("/duels/new?type=remote");
+    await expect(page.getByRole("heading", { name: "Custom game creator" })).toBeVisible();
+    await expect(page.getByRole("radiogroup", { name: "Play mode" })).toHaveCount(0);
+    await expect(page.getByTestId("remote-setup")).toHaveCount(0);
+    await page.goto("/duels");
+    await expect(page.getByRole("heading", { name: "Duels", exact: true })).toBeVisible();
+    await expect(page.getByTestId("remote-tables-panel")).toHaveCount(0);
+    await page.waitForTimeout(6000);
+    expect(seen).toEqual([]);
+  });
+});
+
 test.describe("remote duels screen, two players on LiveKit", () => {
   test("Bob reads Alice's feed, both see it, and the other player can undo", async ({ browser }) => {
     test.setTimeout(300_000);
@@ -402,15 +513,16 @@ for (const showCardsSetFromDeck of [true,false]) test(`two browsers honor Deck p
 });
 
 
-test("create and lobby forms expose the default-on Deck publicity rule",async({page,context})=>{
+test("create screen and lobby expose the default-on Deck publicity rule",async({page,context})=>{
   const url=process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,url);
-  await page.goto("/duels/remote");
+  await page.goto("/duels/new?type=remote");
   const label="Cards Set from Deck are shown to all";
-  await expect(page.getByRole("checkbox",{name:label,exact:true})).toBeChecked();
-  await page.getByRole("checkbox",{name:label,exact:true}).uncheck();
+  // On the create screen the toggle's name also holds its small explanation, so the name is matched as a part.
+  await expect(page.getByRole("checkbox",{name:label})).toBeChecked();
+  await page.getByRole("checkbox",{name:label}).uncheck();
   await page.getByTestId("create-solo").check();
-  await page.getByTestId("create-table").click();
+  await page.getByTestId("create-room").click();
   await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
   await expect(page.getByRole("checkbox",{name:label,exact:true})).not.toBeChecked();
   await page.getByTestId("ready").click();

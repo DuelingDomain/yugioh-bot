@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -24,6 +25,9 @@ import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, SheetSelect, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./lobby.module.css";
+
+/** Loaded only when REMOTE_DUELS is on, so the plain Duels page does not carry it. */
+const RemoteTablesPanel = dynamic(() => import("@/components/remote/ui/tables-panel").then((module) => module.RemoteTablesPanel));
 
 export type DuelListView = "live" | "history";
 
@@ -451,13 +455,17 @@ function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError,
 type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
 
 /** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
-export function DuelLobby({ initialView, initialScope, initialFilters, viewerId }: {
+export function DuelLobby({ initialView, initialScope, initialFilters, viewerId, remoteDuels = false, multiplayerTables = false }: {
   /** The signed-in user: the saved history search belongs to this user only. */
   viewerId?: number | string;
   /** Overrides the view in the URL. */
   initialView?: DuelListView;
   initialScope?: DuelHistoryScope;
   initialFilters?: HistoryFilters;
+  /** REMOTE_DUELS is on: show the Remote Duels section next to the live tables. */
+  remoteDuels?: boolean;
+  /** Tag and free-for-all tables are open (MULTIPLAYER_TABLES): the lede lists every table size. */
+  multiplayerTables?: boolean;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -614,7 +622,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
       <header className={styles.head}>
         <div className={styles.headText}>
           <h1 className={ui.title}>Duels</h1>
-          <p className={ui.lede}>Automated 1v1 tables.</p>
+          <p className={ui.lede}>{multiplayerTables ? "Automated tables for 1v1, Tag, 3-way and 4-way." : "Automated 1v1 tables."}</p>
         </div>
         <div className={styles.headActions}>
           <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>
@@ -711,6 +719,8 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
           <p role="status" className={ui.srOnly}>{live.text}</p>
         ) : null}
       </section>
+
+      {remoteDuels && !history ? <RemoteTablesPanel /> : null}
 
       <Modal open={closing != null} onClose={dismiss} title={copy?.title}>
         <p className="text-sm text-text-secondary">{copy?.body}</p>

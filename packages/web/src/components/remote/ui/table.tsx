@@ -19,7 +19,8 @@ import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-set
 import { setFeedbackCapture, type FeedbackSource } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import { useLayers } from "./use-layers";
-import { serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
+import { serverNow } from "./api";
+import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";

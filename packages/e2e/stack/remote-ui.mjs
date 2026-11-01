@@ -45,7 +45,7 @@ appDb.close();
 const secret = process.env.E2E_AUTH_SECRET;
 if (!secret || secret.length < 32) throw new Error("Use playwright.remote-ui.config.ts for throwaway auth");
 const env = {
-  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: "1",
+  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: process.env.E2E_REMOTE_OFF === "1" ? "" : "1",
   DUEL_DATA_DIR: engineDirectory,
   DISCORD_GUILD_ID: "900000000000000001", DOTENV_CONFIG_PATH: resolve(directory, "none.env"),
   WS_INTERNAL_SECRET: secret, WS_PORT: String(wsPort), WS_INTERNAL_PORT: String(internalPort),
