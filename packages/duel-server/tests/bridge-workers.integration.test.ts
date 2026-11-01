@@ -9,10 +9,23 @@ import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, 
 import { createBridgeService, parseDeckSuggestionQuery } from "@yugidraft/shared/services";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import { BridgeApi } from "../src/bridge-api.js";
+import { BridgeJobError } from "../src/bridge-search-jobs.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { DeckSuggestionWorkers, type BridgeScan } from "../src/deck-suggestion-workers.js";
 import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+
+// Isolation checks tolerate the same retryable read deadlines as the client under load.
+async function retryBridgeRead<T>(read: () => Promise<T>): Promise<T> {
+  for (let retries = 0; ; retries++) {
+    try { return await read(); }
+    catch (error) {
+      if (retries >= 2 || !(error instanceof BridgeJobError) || error.status !== 503
+        || error.retryAfter === undefined || error.retryAfter <= 0) throw error;
+      await new Promise(resolve => setTimeout(resolve, error.retryAfter! * 1000));
+    }
+  }
+}
 
 let bridgeCatalog: Buffer;
 let effectCatalog: Buffer;
@@ -41,7 +54,7 @@ describe("bridge scanner isolation", () => {
       await expect(workers.bridgeEngines({ engines: ["Odion"] }, "g", 1)).rejects.toMatchObject({ status: 503 });
       expect(jobs()[0]?.retiring).not.toBe(true);
       await vi.waitFor(() => expect(jobs()[0]?.reject).toBeUndefined(), { timeout: 30_000 });
-      await expect(workers.bridgeEngines({ engines: ["Odion"] }, "g")).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(retryBridgeRead(() => workers.bridgeEngines({ engines: ["Odion"] }, "g"))).resolves.toMatchObject({ engines: ["Odion"] });
       expect(jobs()[0]!.worker).toBe(scanner);
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 60_000);
@@ -74,7 +87,7 @@ describe("bridge scanner isolation", () => {
     const workers = new DeckSuggestionWorkers(db, directory);
     const pending: Promise<unknown>[] = [];
     try {
-      pending.push(workers.bridgeEngines({ engines: ["Odion"] }, "g"), workers.bridgeEngines({ engines: ["Blue-Eyes"] }, "g"));
+      pending.push(retryBridgeRead(() => workers.bridgeEngines({ engines: ["Odion"] }, "g")), retryBridgeRead(() => workers.bridgeEngines({ engines: ["Blue-Eyes"] }, "g")));
       pending.push(Promise.resolve().then(() => workers.run({
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
@@ -93,7 +106,7 @@ describe("bridge scanner isolation", () => {
     db.prepare("INSERT INTO bridge_graph VALUES(1,?,?)").run(JSON.stringify({ groups: {} }), "old");
     const actor = seedIdentity(db), workers = new DeckSuggestionWorkers(db, directory);
     const api = new BridgeApi(db, workers);
-    const call = () => api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId);
+    const call = () => retryBridgeRead(() => api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId));
     try {
       await expect(call()).rejects.toMatchObject({ status: 503, message: "Bridge data is unavailable" });
       importCardEffectArtifact(db); importBridgeArtifact(db);
@@ -116,7 +129,10 @@ describe("bridge scanner isolation", () => {
       verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line: evidence.cards.map(card => card.name), format_ok: true,
     }));
     const workers = new DeckSuggestionWorkers(db, directory), api = new BridgeApi(db, workers);
-    const call = (engines: string[]) => api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", actor.playerId) as Promise<{ next: { engine: string }[] }>;
+    const call = (engines: string[]) => retryBridgeRead(() => {
+      ticks = 0;
+      return api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", actor.playerId) as Promise<{ next: { engine: string }[] }>;
+    });
     let ticks = 0;
     const timer = setInterval(() => { ticks++; }, 2);
     try {
@@ -153,8 +169,10 @@ describe("bridge scanner isolation", () => {
           .get(started.jobId) as { n: number; bytes: number };
         expect(stored.n).toBeGreaterThan(100);
         expect(stored.bytes).toBeLessThan(JSON.stringify(service.engineRows(selected, "advanced")).length / 4);
-        ticks = 0;
-        const status = await deep.handle({ userId: actor.userId, bridgeRequest: { op: "status", jobId: started.jobId } }, "g", actor.playerId);
+        const status = await retryBridgeRead(() => {
+          ticks = 0;
+          return deep.handle({ userId: actor.userId, bridgeRequest: { op: "status", jobId: started.jobId } }, "g", actor.playerId);
+        });
         expect(status).toMatchObject({ state: "done" });
         expect(ticks).toBeGreaterThan(5);
         // An already completed job from the previous build can still contain
@@ -164,9 +182,9 @@ describe("bridge scanner isolation", () => {
         const legacyWorkers = new DeckSuggestionWorkers(db, directory);
         const parse = vi.spyOn(JSON, "parse");
         try {
-          expect(await legacyWorkers.bridgeEngineProjection({ jobId: started.jobId }, {
+          expect(await retryBridgeRead(() => legacyWorkers.bridgeEngineProjection({ jobId: started.jobId }, {
             source: selected[0]!, engines: selected, format: "advanced",
-          })).toMatchObject({ engines: selected });
+          }))).toMatchObject({ engines: selected });
           expect(parse.mock.calls.some(([value]) => value === legacyJson)).toBe(false);
         } finally { parse.mockRestore(); await legacyWorkers.close(); }
       } finally { await deep.jobs.close(); }
@@ -189,7 +207,7 @@ describe("bridge scanner isolation", () => {
       const second = workers.bridgeCandidates({ ...scan, source: "Blue-Eyes" });
       const genesys = workers.bridgeCandidates({ ...scan, format: "genesys" });
       expect(jobs()).toHaveLength(1);
-      const interactive = workers.bridgeEngines({ engines: ["Odion"] }, "g");
+      const interactive = retryBridgeRead(() => workers.bridgeEngines({ engines: ["Odion"] }, "g"));
       const suggestions = workers.run({
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
@@ -223,7 +241,7 @@ describe("bridge scanner isolation", () => {
         const scanner = jobs[0]!.worker;
         // The caller deadline stays short, but the cold scan may finish warming.
         await vi.waitFor(() => expect(jobs[0]?.reject).toBeUndefined(), { timeout: 30_000 });
-        await expect(cold.bridgeEngines({ engines: ["Odion"] }, "g")).resolves.toMatchObject({ engines: ["Odion"] });
+        await expect(retryBridgeRead(() => cold.bridgeEngines({ engines: ["Odion"] }, "g"))).resolves.toMatchObject({ engines: ["Odion"] });
         expect(jobs[0]!.worker).toBe(scanner);
       } finally { await cold.close(); }
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
