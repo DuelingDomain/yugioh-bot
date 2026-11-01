@@ -2,7 +2,9 @@
 import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } from './runtime';
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline } from './pipeline';
-import { emptyLearning, indexVersion, type LearningSnapshot } from './learning';
+import { indexVersion, type LearningSnapshot } from './learning';
+import { LearningCache } from './learning-cache';
+import { filterPhysicalIndex } from './physical-index';
 import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
 import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, PeekOptions, ReadAllOptions } from './types';
@@ -10,7 +12,8 @@ import type { RGBAImage } from './pixels';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
 let sessions: ModelSession[] = [];
-let refreshLearning:()=>Promise<void>=async()=>{};
+let learningCache:LearningCache|undefined;
+let learningTimer:ReturnType<typeof setInterval>|undefined;
 async function checkedJson(url: string): Promise<IndexMeta> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Cannot load ${url}: HTTP ${response.status}. Build the index first.`);
@@ -22,7 +25,8 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     validateIndexProfile(meta, profile);
     const response = await fetch(profile.indexUrl);
     if (!response.ok) throw new Error(`Cannot load index: HTTP ${response.status}`);
-    const index = decodeIndex(await response.arrayBuffer(), meta);
+    const decoded=decodeIndex(await response.arrayBuffer(),meta);
+    const index=profile.id==='yugioh'?filterPhysicalIndex(decoded):decoded;
     // Sequential session creation avoids simultaneous WASM runtime initialization.
     const detector = await createModelSession(profile.detector.url, profile.detector.sha256, backend, runtimeBase); sessions.push(detector);
     const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase); sessions.push(embedder);
@@ -34,22 +38,23 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
         validateIndexProfile(fullMeta,fullArtProfile(profile));
         const binary=await fetch(profile.fullArtIndex.indexUrl);
         if(!binary.ok) throw new Error('Cannot load full-art index');
-        fullArtIndex=decodeIndex(await binary.arrayBuffer(),fullMeta);
+        const decoded=decodeIndex(await binary.arrayBuffer(),fullMeta);fullArtIndex=profile.id==='yugioh'?filterPhysicalIndex(decoded):decoded;
       } else if(reply.status!==404) throw new Error('Cannot load full-art metadata');
     }
     pipeline = new RecognitionPipeline(profile, index, detector, embedder, Tensor, fullArtIndex);
-    refreshLearning=async()=>{
-      // Fail closed: a failed refresh cannot resurrect deleted/rejected references.
-      pipeline!.setLearning(emptyLearning());
-      try {
-        const response=await fetch('/api/remote-vision/learning',{cache:'no-store',signal:AbortSignal.timeout(1500)});
-        if(!response.ok)return;
-        const raw=await response.json();
-        const compatible=(r:any)=>[index,fullArtIndex].some(i=>i && r.gameId===profile.id && r.modelId===profile.embedding.id && r.modelSha256===profile.embedding.sha256 && r.layoutKey===i.meta.layoutKey && r.indexVersion===indexVersion(i.meta) && r.space===(i===fullArtIndex?'whole-card':'art-box'));
-        const value:LearningSnapshot={version:String(raw.version),references:raw.references.filter(compatible).slice(0,512).map((r:any)=>({cardId:r.chosenCardId,embedding:r.embedding,space:r.space})),confusions:raw.confusions.filter(compatible).slice(0,256)};
-        pipeline!.setLearning(value);
-      }catch{/* Local recognition remains available without collection or a session. */}
-    };
+    clearInterval(learningTimer);
+    learningCache=new LearningCache(async()=>{
+      const response=await fetch('/api/remote-vision/learning',{cache:'no-store',signal:AbortSignal.timeout(1500)});
+      if(!response.ok)throw new Error('Learning unavailable');
+      const raw=await response.json();
+      if(!raw || !Array.isArray(raw.references) || !Array.isArray(raw.confusions))throw new Error('Invalid learning snapshot');
+      const compatible=(r:any)=>r && [index,fullArtIndex].some(i=>i && r.gameId===profile.id && r.modelId===profile.embedding.id && r.modelSha256===profile.embedding.sha256 && r.layoutKey===i.meta.layoutKey && r.indexVersion===indexVersion(i.meta) && r.space===(i===fullArtIndex?'whole-card':'art-box'));
+      const value:LearningSnapshot={version:String(raw.version),references:raw.references.filter((r:any)=>compatible(r) && typeof r.chosenCardId==='string' && Array.isArray(r.embedding) && r.embedding.length===index.meta.dim && r.embedding.every(Number.isFinite)).slice(0,512).map((r:any)=>({cardId:r.chosenCardId,embedding:r.embedding,space:r.space})),confusions:raw.confusions.filter((r:any)=>compatible(r) && typeof r.a==='string' && typeof r.b==='string').slice(0,256)};
+      return value;
+    });
+    void learningCache.refresh();
+    learningTimer=setInterval(()=>{void learningCache?.refresh();},60_000);
+
   } catch (error) {
     await Promise.allSettled(sessions.map(s => s.release())); sessions = []; throw error;
   }
@@ -66,6 +71,18 @@ function pixels(frame: ImageBitmap | ImageData): RGBAImage {
   }
   return frame;
 }
+async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string|undefined> {
+  const canvas=new OffscreenCanvas(image.width,image.height),ctx=canvas.getContext('2d')!;
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(image.data),image.width,image.height),0,0);
+  const output=new OffscreenCanvas(width,Math.round(width*image.height/image.width));
+  output.getContext('2d')!.drawImage(canvas,0,0,output.width,output.height);
+  for(const quality of [width>224?.88:.72,.6,.4,.2]) {
+    const bytes=new Uint8Array(await (await output.convertToBlob({type:'image/jpeg',quality})).arrayBuffer());
+    if(bytes.length>maxBytes)continue;
+    let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);
+    return btoa(binary);
+  }
+}
 type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
@@ -76,7 +93,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
       if (message.type === 'init') { await initialize(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null }); }
       else {
         if (!pipeline) throw new Error('Recognizer has not initialized');
-        if(message.type!=='detect') await refreshLearning();
+        if(message.type!=='detect' && learningCache)pipeline.setLearning(learningCache.current());
         if(message.type==='detect') { scope.postMessage({id:message.id,result:await pipeline.detectCards(pixels(message.frame))});return; }
         if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline.peek(pixels(message.frame),message.opts)});return;}
         if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline.readAll(pixels(message.frame),message.opts)});return;}
@@ -84,16 +101,9 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }
         const result = await pipeline.recognize(images, message.opts);
-        const {warpedCard,...publicResult}=result;
-        if(warpedCard) {
-          const canvas=new OffscreenCanvas(warpedCard.width,warpedCard.height),ctx=canvas.getContext('2d')!;
-          ctx.putImageData(new ImageData(new Uint8ClampedArray(warpedCard.data),warpedCard.width,warpedCard.height),0,0);
-          const small=new OffscreenCanvas(224,Math.round(224*warpedCard.height/warpedCard.width));
-          small.getContext('2d')!.drawImage(canvas,0,0,small.width,small.height);
-          const bytes=new Uint8Array(await (await small.convertToBlob({type:'image/jpeg',quality:.72})).arrayBuffer());
-          let binary=''; for(const byte of bytes) binary+=String.fromCharCode(byte);
-          publicResult.cropJpeg=btoa(binary);
-        }
+        const {warpedCard,aiWarpedCard,...publicResult}=result;
+        if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
+        if(aiWarpedCard) publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
         scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }

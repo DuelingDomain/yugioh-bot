@@ -95,8 +95,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');
       if(result.tier==='sure' && !options.explicitRequest) throw new Error('AI requires uncertainty or an explicit request');
-      if(!result.cropJpeg) throw new Error('Recognize with includeCrop to ask AI');
-      const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:result.cropJpeg,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
+      if(!result.aiCropJpeg) throw new Error('Recognize with includeCrop to ask AI');
+      const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:result.aiCropJpeg,candidateNames:result.aiCandidateNames,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
       if(!response.ok) throw new Error(response.status===404?'AI reading is disabled or requires owner access':response.status===429?'AI rate limit reached':response.status===504?'AI reading timed out':'AI reading unavailable');
       return response.json() as Promise<AIReading>;
     },

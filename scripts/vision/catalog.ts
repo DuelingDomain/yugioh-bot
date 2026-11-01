@@ -1,16 +1,18 @@
-/** Yu-Gi-Oh catalog adapter; full coverage includes Tokens, Skills and every alternate image. */
+/** Yu-Gi-Oh catalog adapter; physical coverage retains field Tokens and alternate images, excluding Skills and nonphysical records. */
 export type CatalogCard = {
   id: number; name: string; frameType: string; type: string;
   views: number; date: string; sets: string[];
   images: { id: number; cropped: string; full: string }[];
 };
 
-export const CATALOG_VERSION = 2;
+export const CATALOG_VERSION = 3;
 export function catalogCards(parsed: any): CatalogCard[] {
   const rows = Array.isArray(parsed) ? parsed : parsed.data;
   if (!Array.isArray(rows) || !rows.length) throw new Error('Catalog has no cards');
   return rows.flatMap((row: any) => {
     if (!Number.isSafeInteger(row.id) || row.id < 1 || typeof row.name !== 'string' || !Array.isArray(row.card_images)) return [];
+    if(/skill/i.test(row.type??'') || /skill/i.test(row.frameType??''))return [];
+    if(row.type!=='Token' && row.id>99_999_999 && !row.card_images.some((im:any)=>Number.isSafeInteger(im.id)&&im.id>0&&im.id<=99_999_999))return [];
     // Only the unnamed upstream placeholder lacks a usable card identity.
     if (row.name === '???') return [];
     const images = row.card_images.filter((im: any) => Number.isSafeInteger(im.id ?? row.id) && im.image_url)
