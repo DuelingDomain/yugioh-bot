@@ -58,3 +58,24 @@ it('rejects invalid image/vector/metadata before writing and keeps ownership del
   expect(s.deleteForUser(1)).toBe(1);expect(s.summary().samples[0].userId).toBe(2);
   expect(s.learning().references).toHaveLength(0);
 });
+it('exports only approved labelled crops and gates metric or dataset regressions',async()=>{
+  const {exportApprovedFeedback,regressionFailures}=await import('../../../../scripts/vision/feedback.js');
+  const s=service();s.setPreference(1,true);const sampleId=(await s.record(1,sample())).id;
+  const empty=await exportApprovedFeedback(s,join(directory,'empty-export'),[{cardId:'B'}]);expect(empty.approved).toBe(0);
+  s.review(sampleId,'approved',2);const out=join(directory,'approved-export');expect((await exportApprovedFeedback(s,out,[{cardId:'B'}])).approved).toBe(1);
+  const {readFileSync}=await import('node:fs');const list=JSON.parse(readFileSync(join(out,'list.json'),'utf8'));
+  expect(list.pos[0]).toMatchObject({anchor:0,w:1,kind:'labeled'});expect(list.neg).toEqual([]);
+  const baseline={datasetHash:'same',metrics:{total:2,top1:2,top5:2,sure:2,sureWrong:0,errors:0}};
+  expect(regressionFailures(baseline,baseline)).toEqual([]);
+  expect(regressionFailures(baseline,{...baseline,metrics:{...baseline.metrics,top1:1,sureWrong:1}})).toEqual(['Top-1 decreased','Sure-but-wrong increased']);
+  expect(regressionFailures(baseline,{...baseline,datasetHash:'changed'})).toHaveLength(1);
+});
+it.each(['removed','anonymised'])('account deletion clears feedback rows and crops when the account is %s',async(mode)=>{
+  const {deleteUserAccount}=await import('../../src/services/account-deletion.js');
+  const s=service();s.setPreference(1,true);await s.record(1,sample());vi.stubEnv('DATA_DIR',directory);
+  if(mode==='anonymised')db.exec(`insert into players(id,guild_id,user_id,display_name) values(1,'g',1,'A'),(2,'g',2,'B');insert into matches(guild_id,player_one_id,player_two_id,winner_id,reporter_id,status,source) values('g',1,2,1,1,'confirmed','manual')`);
+  db.exec("create trigger reject_delete before insert on product_events when new.name='$delete_person' begin select raise(abort,'test rollback');end");
+  expect(()=>deleteUserAccount(db,1)).toThrow('test rollback');expect(readdirSync(join(directory,'vision-feedback'))).toHaveLength(1);expect(s.allSamples()).toHaveLength(1);
+  db.exec('drop trigger reject_delete');expect(deleteUserAccount(db,1).mode).toBe(mode);
+  expect(s.allSamples()).toHaveLength(0);expect(readdirSync(join(directory,'vision-feedback'))).toHaveLength(0);expect(s.preference(1).enabled).toBe(false);
+});
