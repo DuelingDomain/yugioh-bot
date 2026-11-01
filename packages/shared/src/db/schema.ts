@@ -5,6 +5,7 @@ import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { migrateCubeOwnerNames } from "./cube-owner-names.js";
+import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
@@ -1463,6 +1464,9 @@ export function migrate(db: Database.Database) {
   // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
   addColumnIfMissing(db, "users", "image_url", "text");
   migrateCreatorAccess(db);
+  migrateRemoteDuels(db);
+
+  migrateVisionFeedback(db);
   db.exec(`
     create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
     create table if not exists worker_heartbeat (
@@ -1787,9 +1791,76 @@ function migrateCreatorAccess(db: Database.Database) {
     create index if not exists creator_grants_creator_idx on creator_grants(creator_id, status);
     create index if not exists creator_grants_user_idx on creator_grants(user_id) where user_id is not null;
   `);
+  // Additive and nullable: existing production links remain unlocked.
+  addColumnIfMissing(db, "creator_links", "locked_email_key", "text");
+  addColumnIfMissing(db, "creator_links", "locked_email", "text");
   addColumnIfMissing(db, "users", "heard_from", "text");
   addColumnIfMissing(db, "users", "heard_from_detail", "text");
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
   addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
   addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
+}
+
+function migrateRemoteDuels(db: Database.Database) {
+  // Independent from engine duels: remote calls never count as deploy-blocking activity.
+  db.exec(`
+    create table if not exists remote_tables (
+      id integer primary key autoincrement,
+      slug text not null unique,
+      guild_id text not null,
+      game_id text not null,
+      seat_count integer not null check (seat_count in (2,3,4)),
+      status text not null check (status in ('lobby','active','ended')),
+      created_by integer not null references users(id),
+      state_json text not null,
+      last_seq integer not null default 0,
+      created_at integer not null,
+      started_at integer,
+      ended_at integer,
+      last_event_at integer not null,
+      idle_warning_at integer,
+      end_reason text
+    );
+    create index if not exists remote_tables_guild_status_idx on remote_tables(guild_id,status);
+    create index if not exists remote_tables_idle_idx on remote_tables(last_event_at) where status != 'ended';
+    create table if not exists remote_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 0 and 3),
+      user_id integer not null references users(id),
+      display_name text not null,
+      ready integer not null default 0 check (ready in (0,1)),
+      primary key (table_id,seat), unique (table_id,user_id)
+    );
+    create index if not exists remote_seats_user_idx on remote_seats(user_id,table_id);
+    -- Keep existing human-seat rows and their NOT NULL user FK intact.
+    create table if not exists remote_bot_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 1 and 3),
+      display_name text not null,
+      primary key (table_id,seat)
+    );
+    create table if not exists remote_events (
+      id integer primary key autoincrement,
+      table_id integer not null references remote_tables(id),
+      seq integer not null,
+      idempotency_key text not null,
+      actor_seat integer check (actor_seat between 0 and 3),
+      user_id integer references users(id),
+      action_json text not null,
+      created_at integer not null,
+      unique (table_id,seq), unique (table_id,idempotency_key)
+    );
+    create trigger if not exists remote_events_no_update before update on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+    create trigger if not exists remote_events_no_delete before delete on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+  `);
+  addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
+  addColumnIfMissing(db, "remote_tables", "format_json", "text");
+  for (const table of ["remote_seats", "remote_bot_seats"]) {
+    addColumnIfMissing(db, table, "saved_deck_id", "integer");
+    addColumnIfMissing(db, table, "deck_json", "text");
+  }
+  addColumnIfMissing(db, "remote_events", "effects_json", "text");
+  addColumnIfMissing(db, "remote_events", "messages_json", "text");
 }

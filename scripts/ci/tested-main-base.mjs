@@ -12,10 +12,11 @@ export function testedMainBase(runs, head, isAncestor) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let base = '';
   try {
-    const data = JSON.parse(execFileSync('gh', ['api', '--method', 'GET',
+    const runs = JSON.parse(execFileSync('gh', ['api', '--method', 'GET',
       `repos/${process.env.GITHUB_REPOSITORY}/actions/workflows/test.yml/runs`,
-      '-f', 'branch=main', '-f', 'event=push', '-f', 'status=success', '-f', 'per_page=100'], { encoding: 'utf8' }));
-    base = testedMainBase(data.workflow_runs, process.env.GITHUB_SHA, sha =>
+      '-f', 'branch=main', '-f', 'event=push', '-f', 'status=success', '-f', 'per_page=100',
+      '--jq', '[.workflow_runs[] | {head_sha, event, head_branch, conclusion}]'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
+    base = testedMainBase(runs, process.env.GITHUB_SHA, sha =>
       spawnSync('git', ['merge-base', '--is-ancestor', sha, process.env.GITHUB_SHA]).status === 0);
   } catch (error) {
     console.warn(`Cannot resolve a tested main ancestor; all engine suites will run. ${error.message}`);

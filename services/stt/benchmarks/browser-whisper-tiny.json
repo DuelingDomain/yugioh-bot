@@ -1,0 +1,1367 @@
+{
+  "model": "Whisper tiny.en int8",
+  "repository": "onnx-community/whisper-tiny.en",
+  "revision": "2575352d61be1bf7225cf8f8b268a4678025fc58",
+  "modelDirectory": "browser-whisper-tiny.en",
+  "runtime": {
+    "transformersJs": "4.3.2",
+    "onnxruntimeWeb": "1.31.0-dev.20260914-8d85527a0",
+    "playwright": "1.61.1"
+  },
+  "measuredAt": "2026-11-01T03:00:18.119Z",
+  "host": {
+    "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor",
+    "logicalCpus": 8,
+    "ramGiB": 47.047061920166016,
+    "platform": "linux",
+    "release": "6.6.87.2-microsoft-standard-WSL2",
+    "node": "v22.23.3"
+  },
+  "manifestSha256": "91c47b3cc84ace8624de878d41e535815dbc0fc8ffd342d55ca536b781b400bb",
+  "notes": [
+    "Fresh browser/context for each mode; no-store loopback static server; OS file cache not flushed.",
+    "Cold load includes local model/runtime transfer and session setup; excludes internet download.",
+    "Release latency includes PCM assembly, worker messaging, features, ASR and full-catalog JS matcher; no pacing, VAD, microphone or network RTT.",
+    "RSS sampled every 100 ms across Chrome descendant processes; shared pages counted per process. GPU VRAM is not measured."
+  ],
+  "runs": [
+    {
+      "mode": "wasm",
+      "flags": [
+        "--disable-webgpu"
+      ],
+      "browser": "153.0.8010.12",
+      "console": [
+        "No available adapters."
+      ],
+      "baselineRssMiB": 931.5546875,
+      "capabilities": {
+        "crossOriginIsolated": true,
+        "hardwareConcurrency": 8,
+        "gpuApi": true,
+        "adapter": null
+      },
+      "load": {
+        "model": "whisper-tiny.en-int8",
+        "backend": "wasm",
+        "threads": 4,
+        "crossOriginIsolated": true,
+        "requestedEncoderProvider": "wasm",
+        "decoderProvider": "wasm",
+        "loadMs": 1310.4350000023842,
+        "sessionMs": 1253.3149999976158,
+        "catalogCount": 14422
+      },
+      "coldPageToReadyMs": 1457.045857,
+      "loadedRssMiB": 1471.7578125,
+      "coldTransfers": [
+        {
+          "path": "/",
+          "bytes": 437
+        },
+        {
+          "path": "/index.js",
+          "bytes": 2775
+        },
+        {
+          "path": "/matcher.js",
+          "bytes": 13889
+        },
+        {
+          "path": "/worker-tiny.js",
+          "bytes": 566208
+        },
+        {
+          "path": "/models-tiny/cards.json",
+          "bytes": 792847
+        },
+        {
+          "path": "/models-tiny/config.json",
+          "bytes": 2197
+        },
+        {
+          "path": "/models-tiny/tokenizer_config.json",
+          "bytes": 282662
+        },
+        {
+          "path": "/models-tiny/preprocessor_config.json",
+          "bytes": 339
+        },
+        {
+          "path": "/models-tiny/config.json",
+          "bytes": 2197
+        },
+        {
+          "path": "/models-tiny/preprocessor_config.json",
+          "bytes": 339
+        },
+        {
+          "path": "/models-tiny/tokenizer_config.json",
+          "bytes": 282662
+        },
+        {
+          "path": "/models-tiny/onnx/encoder_model_quantized.onnx",
+          "bytes": 10124993
+        },
+        {
+          "path": "/models-tiny/tokenizer.json",
+          "bytes": 2405679
+        },
+        {
+          "path": "/models-tiny/onnx/decoder_model_merged_quantized.onnx",
+          "bytes": 30718858
+        },
+        {
+          "path": "/models-tiny/generation_config.json",
+          "bytes": 1646
+        },
+        {
+          "path": "/models-tiny/preprocessor_config.json",
+          "bytes": 339
+        },
+        {
+          "path": "/ort-tiny/ort-wasm-simd-threaded.asyncify.mjs",
+          "bytes": 53057
+        },
+        {
+          "path": "/ort-tiny/ort-wasm-simd-threaded.asyncify.mjs",
+          "bytes": 53057
+        },
+        {
+          "path": "/ort-tiny/ort-wasm-simd-threaded.asyncify.wasm",
+          "bytes": 26861777
+        },
+        {
+          "path": "/ort-tiny/ort-wasm-simd-threaded.asyncify.mjs",
+          "bytes": 53057
+        },
+        {
+          "path": "/ort-tiny/ort-wasm-simd-threaded.asyncify.mjs",
+          "bytes": 53057
+        }
+      ],
+      "firstInference": {
+        "text": "Blue eyes white dragon attack star commision.",
+        "normalizedText": "Blue-Eyes White Dragon attack star commision.",
+        "cardMatches": [
+          {
+            "name": "Blue-Eyes White Dragon",
+            "passcode": 89631139,
+            "score": 1,
+            "span": [
+              0,
+              22
+            ]
+          }
+        ],
+        "transcript": "Blue eyes white dragon attack star commision.",
+        "model": "whisper-tiny.en-int8",
+        "backend": "wasm",
+        "durationMs": 2623.875,
+        "speechDetected": true,
+        "decodeMs": 632.179999999702,
+        "matchMs": 86.7800000011921,
+        "processingMs": 724.859999999404
+      },
+      "probes": {
+        "1": {
+          "reference": "end turn",
+          "runs": [
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 360.2399999946356,
+              "matchMs": 0.0950000062584877,
+              "processingMs": 360.5600000023842
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 336.6599999964237,
+              "matchMs": 0.054999999701976776,
+              "processingMs": 339.22999999672174
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 340.2550000026822,
+              "matchMs": 0.06499999761581421,
+              "processingMs": 340.7449999973178
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 327.320000000298,
+              "matchMs": 0.04500000178813934,
+              "processingMs": 327.58500000089407
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 361.47999999672174,
+              "matchMs": 0.09000000357627869,
+              "processingMs": 361.91499999910593
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 440.47999999672174,
+              "matchMs": 0.05000000447034836,
+              "processingMs": 440.96000000089407
+            },
+            {
+              "text": "Intern",
+              "normalizedText": "Intern",
+              "cardMatches": [],
+              "transcript": "Intern",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 1000,
+              "speechDetected": true,
+              "decodeMs": 399.39000000059605,
+              "matchMs": 0.04999999701976776,
+              "processingMs": 399.8399999961257
+            }
+          ],
+          "releaseP50Ms": 360.5600000023842,
+          "releaseP95Ms": 428.62399999946354,
+          "decodeP50Ms": 360.2399999946356,
+          "matcherP50Ms": 0.054999999701976776
+        },
+        "3": {
+          "reference": "moving to standby phase",
+          "runs": [
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 489.375,
+              "matchMs": 1.8999999985098839,
+              "processingMs": 491.82999999821186
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 428.14000000059605,
+              "matchMs": 1.6900000050663948,
+              "processingMs": 430.0900000035763
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 407.8500000014901,
+              "matchMs": 1.8900000005960464,
+              "processingMs": 413.3699999973178
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 643.6550000011921,
+              "matchMs": 3.9849999994039536,
+              "processingMs": 656.0799999982119
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 568.3000000044703,
+              "matchMs": 3.0749999955296516,
+              "processingMs": 574.9249999970198
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 395.429999999702,
+              "matchMs": 1.7749999985098839,
+              "processingMs": 398.1600000038743
+            },
+            {
+              "text": "Moving to stand by phase.",
+              "normalizedText": "Moving to stand by phase.",
+              "cardMatches": [],
+              "transcript": "Moving to stand by phase.",
+              "model": "whisper-tiny.en-int8",
+              "backend": "wasm",
+              "durationMs": 3000,
+              "speechDetected": true,
+              "decodeMs": 393.554999999702,
+              "matchMs": 2.4300000071525574,
+              "processingMs": 398.2550000026822
+            }
+          ],
+          "releaseP50Ms": 430.0900000035763,
+          "releaseP95Ms": 631.7334999978542,
+          "decodeP50Ms": 428.14000000059605,
+          "matcherP50Ms": 1.8999999985098839
+        }
+      },
+      "clips": [
+        {
+          "file": "00-00.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "Blue-Eyes White Dragon attacks Dark Magician",
+          "duration": 2.623875,
+          "sha256": "59b22340a7e8fd844ce6be91a387e6a5c1cb53e7067a5fd8529ab354e10d9cd9",
+          "text": "Blue eyes white dragon attack star commision.",
+          "normalizedText": "Blue-Eyes White Dragon attack star commision.",
+          "cardMatches": [
+            {
+              "name": "Blue-Eyes White Dragon",
+              "passcode": 89631139,
+              "score": 1,
+              "span": [
+                0,
+                22
+              ]
+            }
+          ],
+          "transcript": "Blue eyes white dragon attack star commision.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2623.875,
+          "speechDetected": true,
+          "decodeMs": 394.07999999821186,
+          "matchMs": 73.98499999940395,
+          "processingMs": 468.3400000035763
+        },
+        {
+          "file": "00-01.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "moving to standby phase",
+          "duration": 1.857625,
+          "sha256": "852e58ead623b9ed0f736880034e0df422cc42e29484a476e76863717517ba97",
+          "text": "Moving to stand by phase.",
+          "normalizedText": "Moving to stand by phase.",
+          "cardMatches": [],
+          "transcript": "Moving to stand by phase.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1857.625,
+          "speechDetected": true,
+          "decodeMs": 482.4399999976158,
+          "matchMs": 2,
+          "processingMs": 484.679999999702
+        },
+        {
+          "file": "00-02.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Ash Blossom and Joyous Spring",
+          "duration": 2.8560625,
+          "sha256": "4c71d26ae240064abadbacf7378c824bb55f3b5423f432d67ebb5b81511b294a",
+          "text": "I activate Ash Blossom and Joyous Spring.",
+          "normalizedText": "I activate Ash Blossom & Joyous Spring.",
+          "cardMatches": [
+            {
+              "name": "Ash Blossom & Joyous Spring",
+              "passcode": 14558127,
+              "score": 1,
+              "span": [
+                11,
+                40
+              ]
+            }
+          ],
+          "transcript": "I activate Ash Blossom and Joyous Spring.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2856.0625,
+          "speechDetected": true,
+          "decodeMs": 663.1199999973178,
+          "matchMs": 155.82500000298023,
+          "processingMs": 819.2550000026822
+        },
+        {
+          "file": "00-03.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "take 2400 damage",
+          "duration": 2.043375,
+          "sha256": "4ff0832320e46c750d2b62d678f863e82184ac2d0a71c5d353d79c4d0230e89e",
+          "text": "Take 2,400 damage.",
+          "normalizedText": "Take 2,400 damage.",
+          "cardMatches": [],
+          "transcript": "Take 2,400 damage.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2043.375,
+          "speechDetected": true,
+          "decodeMs": 391.679999999702,
+          "matchMs": 0.255000002682209,
+          "processingMs": 392.2300000041723
+        },
+        {
+          "file": "00-04.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "Imran attack directly",
+          "duration": 1.5209375,
+          "sha256": "6005566cc77d9c7e0016b57bc3dec821f2efc14dd4bcd9a720b1aa3aef77278f",
+          "text": "In Ren attack directly.",
+          "normalizedText": "In Ren attack directly.",
+          "cardMatches": [],
+          "transcript": "In Ren attack directly.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1520.9375,
+          "speechDetected": true,
+          "decodeMs": 421.07500000298023,
+          "matchMs": 0.5700000002980232,
+          "processingMs": 421.875
+        },
+        {
+          "file": "00-05.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Dark Magician",
+          "duration": 1.4860625,
+          "sha256": "b69fcca446419094c04632ea00ba689445f150c18dd0718133841049e980d8ed",
+          "text": "I summon dark magician.",
+          "normalizedText": "I summon Dark Magician.",
+          "cardMatches": [
+            {
+              "name": "Dark Magician",
+              "passcode": 46986414,
+              "score": 1,
+              "span": [
+                9,
+                22
+              ]
+            }
+          ],
+          "transcript": "I summon dark magician.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1486.0625,
+          "speechDetected": true,
+          "decodeMs": 495.0600000023842,
+          "matchMs": 8.729999996721745,
+          "processingMs": 504
+        },
+        {
+          "file": "00-06.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Infinite Impermanence",
+          "duration": 2.043375,
+          "sha256": "fd810291e9216bd659335b99dc4337237d7fa6d21ecbec00a67fc19b52729220",
+          "text": "I activate infinite impermanence.",
+          "normalizedText": "I activate Infinite Impermanence.",
+          "cardMatches": [
+            {
+              "name": "Infinite Impermanence",
+              "passcode": 10045474,
+              "score": 1,
+              "span": [
+                11,
+                32
+              ]
+            }
+          ],
+          "transcript": "I activate infinite impermanence.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2043.375,
+          "speechDetected": true,
+          "decodeMs": 416.1000000014901,
+          "matchMs": 23.684999994933605,
+          "processingMs": 440.25999999791384
+        },
+        {
+          "file": "00-07.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Called by the Grave",
+          "duration": 2.1826875,
+          "sha256": "d0be9247b669b1dcd5a833a9e7634ecaaeab6019f179b9d36d5bd1b696b0376f",
+          "text": "I activate, called, by the grave.",
+          "normalizedText": "I activate, Called by the Grave.",
+          "cardMatches": [
+            {
+              "name": "Called by the Grave",
+              "passcode": 24224830,
+              "score": 1,
+              "span": [
+                12,
+                32
+              ]
+            }
+          ],
+          "transcript": "I activate, called, by the grave.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2182.6875,
+          "speechDetected": true,
+          "decodeMs": 414.8449999988079,
+          "matchMs": 35.92499999701977,
+          "processingMs": 451.00999999791384
+        },
+        {
+          "file": "00-08.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Nibiru the Primal Being",
+          "duration": 2.0085,
+          "sha256": "0880485567797cb09bebebd27f0bfb5ae783befe57e5f0f1fc4892b8d372b2e8",
+          "text": "I summon Nibiru the primal being.",
+          "normalizedText": "I summon Nibiru, the Primal Being.",
+          "cardMatches": [
+            {
+              "name": "Nibiru, the Primal Being",
+              "passcode": 27204311,
+              "score": 1,
+              "span": [
+                9,
+                32
+              ]
+            }
+          ],
+          "transcript": "I summon Nibiru the primal being.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2008.5,
+          "speechDetected": true,
+          "decodeMs": 444.5300000011921,
+          "matchMs": 41.939999997615814,
+          "processingMs": 486.75
+        },
+        {
+          "file": "00-09.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I discard Effect Veiler",
+          "duration": 1.55575,
+          "sha256": "7cec900c02a65c80a682221191200c69e119cc22dec5abdbc58b2c93df53fcc2",
+          "text": "by discard effect failure.",
+          "normalizedText": "by discard Effect Veiler.",
+          "cardMatches": [
+            {
+              "name": "Effect Veiler",
+              "passcode": 97268402,
+              "score": 0.88,
+              "span": [
+                11,
+                25
+              ]
+            }
+          ],
+          "transcript": "by discard effect failure.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1555.75,
+          "speechDetected": true,
+          "decodeMs": 361.16499999910593,
+          "matchMs": 12.344999998807907,
+          "processingMs": 373.75999999791384
+        },
+        {
+          "file": "00-10.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Red-Eyes Black Dragon",
+          "duration": 2.13625,
+          "sha256": "3a6dfccb3337d5aaf5fe20013ced0ec673ab58d00538a223f07ab59521be0b17",
+          "text": "I summon Red Eyes Black Dragon.",
+          "normalizedText": "I summon Red-Eyes Black Dragon.",
+          "cardMatches": [
+            {
+              "name": "Red-Eyes Black Dragon",
+              "passcode": 74677422,
+              "score": 1,
+              "span": [
+                9,
+                30
+              ]
+            }
+          ],
+          "transcript": "I summon Red Eyes Black Dragon.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2136.25,
+          "speechDetected": true,
+          "decodeMs": 387.3500000014901,
+          "matchMs": 59.74499999731779,
+          "processingMs": 447.3500000014901
+        },
+        {
+          "file": "00-11.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Monster Reborn",
+          "duration": 1.71825,
+          "sha256": "4690e425a71d3660f891dfb4d82bbe3ad4231751d01868c9a17fcdc94d8dcde2",
+          "text": "I activate Monster Reborn.",
+          "normalizedText": "I activate Monster Reborn.",
+          "cardMatches": [
+            {
+              "name": "Monster Reborn",
+              "passcode": 83764718,
+              "score": 1,
+              "span": [
+                11,
+                25
+              ]
+            }
+          ],
+          "transcript": "I activate Monster Reborn.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1718.25,
+          "speechDetected": true,
+          "decodeMs": 393.04500000178814,
+          "matchMs": 12.600000001490116,
+          "processingMs": 405.88499999791384
+        },
+        {
+          "file": "00-12.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Pot of Prosperity",
+          "duration": 2.1826875,
+          "sha256": "2e2994cf635914f8bb52ec7feb74db955b334301351bd38a80d9a95677c17a36",
+          "text": "I activate part of prosperity.",
+          "normalizedText": "I activate Pot of Prosperity.",
+          "cardMatches": [
+            {
+              "name": "Pot of Prosperity",
+              "passcode": 84211599,
+              "score": 0.9202,
+              "span": [
+                11,
+                29
+              ]
+            }
+          ],
+          "transcript": "I activate part of prosperity.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2182.6875,
+          "speechDetected": true,
+          "decodeMs": 548.5399999991059,
+          "matchMs": 27.969999998807907,
+          "processingMs": 576.7449999973178
+        },
+        {
+          "file": "00-13.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Swordsoul of Mo Ye",
+          "duration": 1.846,
+          "sha256": "aa407b01905872858693f3e33a1bbe2c271df0cd31496c799ecf15979c8d938a",
+          "text": "I summon Sword Soul of Mo Yi.",
+          "normalizedText": "I summon Swordsoul of Mo Ye.",
+          "cardMatches": [
+            {
+              "name": "Swordsoul of Mo Ye",
+              "passcode": 20001443,
+              "score": 0.9335,
+              "span": [
+                9,
+                28
+              ]
+            }
+          ],
+          "transcript": "I summon Sword Soul of Mo Yi.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1846,
+          "speechDetected": true,
+          "decodeMs": 506.46000000089407,
+          "matchMs": 73.28999999910593,
+          "processingMs": 580.1550000011921
+        },
+        {
+          "file": "00-14.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Kashtira Fenrir",
+          "duration": 1.857625,
+          "sha256": "17b1e1b68ac57eb8728c36f40a45cb4bf15512d862494908ec0b9b359f10af92",
+          "text": "I summon Castiro Fenrir.",
+          "normalizedText": "I summon Kashtira Fenrir.",
+          "cardMatches": [
+            {
+              "name": "Kashtira Fenrir",
+              "passcode": 32909498,
+              "score": 0.8361,
+              "span": [
+                9,
+                23
+              ]
+            }
+          ],
+          "transcript": "I summon Castiro Fenrir.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1857.625,
+          "speechDetected": true,
+          "decodeMs": 560.8399999961257,
+          "matchMs": 13.965000003576279,
+          "processingMs": 575.0099999979138
+        },
+        {
+          "file": "00-15.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I activate Droll and Lock Bird",
+          "duration": 1.9620625,
+          "sha256": "bf3dbde9d096d41ec849acb6cef77007571a7a299a7969622989934b381d03f2",
+          "text": "I activate drill and lock bird.",
+          "normalizedText": "I activate Droll & Lock Bird.",
+          "cardMatches": [
+            {
+              "name": "Droll & Lock Bird",
+              "passcode": 94145021,
+              "score": 0.9568,
+              "span": [
+                11,
+                30
+              ]
+            }
+          ],
+          "transcript": "I activate drill and lock bird.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1962.0625,
+          "speechDetected": true,
+          "decodeMs": 385.1850000023842,
+          "matchMs": 44.939999997615814,
+          "processingMs": 430.375
+        },
+        {
+          "file": "00-16.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "go to battle phase",
+          "duration": 1.2074375,
+          "sha256": "92ef3772cd32519476b948b20559879b7a82d5ebc2423ae596d32dbbbbe9a648",
+          "text": "Go to Battle phase.",
+          "normalizedText": "Go to Battle phase.",
+          "cardMatches": [],
+          "transcript": "Go to Battle phase.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1207.4375,
+          "speechDetected": true,
+          "decodeMs": 363.32999999821186,
+          "matchMs": 8.909999996423721,
+          "processingMs": 372.6850000023842
+        },
+        {
+          "file": "00-17.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "end my turn",
+          "duration": 0.97525,
+          "sha256": "15d39395a252296820b76e9f861b44caba0a704d13dd3bb3c2adc60554100106",
+          "text": "End my turn.",
+          "normalizedText": "End my turn.",
+          "cardMatches": [],
+          "transcript": "End my turn.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 975.25,
+          "speechDetected": true,
+          "decodeMs": 371.445000000298,
+          "matchMs": 9.769999995827675,
+          "processingMs": 381.52500000596046
+        },
+        {
+          "file": "00-18.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "take eight hundred damage",
+          "duration": 1.335125,
+          "sha256": "36c72c9cf614c070a26859cebab1e775e78c71598858bbb2b377ba075962d3be",
+          "text": "Take 800 damage.",
+          "normalizedText": "Take 800 damage.",
+          "cardMatches": [],
+          "transcript": "Take 800 damage.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1335.125,
+          "speechDetected": true,
+          "decodeMs": 560.0850000008941,
+          "matchMs": 0.0650000050663948,
+          "processingMs": 561.9949999973178
+        },
+        {
+          "file": "00-19.wav",
+          "voice": "en_US-lessac-medium",
+          "reference": "I summon Accesscode Talker",
+          "duration": 1.6950625,
+          "sha256": "f771554f4405dc1e32a5aa7f4002693f067a89df20f34e132fc9b80aab8ac480",
+          "text": "I summon Exesco Talker.",
+          "normalizedText": "I summon Exesco Talker.",
+          "cardMatches": [],
+          "transcript": "I summon Exesco Talker.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1695.0625,
+          "speechDetected": true,
+          "decodeMs": 767.125,
+          "matchMs": 9.869999997317791,
+          "processingMs": 777.3400000035763
+        },
+        {
+          "file": "01-00.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "Blue-Eyes White Dragon attacks Dark Magician",
+          "duration": 2.98375,
+          "sha256": "6b28dfaf0ece8c5df1f604e0a170e2bf06df780aa70253b328887b657b9c4d80",
+          "text": "Blue eyes white dragon attacks dark magician.",
+          "normalizedText": "Blue-Eyes White Dragon attacks Dark Magician.",
+          "cardMatches": [
+            {
+              "name": "Blue-Eyes White Dragon",
+              "passcode": 89631139,
+              "score": 1,
+              "span": [
+                0,
+                22
+              ]
+            },
+            {
+              "name": "Dark Magician",
+              "passcode": 46986414,
+              "score": 1,
+              "span": [
+                31,
+                44
+              ]
+            }
+          ],
+          "transcript": "Blue eyes white dragon attacks dark magician.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2983.75,
+          "speechDetected": true,
+          "decodeMs": 497.60999999940395,
+          "matchMs": 70.38499999791384,
+          "processingMs": 568.6500000059605
+        },
+        {
+          "file": "01-01.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "moving to standby phase",
+          "duration": 2.03175,
+          "sha256": "d73c21d5f0a0665700045b26c77da25c3f5ca2b06cb1e5ecbf2bcfcb21befecf",
+          "text": "moving to stand by phase.",
+          "normalizedText": "moving to stand by phase.",
+          "cardMatches": [],
+          "transcript": "moving to stand by phase.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2031.75,
+          "speechDetected": true,
+          "decodeMs": 394.4750000014901,
+          "matchMs": 1.6649999991059303,
+          "processingMs": 398.195000000298
+        },
+        {
+          "file": "01-02.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Ash Blossom and Joyous Spring",
+          "duration": 3.1115,
+          "sha256": "235efb75c256c3d180feba5eaa40c2d817abdb21aaa16240048cfa500681fbce",
+          "text": "I activate Ash Blossom and Joyous Spring.",
+          "normalizedText": "I activate Ash Blossom & Joyous Spring.",
+          "cardMatches": [
+            {
+              "name": "Ash Blossom & Joyous Spring",
+              "passcode": 14558127,
+              "score": 1,
+              "span": [
+                11,
+                40
+              ]
+            }
+          ],
+          "transcript": "I activate Ash Blossom and Joyous Spring.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 3111.5,
+          "speechDetected": true,
+          "decodeMs": 482.8550000041723,
+          "matchMs": 133.70499999821186,
+          "processingMs": 616.820000000298
+        },
+        {
+          "file": "01-03.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "take 2400 damage",
+          "duration": 2.61225,
+          "sha256": "d5af9c6364438fd7f160324364f385d8157c3bff1554792a77b012e529d76dbf",
+          "text": "Take 2,400 damage.",
+          "normalizedText": "Take 2,400 damage.",
+          "cardMatches": [],
+          "transcript": "Take 2,400 damage.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2612.25,
+          "speechDetected": true,
+          "decodeMs": 513.5399999991059,
+          "matchMs": 0.25999999791383743,
+          "processingMs": 514.0499999970198
+        },
+        {
+          "file": "01-04.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "Imran attack directly",
+          "duration": 1.729875,
+          "sha256": "3938eb525d78c1eec0b1168cc57e03d30c2d916f11333b7bf62e394f3259b689",
+          "text": "in RAN attack directly.",
+          "normalizedText": "in RAN attack directly.",
+          "cardMatches": [],
+          "transcript": "in RAN attack directly.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1729.875,
+          "speechDetected": true,
+          "decodeMs": 830.3950000032783,
+          "matchMs": 0.5799999982118607,
+          "processingMs": 833.4250000044703
+        },
+        {
+          "file": "01-05.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Dark Magician",
+          "duration": 1.7995625,
+          "sha256": "9e5b316ac6969bb93b3c17e7bca73de07c42e6e5128fed360a68a92ad84d5a0a",
+          "text": "I summon Dark Magician.",
+          "normalizedText": "I summon Dark Magician.",
+          "cardMatches": [
+            {
+              "name": "Dark Magician",
+              "passcode": 46986414,
+              "score": 1,
+              "span": [
+                9,
+                22
+              ]
+            }
+          ],
+          "transcript": "I summon Dark Magician.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1799.5625,
+          "speechDetected": true,
+          "decodeMs": 754.7899999991059,
+          "matchMs": 13.174999997019768,
+          "processingMs": 768.179999999702
+        },
+        {
+          "file": "01-06.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Infinite Impermanence",
+          "duration": 2.7515625,
+          "sha256": "ffea640b5fabe2721c36f38f06149452f71858260e6a7a26ecfba38f3956ceea",
+          "text": "I activate infinite impermanence.",
+          "normalizedText": "I activate Infinite Impermanence.",
+          "cardMatches": [
+            {
+              "name": "Infinite Impermanence",
+              "passcode": 10045474,
+              "score": 1,
+              "span": [
+                11,
+                32
+              ]
+            }
+          ],
+          "transcript": "I activate infinite impermanence.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2751.5625,
+          "speechDetected": true,
+          "decodeMs": 736.4900000020862,
+          "matchMs": 23.020000003278255,
+          "processingMs": 761.640000000596
+        },
+        {
+          "file": "01-07.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Called by the Grave",
+          "duration": 2.2523125,
+          "sha256": "b1159de11b47a8c2b9e8ad46f9d4e9a019e68e39afbd498bd18976d352e8a700",
+          "text": "I activate called by the grave.",
+          "normalizedText": "I activate Called by the Grave.",
+          "cardMatches": [
+            {
+              "name": "Called by the Grave",
+              "passcode": 24224830,
+              "score": 1,
+              "span": [
+                11,
+                30
+              ]
+            }
+          ],
+          "transcript": "I activate called by the grave.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2252.3125,
+          "speechDetected": true,
+          "decodeMs": 930.8299999982119,
+          "matchMs": 65.27499999850988,
+          "processingMs": 998.429999999702
+        },
+        {
+          "file": "01-08.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Nibiru the Primal Being",
+          "duration": 2.229125,
+          "sha256": "5311c36441c4747e9b1348b89215d0808a6b2ec0fc5c9c0086645ed9bd8e453c",
+          "text": "I summon Nibiru the Prime will be being.",
+          "normalizedText": "I summon Nibiru, the Primal Being the Prime will be being.",
+          "cardMatches": [
+            {
+              "name": "Nibiru, the Primal Being",
+              "passcode": 27204311,
+              "score": 1,
+              "span": [
+                9,
+                15
+              ]
+            }
+          ],
+          "transcript": "I summon Nibiru the Prime will be being.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2229.125,
+          "speechDetected": true,
+          "decodeMs": 747.1699999943376,
+          "matchMs": 151.03999999910593,
+          "processingMs": 899.2250000014901
+        },
+        {
+          "file": "01-09.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I discard Effect Veiler",
+          "duration": 1.9969375,
+          "sha256": "6c204b640c7dd13cd4282da59f0a037d4d9f7dbdcae28c427ac47efa2f836be3",
+          "text": "I discard Effect Vailer.",
+          "normalizedText": "I discard Effect Veiler.",
+          "cardMatches": [
+            {
+              "name": "Effect Veiler",
+              "passcode": 97268402,
+              "score": 0.9369,
+              "span": [
+                10,
+                23
+              ]
+            }
+          ],
+          "transcript": "I discard Effect Vailer.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1996.9375,
+          "speechDetected": true,
+          "decodeMs": 693.5900000035763,
+          "matchMs": 8.82999999821186,
+          "processingMs": 702.6899999976158
+        },
+        {
+          "file": "01-10.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Red-Eyes Black Dragon",
+          "duration": 2.2523125,
+          "sha256": "f3d5f112e7c3e5ec539d877d47e3a700d77c3fbcdfec2db8b467ae0c0adafc15",
+          "text": "I summon Red eyes Black Dragon.",
+          "normalizedText": "I summon Red-Eyes Black Dragon.",
+          "cardMatches": [
+            {
+              "name": "Red-Eyes Black Dragon",
+              "passcode": 74677422,
+              "score": 1,
+              "span": [
+                9,
+                30
+              ]
+            }
+          ],
+          "transcript": "I summon Red eyes Black Dragon.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2252.3125,
+          "speechDetected": true,
+          "decodeMs": 545.9350000023842,
+          "matchMs": 63.67499999701977,
+          "processingMs": 609.8949999958277
+        },
+        {
+          "file": "01-11.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Monster Reborn",
+          "duration": 1.9505,
+          "sha256": "acdbd11acf9409b983a7e7030b5ce3b98b24610606a749d5ff62663abf8ad8ab",
+          "text": "I activate Monster Aborn.",
+          "normalizedText": "I activate Monster Reborn.",
+          "cardMatches": [
+            {
+              "name": "Monster Reborn",
+              "passcode": 83764718,
+              "score": 0.8983,
+              "span": [
+                11,
+                24
+              ]
+            }
+          ],
+          "transcript": "I activate Monster Aborn.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1950.5,
+          "speechDetected": true,
+          "decodeMs": 492.39500000327826,
+          "matchMs": 11.755000002682209,
+          "processingMs": 507.0949999988079
+        },
+        {
+          "file": "01-12.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Pot of Prosperity",
+          "duration": 2.1594375,
+          "sha256": "36bfbf903fefd003e3c6f4085d17d452c9120dcf0b12bdda2c3b702851f905fb",
+          "text": "I activate part of prosperity.",
+          "normalizedText": "I activate Pot of Prosperity.",
+          "cardMatches": [
+            {
+              "name": "Pot of Prosperity",
+              "passcode": 84211599,
+              "score": 0.9202,
+              "span": [
+                11,
+                29
+              ]
+            }
+          ],
+          "transcript": "I activate part of prosperity.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2159.4375,
+          "speechDetected": true,
+          "decodeMs": 670.734999999404,
+          "matchMs": 35.225000001490116,
+          "processingMs": 708.8500000014901
+        },
+        {
+          "file": "01-13.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Swordsoul of Mo Ye",
+          "duration": 2.113,
+          "sha256": "5b5023e999dfa73bb45ab48af8c090d3b1b9ef1448ce1d57ac86fc6e332dbfc9",
+          "text": "I summon Soul Soul of Mo Yi.",
+          "normalizedText": "I summon Soul Soul of Mo Yi.",
+          "cardMatches": [],
+          "transcript": "I summon Soul Soul of Mo Yi.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2113,
+          "speechDetected": true,
+          "decodeMs": 560.6049999967217,
+          "matchMs": 87.75499999523163,
+          "processingMs": 649.2049999982119
+        },
+        {
+          "file": "01-14.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Kashtira Fenrir",
+          "duration": 1.7995625,
+          "sha256": "c4806d001f276a3e548d9177f0d4ed34c309cc1c5a5ea6ae7611b5b4db8f9ae5",
+          "text": "I summon Castera Fenria.",
+          "normalizedText": "I summon Castera Fenria.",
+          "cardMatches": [],
+          "transcript": "I summon Castera Fenria.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1799.5625,
+          "speechDetected": true,
+          "decodeMs": 443.2300000041723,
+          "matchMs": 17.099999994039536,
+          "processingMs": 461.5349999964237
+        },
+        {
+          "file": "01-15.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I activate Droll and Lock Bird",
+          "duration": 2.29875,
+          "sha256": "6735381891273ebb944c8829d4780dbc718e65f66ea031ecb3c0b437156d16a3",
+          "text": "I activate draw and lock bird.",
+          "normalizedText": "I activate Droll & Lock Bird.",
+          "cardMatches": [
+            {
+              "name": "Droll & Lock Bird",
+              "passcode": 94145021,
+              "score": 0.8797,
+              "span": [
+                11,
+                29
+              ]
+            }
+          ],
+          "transcript": "I activate draw and lock bird.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 2298.75,
+          "speechDetected": true,
+          "decodeMs": 890.75,
+          "matchMs": 43.91500000655651,
+          "processingMs": 935.0049999952316
+        },
+        {
+          "file": "01-16.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "go to battle phase",
+          "duration": 1.4164375,
+          "sha256": "496565bd4ed1f6725eb709167aec250c997ced2ca137f18fb8e9c35a9d1548b1",
+          "text": "Go to Battle Phase.",
+          "normalizedText": "Go to Battle Phase.",
+          "cardMatches": [],
+          "transcript": "Go to Battle Phase.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1416.4375,
+          "speechDetected": true,
+          "decodeMs": 459,
+          "matchMs": 8.154999993741512,
+          "processingMs": 467.5050000026822
+        },
+        {
+          "file": "01-17.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "end my turn",
+          "duration": 1.13775,
+          "sha256": "20278ec84afc4c6413ccc291c068d15da05615d2c7ab5a48f19fca3f2a93d440",
+          "text": "And my turn.",
+          "normalizedText": "And my turn.",
+          "cardMatches": [],
+          "transcript": "And my turn.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1137.75,
+          "speechDetected": true,
+          "decodeMs": 451.70000000298023,
+          "matchMs": 7.5150000005960464,
+          "processingMs": 459.79500000178814
+        },
+        {
+          "file": "01-18.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "take eight hundred damage",
+          "duration": 1.6834375,
+          "sha256": "cf79257a681990ccbbcf932ab61693d762be122b1c4d6978bca6a579efbc0f4f",
+          "text": "Take 800 damage.",
+          "normalizedText": "Take 800 damage.",
+          "cardMatches": [],
+          "transcript": "Take 800 damage.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1683.4375,
+          "speechDetected": true,
+          "decodeMs": 340.820000000298,
+          "matchMs": 0.0650000050663948,
+          "processingMs": 344.39500000327826
+        },
+        {
+          "file": "01-19.wav",
+          "voice": "en_GB-alan-medium",
+          "reference": "I summon Accesscode Talker",
+          "duration": 1.8924375,
+          "sha256": "6097d250e273a43aaf65e0b5aa765ab7ece14fe86f66b5532a0964a1f1495ae1",
+          "text": "I summon Access Good Talk.",
+          "normalizedText": "I summon Access Good Talk.",
+          "cardMatches": [],
+          "transcript": "I summon Access Good Talk.",
+          "model": "whisper-tiny.en-int8",
+          "backend": "wasm",
+          "durationMs": 1892.4375,
+          "speechDetected": true,
+          "decodeMs": 394.5349999964237,
+          "matchMs": 30.240000002086163,
+          "processingMs": 426.92000000178814
+        }
+      ],
+      "apiChecks": {
+        "pushBeforeStart": true,
+        "doubleStart": true,
+        "invalidPCM": true,
+        "durationBound": true,
+        "silence": true,
+        "disposed": true
+      },
+      "status": "ok",
+      "peakRssMiB": 1488.2890625,
+      "accuracy": {
+        "rawWer": 0.23404255319148937,
+        "normalizedWer": 0.18617021276595744,
+        "referenceWords": 188,
+        "rawErrors": 44,
+        "normalizedErrors": 35
+      },
+      "rtf": 0.2668341819444227
+    }
+  ],
+  "matcherVerification": {
+    "hypotheses": 174,
+    "phoneticInputs": 14495,
+    "differences": 0,
+    "catalogSha256": "4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548",
+    "browserCatalogSha256": "47e463d68e7994edc782e2ea612f66a85077007bbafd1d455aab6a82b54b58d1",
+    "catalogCount": 14422
+  }
+}

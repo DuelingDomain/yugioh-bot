@@ -6,12 +6,15 @@ import { DoneRow, NoteBox, TextField } from "./fields";
 import { SignInBanner } from "./sign-in-error";
 import { SignInShell } from "./sign-in-shell";
 import { SignInFootLinks, SignInStep } from "./sign-in-step";
+import { ClerkInviteSessionNotice } from "./invite-session-notice";
 import shell from "./sign-in-shell.module.css";
 
 export interface JoinCardProps extends JoinPageProps {
   /** `creator:<code>` for a well-formed code, so waitlist leads from a closed link still count for the creator. */
   waitlistSource: string;
   marketingUrl: string | null;
+  /** Offline E2E mode has no Clerk provider. */
+  e2e?: boolean;
 }
 
 /** The same shape `POST /api/waitlist` and `POST /api/join/<code>` check; the server checks it again. */
@@ -55,12 +58,17 @@ function Honeypot() {
 }
 
 /** `/join/<code>`: "Invited by <creator>" with one email field, or the closed card with the normal waitlist join. */
-export function JoinCard({ code, state, creatorName, spotsLeft, waitlistSource, marketingUrl }: JoinCardProps) {
+export function JoinCard({ e2e = false, ...props }: JoinCardProps) {
+  return <JoinCardView {...props} notice={e2e ? null : <ClerkInviteSessionNotice />} />;
+}
+
+/** Also used by the offline auth preview, with a static session notice. */
+export function JoinCardView({ code, state, creatorName, spotsLeft, waitlistSource, marketingUrl, notice }: JoinCardProps & { notice?: ReactNode }) {
   const [link, setLink] = useState<LinkState>(state);
   return (
     <SignInShell marketingUrl={marketingUrl ?? undefined}>
       {link === "open"
-        ? <InviteForm code={code} creatorName={creatorName} spotsLeft={spotsLeft} onClosed={setLink} />
+        ? <InviteForm code={code} creatorName={creatorName} spotsLeft={spotsLeft} onClosed={setLink} notice={notice} />
         : <ClosedForm state={link} creatorName={creatorName} source={waitlistSource} announce={link !== state} />}
     </SignInShell>
   );
@@ -68,7 +76,7 @@ export function JoinCard({ code, state, creatorName, spotsLeft, waitlistSource, 
 
 type InvitePhase = "idle" | "pending" | "sent";
 
-function InviteForm({ code, creatorName, spotsLeft, onClosed }: { code: string; creatorName: string; spotsLeft: number; onClosed(state: LinkState): void }) {
+function InviteForm({ code, creatorName, spotsLeft, onClosed, notice }: { code: string; creatorName: string; spotsLeft: number; onClosed(state: LinkState): void; notice?: ReactNode }) {
   const [phase, setPhase] = useState<InvitePhase>("idle");
   const [fieldError, setFieldError] = useState<string | undefined>();
   const [banner, setBanner] = useState<string | null>(null);
@@ -100,6 +108,10 @@ function InviteForm({ code, creatorName, spotsLeft, onClosed }: { code: string; 
       if ((response.status === 409 || response.status === 404) && isClosed(body?.status)) { onClosed(body.status); return; }
       if (response.status === 404) { onClosed("revoked"); return; }
       if (response.status === 400 && body?.error === "invalid_email") { setFieldError(BAD_EMAIL); return; }
+      if (response.status === 403 && body?.error === "email_mismatch") {
+        setFieldError("This invite is for a different email address.");
+        return;
+      }
       if (response.status === 429) {
         const header = Number(response.headers.get("retry-after"));
         setBanner(busy(typeof body?.retryAfterSeconds === "number" ? body.retryAfterSeconds : Number.isFinite(header) && header > 0 ? header : null));
@@ -118,6 +130,7 @@ function InviteForm({ code, creatorName, spotsLeft, onClosed }: { code: string; 
     return (
       <SignInStep eyebrow="Creator invite" title={<>Check your <em>inbox</em></>} lede={SENT_COPY} screen="join-sent" foot={<SignInFootLinks lead={<SignInLead />} />}>
         <div ref={anchor} className={shell.form} data-status="sent">
+          {notice}
           <DoneRow title="Request received" subtitle={<>The email can take a few minutes. Look in spam too. <span className={shell.sr}>Sent for {email}</span></>} />
           <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={() => setPhase("idle")}>Use a different email</button>
         </div>
@@ -135,6 +148,7 @@ function InviteForm({ code, creatorName, spotsLeft, onClosed }: { code: string; 
       foot={<SignInFootLinks lead={<SignInLead />} />}
     >
       <form ref={anchor} className={shell.form} noValidate aria-busy={pending} onSubmit={submit} data-clerk="creator-join">
+        {notice}
         <NoteBox label="Spots left">{spotsLeft.toLocaleString("en-US")}</NoteBox>
         {banner && <SignInBanner tone="bad" code="join">{banner}</SignInBanner>}
         <TextField id="f-join-email" name="email" label="Email address" type="email" autoComplete="email" inputMode="email" placeholder="you@email.com" defaultValue={email} error={fieldError} />

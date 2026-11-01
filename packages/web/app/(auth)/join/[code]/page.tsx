@@ -4,6 +4,7 @@ import { JoinCard } from "@/components/auth/join-card";
 import type { JoinPageProps } from "@/lib/admin-console/creators-types";
 import { marketingUrlFromEnv } from "@/lib/auth-page-params";
 import { getDb } from "@/lib/db";
+import { isE2EAuthEnabled } from "@/lib/e2e-auth";
 
 export const metadata: Metadata = {
   title: "You're invited | Dueling Domain",
@@ -26,5 +27,5 @@ export default async function JoinPage({ params }: { params: Promise<{ code: str
     : { code, state: "revoked", creatorName: "", spotsLeft: 0 };
   // Waitlist leads from a closed link still count for the creator; a malformed code is not stored.
   const waitlistSource = LINK_CODE_PATTERN.test(code) ? `creator:${code}` : "creator";
-  return <JoinCard {...props} waitlistSource={waitlistSource} marketingUrl={marketingUrlFromEnv()} />;
+  return <JoinCard {...props} waitlistSource={waitlistSource} marketingUrl={marketingUrlFromEnv()} e2e={isE2EAuthEnabled()} />;
 }

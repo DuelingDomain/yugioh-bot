@@ -17,10 +17,10 @@ let invitations: number;
 /** Every response text of the test, for the "no ticket" check. */
 let bodies: string[];
 
-function seedLink(maxUses: number, code: string) {
+function seedLink(maxUses: number, code: string, lockedEmail?: string) {
   const service = createCreatorAccessService(db, { webUrl: ORIGIN, newCode: () => code });
   const creator = service.createCreator({ name: "Kaiba Plays", actorUserId: 1 });
-  return service.createLink(creator.id, { label: "Video", maxUses, expiresInDays: 30, actorUserId: 1 })!;
+  return service.createLink(creator.id, { label: "Video", maxUses, expiresInDays: 30, lockedEmail, actorUserId: 1 })!;
 }
 
 async function join(code: string, body: unknown, opts: { origin?: string | null; ip?: string; type?: string } = {}) {
@@ -76,6 +76,36 @@ afterEach(() => {
 });
 
 describe("POST /api/join/[code]", () => {
+  it("refuses other inboxes with a fixed error and the default 1200 ms floor, then invites the locked inbox", async () => {
+    vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", undefined);
+    const link = seedLink(1, "LockedCode01", "a.b+creator@googlemail.com");
+    for (const email of ["stranger@example.test", "member@example.test"]) {
+      const started = Date.now();
+      const answer = await join(link.code, { email });
+      expect(answer).toMatchObject({ status: 403, json: { error: "email_mismatch" } });
+      expect(answer.headers.get("cache-control")).toContain("no-store");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1190);
+    }
+    expect(grants()).toEqual([]);
+    expect(invitationPosts()).toHaveLength(0);
+    expect(bodies.join(" ")).not.toMatch(/googlemail|gmail|lockedEmail|locked_email/);
+    expect(createCreatorAccessService(db).publicLink(link.code)).toEqual({ state: "open", creatorName: "Kaiba Plays", spotsLeft: 1 });
+    vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", "0");
+    expect(await join(link.code, { email: "ab+friend@gmail.com" })).toMatchObject({ status: 200, json: { status: "sent" } });
+    expect(grants()).toEqual([{ email: "ab+friend@gmail.com", status: "sent" }]);
+  });
+
+  it("returns the send budget after an email mismatch", async () => {
+    const link = seedLink(1, "LockedCode02", "target@example.test");
+    for (let i = 0; i < 21; i++) {
+      expect(await join(link.code, { email: "other@example.test" }, { ip: `198.51.100.${i}` }))
+        .toMatchObject({ status: 403, json: { error: "email_mismatch" } });
+    }
+    expect(await join(link.code, { email: "target@example.test" }, { ip: "198.51.100.99" }))
+      .toMatchObject({ status: 200, json: { status: "sent" } });
+    expect(invitationPosts()).toHaveLength(1);
+  });
+
   it("claims a use, sends one Clerk invitation and answers sent", async () => {
     const link = seedLink(5, "JoinCode0001");
     const answer = await join(link.code, { email: " Fan@Example.TEST " });

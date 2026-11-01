@@ -1,3 +1,5 @@
+import type { RemoteClientEvents, RemoteServerEvents } from "@yugidraft/shared/remote";
+import type { RemoteConnectionTokenClaims } from "@yugidraft/shared/ws";
 import { report } from "@yugidraft/shared/observability";
 import type { Server, Socket } from "socket.io";
 import type { DraftRoomManager } from "./rooms.js";
@@ -28,7 +30,7 @@ export interface DuelJoinPayload {
   visible?: boolean;
 }
 
-export interface ServerToClientEvents {
+export interface ServerToClientEvents extends RemoteServerEvents {
   "admin:spectate-expired": (data: { kind: "duel" | "draft"; slug: string }) => void;
   "draft:status": (data: { status: DraftStatus }) => void;
   "draft:pick": (data: { playerId: number; packRound: number; pickStep: number }) => void;
@@ -49,7 +51,7 @@ export interface ServerToClientEvents {
   "duel:subscription-expired": (data: { slug: string }) => void;
 }
 
-export interface ClientToServerEvents {
+export interface ClientToServerEvents extends RemoteClientEvents {
   "admin:spectate": (payload: { token: string }, ack?: (result: { ok: boolean }) => void) => void;
   "draft:join": (
     payload: DraftJoinPayload,
@@ -72,6 +74,7 @@ export interface InterServerEvents {
 }
 
 export interface SocketData {
+  remote?: RemoteConnectionTokenClaims;
   duel?: {
     slug: string;
     guildId: string;

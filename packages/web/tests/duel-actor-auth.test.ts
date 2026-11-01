@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createUserService } from "@yugidraft/shared/services";
+import { createUserService, createSavedDeckService } from "@yugidraft/shared/services";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
 vi.mock("@/lib/session-identity", async () => {
@@ -12,6 +15,20 @@ vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 
 const discordUserId = "900000000000000007";
 let userId: number;
+const remoteDirectories: string[] = [];
+function remoteSavedDeck(owner: number) {
+  const directory = mkdtempSync(join(tmpdir(), "remote-route-decks-")); remoteDirectories.push(directory);
+  vi.stubEnv("DUEL_DATA_DIR", directory);
+  writeFileSync(join(directory, "strings.conf"), "");
+  const catalog = new Database(join(directory, "cards.cdb"));
+  catalog.exec("create table datas(id integer primary key,ot integer,alias integer,setcode integer,type integer,race integer,attribute integer); create table texts(id integer primary key,name text,desc text)");
+  for (let i=1;i<=40;i++) {
+    catalog.prepare("insert into datas values(?,3,0,0,17,1,1)").run(i);
+    catalog.prepare("insert into texts values(?,?, '')").run(i, "Card "+i);
+  }
+  catalog.close();
+  return createSavedDeckService(state.db!, new Map()).create("guild-1",owner,{name:"My saved deck",mode:"normal",deck:{main:Array.from({length:40},(_,i)=>i+1),extra:[],side:[]}});
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -25,6 +42,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   state.db?.close();
+  remoteDirectories.splice(0).forEach(directory => rmSync(directory, {recursive:true,force:true}));
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -184,5 +202,157 @@ describe("cube creator ownership", () => {
     const { cubeOwnerAccess } = await import("../src/lib/cube-access");
     expect((await cubeOwnerAccess(state.db!, cubeId, { userId }))?.status).toBe(404);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote duel API foundation", () => {
+  const request = (path: string, body?: unknown) => new Request(`http://localhost/api/remote${path}`, {
+    method: body === undefined ? "GET" : "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  it.each([2, 3, 4])("creates a %i-seat solo table and authorizes only its owner to act as bots", async seatCount => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    const { POST } = await import("../app/api/remote/route");
+    for (const solo of ["true", 1, null]) expect((await POST(request("", { gameId: "ygo", seatCount, solo }))).status).toBe(400);
+    const response = await POST(request("", { gameId: "ygo", seatCount, solo: true }));
+    expect(response.status).toBe(201);
+    let room = await response.json();
+    expect(room.solo).toBe(true); expect(room.seats.filter((s: { bot: boolean }) => s.bot)).toHaveLength(seatCount - 1);
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { POST: livekit } = await import("../app/api/remote/[slug]/livekit/route");
+    const media = await livekit(request(`/${room.slug}/livekit`, {}), context);
+    expect(media.status).toBe(200);
+    expect(await media.json()).toMatchObject({ mode: "solo", required: false, code: "SOLO_LOCAL_PREVIEW" });
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    const { POST: start } = await import("../app/api/remote/[slug]/start/route");
+    room = await (await start(request(`/${room.slug}/start`, {}), context)).json();
+    const { POST: act } = await import("../app/api/remote/[slug]/actions/route");
+    const command = { baseSeq: room.lastSeq, action: { type: "twin.place", actorSeat: 1, idempotencyKey: "bot-field", seat: 1, zone: "monster", card: { ref: "bot", name: "Dark Magician" } } };
+    const edited = await act(request(`/${room.slug}/actions`, command), context);
+    expect(edited.status).toBe(200);
+    expect((await edited.json()).state.seats[1].twin[0].name).toBe("Dark Magician");
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await act(request(`/${room.slug}/actions`, command), context)).status).toBe(404);
+    expect((await livekit(request(`/${room.slug}/livekit`, {}), context)).status).toBe(404);
+    const { POST: join } = await import("../app/api/remote/[slug]/seat/route");
+    expect((await join(request(`/${room.slug}/seat`, { seat: 1 }), context)).status).toBe(403);
+    expect(playerCount()).toEqual({ c: 0 });
+  });
+  it("defaults off and uses the shared signed-in boundary when enabled", async () => {
+    const { GET, POST } = await import("../app/api/remote/route");
+    expect((await GET(request(""))).status).toBe(404);
+    vi.stubEnv("REMOTE_DUELS", "1"); state.auth.mockResolvedValue(null);
+    expect((await POST(request("", { gameId: "ygo", seatCount: 2 }))).status).toBe(401);
+  });
+  it("runs create, join, ready, start and an action using persisted seat identity", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    const { GET, POST } = await import("../app/api/remote/route");
+    const created = await POST(request("", { gameId: "ygo", seatCount: 2 }));
+    expect(created.status).toBe(201);
+    let room = await created.json(); const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { GET: read } = await import("../app/api/remote/[slug]/route");
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await read(request(`/${room.slug}`), context)).status).toBe(404);
+    const { POST: join } = await import("../app/api/remote/[slug]/seat/route");
+    expect((await join(request(`/${room.slug}/seat`, { seat: 1 }), context)).status).toBe(200);
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(409);
+    const { POST: select } = await import("../app/api/remote/[slug]/deck/route");
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(guest).id}),context)).status).toBe(200);
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    state.auth.mockResolvedValue({ user: { id: String(userId), name: "Yugi" } });
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(userId).id}),context)).status).toBe(200);
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    const { POST: start } = await import("../app/api/remote/[slug]/start/route");
+    room = await (await start(request(`/${room.slug}/start`, {}), context)).json();
+    const { POST: act } = await import("../app/api/remote/[slug]/actions/route");
+    const command = { baseSeq: room.lastSeq, action: { type: "lp.change", actorSeat: 0, idempotencyKey: "damage", seat: 1, delta: -500, reason: "effect" } };
+    const response = await act(request(`/${room.slug}/actions`, command), context);
+    expect(response.status).toBe(200); expect((await response.json()).state.seats[1].resources.lp).toBe(7500);
+    expect((await act(request(`/${room.slug}/actions`, { ...command, action: { ...command.action, actorSeat: 1, idempotencyKey: "spoof" } }), context)).status).toBe(403);
+    expect((await GET(request("?scope=mine"))).status).toBe(200);
+    expect(playerCount()).toEqual({ c: 0 });
+  });
+  it("authorizes format/deck setup, rejects foreign decks and blocks invalid ready-up", async () => {
+    vi.stubEnv("REMOTE_DUELS","1");
+    const { POST } = await import("../app/api/remote/route");
+    const made = await POST(request("",{gameId:"ygo",seatCount:2,format:"domain",solo:true}));
+    expect(made.status).toBe(201);
+    const room = await made.json(); const context = {params:Promise.resolve({slug:room.slug})};
+    expect(room.format.id).toBe("domain");
+    const { POST: select } = await import("../app/api/remote/[slug]/deck/route");
+    const owned = remoteSavedDeck(userId);
+    const foreign = createUserService(state.db!).ensureDiscord({discordUserId:"900000000000000008",displayName:"Guest"}).id;
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(foreign).id}),context)).status).toBe(404);
+    const selected = await select(request("/deck",{savedDeckId:owned.id}),context);
+    expect(selected.status).toBe(200);
+    expect((await selected.json()).seats[0].deck.validation.issues.some((i:{message:string}) => /Deck Master/.test(i.message))).toBe(true);
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(409);
+    const { POST: format } = await import("../app/api/remote/[slug]/format/route");
+    expect((await format(request("/format",{format:"normal",userId:foreign}),context)).status).toBe(400);
+    expect((await format(request("/format",{format:"normal",rules:{banlist:"made-up"}}),context)).status).toBe(400);
+    expect((await format(request("/format",{format:"normal"}),context)).status).toBe(200);
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(200);
+    state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
+    expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
+  });
+  it("keeps connection identity server-side and returns 503 for missing media config", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
+    const { POST } = await import("../app/api/remote/route");
+    const room = await (await POST(request("", { gameId: "ygo", seatCount: 2 }))).json();
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { GET } = await import("../app/api/remote/[slug]/connection/route");
+    expect((await GET(request(`/${room.slug}/connection?as=1`), context)).status).toBe(400);
+    const connection = await (await GET(request(`/${room.slug}/connection`), context)).json();
+    const { verifyRemoteConnectionToken } = await import("@yugidraft/shared/ws");
+    expect(verifyRemoteConnectionToken(connection.token, "remote-secret")).toMatchObject({ userId, seat: 0, guildId: "guild-1" });
+    const { POST: livekit } = await import("../app/api/remote/[slug]/livekit/route");
+    const response = await livekit(request(`/${room.slug}/livekit`, {}), context);
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("LIVEKIT_UNAVAILABLE");
+  });
+});
+
+describe("remote LiveKit credentials", () => {
+  it("mints short-lived camera/mic/data grants for the stored seat and refuses foreign, absent, ended and idle memberships", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880");
+    vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+    const { createRemoteDuelService } = await import("@yugidraft/shared/services");
+    const remote = createRemoteDuelService(state.db!);
+    const room = remote.create({ guildId: "guild-1", userId, displayName: "Yugi", gameId: "ygo", seatCount: 2 });
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { POST } = await import("../app/api/remote/[slug]/livekit/route");
+    const request = () => new Request(`http://localhost/api/remote/${room.slug}/livekit`, { method: "POST", body: JSON.stringify({ seat: 1, room: "forged" }) });
+    const response = await POST(request(), context);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const credentials = await response.json();
+    const { TokenVerifier } = await import("livekit-server-sdk");
+    const claims = await new TokenVerifier("devkey", "secret").verify(credentials.token);
+    expect(credentials).toMatchObject({ url: "ws://127.0.0.1:7880", room: `remote-${room.slug}`, seat: 0 });
+    expect(claims.sub).toBe(`remote-user-${userId}`);
+    expect(JSON.parse(claims.metadata!)).toEqual({ guildId: "guild-1", tableId: room.slug, seat: 0, userId });
+    expect(claims.exp! - claims.nbf!).toBeLessThanOrEqual(300);
+    expect(claims.video).toMatchObject({ roomJoin: true, room: `remote-${room.slug}`, canPublish: true, canSubscribe: true, canPublishData: true, canPublishSources: ["camera", "microphone"], canUpdateOwnMetadata: false });
+    expect(JSON.stringify(credentials)).not.toContain('"secret"');
+    state.auth.mockResolvedValue(null);
+    expect((await POST(request(), context)).status).toBe(401);
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await POST(request(), context)).status).toBe(404);
+    remote.join(room.slug, "guild-1", guest, "Guest", 1);
+    const guestCredentials = await (await POST(request(), context)).json();
+    expect(guestCredentials.seat).toBe(1);
+    vi.stubEnv("DISCORD_GUILD_ID", "foreign");
+    expect((await POST(request(), context)).status).toBe(404);
+    vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
+    state.db!.prepare("update remote_tables set last_event_at=? where slug=?").run(Date.now() - 600_001, room.slug);
+    expect((await POST(request(), context)).status).toBe(409);
+    state.db!.prepare("update remote_tables set status='ended',last_event_at=? where slug=?").run(Date.now(), room.slug);
+    expect((await POST(request(), context)).status).toBe(409);
   });
 });

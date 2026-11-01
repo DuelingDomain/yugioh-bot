@@ -1,3 +1,4 @@
+import { remoteSocketRoom, type RemoteSnapshot } from "@yugidraft/shared/remote";
 import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
@@ -106,6 +107,7 @@ type BroadcastOptions = {
   beforeDraftBroadcast?: (slug: string) => void;
   beforeTournamentBroadcast?: (slug: string) => void;
   /** Check the stored target and prune unauthorized subscriptions before duel events. */
+  readRemoteBroadcast?: (slug: string, guildId: string) => RemoteSnapshot | null;
   beforeDuelBroadcast?: (slug: string, guildId: string) => boolean;
 };
 
@@ -218,6 +220,17 @@ export function createInternalHttpHandler(opts: BroadcastOptions) {
         opts.beforeTournamentBroadcast?.(data.slug);
         opts.io.to(`tournament:${data.slug}`).emit("tournament:match-updated", {});
         return new Response(null, { status: 204 });
+      }
+      case "/internal/remote/changed": {
+        const data = parseDuelChanged(parsed);
+        if (!data) return new Response("Bad payload", { status: 400 });
+        if (!opts.readRemoteBroadcast) return new Response("Remote access unavailable", { status: 503 });
+        try {
+          const snapshot = opts.readRemoteBroadcast(data.slug, data.guildId);
+          if (!snapshot) return new Response("Not found", { status: 404 });
+          opts.io.to(remoteSocketRoom(data.guildId, data.slug)).emit("remote:changed", snapshot);
+          return new Response(null, { status: 204 });
+        } catch { return new Response("Remote access unavailable", { status: 503 }); }
       }
       case "/internal/duel/changed": {
         const data = parseDuelChanged(parsed);

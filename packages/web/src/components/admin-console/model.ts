@@ -6,9 +6,10 @@ import type {
 import type { SectionSnapshot } from "./use-admin-section";
 import type { IconName, Tone } from "./parts";
 
-export const VIEWS = ["overview", "people", "duels", "waitlist", "creators", "health", "insights"] as const;
+export const VIEWS = ["overview", "people", "duels", "waitlist", "creators", "health", "insights", "vision"] as const;
 export type View = (typeof VIEWS)[number];
 export const VIEW_META: Record<View, { label: string; icon: IconName }> = {
+  vision: {label:"Vision",icon:"eye"},
   overview: { label: "Overview", icon: "overview" }, people: { label: "People", icon: "people" }, duels: { label: "Duels", icon: "duels" },
   waitlist: { label: "Waitlist", icon: "waitlist" }, creators: { label: "Creators", icon: "creators" }, health: { label: "Health", icon: "health" }, insights: { label: "Insights", icon: "insights" },
 };
@@ -16,7 +17,7 @@ export const isView = (value: string): value is View => (VIEWS as readonly strin
 /** Link target of the Today list in the Duels view (/admin#duels-today). */
 export const TODAY_ANCHOR = "duels-today";
 
-export type Snapshots = { [K in Exclude<SectionId, "bridges">]: SectionSnapshot<K> };
+export type Snapshots = { [K in Exclude<SectionId, "vision" | "bridges">]: SectionSnapshot<K> };
 
 /** The data of a section when it answered "ok", else null. */
 export function okData<K extends SectionId>(snapshot: SectionSnapshot<K>): SectionDataMap[K] | null {
@@ -189,6 +190,8 @@ export function headerFor(view: View, s: Snapshots, now: number): HeaderText {
       ];
       return { eyebrow: "Health", title: health.total ? `${health.up} of ${health.total} services healthy` : "Services", sub: parts.filter(Boolean).join(" ") };
     }
+    case "vision":
+      return {eyebrow:"Recognition",title:"Player feedback",sub:"Review card crops, learned references and recognition mistakes."};
     case "insights":
       return {
         eyebrow: "Insights", title: "Last 7 days",

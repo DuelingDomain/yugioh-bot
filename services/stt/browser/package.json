@@ -1,0 +1,19 @@
+{
+  "name": "@dueling-domain/browser-stt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test matcher.test.js",
+    "build": "node build.mjs",
+    "serve": "node serve.mjs",
+    "benchmark": "node benchmark.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.2",
+    "parakeet.js": "1.4.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright": "1.61.1"
+  }
+}

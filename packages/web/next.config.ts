@@ -17,14 +17,25 @@ const nextConfig: NextConfig = {
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker
   // `node packages/web/server.js` would miss the emitted server.
   outputFileTracingRoot: worktreeRoot,
+  // Local recognition assets are prepared separately and served only by the gated lab.
   // Bridge discovery runs on the duel host; barrel exports must not trace its data into web.
   outputFileTracingExcludes: {
-    "/*": ["../shared/data/effects/tags.jsonl.gz", "../shared/data/effects/bridge-mechanic-facts.json",
+    "/*": ["../../data/vision/**/*", "../shared/data/effects/tags.jsonl.gz", "../shared/data/effects/bridge-mechanic-facts.json",
       "../shared/data/staples/bridge-observations.json"],
   },
-  transpilePackages: ["@yugidraft/shared"],
+  transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },
+  // Cross-origin isolation for the card reader's threaded WASM. Keep Clerk's OAuth popups and YouTube embeds on all other pages unaffected.
+  // The lab and its worker use require-corp. Remote tables use credentialless so Clerk avatars, scripts and any other
+  // cross-origin image without a CORP header still load (they are fetched without cookies).
+  async headers() {
+    const coop = { key: "Cross-Origin-Opener-Policy", value: "same-origin" };
+    return [
+      { source: "/dev/vision-lab/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "require-corp" }] },
+      { source: "/duels/remote/:slug", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "credentialless" }] },
+    ];
+  },
 };
 
 const org = process.env.SENTRY_ORG?.trim();

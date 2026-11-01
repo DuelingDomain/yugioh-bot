@@ -10,6 +10,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
@@ -111,6 +112,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
@@ -138,8 +140,12 @@ services:
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
       - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-}
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
       - DUEL_SCENARIOS=${DUEL_SCENARIOS:-0}
       - DUEL_FX_LAB=${DUEL_FX_LAB:-0}
+      - REMOTE_VISION_FEEDBACK=${REMOTE_VISION_FEEDBACK:-0}
       - DRAFT_TEST_BOTS=${DRAFT_TEST_BOTS:-0}
       - BRIDGES_ENABLED=${BRIDGES_ENABLED:-0}
       - THEME_DRAFTS=${THEME_DRAFTS:-0}

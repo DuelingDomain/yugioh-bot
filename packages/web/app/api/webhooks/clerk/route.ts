@@ -1,6 +1,9 @@
 import { verifyWebhook, type WebhookEvent } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
 import { enqueueJoinRequest, notifyJoinRequest, type JoinRequestNotice } from "@yugidraft/shared/notify";
+import { resolveCreatorSignUpAttribution } from "@yugidraft/shared/services/creator-access";
+import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
+import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -54,7 +57,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Signed but unusable events are permanent: retain their receipt and acknowledge.
-  const notice = eventNotice(event);
+  let notice = eventNotice(event);
 
   try {
     const db = getDb();
@@ -66,6 +69,21 @@ export async function POST(request: NextRequest): Promise<Response> {
       `).run(request.headers.get("svix-id")!.trim(), new Date(now).toISOString());
       let outboxHandled = false;
       if (inserted.changes !== 0) {
+        if (notice && event.type === "user.created") {
+          const creatorInvite = resolveCreatorSignUpAttribution(db, {
+            email: notice.email ?? null, clerkUserId: event.data.id,
+            grantId: event.data.public_metadata?.ddGrant, createdAt: Date.parse(notice.createdAt!),
+          }) ?? undefined;
+          let heardFrom = parseHeardFrom(event.data.unsafe_metadata?.heardFrom, event.data.unsafe_metadata?.heardFromDetail);
+          if (!heardFrom && notice.email) {
+            const email = notice.email.trim().toLowerCase();
+            const row = db.prepare<[string, string], { heard_from: string; heard_from_detail: string | null }>(
+              "select heard_from,heard_from_detail from waitlist_signups where email in (?,?) and heard_from is not null limit 1")
+              .get(email, normalizeEmailDomain(email) ?? email);
+            if (row) heardFrom = parseHeardFrom(row.heard_from, row.heard_from_detail);
+          }
+          notice = { ...notice, creatorInvite, heardFrom: heardFrom ?? undefined };
+        }
         // Receipt and durable alert commit together; a failed write remains retryable.
         if (notice) outboxHandled = enqueueJoinRequest(db, notice);
         // The expiry index and batch bound keep each new delivery cheap.

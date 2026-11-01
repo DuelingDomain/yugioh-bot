@@ -94,4 +94,11 @@ export * from "./cube-era.js";
 export { createPrereleaseDateLookup } from "./card-release-dates.js";
 export * from "./admin-spectate.js";
 export * from "./creator-access.js";
+
+export * from "./remote-duels.js";
+
+export * from "./remote-access.js";
+
+export { createVisionFeedbackService, VISION_FEEDBACK_LIMITS } from './vision-feedback.js';
+export type { VisionFeedbackInput, VisionSample, VisionLearning } from './vision-feedback.js';
 export * from "./archetype-bridges.js";

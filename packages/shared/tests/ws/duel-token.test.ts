@@ -99,3 +99,20 @@ it("rejects unsafe player identities and seats outside the four-seat contract", 
   expect(() => createDuelConnectionToken(claims({ playerId: Number.MAX_SAFE_INTEGER + 1 }), SECRET)).toThrow();
   expect(() => createDuelConnectionToken(claims({ seat: 4 }), SECRET)).toThrow();
 });
+
+// Remote rooms use a separate purpose-derived key and application-user identity.
+import { createRemoteConnectionToken, verifyRemoteConnectionToken } from "../../src/ws/remote-token.js";
+describe("remote connection tokens", () => {
+  it("isolates room purposes and rejects expired, malformed and foreign-secret tokens", () => {
+    const input = { slug: "remote-a", guildId: "g", userId: 42, seat: 3, expiresAt: Date.now() + 60_000 };
+    const token = createRemoteConnectionToken(input, SECRET);
+    expect(verifyRemoteConnectionToken(token, SECRET)).toEqual(input);
+    expect(verifyDuelConnectionToken(token, SECRET)).toBeNull();
+    expect(verifyRemoteConnectionToken(createDuelConnectionToken(claims(), SECRET), SECRET)).toBeNull();
+    expect(verifyRemoteConnectionToken(token, "other")).toBeNull();
+    expect(verifyRemoteConnectionToken(token, SECRET, input.expiresAt)).toBeNull();
+    expect(() => createRemoteConnectionToken({ ...input, seat: 4 }, SECRET)).toThrow();
+    expect(() => createRemoteConnectionToken({ ...input, userId: 1.5 }, SECRET)).toThrow();
+    expect(verifyRemoteConnectionToken(`${token}x`, SECRET)).toBeNull();
+  });
+});

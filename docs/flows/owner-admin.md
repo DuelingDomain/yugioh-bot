@@ -33,7 +33,7 @@ Sections and their routes. Setup, keys and status rules: [deployment/admin-conso
 | System | Version, card-data state, service health, disk | `GET /api/admin/console/system` |
 | VPS health | CPU, RAM, load, engine workers, history | `GET /api/admin/console/vps-health` |
 
-Creators: Add creator (name, channel, notes, optional email), then in the creator sheet make a Personal or Community link (Copy the URL), add up to 20 emails, Revoke a link (stops new uses at once and revokes its unused Clerk invitations), Resend a failed or expired invite, and see who joined through which link. The Overview shows "Creator sign-ups today". Flow: [sign-in-and-access.md](sign-in-and-access.md#2a-creator-invite).
+Creators: Add creator (name, channel, notes, optional email), then in the creator sheet make a Personal, Friends, Community or Custom link (Copy the URL), add up to 20 emails, Revoke a link (stops new uses at once and revokes its unused Clerk invitations), Resend a failed or expired invite, and see who joined through which link. Personal requires the creator's address in Locked to email; Custom offers the same field optionally and fixes Uses at 1 while locked. Friends has 3 uses; Community defaults to 50. Every preset allows an expiry choice. Locked addresses use the sheet's masked email display, and revoking a link clears its display address. The Overview shows "Creator sign-ups today". Flow: [sign-in-and-access.md](sign-in-and-access.md#2a-creator-invite).
 
 Approving a waitlist entry makes Clerk send the invite email. The person then follows [sign-in-and-access.md](sign-in-and-access.md#2-accept-the-invite).
 

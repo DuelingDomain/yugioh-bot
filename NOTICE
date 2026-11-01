@@ -14,3 +14,20 @@ source revision and SHA-256 integrity pins.
 
 The CI tagging adapters in scripts/effects include adapted card tagging,
 cleanup, examples, archetype profiling and synergy prompt code from that revision.
+
+
+Duel Lens recognition components
+
+Ported and modified from https://github.com/mathulbrich/duel-lens
+commit f6968f3682d53a79c4a9fef591300615eda61c11 (mathulbrich), Apache-2.0.
+Ported files identify their provenance and modifications in their headers.
+Apache licence and original third-party notices: packages/vision/src/licenses/.
+The chosen dinov2-small-duel embedder was trained on synthetic card-image renderings only;
+the v3b tournament-video model is not used. DINOv2 weights: Copyright Meta Platforms, Inc.
+and affiliates, Apache-2.0. The detector uses an Apache-2.0 MobileNetV3 backbone; its
+ImageNet pretraining data has separate access terms (see upstream third-party notices).
+Card art, card backs, text and derived index data are not Apache-licensed: artwork
+© Studio Dice/SHUEISHA, TV TOKYO, KONAMI; catalog compilation from YGOPRODeck.
+ONNX Runtime 1.30.0 is MIT-licensed. Its licence and ThirdPartyNotices.txt from
+https://github.com/microsoft/onnxruntime/tree/v1.30.0 are retained in packages/vision/src/licenses/
+and copied alongside the self-hosted runtime assets.

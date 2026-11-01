@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "notes": "No verified print-specific full-art images in the current cache. card_images contains artwork IDs, not printing-layout identities; Quarter Century set membership alone is not full-art evidence. Add a locally verified whole-card image with cardId, printId (set code), imagePath and source URL to prints.",
+  "prints": []
+}
