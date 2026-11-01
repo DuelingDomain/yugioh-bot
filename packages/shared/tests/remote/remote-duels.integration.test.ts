@@ -49,6 +49,7 @@ describe("solo remote tables", () => {
     expect(room.seats).toHaveLength(seatCount);
     expect(room.seats[0]).toMatchObject({ userId: users[0], bot: false });
     expect(room.seats.slice(1).every(s => s.userId === null && s.bot && s.ready && s.displayName.startsWith("Test Bot"))).toBe(true);
+    expect(canReadRemote(db, { slug: room.slug, guildId: "g", userId: users[0], seat: 1, expiresAt: 999999 })).toBe(false);
     expect(service.list("g", users[0], "open").some(t => t.slug === room.slug)).toBe(false);
     expect(() => service.join(room.slug, "g", users[1], "Intruder", 1, 2001)).toThrow(/solo/i);
     expect(() => service.get(room.slug, "g", users[1])).toThrow(/not found/i);
@@ -116,6 +117,18 @@ describe("solo remote tables", () => {
     expect(existing.seats[0]).toMatchObject({ bot: false, userId: users[0] });
     expect(existing.events).toEqual(table.events);
     expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("lets the owner undo a game-winning bot concession without impersonating a user", () => {
+    const { service, users } = setup();
+    let room = service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount: 2, solo: true }, 2000);
+    service.ready(room.slug, "g", users[0], true, 2000); room = service.start(room.slug, "g", users[0], 2000);
+    room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 1, idempotencyKey: "bot-loses" } }, 2100);
+    expect(room.status).toBe("ended"); expect(room.state.winnerSeat).toBe(0);
+    room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { type: "undo", actorSeat: 1, idempotencyKey: "undo-bot-loss", targetActionId: "bot-loses" } }, 7100);
+    expect(room.status).toBe("active"); expect(room.state.seats[1].eliminated).toBe(false);
+    expect(room.events.at(-1)).toMatchObject({ userId: users[0], actorSeat: 1 });
+    expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
   });
 
   it("warns and expires solo lobbies and games with the same idle clock", () => {

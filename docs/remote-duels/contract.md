@@ -7,18 +7,45 @@ Remote Duels track physical games. They do not run ocgcore or infer hidden cards
 - Browser-safe types, schemas, registry and reducer: `@yugidraft/shared/remote` (`packages/shared/src/remote/`). No Node, database, media or engine dependencies.
 - Server service: `createRemoteDuelService(db)` from `@yugidraft/shared/services` (`packages/shared/src/services/remote-duels.ts`).
 - Room token helpers: `@yugidraft/shared/ws` (`remote-token.ts`). Server only.
-- Proof UI: `packages/web/src/components/remote/remote-workbench.tsx`. Replace freely; keep the HTTP/action/event contract.
-- Video extension: `POST /api/remote/[slug]/livekit`. STT extensions: `GameModule.parseCommand` returning `RemoteActionProposal | null` (the full action union without key/time), and `GameModule.resolveAttack` returning ranked board-based attack proposals. Recognition extension: `RemoteDataMessage` and `card.identified`. No video, STT or recognition model is included in this foundation.
+- UI: `packages/web/src/components/remote/remote-workbench.tsx` and adjacent seat, command and local-camera components. Keep the HTTP/action/event contract when replacing the UI.
+- Video extension: `POST /api/remote/[slug]/livekit`. Solo uses local webcam preview; multiplayer LiveKit token minting remains a 503 stub. Speech uses optional browser SpeechRecognition with a typed-command fallback. Recognition uses on-demand browser OCR and the existing card catalog; `RemoteDataMessage` remains the remote recognition relay extension.
 
-`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)`, `resolveAttack(state, input, actorSeat)` and a `parseCommand` placeholder returning null. Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
+`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)`, `resolveAttack(state, input, actorSeat)` and `parseCommand(input): RemoteActionProposal | null` (the action union without key/time). Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
 
 ## Identity, seats and lifecycle
 
-All HTTP operations use the existing `requireWebAccess()` session guard and configured `DISCORD_GUILD_ID`, matching current duel access. Application `users.id` is the remote identity; it is neither a Discord snowflake nor `players.id`. The current app has no separate Discord membership gate. Do not introduce a Discord REST lookup. The server checks that the command's actor seat equals the session user's stored remote seat.
+All HTTP operations use the existing `requireWebAccess()` session guard and configured `DISCORD_GUILD_ID`, matching current duel access. Application `users.id` is the remote identity; it is neither a Discord snowflake nor `players.id`. The current app has no separate Discord membership gate. Do not introduce a Discord REST lookup. The server checks that the command's actor seat equals the session user's stored remote seat, or is a persisted bot belonging to that user's own solo table.
 
 Seats are **zero-based**, fixed in clockwise order. The creator occupies seat 0. A signed-in user can list open lobbies and join an available seat in the configured guild. Only seated users can read state/events or mint media/room credentials; there are no spectators. Open-list responses contain table metadata and seats, never game state/events. This foundation uses open guild lobbies; private invites and ranked results are outside this contract.
 
 Players set readiness explicitly; only the creator starts, after every seat is occupied and ready. Seat 0 starts. Lobby guests can leave and free their seat; creator departure ends the lobby. An active player uses `player.concede`; their membership remains so they can read the result and undo. Tables end on a game winner or idle closure. No Elo, seasons, tournament results, engine workers or engine `duels.kind` writes occur.
+
+## Solo test tables
+
+`create({..., seatCount: 2|3|4, solo: true})` creates one real user at seat 0 and fills seats 1–N with **Test Bot 1**, **Test Bot 2**, **Test Bot 3** as needed. `solo` defaults to false and is immutable. Every `RemoteTable`/`RemoteRoom`/snapshot includes `solo:boolean`; every seat includes `{seat,userId:number|null,bot:boolean,displayName,ready}`. Human seats have `bot:false`; bots have `bot:true`, `userId:null`, and are always ready. No synthetic accounts or user tokens are created. The owner toggles their own readiness and starts normally.
+
+Solo tables are excluded from `scope=open` and reject other users joining (`403 SOLO_OWNER_ONLY`). Reads, actions, tokens, readiness, leave and start still require the real owner's session; knowing a slug grants no access. The owner's own repeated join returns their seat. Room/WS tokens always identify seat 0; bots never get credentials or recognition feeds.
+
+To edit a bot, submit the normal action with **`actorSeat` equal to that bot's seat**. The service verifies `solo`, `createdBy === session.userId` and the persisted bot seat before reducing. Reducer ownership/turn/attack/elimination checks are unchanged: a bot's `twin.*` action must target its own seat; bot phase/turn and attacks must respect its turn. The owner's session remains able to control living bots even if seat 0 is eliminated. Every resulting event stores the owner's real `userId` and the selected bot's `actorSeat`. Replay, sequence checks, idempotent retry, five-second undo, game-end reopening by undo, and idle close use the same code path as multiplayer.
+
+On `/duels/remote`, choose **Solo test** and 2, 3 or 4 seats. The page renders one local webcam preview and static bot feed tiles, with independent LP and editable public board twins. Phase/End turn buttons automatically act as the current living turn seat in solo; **Acting as** selects the seat for commands, attack proposals and concession. Click controls on each board act as that board's seat. Attack proposals offer ranked choices and confirmation; resolution clears the attack and damage remains a separate LP change. Recent events and corrections appear in the event log. Reloading restores all seats and annotations from the DB.
+
+Solo never requests a LiveKit token, joins a media room or sends video over WS. Camera preview uses `getUserMedia({video:{facingMode:'environment'},audio:false})` after **Enable camera**, requiring localhost/HTTPS and browser permission. Stop/unmount releases tracks. All gameplay is usable when the camera or microphone is unavailable; recognition needs an enabled camera.
+
+**Recognize card** captures only the centered portrait guide from the owner's feed. An owned `/remote-ocr-worker.js` host dynamically loads [Tesseract.js](https://github.com/naptha/tesseract.js/blob/master/docs/api.md) 7.0.0 from jsDelivr and reads it locally. Its default worker/WASM/English-language assets download on first use. The worker tree is released on success, startup/scan failure, timeout (60 seconds), Stop camera and navigation, including failures before OCR initialization resolves. Only extracted public passcodes or names are posted to `/api/cards/resolve`; frames are never uploaded or persisted. Name/passcode matching depends on the existing catalog/provider and OCR quality, lighting and framing. Up to five suggestions require explicit **Identify** selection, which submits `card.identified` for the owner's seat through the normal action route. Identification does not automatically place a twin. Bots have no feed to recognize; their twins are populated manually or by commands.
+
+### Command proposals
+
+`parseCommand({text,actorSeat,state})` is a pure bounded grammar in `command-parser.ts`, with no STT or catalog calls. The UI's **Use microphone** fills the command input through the browser's speech service (browser support/permission/network apply); typing uses the identical parser. **Preview command** always precedes confirmation and action submission. A changed table sequence or selected seat disables stale confirmation. Raw speech is never sent to remote APIs or logged; an explicit `note ...` command persists its requested note text.
+
+Supported examples (all act as the selected seat):
+
+- `next phase`, `end turn`, `main 1 phase`, `set phase to battle`.
+- `lose 500 LP`, `gain 1000 LP`, `set LP to 8000` (numeric amounts).
+- `place Dark Magician in monster slot 3`, `add Blue-Eyes White Dragon to extra monster slot 1`.
+- `flip Dark Magician face down`, `flip slot 3 face up`, `move slot 3 to graveyard`, `remove Dark Magician`. Card names/refs/slots must identify exactly one twin on that seat; ambiguous edits return no proposal.
+- `identify 89631139`, `resolve attack`, `cancel attack`, `undo`, `concede`, `note agreed correction`.
+- Attack phrases described below, including `my dragon attacks Test Bot 1's magician`. The same assistant also supports selecting attacker/target cards by click.
 
 ## Actions and reducer
 
@@ -87,7 +114,7 @@ Matching uses only the actor's and living opponents' `monster`/`extra-monster` t
 - **Position:** slots are one-based, fixed from each field owner's view; they are never inferred from array order or renumbered around gaps. In the main monster row, “left”/“middle”/“right” mean slots 1/3/5. In the extra monster row, left/right mean 1/2 and there is no middle slot. “Zone 1” through “zone 5” (also spoken one–five or “slot”) constrain the public slot. “Extra monster” explicitly selects that row. Missing slots or conflicting position hints do not match.
 - **Direct attacks:** only explicit `direct:true` or “directly”/“direct attack” speech produces a direct proposal. An empty opponent twin never implies a direct attack; physical legality is still agreed at the table.
 
-The speech/UI adapter shows a **quick pick** for `ambiguous`, then confirmation of the chosen proposal; `unique` offers **one-tap confirm**. Only a confirmed proposal gets a new `idempotencyKey` and is submitted through the existing action endpoint with the current `baseSeq`. The resolver never executes or persists anything. Turn/phase rules and authoritative validation still run in `reduce`/the service; resolve again after a board update or `STALE_SEQUENCE`. Keep the raw utterance and nickname context in memory; events contain only the confirmed action. `parseCommand` remains a general speech-worker placeholder; no STT capture or voice controls are added to the proof UI.
+The speech/UI adapter shows a **quick pick** for `ambiguous`, then confirmation of the chosen proposal; `unique` offers **one-tap confirm**. Only a confirmed proposal gets a new `idempotencyKey` and is submitted through the existing action endpoint with the current `baseSeq`. The resolver never executes or persists anything. Turn/phase rules and authoritative validation still run in `reduce`/the service; resolve again after a board update or `STALE_SEQUENCE`. Keep the raw utterance and nickname context in memory; events contain only the confirmed action.
 
 ## Persistence and service
 
@@ -95,15 +122,18 @@ Additive, rerunnable migration in `packages/shared/src/db/schema.ts`:
 
 | Table | Columns and invariants |
 | --- | --- |
-| `remote_tables` | `id`, unique `slug`, `guild_id`, `game_id`, `seat_count` (2/3/4), `status` (lobby/active/ended), `created_by` → users, `state_json`, `last_seq`, `created_at`, `started_at`, `ended_at`, `last_event_at`, `idle_warning_at`, `end_reason` (game/idle/creator-left). All timestamps integer epoch ms. |
+| `remote_tables` | `id`, unique `slug`, `guild_id`, `game_id`, `seat_count` (2/3/4), `status` (lobby/active/ended), `created_by` → users, `state_json`, `last_seq`, `created_at`, `started_at`, `ended_at`, `last_event_at`, `idle_warning_at`, `end_reason` (game/idle/creator-left), `solo` (0/1, default 0). All timestamps integer epoch ms. |
 | `remote_seats` | `table_id`, `seat`, `user_id` → users, `display_name`, `ready`. PK `(table_id,seat)`; unique `(table_id,user_id)`. |
+| `remote_bot_seats` | `table_id` → remote_tables, `seat` (1–3), `display_name`; PK `(table_id,seat)`. No user column/FK. Always-ready bots are unioned with human seats when reading the public contract. |
 | `remote_events` | increasing storage `id`, `table_id`, contiguous `seq`, `idempotency_key`, nullable `actor_seat`, nullable `user_id`, `action_json`, `created_at`. Unique `(table_id,seq)` and `(table_id,idempotency_key)`. UPDATE/DELETE triggers enforce append-only. |
 
 `remote_tables.state_json` caches the game state. `service.replay(slug,guildId,userId)` reconstructs it from initial state and gameplay events. Lifecycle metadata/seats are materialized transactionally; their system events remain in the same log. Game state can have `ended:false` when the *table* ended from idle or lobby departure: table status is authoritative for lifecycle.
 
+The solo migration only adds `remote_tables.solo` and creates `remote_bot_seats`; it never rebuilds or rewrites existing seats/events. Existing tables become `solo:false`. It is safe to rerun. Human-seat NOT NULL user FKs and account history remain intact.
+
 Service methods: `create`, `join`, `leave`, `ready`, `start`, `get`, `list`, `act`, `replay`, `sweepIdle`; `snapshot` is a trusted internal transport read with **no** viewer authorization and must never be exposed through an unguarded route. The exported TypeScript signatures are the source for argument details. Mutations run in one `BEGIN IMMEDIATE` transaction: load guild/slug, verify identity, check sequence, reduce, append event, update cache and timestamps. An invalid action rolls back entirely. Duplicate gameplay keys return current state only when the same authenticated user submits the same command (client `at` excluded). Different contents/user give `409 IDEMPOTENCY_CONFLICT`. Duplicate lookup precedes the sequence/lifecycle check, so a lost response can be retried safely even after later actions or game end.
 
-System actions: `table.created {gameId,seatCount}`, `seat.joined {seat,userId}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. System event IDs start `sys:` and cannot be submitted as gameplay actions. Join events deliberately contain no personal-name snapshot; names are read from seats. Remote references count as account history, and account deletion anonymizes seat names while preserving event history and IDs.
+System actions: `table.created {gameId,seatCount,solo?:boolean}`, `seat.joined {seat,userId:number|null,bot?:boolean}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. Old events may omit solo/bot flags. Bot creation emits `seat.joined` with null user and `bot:true`, attributed to the owner. System event IDs start `sys:` and cannot be submitted as gameplay actions. Join events deliberately contain no personal-name snapshot; names are read from seats. Remote references count as account history, and account deletion anonymizes seat names while preserving event history and IDs.
 
 `RemoteEvent = {id,seq,actorSeat,userId,at,action}`; `id` equals the idempotency key, not the integer storage ID. All event history is public to the table. Do not store audio, video, frames or raw speech transcripts; voice workers emit parsed actions only.
 
@@ -113,16 +143,16 @@ All responses use `Cache-Control: private, no-store`. All routes return 404 when
 
 | Method and route | Input | Response |
 | --- | --- | --- |
-| `POST /api/remote` | `{gameId:'ygo',seatCount:2|3|4}` | `201 RemoteRoom`, creator seat 0. |
+| `POST /api/remote` | `{gameId:'ygo',seatCount:2|3|4,solo?:boolean}` | `201 RemoteRoom`, creator seat 0; solo fills the remaining seats with bots. Nonboolean solo is rejected. |
 | `GET /api/remote?scope=mine|open` | default mine | `{tables:RemoteTable[]}`; max 100. Open means unfilled lobbies. |
 | `POST /api/remote/[slug]/seat` | `{seat?:0|1|2|3}`; omitted seat selects first available | `RemoteRoom`. Repeated join by same user returns their existing seat. |
 | `POST /api/remote/[slug]/leave` | none | `RemoteTable`. Lobby only. |
 | `POST /api/remote/[slug]/ready` | `{ready:boolean}` | `RemoteRoom`. Lobby only. |
 | `POST /api/remote/[slug]/start` | none | `RemoteRoom`. Creator only; all seats ready. |
 | `GET /api/remote/[slug]` | optional `?afterSeq=N` | `RemoteRoom`: table metadata + `mySeat`, `state`, `events`. |
-| `POST /api/remote/[slug]/actions` | `{baseSeq:number,action:RemoteAction}` | `RemoteRoom`. No separate actor/seat override. |
+| `POST /api/remote/[slug]/actions` | `{baseSeq:number,action:RemoteAction}` | `RemoteRoom`. `action.actorSeat` must match the session seat or a persisted bot of the session owner's solo table. No separate identity override. |
 | `GET /api/remote/[slug]/connection` | no query parameters | `{token,guildId,seat,expiresAt}`; seated, unexpired table only; 503 if WS secret missing. |
-| `POST /api/remote/[slug]/livekit` | none | Stub: 503 `LIVEKIT_UNAVAILABLE` if any required LIVEKIT var is missing; otherwise 503 `LIVEKIT_NOT_IMPLEMENTED`. Video worker fills this route. |
+| `POST /api/remote/[slug]/livekit` | none | Solo: `200 {mode:'solo',required:false,code:'SOLO_LOCAL_PREVIEW',message}` with no token, independent of LIVEKIT configuration. Multiplayer stub: 503 `LIVEKIT_UNAVAILABLE` if any required LIVEKIT var is missing; otherwise 503 `LIVEKIT_NOT_IMPLEMENTED`. Ended/expired tables are refused. |
 
 `RemoteRoom` includes table fields, `seats`, `mySeat`, `state`, and recent `events`. Default recent history is the latest 50 events. `afterSeq` returns up to 200 events in ascending order; page until caught up. The state and `lastSeq` are always the latest snapshot, even if event pagination lags. Use the last *returned event's* seq to page history, not snapshot `lastSeq`. Every lifecycle event also advances `lastSeq`.
 
@@ -164,7 +194,7 @@ Normalized coordinates and scores are finite in `[0,1]`. Request IDs max 100 cha
 
 With the flag enabled the ws process sweeps every 30 seconds, including once at startup. `idle.warning` appends once per idle period at 8 minutes; its `closesAt` is `last_event_at + 600000`. Warning does **not** advance `last_event_at`. At 10 minutes the table ends with `end_reason='idle'`. A real lobby/game action clears warning and renews activity; duplicate actions/ready/join retries, GETs, room joins, recognition data and Socket.IO heartbeat never do. New mutations/credentials are refused at the 10-minute threshold even before the next sweep. Actual background close delivery can lag by up to 30 seconds. The ws process must be running for timed warning/close delivery.
 
-Remote tables never enter engine `duels`/`drafts`. `scripts/deployment/check-prod-activity.py` was inspected and remains unchanged: it queries only those existing tables, so remote calls cannot hold a deploy.
+Remote tables, including active solo tables, never enter engine `duels`/`drafts`. `scripts/deployment/check-prod-activity.py` remains unchanged: it queries only those existing tables, so remote calls cannot hold a deploy. Solo uses the same idle warning/closure deadlines and requires the ws sweep process for timed delivery.
 
 ## Environment and local use
 
@@ -179,7 +209,7 @@ Remote tables never enter engine `duels`/`drafts`. `scripts/deployment/check-pro
 | `WS_PORT` | Ws Socket.IO listener, default 3001. |
 | `WEB_URL` | Ws allowed origin, local `http://localhost:3000`. |
 | `NEXT_PUBLIC_WS_URL` | Browser ws URL, local `http://localhost:3001`; unset behind same-origin proxy. |
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Web only, reserved video provider config. Never send API secret to browser. Stub always 503 until video worker implements minting. |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Web only, reserved multiplayer video provider config. Never needed for solo. Multiplayer stub stays 503 until video worker implements minting. |
 | existing Clerk config | Existing sign-in flow; or repository's explicitly enabled offline E2E session for local smoke tests. |
 
 From the new worktree, using separate terminals with the same exported environment:
@@ -201,4 +231,6 @@ npm run dev:web
 npm run dev:ws
 ```
 
-Web opens/migrates the DB before ws can read it; if ws starts first it retries on subsequent joins/sweeps. Sign in with two or more existing local test accounts in separate browser profiles, visit `/duels/remote`, create a table, join, ready all seats and start. LP/phase changes appear in every room's raw JSON. No duel engine, bot, LiveKit, STT or recognition model is needed to prove the loop. The worktree's ignored `.env` (ws) and `packages/web/.env.local` (web) contain the local flag only; exports above configure both processes.
+Web opens/migrates the DB before ws can read it; if ws starts first it retries on subsequent joins/sweeps. For solo, sign in with one existing local account, visit `/duels/remote`, select **Solo test** and 2/3/4 seats, create, toggle ready, and start. Enable the webcam when desired; bots remain static. Populate both twins, end turns through the opening round, choose Battle, then preview/confirm an attack against a bot monster. Test bot LP, voice/typed edits, notes and undo in the same page. No engine, autonomous bot service, LiveKit config or second account is needed. OCR downloads assets on first scan; speech capture depends on browser support, with typed commands always available.
+
+For multiplayer, use two or more accounts/browser profiles, create a normal table, join, ready every seat and start. LP/phase changes appear in each room. The worktree's ignored `.env` (ws) and `packages/web/.env.local` (web) contain the local flag only; exports above configure both processes.
