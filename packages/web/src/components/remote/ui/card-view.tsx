@@ -38,18 +38,39 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
   </div>;
 }
 
+export type CardEdit = {
+  faceUp: boolean; zone: string;
+  onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void;
+};
+
 export type CardActions = {
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
   onWrong?: () => void; onPin?: () => void;
+  /** Opens the deck warning layer. Set only when this card's seat has a live warning. */
+  onFlag?: (button: HTMLElement) => void;
+  /** Twin edits for a card that is on a field the person may change. */
+  edit?: CardEdit;
 };
 
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
+    {a.onFlag ? <button type="button" className={`${s.btn} ${s.q}`} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
+    {a.edit ? <CardEditRow edit={a.edit} /> : null}
     {a.onWrong ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onWrong}>Wrong card?</button> : null}
     {a.onPin ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onPin} data-testid="pin-inspector"><Icon name="card" />Pin to inspector</button> : null}
+  </div>;
+}
+
+const MOVES: { zone: string; label: string }[] = [{ zone: "graveyard", label: "To graveyard" }, { zone: "banished", label: "Banish" }, { zone: "hand", label: "To hand" }];
+/** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
+function CardEditRow({ edit }: { edit: CardEdit }) {
+  return <div className={s.dedit} role="group" aria-label="Fix this card on the virtual field" data-testid="card-edit">
+    {MOVES.filter(move => move.zone !== edit.zone).map(move => <button type="button" key={move.zone} className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
+    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button>
+    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
   </div>;
 }
 

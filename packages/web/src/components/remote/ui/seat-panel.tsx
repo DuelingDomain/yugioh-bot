@@ -28,7 +28,7 @@ export type SeatPanelProps = {
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
-  deckWarning?: string; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
+  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
 export function SeatPanel(p: SeatPanelProps) {
@@ -59,7 +59,8 @@ export function SeatPanel(p: SeatPanelProps) {
           {p.cameraControl}
           <div className={s.fz} aria-live="off">FEED FROZEN<small>Last good frame shown</small></div>
           <div className={`${s.dwarn} ${p.deckWarning ? s.on : ""}`} data-testid="deck-warning" role={p.deckWarning ? "status" : undefined}>
-            {p.deckWarning ? <><Icon name="warn" /><span><b>Deck no longer valid:</b> {p.deckWarning}</span></> : null}
+            {p.deckWarning ? <><Icon name="warn" /><span><b>Deck no longer valid:</b> {p.deckWarning}</span>
+              {p.onDeckFlag ? <button type="button" className={s.dwbtn} data-layer-opener data-testid="deck-warning-open" onClick={event => p.onDeckFlag?.(event.currentTarget)}>Review</button> : null}</> : null}
           </div>
         </>} />
       <div className={s.fside}>

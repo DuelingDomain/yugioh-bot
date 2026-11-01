@@ -7,6 +7,7 @@ import { Rail, LpStrip, TopBar, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
+import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Tier } from "./popup";
@@ -79,6 +80,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const twinCodes = state.seats.flatMap(item => item.twin.map(cardCode));
   const deckCodes = seatIds.flatMap(seat => deckIdsOf(room, seat));
   const [subject, setSubject] = useState<Subject | null>(null);
+  const [flagSeat, setFlagSeat] = useState(0);
   const info = useCardInfo([...twinCodes, ...deckCodes, subject?.cardId]);
   const nameOfCard = (id: number | undefined) => info(id)?.name;
 
@@ -366,7 +368,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const resolveActor = attack ? (solo ? attack.attackerSeat : mySeat) : mySeat;
   const destroy = async (seat: number, ref: string | undefined) => {
     const card = findCard(seat, ref); if (!card || !ref) return;
-    if (solo || seat === mySeat) await act({ type: "twin.remove", actorSeat: solo ? seat : mySeat, seat, cardRef: ref });
+    if (solo || seat === mySeat) await act({ type: "twin.move", actorSeat: solo ? seat : mySeat, seat, zone: "graveyard", cardRef: ref });
     else await act({ type: "log.note", actorSeat: mySeat, text: `${cardName(card, info(cardCode(card)))} on ${name(seat)}'s field was destroyed` });
   };
   const confirmAttack = async () => {
@@ -378,7 +380,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (battle.destroyAttacker) await destroy(attack.attackerSeat, attack.attackerCardRef);
     if (battle.damageSeat !== null && battle.damage) {
       const hurt = await changeLp(battle.damageSeat, battle.damage, "Battle damage");
-      if (hurt) toast("Undo restores the LP. Put destroyed cards back with the card controls.", 4200);
+      if (hurt) toast("Undo restores the LP. Fix a card with the controls in its card view.", 4200);
     }
   };
   const cancelAttack = () => { if (attack && mayResolve) void act({ type: "attack.resolve", actorSeat: resolveActor, attackId: attack.id, outcome: "cancelled" }); };
@@ -511,11 +513,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const subjectCard = subject?.ref ? findCard(subject.seat, subject.ref) : undefined;
   const subjectInfo = subject ? info(subject.cardId) : undefined;
   const block = subject ? attackBlock(subject.seat, subjectCard) : "";
+  const flagOf = (seat: number) => deckFlag(room, seat);
+  const flagActor = solo ? (seatIds.find(seat => !state.seats[seat]?.eliminated) ?? mySeat) : mySeat;
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
     onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
     onPin: () => layers.open("insp"),
+    ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
+    ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
+      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone,
+      onMove: (zone: string) => void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref }),
+      onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
+      onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
+    } } : {}),
   };
   const openSubject = (card: TwinCard, fromField = true) => {
     const id = cardCode(card); if (!id) { toast("This card is not identified yet. Click it on the camera feed."); return; }
@@ -565,7 +576,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             warnRefs={warnRefs(seat)} pickPlate={plate}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && card.zone === "monster") void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
-            onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message}
+            onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl /> : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void hub.enableCamera(); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
@@ -589,6 +600,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       <InspectorBody subject={subject} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={actions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
     </InspectorDrawer>
+    <DeckFlagPopover open={layers.layer === "flag"} flag={deckFlag(room, flagSeat)} instances={room.state.deckChecks?.instances ?? []} canMerge={live && (solo || flagSeat === mySeat)} busy={!live}
+      onDismiss={flag => { void act({ type: "deck.flag.dismiss", actorSeat: flagActor, flagId: flag.id, reason: "Player marked this flag as wrong" }); layers.close("flag"); }}
+      onMerge={(flag, keep, remove) => { void act({ type: "twin.merge", actorSeat: solo ? flag.seat : mySeat, seat: flag.seat, keepInstanceId: keep, removeInstanceId: remove, reason: "Same physical card; system split the instance" }); layers.close("flag"); }}
+      onClose={() => layers.close("flag")} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} canUndo={canUndo} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={() => { void doUndo(); layers.close("hist"); }} />
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} at={popAt} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}

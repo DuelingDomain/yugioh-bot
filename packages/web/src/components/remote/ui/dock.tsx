@@ -39,12 +39,12 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
   transcript: Transcript; proposal: Proposal | null; samples: string[]; onConfirm: () => void; onCancel: () => void; onSample: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  return <section className={`${s.dk} ${s.vox}`} aria-label="Voice commands">
-    <div className={`${s.chip} ${s.tr}`} data-testid="transcript">
+  return <section className={`${s.dk} ${s.vox} ${proposal ? s.has : ""}`} aria-label="Voice commands">
+    {proposal ? null : <div className={`${s.chip} ${s.tr}`} data-testid="transcript">
       <span className={s.who}><Icon name="mic" />YOU</span>
       <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase, an LP change or an attack."}</q>
       {transcript.result ? <span className={`${s.res} ${transcript.ignored ? s.ig : ""}`}>{transcript.result}</span> : null}
-    </div>
+    </div>}
     {proposal ? <div className={`${s.chip} ${s.prop}`} role="group" aria-label="Confirm voice command" data-testid="proposal">
       <Icon name="check" className={s.pi} />
       <div className={s.pm}><div className={s.pt}>{proposal.title}</div><div className={s.ps}>{proposal.sub}</div></div>
@@ -53,9 +53,9 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
         <button type="button" className={`${s.btn} ${s.q}`} onClick={onCancel}>Cancel <kbd>Esc</kbd></button>
       </div>
     </div> : null}
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={open} onClick={() => setOpen(v => !v)}>Try saying…</button>
-    <div className={`${s.samples} ${open ? s.open : ""}`}><span>Try saying…</span>
-      {samples.map(text => <button type="button" key={text} onClick={() => { setOpen(false); onSample(text); }}>{text}</button>)}</div>
+    {proposal ? null : <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={open} onClick={() => setOpen(v => !v)}>Try saying…</button>}
+    {proposal ? null : <div className={`${s.samples} ${open ? s.open : ""}`}><span>Try saying…</span>
+      {samples.map(text => <button type="button" key={text} onClick={() => { setOpen(false); onSample(text); }}>{text}</button>)}</div>}
   </section>;
 }
 
