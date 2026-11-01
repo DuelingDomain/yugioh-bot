@@ -8,9 +8,9 @@ Remote Duels track physical games. They do not run ocgcore or infer hidden cards
 - Server service: `createRemoteDuelService(db)` from `@yugidraft/shared/services` (`packages/shared/src/services/remote-duels.ts`).
 - Room token helpers: `@yugidraft/shared/ws` (`remote-token.ts`). Server only.
 - Proof UI: `packages/web/src/components/remote/remote-workbench.tsx`. Replace freely; keep the HTTP/action/event contract.
-- Video extension: `POST /api/remote/[slug]/livekit`. STT extension: `GameModule.parseCommand` returning `RemoteActionProposal | null` (the full action union without key/time). Recognition extension: `RemoteDataMessage` and `card.identified`. No video, STT or recognition model is included in this foundation.
+- Video extension: `POST /api/remote/[slug]/livekit`. STT extensions: `GameModule.parseCommand` returning `RemoteActionProposal | null` (the full action union without key/time), and `GameModule.resolveAttack` returning ranked board-based attack proposals. Recognition extension: `RemoteDataMessage` and `card.identified`. No video, STT or recognition model is included in this foundation.
 
-`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)` and a `parseCommand` placeholder returning null. Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
+`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)`, `resolveAttack(state, input, actorSeat)` and a `parseCommand` placeholder returning null. Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
 
 ## Identity, seats and lifecycle
 
@@ -39,8 +39,8 @@ An action is a discriminated union validated by `remoteActionSchema`. Every acti
 | `attack.declare` | `attackerSeat`, optional `attackerCardRef`, `targetSeat`, either `targetCardRef` or `direct: true` | Turn player in an available Battle Phase; opponent target must be living. Supplied card refs must exist on the indicated twins. |
 | `attack.resolve` | `attackId`, `outcome: 'resolved'|'cancelled'` | Attacker or target clears the pending attack. Does **not** change LP; emit confirmed `lp.change` separately. |
 | `card.identified` | `seat`, `cardId` and/or `passcode`, optional `zone`, `source: 'click'|'auto'|'voice'|'typed'` | Public last-identified card plus event log. At least one positive numeric ID required. Does not automatically place a twin. |
-| `twin.place` | `seat`, `zone`, `card` | Field owner only. `card: {ref, cardId?, passcode?, faceUp?:true, position?:'attack'|'defense'}`; instance ref is unique within the seat. Defaults: face-up, attack. |
-| `twin.move` | `seat`, `zone`, `cardRef` | Owner moves an existing instance to a zone. |
+| `twin.place` | `seat`, `zone`, `card` | Field owner only. `card: {ref, cardId?, passcode?, name?, race?, slot?, faceUp?:true, position?:'attack'|'defense'}`; instance ref is unique within the seat. Defaults: face-up, attack. Public `name` is 1–200 trimmed chars, `race` 1–40; optional integer `slot` is 1–5. |
+| `twin.move` | `seat`, `zone`, `cardRef`, optional `slot` | Owner moves an existing instance. An explicit slot replaces its old slot; omitting it preserves the slot within the same zone and clears it when changing zones. |
 | `twin.flip` | `seat`, `cardRef`, `faceUp` | Owner sets face visibility. |
 | `twin.remove` | `seat`, `cardRef` | Owner removes the instance. |
 | `log.note` | `text` (1–500 chars) | Shared note; also the explicit “Still playing” action. |
@@ -52,6 +52,42 @@ Undo restores a bounded pre-action game position; it never deletes events. All b
 Yu-Gi-Oh phase IDs: `draw`, `standby`, `main1`, `battle`, `main2`, `end`. Display names: Draw, Standby, Main 1, Battle, Main 2, End. LP starts at 8000 independently for each seat. Zone IDs: `monster`, `spell-trap`, `extra-monster`, `field`, `graveyard`, `banished`. Twins are optional **public** field annotations, max 100 instances per seat, not an authoritative inventory. Do not put private hands, Deck order, face-down identities or unannounced cards into them. The UI must omit private card IDs when placing face-down cards; the server does not maintain private views.
 
 Relevant rules from [ADR 0002](../adr/0002-multiplayer-duel-rules.md): clockwise order and fixed seats (`R-FFA-ORDER`); 2-player turn 1 skips Battle; in FFA Battle opens when the last currently living duelist starts their first turn (`R-FFA-NO-ATTACK`), accounting for early elimination. Zero LP and concession eliminate; future turns skip that seat; last living seat wins. If the turn player leaves, remaining living players may advance the remaining phases/end that turn, preserving fixed seats. Normal effects/response windows remain physical, with no chain simulation. Standard MR5's first player skips their first draw (`R-FFA-FIRST-DRAW`), a physical instruction, not an automatic card change. An opponent monster/direct target follows `R-FFA-ATTACK`; because the twin is optional, physical monster presence and direct-attack legality are agreed by the players rather than inferred from missing twin cards.
+
+## Tolerant voice attack resolution
+
+`resolveAttack` is exported from `@yugidraft/shared/remote` and installed as `getRemoteGame('ygo').resolveAttack`. It is a pure, deterministic, browser-safe function in `packages/shared/src/remote/attack-resolver.ts`, with no clock, I/O, catalog, engine or speech-model calls. It accepts current `RemoteState`, a raw utterance string or `AttackHints`, and the authenticated actor seat:
+
+```ts
+import { getRemoteGame } from '@yugidraft/shared/remote';
+
+const game = getRemoteGame(room.gameId);
+const result = game.resolveAttack(room.state, {
+  text: "attack Imran's dragon",
+  players: room.seats.map(player => ({
+    seat: player.seat, displayName: player.displayName,
+    nicknames: player.seat === 1 ? ['Immy'] : [],
+  })),
+}, room.mySeat);
+
+// Parsed speech workers can bypass sentence parsing:
+const parsed = game.resolveAttack(room.state, {
+  attacker: { text: 'Blue Eyes' },
+  target: { text: 'dragon', slot: 5 }, targetSeat: 1,
+}, room.mySeat);
+```
+
+`AttackHints` has optional `text`, `attacker`, `target`, `targetSeat`, `targetPlayer`, `direct` and `players`. Each card hint accepts `text`, `cardRef`, `slot`, and `side: 'left'|'middle'|'right'`. Raw utterance fragments and parsed text hints must both fit; explicit ref, slot, side, player and seat constraints are also combined. Conflicting hints return no match, and an empty parsed text cannot erase spoken constraints. `players` is transient `{seat, displayName, nicknames?: readonly string[]}[]` context from the current room; it is required for named-player phrases, and is never copied into game state or events. Display-name words (for example “Imran” from “Imran Khan”) and complete nicknames match without regard to case, punctuation or accents. Shared names/nicknames retain all matching seats. Possessives identify owners in monster-target speech; bare card words stay card words even if a player has the same name. Bare names can select a player for an explicit direct attack, or use `targetPlayer` in parsed hints.
+
+The result is `{status: 'unique'|'ambiguous'|'none', candidates: AttackCandidate[]}`. Each candidate contains `score` in `[0,1]`, a typed `proposal` for `attack.declare` (with actor, attacker/target seats and card refs, without key/time), `attacker` and optional `target` display metadata `{seat, cardRef, name?, race?, zone, slot?}`. Direct proposals omit `target` and have `direct:true`. Candidates sort by descending score, then target seat, attacker ref and target ref for stable ties. Scores are matching weights, not probabilities. Every fitting attacker/target pair remains available, even when one scores higher. `unique` means exactly one pair; `ambiguous` means at least two; `none` means an empty candidate list.
+
+Matching uses only the actor's and living opponents' `monster`/`extra-monster` twins. It excludes graveyard, banished, spell/trap and field-zone annotations, self targets, eliminated seats, invalid actors and ended games. Optional public `name`/`race` metadata must be supplied on `twin.place` by the caller that already knows the card; numeric IDs alone cannot supply names without a catalog. Old twins without these annotations still support generic, slot and explicit-ref selection. As with public card IDs, omit private names/races on face-down cards. Face-down name/race annotations never participate in matching or returned display labels.
+
+- **Partial, fuzzy and phonetic names:** case/accents/punctuation are folded; each meaningful query word must match a name or race word. Exact words, prefixes of at least three characters, Soundex-style phonetic matches (including “blew”/“blue” and “ice”/“eyes”), and spelling similarity of at least 65% with adjacent-transposition support are accepted. Full exact names rank above partial names; exact word matches rank above prefix, phonetic and typo matches. Race words such as “dragon”, “spellcaster” and “warrior” work even when absent from the printed name. “Magician” also matches card-name words.
+- **Ownership:** attackers always come from the actor's field. “Imran's dragon”/“Immy's dragon” constrain the target to matching current player context. “My dragon attacks his/her/their monster” considers living opponents; a sole matching monster gives one pair if the attacker is also unique. FFA pronouns do not invent a target seat. Unspecified attackers, as in “attack Imran's dragon”, include every fitting monster on the actor's field.
+- **Position:** slots are one-based, fixed from each field owner's view; they are never inferred from array order or renumbered around gaps. In the main monster row, “left”/“middle”/“right” mean slots 1/3/5. In the extra monster row, left/right mean 1/2 and there is no middle slot. “Zone 1” through “zone 5” (also spoken one–five or “slot”) constrain the public slot. “Extra monster” explicitly selects that row. Missing slots or conflicting position hints do not match.
+- **Direct attacks:** only explicit `direct:true` or “directly”/“direct attack” speech produces a direct proposal. An empty opponent twin never implies a direct attack; physical legality is still agreed at the table.
+
+The speech/UI adapter shows a **quick pick** for `ambiguous`, then confirmation of the chosen proposal; `unique` offers **one-tap confirm**. Only a confirmed proposal gets a new `idempotencyKey` and is submitted through the existing action endpoint with the current `baseSeq`. The resolver never executes or persists anything. Turn/phase rules and authoritative validation still run in `reduce`/the service; resolve again after a board update or `STALE_SEQUENCE`. Keep the raw utterance and nickname context in memory; events contain only the confirmed action. `parseCommand` remains a general speech-worker placeholder; no STT capture or voice controls are added to the proof UI.
 
 ## Persistence and service
 
