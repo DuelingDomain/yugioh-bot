@@ -34,7 +34,7 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
 
-type ReadCtx = { seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; tier?: Tier; covered?: boolean; token?: number };
+type ReadCtx = { seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; tier?: Tier; covered?: boolean; token?: number };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -196,7 +196,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const found = cardInfo(pick.cardId);
     const owns = current.solo || seat === current.mySeat;
     // A card that is already on the field is identified again by its ref. Only a new card is placed.
-    const same = owns ? copyOnField(seat, pick.cardId) : undefined;
+    const same = owns ? (at.ref?current.state.seats[seat].twin.find(c=>c.ref===at.ref):copyOnField(seat, pick.cardId)) : undefined;
     const spot = same ? { row: same.zone, slot: same.slot, ref: same.ref } : layoutFor(seat, pick.cardId, found);
     const { row, slot, ref } = spot;
     // The card goes on the virtual field first, so the sighting attaches to that same physical card.
@@ -238,20 +238,25 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, name]);
 
-  const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
+  const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
     const hit = found?.hit; const extra = hit ?? found?.point;
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
     const at: PopAt = { anchor: hit?.anchor ?? found?.point?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
-    ctx.current = { seat, x, y, quad: hit?.quad, at, id, ...(hit?.covered ? { covered: true } : {}) };
+    ctx.current = { seat, x, y, quad: hit?.quad, at, id,ref:found?.ref??hit?.cached?.ref, ...(hit?.covered ? { covered: true } : {}) };
+    if(hit?.cached&&!found?.force){
+      const cached=hit.cached;
+      setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,tier:'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
+      setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
+    }
     if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
     setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     let result: Awaited<ReturnType<typeof hub.read>>;
-    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, extra?.frames); }
+    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, extra?.frames,found?.force); }
     catch {
       // The read failed or was cut off. Never leave the popup on "Reading…".
       if (readCounter.current !== id) return;
@@ -519,7 +524,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
-    onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
+    onWrong: () => { if (!subject) return;
+      if(subject.via==='tracked'&&ctx.current&&ctx.current.ref===subject.ref){const at=ctx.current;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;}
+      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
     onPin: () => layers.open("insp"),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {

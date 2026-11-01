@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
 
 const state = vi.hoisted(() => ({
-  initialSource: null as "photo" | "camera" | null,
+  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(),
   createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(), recordFeedback:vi.fn(),
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
@@ -442,4 +442,34 @@ it('the watcher hook discards resource setup that resolves after unmount',async(
   localStorage.clear();const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
   const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
   hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
+});
+
+vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>state.feedHub}));
+vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>({...await importOriginal<typeof import('../src/components/remote/ui/recognizer')>(),attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[])}));
+it('owner and observer feed clicks select an identified physical ref without capturing or recognizing',async()=>{
+  const {Feed}=await import('../src/components/remote/ui/feed');
+  const card={ref:'physical-cached',cardId:46986414,name:'Dark Magician',quad:[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}]};
+  const source={local:true,attach:(video:HTMLVideoElement)=>{Object.defineProperty(video,'videoWidth',{value:1280,configurable:true});Object.defineProperty(video,'videoHeight',{value:720,configurable:true});return ()=>{};}};
+  vi.stubGlobal('ResizeObserver',class{constructor(private callback:()=>void){}observe(){this.callback();}disconnect(){}});
+  const width=vi.spyOn(HTMLElement.prototype,'clientWidth','get').mockReturnValue(640),height=vi.spyOn(HTMLElement.prototype,'clientHeight','get').mockReturnValue(360);
+  const rect=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:0,top:0,right:640,bottom:360,width:640,height:360,x:0,y:0,toJSON:()=>({})});
+  const capture=vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>{throw Error('cached click must not capture');});
+  try{for(const you of [true,false]){
+    capture.mockClear();capture.mockImplementation(()=>{throw Error('cached click must not capture');});state.feedDetect.mockClear();
+    const select=vi.fn(),begin=vi.fn(),point=vi.fn();
+    state.feedHub={sourceFor:()=>source,setFrozen:()=>{},trackedAt:vi.fn(()=>card),trackedCards:()=>[card]};
+    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onPoint={point} onSelect={select} onAdd={()=>{}} holdSelection={false} emptyText=""/>);
+    fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
+    expect(select).toHaveBeenCalledWith(0,expect.objectContaining({cached:card,quad:card.quad}));
+    expect(begin).not.toHaveBeenCalled();expect(point).not.toHaveBeenCalled();expect(state.feedDetect).not.toHaveBeenCalled();expect(capture).not.toHaveBeenCalled();
+    capture.mockImplementation(()=>({drawImage:()=>{}} as any));
+    vi.stubGlobal('createImageBitmap',vi.fn(async()=>({width:640,height:360,close:()=>{}})));
+    state.feedDetect.mockResolvedValue({status:'ready',cards:[{quad:card.quad,kind:'face-up',confidence:.9,partial:false,refined:true}],ms:1});
+    fireEvent.keyDown(view.getByTestId('feed-box-0'),{key:'f'});await within(view.container).findByTestId('quads');
+    const newer={...card,ref:'new-card',cardId:89631139,name:'Blue-Eyes White Dragon'};
+    state.feedHub.trackedAt.mockReturnValue(newer);state.feedHub.trackedCards=()=>[newer];
+    fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
+    expect(select.mock.calls.at(-1)?.[1].cached).toEqual(card);
+    view.unmount();
+  }}finally{width.mockRestore();height.mockRestore();rect.mockRestore();capture.mockRestore();}
 });

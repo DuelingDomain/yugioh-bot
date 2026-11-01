@@ -6,6 +6,7 @@ import { catalogCardId, fieldZoneLocation, yugioh, type FieldEvent, type FieldTr
 import type { RemoteActionProposal, RemoteRoom } from '@yugidraft/shared/remote';
 import { useFieldWatcher } from '@/lib/remote/use-field-watcher';
 import { fieldPlacementProposals } from '@/lib/remote/field-proposals';
+import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import { ownFieldResources } from './ui/recognizer';
 import { useVideoHub } from './ui/video-hub';
 import { cardCode, deckIdsOf, seenCardIds } from './ui/model';
@@ -62,6 +63,10 @@ export function AutoFieldWatcher({room,action}:{room:RemoteRoom;action(proposal:
   const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,sourceKey:source,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;
+  // Input pressure pauses inference, but does not mean a known card disappeared.
+  // Keep the previous snapshot until tracking resumes or its transport TTL expires.
+  useEffect(()=>{if(watch.snapshot.status!=='busy')hub.publishFieldTracks(fieldTrackMessage(watch.snapshot,entries.current,known()));},[watch.snapshot,hub.publishFieldTracks,room.state]);
+  useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   const video=host?.querySelector('video')??null;
   function anchor(track:FieldTrack):CSSProperties {
     if(!video||!host)return {left:8,top:40};

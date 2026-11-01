@@ -8,7 +8,7 @@ export interface UseFieldWatcherOptions {
   owner:boolean; active:boolean; seatKey:string; sourceKey?:unknown;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
-/** Owner only. Preferences/calibration survive sessions; frames and identities do not leave this browser. */
+/** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const latest=useRef(options);latest.current=options;
   const watcher=useRef<FieldWatcher|null>(null);
