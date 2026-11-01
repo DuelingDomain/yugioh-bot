@@ -18,6 +18,8 @@
     "@yugidraft/shared": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.2",
     "lucide-react": "^1.14.0",
     "next": "16.4.1",
     "posthog-js": "^1.438.9",

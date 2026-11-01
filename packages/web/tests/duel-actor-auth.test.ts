@@ -315,3 +315,44 @@ describe("remote duel API foundation", () => {
     expect((await response.json()).code).toBe("LIVEKIT_UNAVAILABLE");
   });
 });
+
+describe("remote LiveKit credentials", () => {
+  it("mints short-lived camera/mic/data grants for the stored seat and refuses foreign, absent, ended and idle memberships", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880");
+    vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+    const { createRemoteDuelService } = await import("@yugidraft/shared/services");
+    const remote = createRemoteDuelService(state.db!);
+    const room = remote.create({ guildId: "guild-1", userId, displayName: "Yugi", gameId: "ygo", seatCount: 2 });
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { POST } = await import("../app/api/remote/[slug]/livekit/route");
+    const request = () => new Request(`http://localhost/api/remote/${room.slug}/livekit`, { method: "POST", body: JSON.stringify({ seat: 1, room: "forged" }) });
+    const response = await POST(request(), context);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const credentials = await response.json();
+    const { TokenVerifier } = await import("livekit-server-sdk");
+    const claims = await new TokenVerifier("devkey", "secret").verify(credentials.token);
+    expect(credentials).toMatchObject({ url: "ws://127.0.0.1:7880", room: `remote-${room.slug}`, seat: 0 });
+    expect(claims.sub).toBe(`remote-user-${userId}`);
+    expect(JSON.parse(claims.metadata!)).toEqual({ guildId: "guild-1", tableId: room.slug, seat: 0, userId });
+    expect(claims.exp! - claims.nbf!).toBeLessThanOrEqual(300);
+    expect(claims.video).toMatchObject({ roomJoin: true, room: `remote-${room.slug}`, canPublish: true, canSubscribe: true, canPublishData: true, canPublishSources: ["camera", "microphone"], canUpdateOwnMetadata: false });
+    expect(JSON.stringify(credentials)).not.toContain('"secret"');
+    state.auth.mockResolvedValue(null);
+    expect((await POST(request(), context)).status).toBe(401);
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await POST(request(), context)).status).toBe(404);
+    remote.join(room.slug, "guild-1", guest, "Guest", 1);
+    const guestCredentials = await (await POST(request(), context)).json();
+    expect(guestCredentials.seat).toBe(1);
+    vi.stubEnv("DISCORD_GUILD_ID", "foreign");
+    expect((await POST(request(), context)).status).toBe(404);
+    vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
+    state.db!.prepare("update remote_tables set last_event_at=? where slug=?").run(Date.now() - 600_001, room.slug);
+    expect((await POST(request(), context)).status).toBe(409);
+    state.db!.prepare("update remote_tables set status='ended',last_event_at=? where slug=?").run(Date.now(), room.slug);
+    expect((await POST(request(), context)).status).toBe(409);
+  });
+});
