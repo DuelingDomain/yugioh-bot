@@ -1,6 +1,7 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
-import type { GameProfile, RecognitionResult, RecognizeOptions } from './types';
+import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad } from './types';
+export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
@@ -10,6 +11,8 @@ export interface RecognizerConfig {
 export interface Recognizer {
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
+  detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
+  askAI(result: RecognitionResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   dispose(): void;
 }
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
@@ -54,6 +57,22 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const bitmaps = frames.filter(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap);
         return await request({ type: 'recognize', frames, opts }, bitmaps) as RecognitionResult;
       } finally { inFlight = false; }
+    },
+    async detectCards(frame) {
+      if(disposed) throw new Error('Recognizer is disposed');
+      if(inFlight) throw new Error('Recognition is already in progress');
+      if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
+      inFlight=true;
+      try { await initialize(); if(disposed) throw new Error('Recognizer is disposed'); return await request({type:'detect',frame},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[]; }
+      finally {inFlight=false;}
+    },
+    async askAI(result, options={}) {
+      if(disposed) throw new Error('Recognizer is disposed');
+      if(result.tier==='sure' && !options.explicitRequest) throw new Error('AI requires uncertainty or an explicit request');
+      if(!result.cropJpeg) throw new Error('Recognize with includeCrop to ask AI');
+      const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:result.cropJpeg,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
+      if(!response.ok) throw new Error(response.status===404?'AI reading is disabled or requires owner access':response.status===429?'AI rate limit reached':response.status===504?'AI reading timed out':'AI reading unavailable');
+      return response.json() as Promise<AIReading>;
     },
     dispose() { disposed = true; worker?.terminate(); worker = undefined; failAll(new Error('Recognizer disposed')); },
   };
