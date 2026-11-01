@@ -45,7 +45,9 @@ instead of copying it. It writes upstream-compatible integer training IDs, a
 card catalog, card back and `profile.json`. The Yu-Gi-Oh adapter uses passcode-style
 numeric IDs; an adapter for a game with nonnumeric IDs must map those to local
 integer training IDs (the browser API already accepts arbitrary string IDs).
-`VISION_TRAINING_DIR` overrides the Python input root. Editing profile data and
+`VISION_TRAINING_DIR` overrides both adapter and Python input roots. Preparation
+preserves existing real-photo labels and refuses a changed index/profile identity;
+archive the old training directory or choose a new one to rebuild derived caches. Editing profile data and
 using another catalog/images changes geometry/templates without changing the
 trainer model or matching engine.
 
