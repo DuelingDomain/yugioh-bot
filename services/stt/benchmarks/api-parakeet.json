@@ -1,0 +1,295 @@
+{
+  "health": {
+    "status": "ready",
+    "model": "parakeet",
+    "sampleRate": 16000,
+    "modelLoadSeconds": 2.151,
+    "partialModel": "parakeet",
+    "activeUtterances": 0,
+    "catalogSource": "/home/sulman633/repos/yugioh-bot/.worktrees/remote-stt/data/duel-engine/cards.cdb",
+    "catalogSize": 14420
+  },
+  "checks": "HTTP/WS transcript, canonical IDs, PCM validation, size bounds, hotword validation, punctuated names, silence, cancel, disconnect, partials, VAD",
+  "phrase": {
+    "text": "Blue Eyes White Dragon attacks Dark Magician.",
+    "normalizedText": "Blue-Eyes White Dragon attacks Dark Magician.",
+    "cardMatches": [
+      {
+        "name": "Blue-Eyes White Dragon",
+        "passcode": 89631139,
+        "score": 1.0,
+        "span": [
+          0,
+          22
+        ]
+      },
+      {
+        "name": "Dark Magician",
+        "passcode": 46986414,
+        "score": 1.0,
+        "span": [
+          31,
+          44
+        ]
+      }
+    ],
+    "type": "final",
+    "requestId": "smoke",
+    "reason": "release",
+    "model": "parakeet",
+    "durationMs": 2623.875,
+    "speechDetected": true,
+    "processingMs": 111.63,
+    "observedReleaseMs": 116.13,
+    "partials": [
+      {
+        "text": "Blue eyes.",
+        "receivedMs": 431.32
+      },
+      {
+        "text": "Blue eyes white",
+        "receivedMs": 849.71
+      },
+      {
+        "text": "Blue Eyes White Dragon",
+        "receivedMs": 1244.59
+      },
+      {
+        "text": "Blue Eyes White Dragon attack",
+        "receivedMs": 1665.69
+      },
+      {
+        "text": "Blue Eyes White Dragon attacks Dark",
+        "receivedMs": 2089.7
+      },
+      {
+        "text": "Blue Eyes White Dragon attacks Dark Magician.",
+        "receivedMs": 2498.18
+      }
+    ]
+  },
+  "probes": {
+    "1": {
+      "p50Ms": 47.56,
+      "p95Ms": 63.34,
+      "runs": [
+        {
+          "text": "In turn",
+          "normalizedText": "In turn",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 1000.0,
+          "speechDetected": true,
+          "processingMs": 39.51,
+          "observedReleaseMs": 47.56,
+          "partials": [
+            {
+              "text": "Enter",
+              "receivedMs": 422.18
+            },
+            {
+              "text": "In turn",
+              "receivedMs": 830.18
+            }
+          ]
+        },
+        {
+          "text": "In turn",
+          "normalizedText": "In turn",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 1000.0,
+          "speechDetected": true,
+          "processingMs": 61.41,
+          "observedReleaseMs": 65.09,
+          "partials": [
+            {
+              "text": "Enter",
+              "receivedMs": 427.6
+            },
+            {
+              "text": "In turn",
+              "receivedMs": 840.02
+            }
+          ]
+        },
+        {
+          "text": "In turn",
+          "normalizedText": "In turn",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 1000.0,
+          "speechDetected": true,
+          "processingMs": 43.43,
+          "observedReleaseMs": 47.04,
+          "partials": [
+            {
+              "text": "Enter",
+              "receivedMs": 417.38
+            },
+            {
+              "text": "In turn",
+              "receivedMs": 836.9
+            }
+          ]
+        }
+      ]
+    },
+    "3": {
+      "p50Ms": 90.76,
+      "p95Ms": 94.43,
+      "runs": [
+        {
+          "text": "Moving to standby phase.",
+          "normalizedText": "Moving to standby phase.",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 3000.0,
+          "speechDetected": true,
+          "processingMs": 90.41,
+          "observedReleaseMs": 94.84,
+          "partials": [
+            {
+              "text": "Moving to",
+              "receivedMs": 422.37
+            },
+            {
+              "text": "Moving to stand",
+              "receivedMs": 833.29
+            },
+            {
+              "text": "Moving to stand by faith.",
+              "receivedMs": 1238.42
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 1652.09
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2064.52
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2482.35
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2923.28
+            }
+          ]
+        },
+        {
+          "text": "Moving to standby phase.",
+          "normalizedText": "Moving to standby phase.",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 3000.0,
+          "speechDetected": true,
+          "processingMs": 83.24,
+          "observedReleaseMs": 87.89,
+          "partials": [
+            {
+              "text": "Moving to",
+              "receivedMs": 418.63
+            },
+            {
+              "text": "Moving to stand",
+              "receivedMs": 837.57
+            },
+            {
+              "text": "Moving to stand by faith.",
+              "receivedMs": 1280.13
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 1721.31
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2092.95
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2505.6
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2917.46
+            }
+          ]
+        },
+        {
+          "text": "Moving to standby phase.",
+          "normalizedText": "Moving to standby phase.",
+          "cardMatches": [],
+          "type": "final",
+          "requestId": "",
+          "reason": "release",
+          "model": "parakeet",
+          "durationMs": 3000.0,
+          "speechDetected": true,
+          "processingMs": 86.69,
+          "observedReleaseMs": 90.76,
+          "partials": [
+            {
+              "text": "Moving to",
+              "receivedMs": 421.87
+            },
+            {
+              "text": "Moving to stand",
+              "receivedMs": 847.4
+            },
+            {
+              "text": "Moving to stand by faith.",
+              "receivedMs": 1243.89
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 1666.44
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2071.36
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2475.35
+            },
+            {
+              "text": "Moving to standby phase.",
+              "receivedMs": 2922.31
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "vad": {
+    "text": "Moving to stand by phase.",
+    "normalizedText": "Moving to stand by phase.",
+    "cardMatches": [],
+    "type": "final",
+    "requestId": "",
+    "reason": "silence",
+    "model": "parakeet",
+    "durationMs": 2080.0,
+    "speechDetected": true,
+    "processingMs": 68.6
+  }
+}

@@ -31,6 +31,7 @@ How the system is built.
 | Doc | Purpose |
 |---|---|
 | [architecture/README.md](architecture/README.md) | Overview: packages, duel engine, engine to screen, stored duel boards |
+| [Remote Duels STT](../services/stt/README.md) | Standalone CPU speech service: run, HTTP/WS contract and measured model comparison |
 | [architecture/data-flow.md](architecture/data-flow.md) | How data moves between browser, web, ws, duel-server, worker, bot, shared and SQLite |
 | [architecture/infrastructure.md](architecture/infrastructure.md) | What it runs on: Hetzner VM, Docker Compose services, Caddy, GHCR images, engine bundle, backups |
 | [architecture/draft-engine.md](architecture/draft-engine.md) | Draft engine: booster and theme drafts, picks, timers |

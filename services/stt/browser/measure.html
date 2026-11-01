@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Browser STT measurement harness</title>
+<link rel="icon" href="data:,">
+<p>Headless benchmark entry point. Run <code>npm run benchmark</code>; microphone capture belongs to the caller.</p>
+<script type="module">
+import { createBrowserSTT } from './index.js';
+import { CardMatcher } from './matcher.js';
+window.createBrowserSTT = createBrowserSTT;
+window.CardMatcher = CardMatcher;
+</script>

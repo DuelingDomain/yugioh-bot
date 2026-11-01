@@ -1,0 +1,825 @@
+{
+  "model": "whisper",
+  "threads": 4,
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "cpu": "AMD Ryzen 7 9800X3D, CPU only, WSL2",
+  "catalog": "data/duel-engine/cards.cdb",
+  "catalogCount": 14422,
+  "manifestSha256": "91c47b3cc84ace8624de878d41e535815dbc0fc8ffd342d55ca536b781b400bb",
+  "loadSeconds": 2.494,
+  "loadedRssMiB": 987.7,
+  "peakRssMiB": 1674.5,
+  "rawWer": 0.042553,
+  "normalizedWer": 0.026596,
+  "rawErrors": 8,
+  "referenceWords": 188,
+  "rtf": 1.9496,
+  "decodeP50Ms": 3334.01,
+  "decodeP95Ms": 6953.21,
+  "matcherP50Ms": 1.06,
+  "matcherP95Ms": 5.17,
+  "audioSeconds": 79.3,
+  "probes": {
+    "1": {
+      "reference": "end turn",
+      "text": "Intern",
+      "fullDecodeP50Ms": 3548.92,
+      "fullDecodeP95Ms": 3700.38,
+      "releaseP50Ms": 3548.92,
+      "releaseP95Ms": 3700.38
+    },
+    "3": {
+      "reference": "moving to standby phase",
+      "text": "Moving to Standby Phase",
+      "fullDecodeP50Ms": 2443.05,
+      "fullDecodeP95Ms": 2676.43,
+      "releaseP50Ms": 2443.05,
+      "releaseP95Ms": 2676.43
+    }
+  },
+  "clips": [
+    {
+      "file": "00-00.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "Blue-Eyes White Dragon attacks Dark Magician",
+      "duration": 2.623875,
+      "sha256": "59b22340a7e8fd844ce6be91a387e6a5c1cb53e7067a5fd8529ab354e10d9cd9",
+      "text": "Blue-Eyes White Dragon attacks Dark Magician",
+      "normalizedText": "Blue-Eyes White Dragon attacks Dark Magician",
+      "cardMatches": [
+        {
+          "name": "Blue-Eyes White Dragon",
+          "passcode": 89631139,
+          "score": 1.0,
+          "span": [
+            0,
+            22
+          ]
+        },
+        {
+          "name": "Dark Magician",
+          "passcode": 46986414,
+          "score": 1.0,
+          "span": [
+            31,
+            44
+          ]
+        }
+      ],
+      "decodeMs": 3255.0,
+      "matchMs": 3.64
+    },
+    {
+      "file": "00-01.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "moving to standby phase",
+      "duration": 1.857625,
+      "sha256": "852e58ead623b9ed0f736880034e0df422cc42e29484a476e76863717517ba97",
+      "text": "Moving to Standby Phase",
+      "normalizedText": "Moving to Standby Phase",
+      "cardMatches": [],
+      "decodeMs": 4254.5,
+      "matchMs": 0.03
+    },
+    {
+      "file": "00-02.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Ash Blossom and Joyous Spring",
+      "duration": 2.8560625,
+      "sha256": "4c71d26ae240064abadbacf7378c824bb55f3b5423f432d67ebb5b81511b294a",
+      "text": "I activate Ash Blossom & Joyous Spring",
+      "normalizedText": "I activate Ash Blossom & Joyous Spring",
+      "cardMatches": [
+        {
+          "name": "Ash Blossom & Joyous Spring",
+          "passcode": 14558127,
+          "score": 1.0,
+          "span": [
+            11,
+            38
+          ]
+        }
+      ],
+      "decodeMs": 8480.81,
+      "matchMs": 6.69
+    },
+    {
+      "file": "00-03.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "take 2400 damage",
+      "duration": 2.043375,
+      "sha256": "4ff0832320e46c750d2b62d678f863e82184ac2d0a71c5d353d79c4d0230e89e",
+      "text": "Take 2400 Damage",
+      "normalizedText": "Take 2400 Damage",
+      "cardMatches": [],
+      "decodeMs": 5130.6,
+      "matchMs": 0.03
+    },
+    {
+      "file": "00-04.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "Imran attack directly",
+      "duration": 1.5209375,
+      "sha256": "6005566cc77d9c7e0016b57bc3dec821f2efc14dd4bcd9a720b1aa3aef77278f",
+      "text": "Imran Attack Directly",
+      "normalizedText": "Imran Attack Directly",
+      "cardMatches": [],
+      "decodeMs": 6163.18,
+      "matchMs": 0.01
+    },
+    {
+      "file": "00-05.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Dark Magician",
+      "duration": 1.4860625,
+      "sha256": "b69fcca446419094c04632ea00ba689445f150c18dd0718133841049e980d8ed",
+      "text": "I Summon Dark Magician",
+      "normalizedText": "I Summon Dark Magician",
+      "cardMatches": [
+        {
+          "name": "Dark Magician",
+          "passcode": 46986414,
+          "score": 1.0,
+          "span": [
+            9,
+            22
+          ]
+        }
+      ],
+      "decodeMs": 5188.15,
+      "matchMs": 1.43
+    },
+    {
+      "file": "00-06.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Infinite Impermanence",
+      "duration": 2.043375,
+      "sha256": "fd810291e9216bd659335b99dc4337237d7fa6d21ecbec00a67fc19b52729220",
+      "text": "I activate Infinite Impermanence",
+      "normalizedText": "I activate Infinite Impermanence",
+      "cardMatches": [
+        {
+          "name": "Infinite Impermanence",
+          "passcode": 10045474,
+          "score": 1.0,
+          "span": [
+            11,
+            32
+          ]
+        }
+      ],
+      "decodeMs": 5173.8,
+      "matchMs": 0.98
+    },
+    {
+      "file": "00-07.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Called by the Grave",
+      "duration": 2.1826875,
+      "sha256": "d0be9247b669b1dcd5a833a9e7634ecaaeab6019f179b9d36d5bd1b696b0376f",
+      "text": "I Activate Called by the Grave",
+      "normalizedText": "I Activate Called by the Grave",
+      "cardMatches": [
+        {
+          "name": "Called by the Grave",
+          "passcode": 24224830,
+          "score": 1.0,
+          "span": [
+            11,
+            30
+          ]
+        }
+      ],
+      "decodeMs": 4105.0,
+      "matchMs": 1.87
+    },
+    {
+      "file": "00-08.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Nibiru the Primal Being",
+      "duration": 2.0085,
+      "sha256": "0880485567797cb09bebebd27f0bfb5ae783befe57e5f0f1fc4892b8d372b2e8",
+      "text": "I Summon Nibiru, the Primal Being",
+      "normalizedText": "I Summon Nibiru, the Primal Being",
+      "cardMatches": [
+        {
+          "name": "Nibiru, the Primal Being",
+          "passcode": 27204311,
+          "score": 1.0,
+          "span": [
+            9,
+            33
+          ]
+        }
+      ],
+      "decodeMs": 7394.77,
+      "matchMs": 1.88
+    },
+    {
+      "file": "00-09.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I discard Effect Veiler",
+      "duration": 1.55575,
+      "sha256": "7cec900c02a65c80a682221191200c69e119cc22dec5abdbc58b2c93df53fcc2",
+      "text": "I discard Effect Veiler",
+      "normalizedText": "I discard Effect Veiler",
+      "cardMatches": [
+        {
+          "name": "Effect Veiler",
+          "passcode": 97268402,
+          "score": 1.0,
+          "span": [
+            10,
+            23
+          ]
+        }
+      ],
+      "decodeMs": 4789.98,
+      "matchMs": 1.07
+    },
+    {
+      "file": "00-10.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Red-Eyes Black Dragon",
+      "duration": 2.13625,
+      "sha256": "3a6dfccb3337d5aaf5fe20013ced0ec673ab58d00538a223f07ab59521be0b17",
+      "text": "I Summon Red-Eyes Black Dragon",
+      "normalizedText": "I Summon Red-Eyes Black Dragon",
+      "cardMatches": [
+        {
+          "name": "Red-Eyes Black Dragon",
+          "passcode": 74677422,
+          "score": 1.0,
+          "span": [
+            9,
+            30
+          ]
+        }
+      ],
+      "decodeMs": 3322.88,
+      "matchMs": 3.49
+    },
+    {
+      "file": "00-11.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Monster Reborn",
+      "duration": 1.71825,
+      "sha256": "4690e425a71d3660f891dfb4d82bbe3ad4231751d01868c9a17fcdc94d8dcde2",
+      "text": "I Activate Monster Reborn",
+      "normalizedText": "I Activate Monster Reborn",
+      "cardMatches": [
+        {
+          "name": "Monster Reborn",
+          "passcode": 83764718,
+          "score": 1.0,
+          "span": [
+            11,
+            25
+          ]
+        }
+      ],
+      "decodeMs": 6929.97,
+      "matchMs": 0.98
+    },
+    {
+      "file": "00-12.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Pot of Prosperity",
+      "duration": 2.1826875,
+      "sha256": "2e2994cf635914f8bb52ec7feb74db955b334301351bd38a80d9a95677c17a36",
+      "text": "I Activate Pot of Prosperity",
+      "normalizedText": "I Activate Pot of Prosperity",
+      "cardMatches": [
+        {
+          "name": "Pot of Prosperity",
+          "passcode": 84211599,
+          "score": 1.0,
+          "span": [
+            11,
+            28
+          ]
+        }
+      ],
+      "decodeMs": 5138.11,
+      "matchMs": 2.01
+    },
+    {
+      "file": "00-13.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Swordsoul of Mo Ye",
+      "duration": 1.846,
+      "sha256": "aa407b01905872858693f3e33a1bbe2c271df0cd31496c799ecf15979c8d938a",
+      "text": "I Summon Sword Soul of Mo Ye",
+      "normalizedText": "I Summon Swordsoul of Mo Ye",
+      "cardMatches": [
+        {
+          "name": "Swordsoul of Mo Ye",
+          "passcode": 20001443,
+          "score": 0.9778,
+          "span": [
+            9,
+            28
+          ]
+        }
+      ],
+      "decodeMs": 3662.08,
+      "matchMs": 5.15
+    },
+    {
+      "file": "00-14.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Kashtira Fenrir",
+      "duration": 1.857625,
+      "sha256": "17b1e1b68ac57eb8728c36f40a45cb4bf15512d862494908ec0b9b359f10af92",
+      "text": "I Summon Kashtira Fenrir",
+      "normalizedText": "I Summon Kashtira Fenrir",
+      "cardMatches": [
+        {
+          "name": "Kashtira Fenrir",
+          "passcode": 32909498,
+          "score": 1.0,
+          "span": [
+            9,
+            24
+          ]
+        }
+      ],
+      "decodeMs": 4120.12,
+      "matchMs": 1.11
+    },
+    {
+      "file": "00-15.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I activate Droll and Lock Bird",
+      "duration": 1.9620625,
+      "sha256": "bf3dbde9d096d41ec849acb6cef77007571a7a299a7969622989934b381d03f2",
+      "text": "I activate Droll & Lock Bird",
+      "normalizedText": "I activate Droll & Lock Bird",
+      "cardMatches": [
+        {
+          "name": "Droll & Lock Bird",
+          "passcode": 94145021,
+          "score": 1.0,
+          "span": [
+            11,
+            28
+          ]
+        }
+      ],
+      "decodeMs": 3239.81,
+      "matchMs": 3.38
+    },
+    {
+      "file": "00-16.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "go to battle phase",
+      "duration": 1.2074375,
+      "sha256": "92ef3772cd32519476b948b20559879b7a82d5ebc2423ae596d32dbbbbe9a648",
+      "text": "Go to Battle Phase",
+      "normalizedText": "Go to Battle Phase",
+      "cardMatches": [],
+      "decodeMs": 2511.61,
+      "matchMs": 0.56
+    },
+    {
+      "file": "00-17.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "end my turn",
+      "duration": 0.97525,
+      "sha256": "15d39395a252296820b76e9f861b44caba0a704d13dd3bb3c2adc60554100106",
+      "text": "End my turn",
+      "normalizedText": "End my turn",
+      "cardMatches": [],
+      "decodeMs": 3359.18,
+      "matchMs": 0.6
+    },
+    {
+      "file": "00-18.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "take eight hundred damage",
+      "duration": 1.335125,
+      "sha256": "36c72c9cf614c070a26859cebab1e775e78c71598858bbb2b377ba075962d3be",
+      "text": "Take 800 Damage",
+      "normalizedText": "Take 800 Damage",
+      "cardMatches": [],
+      "decodeMs": 3345.13,
+      "matchMs": 0.02
+    },
+    {
+      "file": "00-19.wav",
+      "voice": "en_US-lessac-medium",
+      "reference": "I summon Accesscode Talker",
+      "duration": 1.6950625,
+      "sha256": "f771554f4405dc1e32a5aa7f4002693f067a89df20f34e132fc9b80aab8ac480",
+      "text": "I Summon Accesscode Talker",
+      "normalizedText": "I Summon Accesscode Talker",
+      "cardMatches": [
+        {
+          "name": "Accesscode Talker",
+          "passcode": 86066372,
+          "score": 1.0,
+          "span": [
+            9,
+            26
+          ]
+        }
+      ],
+      "decodeMs": 3790.62,
+      "matchMs": 1.09
+    },
+    {
+      "file": "01-00.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "Blue-Eyes White Dragon attacks Dark Magician",
+      "duration": 2.98375,
+      "sha256": "6b28dfaf0ece8c5df1f604e0a170e2bf06df780aa70253b328887b657b9c4d80",
+      "text": "Blue-Eyes White Dragon Attacks Dark Magician.",
+      "normalizedText": "Blue-Eyes White Dragon Attacks Dark Magician.",
+      "cardMatches": [
+        {
+          "name": "Blue-Eyes White Dragon",
+          "passcode": 89631139,
+          "score": 1.0,
+          "span": [
+            0,
+            22
+          ]
+        },
+        {
+          "name": "Dark Magician",
+          "passcode": 46986414,
+          "score": 1.0,
+          "span": [
+            31,
+            44
+          ]
+        }
+      ],
+      "decodeMs": 2742.14,
+      "matchMs": 3.77
+    },
+    {
+      "file": "01-01.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "moving to standby phase",
+      "duration": 2.03175,
+      "sha256": "d73c21d5f0a0665700045b26c77da25c3f5ca2b06cb1e5ecbf2bcfcb21befecf",
+      "text": "Moving to Standby Phase",
+      "normalizedText": "Moving to Standby Phase",
+      "cardMatches": [],
+      "decodeMs": 3477.34,
+      "matchMs": 0.02
+    },
+    {
+      "file": "01-02.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Ash Blossom and Joyous Spring",
+      "duration": 3.1115,
+      "sha256": "235efb75c256c3d180feba5eaa40c2d817abdb21aaa16240048cfa500681fbce",
+      "text": "I activate Ash Blossom & Joyous Spring.",
+      "normalizedText": "I activate Ash Blossom & Joyous Spring.",
+      "cardMatches": [
+        {
+          "name": "Ash Blossom & Joyous Spring",
+          "passcode": 14558127,
+          "score": 1.0,
+          "span": [
+            11,
+            38
+          ]
+        }
+      ],
+      "decodeMs": 2871.98,
+      "matchMs": 5.59
+    },
+    {
+      "file": "01-03.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "take 2400 damage",
+      "duration": 2.61225,
+      "sha256": "d5af9c6364438fd7f160324364f385d8157c3bff1554792a77b012e529d76dbf",
+      "text": "Take 2400 damage.",
+      "normalizedText": "Take 2400 damage.",
+      "cardMatches": [],
+      "decodeMs": 2519.09,
+      "matchMs": 0.02
+    },
+    {
+      "file": "01-04.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "Imran attack directly",
+      "duration": 1.729875,
+      "sha256": "3938eb525d78c1eec0b1168cc57e03d30c2d916f11333b7bf62e394f3259b689",
+      "text": "Imran attacked directly",
+      "normalizedText": "Imran attacked directly",
+      "cardMatches": [],
+      "decodeMs": 2532.01,
+      "matchMs": 1.05
+    },
+    {
+      "file": "01-05.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Dark Magician",
+      "duration": 1.7995625,
+      "sha256": "9e5b316ac6969bb93b3c17e7bca73de07c42e6e5128fed360a68a92ad84d5a0a",
+      "text": "I Summon Dark Magician",
+      "normalizedText": "I Summon Dark Magician",
+      "cardMatches": [
+        {
+          "name": "Dark Magician",
+          "passcode": 46986414,
+          "score": 1.0,
+          "span": [
+            9,
+            22
+          ]
+        }
+      ],
+      "decodeMs": 3312.62,
+      "matchMs": 0.91
+    },
+    {
+      "file": "01-06.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Infinite Impermanence",
+      "duration": 2.7515625,
+      "sha256": "ffea640b5fabe2721c36f38f06149452f71858260e6a7a26ecfba38f3956ceea",
+      "text": "I activate Infinite Impermanence.",
+      "normalizedText": "I activate Infinite Impermanence.",
+      "cardMatches": [
+        {
+          "name": "Infinite Impermanence",
+          "passcode": 10045474,
+          "score": 1.0,
+          "span": [
+            11,
+            32
+          ]
+        }
+      ],
+      "decodeMs": 2915.56,
+      "matchMs": 0.99
+    },
+    {
+      "file": "01-07.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Called by the Grave",
+      "duration": 2.2523125,
+      "sha256": "b1159de11b47a8c2b9e8ad46f9d4e9a019e68e39afbd498bd18976d352e8a700",
+      "text": "I activate Called by the Grave",
+      "normalizedText": "I activate Called by the Grave",
+      "cardMatches": [
+        {
+          "name": "Called by the Grave",
+          "passcode": 24224830,
+          "score": 1.0,
+          "span": [
+            11,
+            30
+          ]
+        }
+      ],
+      "decodeMs": 3083.07,
+      "matchMs": 1.87
+    },
+    {
+      "file": "01-08.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Nibiru the Primal Being",
+      "duration": 2.229125,
+      "sha256": "5311c36441c4747e9b1348b89215d0808a6b2ec0fc5c9c0086645ed9bd8e453c",
+      "text": "I summon Nibiru, the Primal Being.",
+      "normalizedText": "I summon Nibiru, the Primal Being.",
+      "cardMatches": [
+        {
+          "name": "Nibiru, the Primal Being",
+          "passcode": 27204311,
+          "score": 1.0,
+          "span": [
+            9,
+            33
+          ]
+        }
+      ],
+      "decodeMs": 3024.66,
+      "matchMs": 1.86
+    },
+    {
+      "file": "01-09.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I discard Effect Veiler",
+      "duration": 1.9969375,
+      "sha256": "6c204b640c7dd13cd4282da59f0a037d4d9f7dbdcae28c427ac47efa2f836be3",
+      "text": "I discard Effect Veiler",
+      "normalizedText": "I discard Effect Veiler",
+      "cardMatches": [
+        {
+          "name": "Effect Veiler",
+          "passcode": 97268402,
+          "score": 1.0,
+          "span": [
+            10,
+            23
+          ]
+        }
+      ],
+      "decodeMs": 2998.01,
+      "matchMs": 0.94
+    },
+    {
+      "file": "01-10.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Red-Eyes Black Dragon",
+      "duration": 2.2523125,
+      "sha256": "f3d5f112e7c3e5ec539d877d47e3a700d77c3fbcdfec2db8b467ae0c0adafc15",
+      "text": "I summon Red-Eyes Black Dragon.",
+      "normalizedText": "I summon Red-Eyes Black Dragon.",
+      "cardMatches": [
+        {
+          "name": "Red-Eyes Black Dragon",
+          "passcode": 74677422,
+          "score": 1.0,
+          "span": [
+            9,
+            30
+          ]
+        }
+      ],
+      "decodeMs": 4404.67,
+      "matchMs": 3.35
+    },
+    {
+      "file": "01-11.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Monster Reborn",
+      "duration": 1.9505,
+      "sha256": "acdbd11acf9409b983a7e7030b5ce3b98b24610606a749d5ff62663abf8ad8ab",
+      "text": "I activate Monster Reborn",
+      "normalizedText": "I activate Monster Reborn",
+      "cardMatches": [
+        {
+          "name": "Monster Reborn",
+          "passcode": 83764718,
+          "score": 1.0,
+          "span": [
+            11,
+            25
+          ]
+        }
+      ],
+      "decodeMs": 2713.91,
+      "matchMs": 0.99
+    },
+    {
+      "file": "01-12.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Pot of Prosperity",
+      "duration": 2.1594375,
+      "sha256": "36bfbf903fefd003e3c6f4085d17d452c9120dcf0b12bdda2c3b702851f905fb",
+      "text": "I activate Pot of Prosperity.",
+      "normalizedText": "I activate Pot of Prosperity.",
+      "cardMatches": [
+        {
+          "name": "Pot of Prosperity",
+          "passcode": 84211599,
+          "score": 1.0,
+          "span": [
+            11,
+            28
+          ]
+        }
+      ],
+      "decodeMs": 4138.69,
+      "matchMs": 1.94
+    },
+    {
+      "file": "01-13.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Swordsoul of Mo Ye",
+      "duration": 2.113,
+      "sha256": "5b5023e999dfa73bb45ab48af8c090d3b1b9ef1448ce1d57ac86fc6e332dbfc9",
+      "text": "I Summon Swordsoul of Mo Ye",
+      "normalizedText": "I Summon Swordsoul of Mo Ye",
+      "cardMatches": [
+        {
+          "name": "Swordsoul of Mo Ye",
+          "passcode": 20001443,
+          "score": 1.0,
+          "span": [
+            9,
+            27
+          ]
+        }
+      ],
+      "decodeMs": 3308.74,
+      "matchMs": 3.3
+    },
+    {
+      "file": "01-14.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Kashtira Fenrir",
+      "duration": 1.7995625,
+      "sha256": "c4806d001f276a3e548d9177f0d4ed34c309cc1c5a5ea6ae7611b5b4db8f9ae5",
+      "text": "I summon Kashtira Fenrir",
+      "normalizedText": "I summon Kashtira Fenrir",
+      "cardMatches": [
+        {
+          "name": "Kashtira Fenrir",
+          "passcode": 32909498,
+          "score": 1.0,
+          "span": [
+            9,
+            24
+          ]
+        }
+      ],
+      "decodeMs": 3721.16,
+      "matchMs": 0.96
+    },
+    {
+      "file": "01-15.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I activate Droll and Lock Bird",
+      "duration": 2.29875,
+      "sha256": "6735381891273ebb944c8829d4780dbc718e65f66ea031ecb3c0b437156d16a3",
+      "text": "I activate Droll & Lock Bird",
+      "normalizedText": "I activate Droll & Lock Bird",
+      "cardMatches": [
+        {
+          "name": "Droll & Lock Bird",
+          "passcode": 94145021,
+          "score": 1.0,
+          "span": [
+            11,
+            28
+          ]
+        }
+      ],
+      "decodeMs": 3127.61,
+      "matchMs": 3.2
+    },
+    {
+      "file": "01-16.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "go to battle phase",
+      "duration": 1.4164375,
+      "sha256": "496565bd4ed1f6725eb709167aec250c997ced2ca137f18fb8e9c35a9d1548b1",
+      "text": "Go to Battle Phase",
+      "normalizedText": "Go to Battle Phase",
+      "cardMatches": [],
+      "decodeMs": 2867.73,
+      "matchMs": 0.49
+    },
+    {
+      "file": "01-17.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "end my turn",
+      "duration": 1.13775,
+      "sha256": "20278ec84afc4c6413ccc291c068d15da05615d2c7ab5a48f19fca3f2a93d440",
+      "text": "End my turn.",
+      "normalizedText": "End my turn.",
+      "cardMatches": [],
+      "decodeMs": 2797.8,
+      "matchMs": 0.48
+    },
+    {
+      "file": "01-18.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "take eight hundred damage",
+      "duration": 1.6834375,
+      "sha256": "cf79257a681990ccbbcf932ab61693d762be122b1c4d6978bca6a579efbc0f4f",
+      "text": "Take 800 Damage",
+      "normalizedText": "Take 800 Damage",
+      "cardMatches": [],
+      "decodeMs": 2518.53,
+      "matchMs": 0.01
+    },
+    {
+      "file": "01-19.wav",
+      "voice": "en_GB-alan-medium",
+      "reference": "I summon Accesscode Talker",
+      "duration": 1.8924375,
+      "sha256": "6097d250e273a43aaf65e0b5aa765ab7ece14fe86f66b5532a0964a1f1495ae1",
+      "text": "I summon Accesscode Talk.",
+      "normalizedText": "I summon Accesscode Talker.",
+      "cardMatches": [
+        {
+          "name": "Accesscode Talker",
+          "passcode": 86066372,
+          "score": 0.9393,
+          "span": [
+            9,
+            24
+          ]
+        }
+      ],
+      "decodeMs": 2163.24,
+      "matchMs": 0.98
+    }
+  ],
+  "normalizedErrors": 5,
+  "modelRepository": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+  "modelRevision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+  "precision": "int8 (runtime quantization from upstream fp16)",
+  "rescoredWithFinalMatcher": true
+}
