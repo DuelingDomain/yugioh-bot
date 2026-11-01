@@ -43,6 +43,16 @@ a candidate or press 1–5, or search the local index by name/passcode to correc
 it. **Export confirmations** downloads a local JSON log; it contains IDs and
 quality, no photos. Confirmations live only for the current page session.
 
+On a frozen image, **hover or focus** an outline for a small best-name/tier peek
+after 250 ms. It caches per outline until Resume/source/backend reset, stays
+hoverable, and closes with Escape. It creates no confirmation or AI request.
+Choose **Camera side** and **Fill seat**, then **Read all cards** to recognize
+the outlined board sequentially and fill that seat's local lab board twin.
+Both near/far groups remain visible; uncertain names are marked unconfirmed,
+and face-down/unknown/error slots remain explicit. **Cancel board read** stops
+the worker; Stop/source/backend changes discard stale results. Twins are a
+session-only lab demonstration, with no remote-room persistence or zone inference.
+
 Models, index, worker, cached artwork and benchmark photos are all under ignored
 `data/vision/`. In development `/dev/vision-assets/<path>` streams those files
 with proper JavaScript/WASM MIME types. Worker/runtime requests use the isolated
@@ -75,6 +85,72 @@ const result = await reader.recognize(frames, {
 //   runtime: { crossOriginIsolated, wasmThreads, simd } }
 reader.dispose();
 ```
+
+For an outlined snapshot, keep an original `ImageBitmap` and pass fresh clones
+to each call (transferred bitmaps are consumed; `ImageData` is copied):
+
+```ts
+const cards = await reader.detectCards(await createImageBitmap(snapshot));
+const peek = await reader.peek(await createImageBitmap(snapshot), {
+  card: cards[0], cards, // all outlines and selected card from this exact snapshot
+});
+// { cardId?, name: string | null, tier, faceDown, covered }; no crop/pixels
+const controller = new AbortController();
+const board = await reader.readAll(await createImageBitmap(snapshot), {
+  cards, signal: controller.signal, // omit cards to detect once in the worker
+});
+// { near: BoardCard[], far: BoardCard[], timingsMs: { detect, total } }
+const seatTwin = board.near; // retain each slot's tier/faceDown/error; never assume certainty
+```
+
+`peek` and `readAll` accept optional recognition `priors`. Both support an
+`AbortSignal`; abort terminates their worker, rejects with `AbortError`, and
+the next call lazily reloads it. One inference operation may run at a time.
+`readAll` accepts at most **60** supplied outlines (larger lists reject), or
+reads the first 60 ordered detections. Each `BoardCard` contains its original
+`index`, `outline`, `side`, best name/ID, tier, `faceDown`, `covered`, and optional
+`error`. It reads face-up cards sequentially, retaining duplicates as separate
+slots. Face-down outlines produce an unnamed, uncertain slot without guessing
+hidden identity. Individual read failures retain an error slot and do not
+discard the rest of the board. An empty board returns two empty arrays.
+
+Near/far uses the quad's center in **source image coordinates**: `y > .5` is
+near; `y <= .5` is far, including the midpoint tie. CSS letterboxing has no
+effect. This adapts Duel Lens `src/content/board.ts` to one camera/photo frame;
+it does not infer orientation, perspective-correct a table, identify players,
+or separate arbitrary multi-camera collages.
+
+The automatic **COVERED guard** is exposed as `DetectedQuad.covered`,
+`RecognitionResult.quality.covered`, and `PeekResult`/`BoardCard.covered`.
+Detect-all and ordinary recognition retain weak detector peaks down to .2
+(visible outlines still require .4), and the close-up 448px fallback checks the
+same scene. A covered answer keeps its suggestions but cannot be `sure`.
+Selected-quad recognition honors the flag from `detectCards`; `peek`/`readAll`
+also compare supplied same-frame outlines. Supplying an arbitrary quad without
+scene evidence cannot reveal an undetected covering object.
+
+`board.ts` retains upstream's bounds-fit rule (`minFit .6`, `lead .2`,
+`maxPickInside .8`) and adds polygon evidence for the exact-outline workflow:
+distinct positive-overlap quads trigger when the competing-pick bounds rule
+fits, or at least 20% of the target polygon overlaps. Polygon IoU >= .8 is
+treated as a duplicate outline. With no depth evidence this conservatively
+caps both cards of a stack. Hands, missing detections and nearly coincident
+stacks are not reliably detected; this does not reconstruct hidden artwork or
+inherit upstream's private-footage calibration.
+
+Offline synthetic board measurements and validation are in [REPORT.md](REPORT.md).
+Reproduce using existing local models/index and the existing clean-photo corpus:
+
+```sh
+npx tsx scripts/vision/prepare.ts --bundle-only
+npx tsx scripts/vision/benchmark-board.ts
+VISION_LAB_ORIGIN=http://127.0.0.1:3429 npx tsx scripts/vision/check-lab.ts
+```
+
+The benchmark performs no external requests. Raw board measurements and compact
+JPEG fixtures stay under ignored `data/vision/benchmark/board/` (about 0.53 MiB).
+The lab check needs an already-running server with the lab and offline auth
+enabled; its sole AI request is intercepted locally by Playwright.
 
 The five `candidates` are distinct card IDs, merging alternate artworks by their
 best match. `tier` describes confidence in the visual winner; lower suggestions

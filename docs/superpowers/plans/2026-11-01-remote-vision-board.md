@@ -6,8 +6,8 @@
 
 **Covered adaptation:** Retain upstream COVERED bounds-fit thresholds for a competing pick versus a target outline, plus conservative polygon-overlap suppression for selected outlines. A single RGB frame cannot prove stacking order: distinct overlapping outlines may both become uncertain. Ignore duplicate outlines; do not claim hand/undetected occlusion detection or upstream calibration equivalence.
 
-- [ ] Add one focused test file; verify missing behavior fails.
-- [ ] Implement board/coverage helpers, pipeline and createRecognizer peek/readAll contracts; small commit.
-- [ ] Integrate delayed hover/focus peeks, read-all/cancel and seat twins into the existing lab; small commit.
-- [ ] Run targeted tests, package typechecks/build, offline synthetic native/browser measurements and review. Record numbers and limitations in README/REPORT/PORTING.
-- [ ] Remove temporary upstream clone, push only feat/remote-vision; no PR/merge or attribution trailers.
+- [x] Add one focused test file; verify missing behavior fails.
+- [x] Implement board/coverage helpers, pipeline and createRecognizer peek/readAll contracts; small commit.
+- [x] Integrate delayed hover/focus peeks, read-all/cancel and seat twins into the existing lab; small commit.
+- [x] Run targeted tests, package typechecks/build, offline synthetic native/browser measurements and review. Record numbers and limitations in README/REPORT/PORTING.
+- [x] Remove temporary upstream clone, push only feat/remote-vision; no PR/merge or attribution trailers.

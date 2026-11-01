@@ -3,6 +3,78 @@
 Implemented on `feat/remote-vision` in the dedicated `remote-vision` worktree.
 The main checkout and port 3000 were not changed. Apache notices remain intact.
 
+## Board continuation: local peeks, read-all and COVERED
+
+Measured with Node **22.23.3**, Chromium **153.0.8010.12**, GPU disabled,
+cross-origin isolation enabled, the actual browser Worker/ONNX WASM path and
+the existing **14,652-card** full index. No external requests were permitted
+by the benchmark. Five clean local card-photo fixtures were projectively
+straightened, then composited into separate **2-, 4- and 6-card** boards.
+Far-side cards were turned 180°. These are synthetic arrangements of indexed
+cards, not held-out camera images or a claim about arbitrary table layouts.
+
+| Cards in frame | Detected | Correct top-1 | Correct near/far | Warm API median | Warm pipeline median |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 2/2 | 2/2 | 2/2 | **488.4 ms** | 486.5 ms |
+| 4 | 4/4 | 4/4 | 4/4 | **847.9 ms** | 846.2 ms |
+| 6 | 6/6 | 6/6 | 6/6 | **1,258.4 ms** | 1,256.7 ms |
+
+Each median uses **3 warm repeats**, with frame decoding outside the timed API
+call. Detection runs once per board, followed by sequential local reads.
+The first 2-card call, including worker/model/index initialization, took
+**1,214.0 ms**. Assignment and top-1 counts above describe the first warm
+result per board, **12/12 total** each. The midpoint helper also passed
+**100/100** synthetic y positions, including y=.5 assigned far.
+
+An API peek returned the correct local name/tier in **240.7 ms**, including
+local fixture fetch/decode. In the built production lab, focus-to-tooltip took
+**795 ms**, including the **250 ms** dwell. Focus then hover on the same
+outline made **1 worker peek request**, confirming snapshot-cache reuse.
+No click, confirmation or AI request was produced by the peek/board paths.
+
+Coverage checks:
+
+- **3/3** distinct synthetic overlap geometries flagged covered; **3/3**
+  duplicate/touching/separated controls remained unflagged. A perfect synthetic
+  embedding remained `sure` when clean and became `not sure` when covered.
+- A real-model synthetic two-card overlap read returned **2/2 `covered: true`,
+  tier `not sure`**, preserving the suggested names. The hidden target's
+  suggestion can be wrong: this guard suppresses certainty, not reconstructs it.
+- A reviewer separately exercised an empty initial detector pass followed by
+  two overlapping cards at the 448px fallback scale: **2 detector passes**,
+  a perfect embedding, and final **`covered: true`, `not sure`**.
+
+The lab browser check detected **6 outlines**, grouped **3 near / 3 far**,
+filled **3 cards into Seat 2's selected near-side twin**, and preserved the
+existing single manual confirmation. Moving the pointer during read-all did
+not discard the result. Cancel followed by another read and Stop discarded
+stale board/tooltip output. API abort returned **`AbortError`**, then the same
+recognizer successfully reinitialized. **0 browser errors** occurred in the
+API benchmark and lab check. The lab check's one explicit AI request was
+intercepted by Playwright; **0 real provider calls** were made.
+
+Validation: **8 targeted core tests + 15 existing lab component tests pass**;
+vision/web typechecks, worker bundle and production Next.js build/standalone
+packaging pass. Only one new **88-line** test file was added. Existing build
+warnings concern the Sentry config import and a broad database trace; the
+production build exits successfully. The temporary upstream clone is removed
+after source inspection; no upstream executable, installer or trainer ran.
+
+Changed runtime/UI paths: `packages/vision/src/{board,client,pipeline,worker,types}.ts`,
+`src/detector/run.ts`, and
+`packages/web/app/dev/vision-lab/{use-outline-reads.ts,vision-lab.tsx,vision-lab.module.css}`.
+Reproducible tooling: `scripts/vision/{benchmark-board,check-lab}.ts`.
+Raw ignored artifacts: `data/vision/benchmark/board/results.json`, three board
+JPEGs and overlap fixture (about **0.53 MiB** total with the bundled benchmark
+client), plus `data/vision/benchmark/lab-board.json`.
+
+Near/far is a source-frame midpoint heuristic; twins are session-only lab
+state with uncertain/face-down/error slots preserved. There is no player/zone
+inference, remote-room persistence, depth estimation, hand detection or hidden
+art reconstruction. The COVERED thresholds/behavior are adapted for exact
+outlines and have not inherited upstream's private real-footage calibration.
+Source and feature mapping: [PORTING.md](PORTING.md); usage: [README.md](README.md).
+
 ## Full-art coverage and measured accuracy
 
 **Verified real full-art print images available locally: 0; indexed real full-art
@@ -115,11 +187,11 @@ standard art box follows upstream's measured pendulum choice; the pendulum-only
 crop is not silently forced at runtime. The retained training tools comprise
 seven embedder and seven detector Python modules, with precise exclusions.
 
-Upstream drag-box covered-card heuristics, calibrated padded-redetection policy,
-automatic hover/whole-board recognition and brightness-based orientation ordering
-remain explicit boundaries, with their input/calibration/workflow reasons in
-PORTING.md. The seen mask detects source-frame truncation, not hands/objects
-occluding pixels inside the frame.
+The board continuation above adds hover/whole-board recognition and adapts the
+COVERED guard for exact outlines. Upstream drag-box input semantics, calibrated
+padded-redetection policy and brightness-based orientation ordering remain
+boundaries, with their reasons in PORTING.md. The seen mask detects source-frame
+truncation, not hands/objects occluding pixels inside the frame.
 
 ## Verification and delivery
 
