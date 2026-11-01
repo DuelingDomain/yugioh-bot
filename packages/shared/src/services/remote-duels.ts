@@ -65,7 +65,7 @@ export function createRemoteDuelService(db: Database.Database) {
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
         append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount }, now, input.userId, 0);
-        append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId, displayName }, now, input.userId, 0);
+        append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
         return room(load(slug, input.guildId), input.userId);
       });
     },
@@ -89,7 +89,7 @@ export function createRemoteDuelService(db: Database.Database) {
         remoteAssert(seat !== undefined && Number.isInteger(seat) && seat >= 0 && seat < row.seat_count && !occupied.includes(seat), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
         const display = name(displayName);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,?,?,?)").run(row.id, seat, userId, display);
-        append(row, { type: "seat.joined", seat, userId, displayName: display }, now, userId, seat);
+        append(row, { type: "seat.joined", seat, userId }, now, userId, seat);
         return room(load(slug, guildId), userId);
       });
     },

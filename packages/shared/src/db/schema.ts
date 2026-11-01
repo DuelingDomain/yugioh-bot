@@ -1354,6 +1354,7 @@ export function migrate(db: Database.Database) {
   // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
   addColumnIfMissing(db, "users", "image_url", "text");
   migrateCreatorAccess(db);
+  migrateRemoteDuels(db);
   db.exec(`
     create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
     create table if not exists worker_heartbeat (
@@ -1686,6 +1687,9 @@ function migrateCreatorAccess(db: Database.Database) {
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
   addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
   addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
+}
+
+function migrateRemoteDuels(db: Database.Database) {
   // Independent from engine duels: remote calls never count as deploy-blocking activity.
   db.exec(`
     create table if not exists remote_tables (
@@ -1732,5 +1736,4 @@ function migrateCreatorAccess(db: Database.Database) {
     create trigger if not exists remote_events_no_delete before delete on remote_events
       begin select raise(abort, 'remote_events is append-only'); end;
   `);
-
 }

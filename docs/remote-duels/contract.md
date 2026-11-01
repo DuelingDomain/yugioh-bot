@@ -8,7 +8,7 @@ Remote Duels track physical games. They do not run ocgcore or infer hidden cards
 - Server service: `createRemoteDuelService(db)` from `@yugidraft/shared/services` (`packages/shared/src/services/remote-duels.ts`).
 - Room token helpers: `@yugidraft/shared/ws` (`remote-token.ts`). Server only.
 - Proof UI: `packages/web/src/components/remote/remote-workbench.tsx`. Replace freely; keep the HTTP/action/event contract.
-- Video extension: `POST /api/remote/[slug]/livekit`. STT extension: `GameModule.parseCommand`. Recognition extension: `RemoteDataMessage` and `card.identified`. No video, STT or recognition model is included in this foundation.
+- Video extension: `POST /api/remote/[slug]/livekit`. STT extension: `GameModule.parseCommand` returning `RemoteActionProposal | null` (the full action union without key/time). Recognition extension: `RemoteDataMessage` and `card.identified`. No video, STT or recognition model is included in this foundation.
 
 `GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)` and a `parseCommand` placeholder returning null. Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
 
@@ -67,7 +67,7 @@ Additive, rerunnable migration in `packages/shared/src/db/schema.ts`:
 
 Service methods: `create`, `join`, `leave`, `ready`, `start`, `get`, `list`, `act`, `replay`, `sweepIdle`; `snapshot` is a trusted internal transport read with **no** viewer authorization and must never be exposed through an unguarded route. The exported TypeScript signatures are the source for argument details. Mutations run in one `BEGIN IMMEDIATE` transaction: load guild/slug, verify identity, check sequence, reduce, append event, update cache and timestamps. An invalid action rolls back entirely. Duplicate gameplay keys return current state only when the same authenticated user submits the same command (client `at` excluded). Different contents/user give `409 IDEMPOTENCY_CONFLICT`. Duplicate lookup precedes the sequence/lifecycle check, so a lost response can be retried safely even after later actions or game end.
 
-System actions: `table.created {gameId,seatCount}`, `seat.joined {seat,userId,displayName}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. System event IDs start `sys:` and cannot be submitted as gameplay actions.
+System actions: `table.created {gameId,seatCount}`, `seat.joined {seat,userId}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. System event IDs start `sys:` and cannot be submitted as gameplay actions. Join events deliberately contain no personal-name snapshot; names are read from seats. Remote references count as account history, and account deletion anonymizes seat names while preserving event history and IDs.
 
 `RemoteEvent = {id,seq,actorSeat,userId,at,action}`; `id` equals the idempotency key, not the integer storage ID. All event history is public to the table. Do not store audio, video, frames or raw speech transcripts; voice workers emit parsed actions only.
 
@@ -165,4 +165,4 @@ npm run dev:web
 npm run dev:ws
 ```
 
-Web opens/migrates the DB before ws can read it; if ws starts first it retries on subsequent joins/sweeps. Sign in with two or more existing local test accounts in separate browser profiles, visit `/duels/remote`, create a table, join, ready all seats and start. LP/phase changes appear in every room's raw JSON. No duel engine, bot, LiveKit, STT or recognition model is needed to prove the loop. The worktree's ignored `.env.local` contains the local flag only; exports above configure both processes.
+Web opens/migrates the DB before ws can read it; if ws starts first it retries on subsequent joins/sweeps. Sign in with two or more existing local test accounts in separate browser profiles, visit `/duels/remote`, create a table, join, ready all seats and start. LP/phase changes appear in every room's raw JSON. No duel engine, bot, LiveKit, STT or recognition model is needed to prove the loop. The worktree's ignored `.env` (ws) and `packages/web/.env.local` (web) contain the local flag only; exports above configure both processes.

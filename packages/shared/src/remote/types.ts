@@ -1,4 +1,4 @@
-import type { RemoteAction, TwinCard } from "./actions.js";
+import type { RemoteAction, RemoteActionProposal, TwinCard } from "./actions.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteSeatState = { seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
@@ -23,13 +23,13 @@ export interface GameModule {
   /** Pure. No clocks, I/O, randomness, or catalog/engine calls. `action.at` is the injected clock. */
   reduce(state: RemoteState, action: RemoteAction): RemoteState;
   /** Extension point for the speech worker. Null means no proposal; never executes an action. */
-  parseCommand(input: { text: string; actorSeat: number; state: RemoteState }): Omit<RemoteAction, "idempotencyKey" | "at"> | null;
+  parseCommand(input: { text: string; actorSeat: number; state: RemoteState }): RemoteActionProposal | null;
 }
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number; displayName: string; ready: boolean };
 export type RemoteSystemAction =
   | { type: "table.created"; gameId: string; seatCount: SeatCount }
-  | { type: "seat.joined"; seat: number; userId: number; displayName: string }
+  | { type: "seat.joined"; seat: number; userId: number }
   | { type: "seat.left"; seat: number; userId: number }
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started" }

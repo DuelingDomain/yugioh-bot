@@ -164,3 +164,13 @@ it.each(["keep-imported", "keep-clerk"])("combines draft and tournament grants b
     ]);
   }
 });
+
+import { createRemoteDuelService } from "../../src/services/remote-duels.js";
+it("keeps a remote-only Clerk account when attaching an empty imported Discord identity", () => {
+  const a = users.resolveClerkProfile(profile, now).user;
+  const b = users.ensureDiscord({ discordUserId: discord, displayName: "Imported" });
+  const room = createRemoteDuelService(db).create({ guildId: "g", userId: a.id, displayName: a.displayName, gameId: "ygo", seatCount: 2 });
+  expect(users.resolveClerkProfile({ ...profile, discordUserId: discord }, now)).toMatchObject({ user: { id: a.id, discordUserId: discord }, foldedUserId: b.id, conflict: null });
+  expect(createRemoteDuelService(db).get(room.slug, "g", a.id).createdBy).toBe(a.id);
+  expect(db.pragma("foreign_key_check")).toEqual([]);
+});

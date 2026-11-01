@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { ygoModule, remoteActionSchema } from "../../src/remote/index.js";
+import { ygoModule, remoteActionSchema, type GameModule } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -20,7 +20,8 @@ describe("remote foundation", () => {
     const initial = ygoModule.initialState({ seatCount: 3 });
     expect(initial.seats.map(s => s.resources.lp)).toEqual([8000, 8000, 8000]);
     expect(() => ygoModule.reduce(initial, { type: "phase.set", actorSeat: 1, idempotencyKey: "no", phase: "main1", at: 1000 })).toThrow(/turn/i);
-    expect(() => ygoModule.reduce(initial, { type: "phase.set", actorSeat: 0, idempotencyKey: "no-battle", phase: "battle", at: 1000 })).toThrow(/battle/i);
+    const proposal: ReturnType<GameModule["parseCommand"]> = { type: "phase.set", actorSeat: 0, phase: "battle" };
+    expect(() => ygoModule.reduce(initial, { ...proposal, idempotencyKey: "no-battle", at: 1000 })).toThrow(/battle/i);
     let state = initial;
     for (const seat of [0, 1]) state = ygoModule.reduce(state, { type: "turn.end", actorSeat: seat, idempotencyKey: `turn-${seat}`, at: 1000 });
     state = ygoModule.reduce(state, { type: "phase.set", actorSeat: 2, idempotencyKey: "battle", phase: "battle", at: 1000 });
@@ -85,8 +86,8 @@ describe("remote board and transactional edge cases", () => {
   });
   it("skips opening Battle phases, preserves fixed FFA seats and skips eliminated future turns", () => {
     let state = ygoModule.initialState({ seatCount: 4 });
-    for (const [i, type] of ["phase.advance", "phase.advance", "phase.advance"].entries()) {
-      state = ygoModule.reduce(state, { type, actorSeat: 0, idempotencyKey: `p${i}` } as never);
+    for (let i = 0; i < 3; i++) {
+      state = ygoModule.reduce(state, { type: "phase.advance", actorSeat: 0, idempotencyKey: `p${i}` });
     }
     expect(state.phase).toBe("main2");
     state = ygoModule.reduce(state, { type: "player.concede", actorSeat: 1, idempotencyKey: "leave" });
@@ -115,4 +116,23 @@ describe("remote board and transactional edge cases", () => {
       action: { type: "log.note", actorSeat: 2, idempotencyKey: "undo-win", text: "different" } }, 3001)).toThrow(/different action/);
     expect(service.replay(table.slug, "g", users[0])).toEqual(room.state);
   });
+});
+
+import { canReadRemote } from "../../src/services/remote-access.js";
+it("revokes departed seat tokens and keeps the final game snapshot readable to stored members", () => {
+  const { service, table, users, db } = setup();
+  const claims = { slug: table.slug, guildId: "g", userId: users[1], seat: 1, expiresAt: 999999 };
+  expect(canReadRemote(db, claims)).toBe(false);
+  service.join(table.slug, "g", users[1], "B", 1, 1100);
+  expect(canReadRemote(db, claims)).toBe(true);
+  expect(canReadRemote(db, { ...claims, guildId: "other" })).toBe(false);
+  expect(canReadRemote(db, { ...claims, seat: 2 })).toBe(false);
+  service.leave(table.slug, "g", users[1], 1200);
+  expect(canReadRemote(db, claims)).toBe(false);
+  service.join(table.slug, "g", users[2], "C", 1, 1300);
+  expect(canReadRemote(db, claims)).toBe(false);
+  const final = service.leave(table.slug, "g", users[0], 1400);
+  expect(final.status).toBe("ended");
+  expect(canReadRemote(db, { ...claims, userId: users[0], seat: 0 })).toBe(true);
+  expect(service.snapshot(table.slug, "g").table.status).toBe("ended");
 });
