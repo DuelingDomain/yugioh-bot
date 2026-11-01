@@ -1,4 +1,5 @@
 import { DuelLobby } from "@/components/duel/lobby";
+import { multiplayerTablesEnabled } from "@/lib/duel-table-capabilities";
 import { remoteDuelsEnabled } from "@/lib/remote-duels";
 import { requireWebAccess } from "@/lib/web-access";
 
@@ -8,5 +9,5 @@ export const dynamic = "force-dynamic";
 export default async function DuelsPage() {
   // Only a label for the saved history search; the API routes check access themselves.
   const access = await requireWebAccess();
-  return <DuelLobby viewerId={access.ok ? access.userId : undefined} remoteDuels={remoteDuelsEnabled()} />;
+  return <DuelLobby viewerId={access.ok ? access.userId : undefined} remoteDuels={remoteDuelsEnabled()} multiplayerTables={multiplayerTablesEnabled()} />;
 }

@@ -452,7 +452,7 @@ function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError,
 type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
 
 /** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
-export function DuelLobby({ initialView, initialScope, initialFilters, viewerId, remoteDuels = false }: {
+export function DuelLobby({ initialView, initialScope, initialFilters, viewerId, remoteDuels = false, multiplayerTables = false }: {
   /** The signed-in user: the saved history search belongs to this user only. */
   viewerId?: number | string;
   /** Overrides the view in the URL. */
@@ -461,6 +461,8 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
   initialFilters?: HistoryFilters;
   /** REMOTE_DUELS is on: show the Remote Duels section next to the live tables. */
   remoteDuels?: boolean;
+  /** Tag and free-for-all tables are open (MULTIPLAYER_TABLES): the lede lists every table size. */
+  multiplayerTables?: boolean;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -617,7 +619,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
       <header className={styles.head}>
         <div className={styles.headText}>
           <h1 className={ui.title}>Duels</h1>
-          <p className={ui.lede}>Automated 1v1 tables.</p>
+          <p className={ui.lede}>{multiplayerTables ? "Automated tables for 1v1, Tag, 3-way and 4-way." : "Automated 1v1 tables."}</p>
         </div>
         <div className={styles.headActions}>
           <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>

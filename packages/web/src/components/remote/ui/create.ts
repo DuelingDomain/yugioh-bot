@@ -19,8 +19,8 @@ export function useSavedDecks(enabled = true) {
 }
 
 /** Creates the room, then seats the chosen deck. A deck the table refuses is fixed in the setup room, so it does not undo the room. */
-export async function createRemoteRoom(input: { seatCount: number; solo: boolean; format: string; savedDeckId?: number | null }): Promise<RemoteRoom> {
-  const room = await remoteApi<RemoteRoom>("", { gameId: "ygo", seatCount: input.seatCount, solo: input.solo, format: input.format });
+export async function createRemoteRoom(input: { seatCount: number; solo: boolean; format: string; savedDeckId?: number | null; showCardsSetFromDeck?: boolean }): Promise<RemoteRoom> {
+  const room = await remoteApi<RemoteRoom>("", { gameId: "ygo", seatCount: input.seatCount, solo: input.solo, format: input.format, showCardsSetFromDeck: input.showCardsSetFromDeck });
   if (input.savedDeckId) await remoteApi(`/${room.slug}/deck`, { savedDeckId: input.savedDeckId }).catch(() => undefined);
   return room;
 }

@@ -131,6 +131,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [remoteSeats, setRemoteSeats] = useState(2);
   const [remoteSolo, setRemoteSolo] = useState(false);
   const [remoteDeck, setRemoteDeck] = useState("");
+  const [remoteShowSet, setRemoteShowSet] = useState(true);
   const savedDecks = useSavedDecks(remote);
   const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -192,7 +193,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     setError(null);
     try {
       if (remote) {
-        const room = await createRemoteRoom({ seatCount: remoteSeats, solo: remoteSolo, format: remoteFormat, savedDeckId: remoteDeck ? Number(remoteDeck) : null });
+        const room = await createRemoteRoom({ seatCount: remoteSeats, solo: remoteSolo, format: remoteFormat, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet });
         navigatedToRoom.current = true;
         // The table page is cross-origin isolated, so it needs a full document load.
         window.location.assign(remoteTableHref(room.slug));
@@ -319,6 +320,15 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                       <span>
                         Solo test with bots
                         <small>One webcam player with {remoteSeats - 1} test {remoteSeats === 2 ? "opponent" : "opponents"} you control. The camera stays on this device. No video server needed.</small>
+                      </span>
+                    </label>
+                  </div>
+                  <div className={styles.wide}>
+                    <label className={styles.toggle}>
+                      <input type="checkbox" checked={remoteShowSet} onChange={(event) => setRemoteShowSet(event.target.checked)} data-testid="create-show-set" />
+                      <span>
+                        Cards Set from Deck are shown to all
+                        <small>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</small>
                       </span>
                     </label>
                   </div>
@@ -564,6 +574,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <p className={styles.kind}>Remote Duel · {remoteFormatName(remoteFormat)} · {remoteSeats === 2 ? "1v1" : `${remoteSeats}-way`}</p>
                 <dl className={styles.rows}>
                   {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormat)], ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
+                    ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"],
                     ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "Choose in the room"]] as [string, string][]).map(([label, value]) => (
                     <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
