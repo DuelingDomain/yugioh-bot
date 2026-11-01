@@ -19,6 +19,7 @@ export function RemoteSeatPanel({ seat, state, editable, busy, onAction, childre
       <div><h2 className="text-lg font-semibold">{seat.displayName}</h2><p className="text-sm opacity-70">Seat {seat.seat + 1}{seat.bot ? " · Test opponent" : ""}{state.eliminated ? " · Eliminated" : ""}</p></div>
       <p className="font-mono text-2xl tabular-nums" aria-label={`${seat.displayName} LP`}>{state.resources.lp} <span className="text-xs">LP</span></p>
     </header>
+    {seat.deck ? <p className="text-xs opacity-70">{seat.deck.name} · {seat.deck.deck.main.length} Main · {seat.deck.deck.extra.length} Extra · {seat.deck.deck.side.length} Side</p> : null}
     {seat.bot ? <div className="flex aspect-video items-center justify-center border border-dashed border-current/30 bg-current/5 text-center">
       <div><p className="text-2xl opacity-40" aria-hidden="true">◇</p><p className="text-sm">No camera · owner controlled</p></div>
     </div> : children}

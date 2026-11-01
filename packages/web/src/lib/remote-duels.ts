@@ -38,15 +38,22 @@ export async function notifyRemoteChange(slug: string, guildId: string) {
   if (!result.ok) log("warn", "Remote broadcast unavailable", { status: result.status });
 }
 export type RemoteRouteContext = { params: Promise<{ slug: string }> };
-export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions") {
+export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format") {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"] };
+    const keys = { seat: ["seat"], leave: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules"] };
     // Empty bodies are accepted for the two bodyless operations.
     const body = operation === "leave" || operation === "start" ? {} : await remoteBody(request, keys[operation]);
     let result;
     switch (operation) {
+      case "format":
+        remoteAssert(typeof body.format === "string", "Choose a format");
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, rules: body.rules }); break;
+      case "deck":
+        remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");
+        remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
+        result = actor.remote.selectDeck(slug, actor.guildId, actor.userId, { savedDeckId: body.savedDeckId as number | null, seat: body.seat as number | undefined }); break;
       case "seat":
         remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
         result = actor.remote.join(slug, actor.guildId, actor.userId, actor.displayName, body.seat as number | undefined); break;

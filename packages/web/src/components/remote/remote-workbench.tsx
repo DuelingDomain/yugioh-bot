@@ -5,10 +5,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
-import { ygoModule, type RemoteAction, type RemoteActionProposal, type RemoteRoom, type RemoteTable, type RemoteClientEvents, type RemoteServerEvents } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, ygoModule, type RemoteAction, type RemoteActionProposal, type RemoteRoom, type RemoteTable, type RemoteClientEvents, type RemoteServerEvents } from "@yugidraft/shared/remote";
 import { RemoteSeatPanel } from "./remote-seat-panel";
 import { LocalCamera } from "./local-camera";
 import { RemoteCommands, proposalLabel } from "./remote-commands";
+import { RemoteDeckAssistant, RemoteInstanceMerge, RemoteSetupControls } from "./remote-deck-controls";
 
 const button = "rounded border border-current px-3 py-2 text-sm disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-4";
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -22,17 +23,21 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 export function RemoteTableList() {
   const router = useRouter(); const [seatCount, setSeatCount] = useState(2); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const [solo, setSolo] = useState(false);
+  const [format, setFormat] = useState<string>("normal");
   const mine = useSWR("remote:mine", () => api<{ tables: RemoteTable[] }>("?scope=mine"), { refreshInterval: 5000 });
   const open = useSWR("remote:open", () => api<{ tables: RemoteTable[] }>("?scope=open"), { refreshInterval: 5000 });
   async function create() {
     setBusy(true); setError("");
-    try { const room = await api<RemoteRoom>("", { gameId: "ygo", seatCount, solo }); router.push(`/duels/remote/${room.slug}`); }
+    try { const room = await api<RemoteRoom>("", { gameId: "ygo", seatCount, solo, format }); router.push(`/duels/remote/${room.slug}`); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <div className="mx-auto max-w-4xl space-y-6">
     <h1 className="text-2xl font-semibold">Remote Duels</h1>
     <form className="flex flex-wrap items-end gap-4" onSubmit={event => { event.preventDefault(); void create(); }}>
       <label className="grid gap-1">Game<select className={button} disabled><option>Yu-Gi-Oh!</option></select></label>
+      <label className="grid gap-1">Duel format<select className={button} value={format} onChange={e => setFormat(e.target.value)}>
+        {REMOTE_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select></label>
       <label className="grid gap-1">Seats<select className={button} value={seatCount} onChange={event => setSeatCount(Number(event.target.value))}>
         {[2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
       </select></label>
@@ -56,6 +61,11 @@ export function RemoteTableList() {
 export function RemoteTableRoom({ slug }: { slug: string }) {
   const router = useRouter();
   const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, () => api<RemoteRoom>(`/${slug}`), { refreshInterval: 5000 });
+  const saved = useSWR(room?.status === "lobby" ? "remote:saved-decks" : null, async () => {
+    const response = await fetch("/api/decks", { cache: "no-store" }); const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Could not load saved decks");
+    return data as { decks: { id: number; name: string }[] };
+  });
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [realtime, setRealtime] = useState("Connecting…");
   const [pending, setPending] = useState<{ baseSeq: number; action: RemoteAction } | null>(null);
   const [now, setNow] = useState(0);
@@ -121,11 +131,18 @@ export function RemoteTableRoom({ slug }: { slug: string }) {
       <button className={button} disabled={busy} onClick={() => void operation("seat")}>Join available seat</button>
     </div> : <>
       <p>{room.seats.map(s => `${s.displayName} (seat ${s.seat + 1}${s.ready ? ", ready" : ""})`).join(" · ")}</p>
+      <p>{REMOTE_FORMATS.find(f => f.value === room.format?.id)?.label ?? "Advanced"} · {room.format?.settings.genesys ? "Genesys cap " + room.format.settings.genesys.pointCap : room.format?.settings.banlist}</p>
+      {room.status === "lobby" ? <>
+        {saved.error ? <p role="alert">{saved.error.message}</p> : null}
+        <RemoteSetupControls key={JSON.stringify(room.format)} room={room} decks={saved.data?.decks ?? []} busy={busy} onOperation={(path, body) => void operation(path, body)} />
+      </> : null}
       {room.solo ? <p className="text-sm opacity-70">You control every seat. Test opponents have no camera. Phase and turn buttons control the current turn; choose a seat for voice commands and attacks.</p> : null}
       {room.idleWarningAt && room.status !== "ended" ? <p role="alert">This table will close after 10 minutes without an action.</p> : null}
       <div className="flex flex-wrap gap-3">
         {room.status === "lobby" ? <>
-          <button className={button} disabled={busy} onClick={() => void operation("ready", { ready: !room.seats.find(s => s.seat === room.mySeat)?.ready })}>Toggle ready</button>
+          <button className={button} disabled={busy || (!room.seats.find(s => s.seat === room.mySeat)?.ready && (
+            (!room.solo && !room.seats.find(s => s.seat === room.mySeat)?.deck) || !!room.seats.find(s => s.seat === room.mySeat)?.deck?.validation.issues.length))}
+            onClick={() => void operation("ready", { ready: !room.seats.find(s => s.seat === room.mySeat)?.ready })}>Toggle ready</button>
           <button className={button} disabled={busy} onClick={() => void operation("start")}>Start table</button>
           <button className={button} disabled={busy} onClick={() => void operation("leave")}>Leave table</button>
         </> : room.status === "active" ? <>
@@ -143,10 +160,12 @@ export function RemoteTableRoom({ slug }: { slug: string }) {
       <p className="border-y border-current/20 py-3 font-mono">Turn {room.state.turn} · {room.seats.find(s => s.seat === room.state.turnSeat)?.displayName} · {ygoModule.phases.find(p => p.id === room.state.phase)?.name}{room.state.ended ? ` · Winner: ${room.seats.find(s => s.seat === room.state.winnerSeat)?.displayName ?? "none"}` : ""}</p>
       <div className={`grid items-start gap-4 ${room.seatCount === 3 ? "lg:grid-cols-3" : "md:grid-cols-2"}`}>
         {room.seats.map(seat => <RemoteSeatPanel key={seat.seat} seat={seat} state={room.state.seats[seat.seat]} editable={room.solo || seat.seat === room.mySeat} busy={busy || room.status !== "active"} onAction={action}>
-          {seat.seat === room.mySeat ? <LocalCamera disabled={busy || room.status !== "active"} onIdentify={card => action({ type: "card.identified", actorSeat: room.mySeat, seat: room.mySeat, cardId: card.id, source: "click" })} /> : <div className="flex aspect-video items-center justify-center border border-dashed border-current/20 text-sm opacity-60">Remote video provider pending</div>}
+          {seat.seat === room.mySeat ? <LocalCamera disabled={busy || room.status !== "active"} onIdentify={card => action({ type: "card.identified", actorSeat: room.mySeat, seat: room.mySeat, cardId: card.id, name: card.name, source: "click" })} /> : <div className="flex aspect-video items-center justify-center border border-dashed border-current/20 text-sm opacity-60">Remote video provider pending</div>}
         </RemoteSeatPanel>)}
       </div>
-      {room.state.identified ? <p role="status">Identified card {room.state.identified.cardId ?? room.state.identified.passcode} · seat {room.state.identified.seat + 1}</p> : null}
+      <RemoteDeckAssistant room={room} busy={busy} onAction={action} />
+      {room.status === "active" ? room.seats.filter(s => room.solo || s.seat === room.mySeat).map(s =>
+        <RemoteInstanceMerge key={s.seat} room={room} seat={s.seat} busy={busy || room.state.seats[s.seat].eliminated} onAction={action} />) : null}
       {room.status === "active" ? <>
         {room.state.attack ? <section className="space-y-2 rounded border border-current p-4" aria-label="Pending attack">
           <p>Pending attack: seat {room.state.attack.attackerSeat + 1} → seat {room.state.attack.targetSeat + 1}{room.state.attack.direct ? " (direct)" : ""}</p>
@@ -161,7 +180,9 @@ export function RemoteTableRoom({ slug }: { slug: string }) {
           <button className={`${button} self-end`} disabled={busy || !note.trim()}>Add note</button>
         </form> : null}
         <ol className="max-h-72 space-y-1 overflow-auto text-sm">{room.events.map(event => <li key={event.id}>
-          <span className="font-mono opacity-50">#{event.seq}</span> {event.actorSeat === null ? "System" : room.seats.find(s => s.seat === event.actorSeat)?.displayName ?? `Seat ${event.actorSeat + 1}`} · {"idempotencyKey" in event.action ? proposalLabel(event.action) : event.action.type.replaceAll(".", " ")}
+          <span className="font-mono opacity-50">#{event.seq}</span> {event.messages?.length ? event.messages.join(" · ") :
+            (event.actorSeat === null ? "System" : room.seats.find(s => s.seat === event.actorSeat)?.displayName ?? `Seat ${event.actorSeat + 1}`) + " · " +
+            ("idempotencyKey" in event.action ? proposalLabel(event.action) : event.action.type.replaceAll(".", " "))}
         </li>)}</ol>
       </section>
       <details><summary className="cursor-pointer text-sm opacity-60">Table data</summary><pre className="max-h-[65vh] overflow-auto rounded border border-current p-4 text-xs" aria-label="Remote table state">{JSON.stringify(room, null, 2)}</pre></details>

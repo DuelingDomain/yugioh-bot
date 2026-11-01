@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createUserService } from "@yugidraft/shared/services";
+import { createUserService, createSavedDeckService } from "@yugidraft/shared/services";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
 vi.mock("@/lib/session-identity", async () => {
@@ -12,6 +15,20 @@ vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 
 const discordUserId = "900000000000000007";
 let userId: number;
+const remoteDirectories: string[] = [];
+function remoteSavedDeck(owner: number) {
+  const directory = mkdtempSync(join(tmpdir(), "remote-route-decks-")); remoteDirectories.push(directory);
+  vi.stubEnv("DUEL_DATA_DIR", directory);
+  writeFileSync(join(directory, "strings.conf"), "");
+  const catalog = new Database(join(directory, "cards.cdb"));
+  catalog.exec("create table datas(id integer primary key,ot integer,alias integer,setcode integer,type integer,race integer,attribute integer); create table texts(id integer primary key,name text,desc text)");
+  for (let i=1;i<=40;i++) {
+    catalog.prepare("insert into datas values(?,3,0,0,17,1,1)").run(i);
+    catalog.prepare("insert into texts values(?,?, '')").run(i, "Card "+i);
+  }
+  catalog.close();
+  return createSavedDeckService(state.db!, new Map()).create("guild-1",owner,{name:"My saved deck",mode:"normal",deck:{main:Array.from({length:40},(_,i)=>i+1),extra:[],side:[]}});
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -25,6 +42,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   state.db?.close();
+  remoteDirectories.splice(0).forEach(directory => rmSync(directory, {recursive:true,force:true}));
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -240,8 +258,12 @@ describe("remote duel API foundation", () => {
     const { POST: join } = await import("../app/api/remote/[slug]/seat/route");
     expect((await join(request(`/${room.slug}/seat`, { seat: 1 }), context)).status).toBe(200);
     const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(409);
+    const { POST: select } = await import("../app/api/remote/[slug]/deck/route");
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(guest).id}),context)).status).toBe(200);
     await ready(request(`/${room.slug}/ready`, { ready: true }), context);
     state.auth.mockResolvedValue({ user: { id: String(userId), name: "Yugi" } });
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(userId).id}),context)).status).toBe(200);
     await ready(request(`/${room.slug}/ready`, { ready: true }), context);
     const { POST: start } = await import("../app/api/remote/[slug]/start/route");
     room = await (await start(request(`/${room.slug}/start`, {}), context)).json();
@@ -252,6 +274,30 @@ describe("remote duel API foundation", () => {
     expect((await act(request(`/${room.slug}/actions`, { ...command, action: { ...command.action, actorSeat: 1, idempotencyKey: "spoof" } }), context)).status).toBe(403);
     expect((await GET(request("?scope=mine"))).status).toBe(200);
     expect(playerCount()).toEqual({ c: 0 });
+  });
+  it("authorizes format/deck setup, rejects foreign decks and blocks invalid ready-up", async () => {
+    vi.stubEnv("REMOTE_DUELS","1");
+    const { POST } = await import("../app/api/remote/route");
+    const made = await POST(request("",{gameId:"ygo",seatCount:2,format:"domain",solo:true}));
+    expect(made.status).toBe(201);
+    const room = await made.json(); const context = {params:Promise.resolve({slug:room.slug})};
+    expect(room.format.id).toBe("domain");
+    const { POST: select } = await import("../app/api/remote/[slug]/deck/route");
+    const owned = remoteSavedDeck(userId);
+    const foreign = createUserService(state.db!).ensureDiscord({discordUserId:"900000000000000008",displayName:"Guest"}).id;
+    expect((await select(request("/deck",{savedDeckId:remoteSavedDeck(foreign).id}),context)).status).toBe(404);
+    const selected = await select(request("/deck",{savedDeckId:owned.id}),context);
+    expect(selected.status).toBe(200);
+    expect((await selected.json()).seats[0].deck.validation.issues.some((i:{message:string}) => /Deck Master/.test(i.message))).toBe(true);
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(409);
+    const { POST: format } = await import("../app/api/remote/[slug]/format/route");
+    expect((await format(request("/format",{format:"normal",userId:foreign}),context)).status).toBe(400);
+    expect((await format(request("/format",{format:"normal",rules:{banlist:"made-up"}}),context)).status).toBe(400);
+    expect((await format(request("/format",{format:"normal"}),context)).status).toBe(200);
+    expect((await ready(request("/ready",{ready:true}),context)).status).toBe(200);
+    state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
+    expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
   });
   it("keeps connection identity server-side and returns 503 for missing media config", async () => {
     vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
