@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
     const coop = { key: "Cross-Origin-Opener-Policy", value: "same-origin" };
     return [
       { source: "/dev/vision-lab/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "require-corp" }] },
-      { source: "/duels/remote/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "credentialless" }] },
+      { source: "/duels/remote/:slug", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "credentialless" }] },
     ];
   },
 };
