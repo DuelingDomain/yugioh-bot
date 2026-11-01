@@ -223,3 +223,65 @@ test.describe("remote duels screen, two players on LiveKit", () => {
     } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
 });
+
+// Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
+const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
+async function appearingCamera(page:Page) {
+  const data=readFileSync(AUTO_CARD).toString('base64');
+  await page.addInitScript(async data=>{
+    const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
+    const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+    let visible=false,x=460,y=170;
+    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible)ctx.drawImage(image,x,y,180,262);};
+    (window as unknown as {fieldTest:{appear():void;move():void;clear():void}}).fieldTest={appear:()=>{visible=true;paint();},move:()=>{x=660;y=185;paint();},clear:()=>{visible=false;paint();}};
+    paint();setInterval(paint,65);
+    navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');return canvas.captureStream(15);};
+    navigator.mediaDevices.enumerateDevices=async()=>[];
+  },data);
+}
+test('field watcher automatic: card appearance fills the lab twin without clicking the card',async({page})=>{
+  test.setTimeout(120_000);await appearingCamera(page);await page.goto('/dev/vision-lab');
+  await page.getByRole('tab',{name:'Auto-detect',exact:true}).click();
+  await page.getByLabel('Auto-detect compute').selectOption('wasm');await page.getByRole('button',{name:'Start camera',exact:true}).click();
+  await expect(page.getByTestId('auto-detect-status')).toContainText('Watching field');
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.videoWidth)).toBe(1280);
+  await page.waitForTimeout(2000);await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);
+  await page.evaluate(()=>((window as any).fieldTest).appear());
+  await expect(page.getByTestId('auto-detect-twin')).toContainText('Sacred Sword of Seven Stars',{timeout:30_000});
+  await expect(page.getByTestId('auto-detect-events')).toContainText('placed');
+  await page.evaluate(()=>((window as any).fieldTest).move());
+  await expect(page.getByTestId('auto-detect-events')).toContainText('moved',{timeout:15_000});
+  await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(1);
+  await page.getByRole('button',{name:'Undo automatic placement'}).click();await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);
+  await page.getByRole('button',{name:'Stop',exact:true}).click();
+});
+test('field watcher automatic: owner table applies once, logs auto and Undo removes the placement',async({page,context})=>{
+  test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
+  const slug=await soloTable(context.request,2);await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);
+  await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await page.waitForTimeout(2000);await page.evaluate(()=>((window as any).fieldTest).appear());
+  const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
+  await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.length;},{timeout:30_000}).toBe(1);
+  const placed=await room();expect(placed.state.seats[0].twin[0].cardId).toBe(45725480);
+  expect(placed.events.some((e:any)=>e.action.type==='card.identified'&&e.action.source==='auto')).toBe(true);
+  await page.getByTestId('undo').click();await expect.poll(async()=>(await room()).state.seats[0].twin.length).toBe(0);
+  await page.waitForTimeout(2500);expect((await room()).state.seats[0].twin).toHaveLength(0);
+  await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();await expect(page.getByTestId('field-watcher-status')).toHaveCount(0);
+});
+
+test('field watcher automatic: a failed lazy recognition load leaves detection usable and can retry',async({page})=>{
+  test.setTimeout(90_000);await page.route('**/dev/vision-assets/yugioh-index.bin',route=>route.fulfill({status:503,body:'temporary fixture failure'}),{times:1});
+  await page.goto('/dev/vision-lab');
+  const answer=await page.evaluate(async()=>{
+    const api=await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/field-watcher/api.js'));
+    const reader=api.createRecognizer({backend:'wasm'}),canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
+    ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);ctx.drawImage(await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob()),460,170,180,262);
+    try {
+      const cards=await reader.detectCards(await createImageBitmap(canvas));let failure='';
+      try{await reader.recognize([await createImageBitmap(canvas)],{card:cards[0]});}catch(e){failure=(e as Error).message;}
+      const after=await reader.detectCards(await createImageBitmap(canvas)),retried=await reader.recognize([await createImageBitmap(canvas)],{card:after[0]});
+      return {failure,detected:after.length,tier:retried.tier};
+    }finally{reader.dispose();}
+  });
+  expect(answer.failure).toContain('503');expect(answer.detected).toBe(1);expect(answer.tier).toBe('sure');
+});
