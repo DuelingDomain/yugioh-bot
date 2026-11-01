@@ -4,10 +4,15 @@ import type { RecognizeRawFeed } from "@/lib/remote/video";
 export type Guess = { cardId: number; name: string; score: number | null };
 export type Priors = { decklist: number[]; seen: number[] };
 export type ReaderStatus = "vision" | "priors" | "none";
-export type ReadResult = { guesses: Guess[]; reader: ReaderStatus; frames: number; note: string };
+export type ReadResult = { guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match" };
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
-type VisionRecognizer = { recognize(frames: ImageBitmap[], opts?: object): Promise<{ candidates: { cardId: string; score: number }[] }>; dispose(): void };
+type DetectedQuad = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean };
+type VisionRecognizer = {
+  recognize(frames: ImageBitmap[], opts?: object): Promise<{ candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match" }>;
+  detect(frame: ImageBitmap): Promise<{ cards: DetectedQuad[]; timingMs: number }>;
+  dispose(): void;
+};
 
 const RING_MS = 1000;
 const FRAME_GAP_MS = 200;
@@ -85,11 +90,20 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: `Sharpest of ${frames.length} frames` };
+    return { guesses, reader: "vision", frames: frames.length, note: `Sharpest of ${frames.length} frames`, tier: result.tier };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
+}
+
+export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
+/** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
+export async function detectCards(frame: ImageBitmap): Promise<Detection> {
+  const vision = await loadRecognizer(); const found = await loadMeta();
+  if (!vision || !found) { frame.close(); return { status: "unavailable", cards: [], note: "The card reader is not installed here." }; }
+  try { const result = await vision.detect(frame); return { status: "ready", cards: result.cards, ms: Math.round(result.timingMs) }; }
+  catch (error) { return { status: "error", cards: [], note: error instanceof Error ? error.message : "The card detector failed." }; }
 }
 
 /** Adapter for RemoteVideo: answers a remote request from the raw local track. */

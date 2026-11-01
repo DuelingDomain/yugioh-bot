@@ -529,3 +529,33 @@
 .noGuess{cursor:default;color:var(--ink3);display:block;padding:10px}
 .gl li kbd{justify-self:center}
 .th34{display:block}
+
+/* Feed freeze: the frozen frame, gold outlines for every detected card, and the controls. All per viewer. */
+.still{position:absolute;z-index:2;overflow:hidden;pointer-events:none;animation:stillin .18s ease-out both}
+.stillCanvas,.stillCanvas canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stillCanvas canvas{filter:saturate(1.08) contrast(1.05)}
+.fcamFrozen::after{background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgb(0 0 0/.55)),repeating-linear-gradient(0deg,rgb(0 0 0/.06) 0 1px,transparent 1px 3px)}
+.stillScan{position:absolute;left:0;right:0;height:3px;top:0;background:linear-gradient(90deg,transparent,var(--gold-ink),transparent);box-shadow:0 0 18px 3px rgb(232 185 79/.55);animation:stillscan .9s ease-in-out infinite alternate}
+@keyframes stillin{from{opacity:.0}}
+@keyframes stillscan{from{top:0}to{top:calc(100% - 3px)}}
+.quads{position:absolute;z-index:3;overflow:visible;pointer-events:none}
+.spot{fill:rgb(4 2 10/.55)}
+.qpoly{fill:rgb(232 185 79/.07);stroke:var(--gold);stroke-width:1.6;stroke-opacity:.8;stroke-linejoin:round;vector-effect:non-scaling-stroke;animation:qin .34s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*55ms);transition:fill .15s,stroke-width .15s,stroke-opacity .15s}
+.qdown{stroke-dasharray:6 5;stroke-opacity:.55;fill:rgb(232 185 79/.03)}
+.qhot{fill:rgb(232 185 79/.16);stroke:var(--gold-ink);stroke-width:2.6;stroke-opacity:1;filter:drop-shadow(0 0 5px rgb(232 185 79/.75))}
+.qon{fill:rgb(232 185 79/.12);stroke:#fff3cf;stroke-width:3.2;stroke-opacity:1;stroke-dasharray:none;filter:drop-shadow(0 0 9px rgb(246 220 154/.95))}
+@keyframes qin{from{opacity:0;transform:scale(.985);transform-origin:center}}
+.qnums{position:absolute;z-index:3;pointer-events:none}
+.qn{position:absolute;transform:translate(-30%,-120%);min-width:18px;height:18px;padding:0 5px;display:grid;place-items:center;border-radius:9px;background:rgb(7 4 14/.86);border:1px solid var(--gold);color:var(--gold-ink);font:700 11px/1 var(--font-duel-display),Oxanium,sans-serif}
+.qnOn{background:var(--gold);color:#1b1204;border-color:var(--gold-ink)}
+.fctl{position:absolute;left:8px;bottom:8px;z-index:7;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:calc(100% - 16px);opacity:0;transition:opacity .15s;pointer-events:none}
+.cams:hover .fctl,.cams:focus-within .fctl,.fctlOn{opacity:1;pointer-events:auto}
+@media (hover:none){.fctl{opacity:1;pointer-events:auto}}
+.fzchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--gold);color:var(--gold-ink);font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em}
+.fzchip .ic{width:13px;height:13px}
+.fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
+.fzauto[aria-pressed=true]{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
+.fzbtn kbd{padding:1px 4px}
+.cams:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+@media (prefers-reduced-motion:reduce){.stillScan{animation:none;top:50%}}
