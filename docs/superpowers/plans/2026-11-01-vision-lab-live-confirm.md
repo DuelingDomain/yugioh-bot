@@ -8,7 +8,9 @@
 
 **Files:** Shared feedback service; feedback API and settings component; vision types/options/pipeline; lab component, focused result component and styles; existing shared feedback, route, pipeline and lab tests; feedback runbook and browser smoke script.
 
-- [ ] Extend shared and API tests for trusted admin defaults, explicit opt-out, immediate approval, deduplication and regular-user isolation. Observe failures, implement, build shared, rerun targeted checks and commit.
-- [ ] Extend existing pipeline tests for single sharpest-frame selection and returned detected outline. Observe failures, implement and run pipeline/vision tests.
-- [ ] Extend existing lab tests for immediate skeleton, live preview/outline, full detail popup, top-1 confirm, admin toggle and stale request cleanup. Observe failures, implement accessible responsive popup and targeted checks; commit.
+- [x] Extend shared and API tests for trusted admin defaults, explicit opt-out, immediate approval, deduplication and regular-user isolation. Observe failures, implement, build shared, rerun targeted checks and commit.
+- [x] Extend existing pipeline tests for single sharpest-frame selection and returned detected outline. Observe failures, implement and run pipeline/vision tests.
+- [x] Extend existing lab tests for immediate skeleton, live preview/outline, full detail popup, top-1 confirm, admin toggle and stale request cleanup. Observe failures, implement accessible responsive popup and targeted checks; commit.
 - [ ] Update runbook, privacy wording where needed and browser smoke. Run affected tests, typechecks and an isolated browser check if available. Review changes, commit and push branch; verify remote head and report coordinator restart requirements.
+
+Verification: 82 targeted cases pass (10 shared feedback, 28 vision pipeline/client/board, 44 web lab/admin-route). Shared build and vision/web typechecks pass. Real Chromium/WASM synthetic-camera smoke passes: owner default-on without prompt, one 13,287-byte crop, immediate approval, pause toggle, live outline/advancing video, desktop/mobile popup, moderation and deletion, zero page errors. The isolated port 3448 server was stopped by PID; generated Next references were restored. No physical webcam accuracy claim. Review found and resolved two preference races, with regressions in the existing lab test file.

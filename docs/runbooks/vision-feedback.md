@@ -1,7 +1,9 @@
 # Card recognition feedback
 
-The web collects only with `REMOTE_VISION_FEEDBACK=1` **and** the signed-in user's
-explicit opt-in. Default off; alpha membership grants no consent. Set the env to
+The web collects only with `REMOTE_VISION_FEEDBACK=1`. Regular users must explicitly
+opt in; alpha membership grants no consent. Accounts in `OWNER_USER_IDS` default
+to saving confirmations and corrections, with no opt-in prompt. The lab shows
+“Saving to training set” and a toggle; an explicit opt-out is preserved. Set the env to
 `0` and restart web to stop uploads and serving learned references. Account
 settings and deletion remain available. Consent is asked once, stored per account,
 and can be changed in `/settings/account`. The lab requires its existing lab gate.
@@ -54,6 +56,20 @@ submissions from one user never establish consensus. Contradictory eligible labe
 compete as ordinary alternatives; the confidence margin still applies. Confusion
 pairs require at least two distinct users and force extra hypotheses plus a .06
 independent-view margin. They never boost a similarity score.
+
+Owner confirmations (including correct top-1 reads) and corrections are approved
+atomically at ingestion using the server's owner policy. No second user or manual
+approval is needed. Retrying an older pending owner sample approves it, while an
+explicit moderator rejection stays rejected. Normal crop, quality, rate and
+retention limits still apply; a failed save is shown in the lab.
+
+In `/dev/vision-lab`, click a card in the live camera: the video keeps running,
+the worker reads the single sharpest frame from the last second, and the detected
+card flashes gold. A loading popup opens immediately, then displays a full-size
+card image, catalog text/stats, tier and Confirm. Unsure reads show five pick
+buttons below. Clicks outside detected cards ask you to try again. Frozen/photo
+reads retain their existing behavior and keyboard controls. Catalog details use
+the existing card resolver; a failed text lookup does not prevent confirmation.
 
 The browser refreshes its delta before recognition, peek and read-all (once per
 board). A refresh failure clears learning. Deleting/rejecting evidence withdraws
@@ -123,8 +139,9 @@ performance and false acceptance still need real-player data.
 ## Browser verification
 
 Use a fresh seeded **owner** E2E user and an isolated test database/server on an
-unused port. The script changes that user's consent, uploads one card crop,
-approves/rejects it, then deletes that user's samples. Never point it at a real
+unused port. The script verifies default saving with no prompt, uploads one card
+crop with Confirm, checks immediate approval, pauses capture, rejects the sample,
+then deletes that user's samples. Never point it at a real
 player account. Example with an already-running server at 3438:
 
 ```sh
@@ -139,3 +156,15 @@ The server needs its normal offline E2E gate/secret, `REMOTE_VISION_FEEDBACK=1`,
 matching `WEB_URL`, owner ID and local prepared assets. Outputs are private,
 ignored `data/vision-feedback-smoke/browser.json` and `account.png`. This check
 uses the actual browser Worker/WASM model, without live AI calls.
+
+Set `VISION_FEEDBACK_TEST_LIVE=1` to additionally feed the photo through a canvas
+camera stream and verify live clicks, the gold outline, advancing video and
+paused capture. Set `VISION_FEEDBACK_TEST_OUTPUT` to an isolated output directory.
+The smoke refuses ports 3000 and 3417. This verifies the browser camera path with
+a synthetic stream, not physical-camera recognition accuracy.
+
+After deploying this change, rebuild shared code and the vision worker, rebuild
+and restart web, and reload lab browser tabs. The worker is a separately prepared
+asset: `npm run build --workspace=@yugidraft/vision` (with the deployed
+`VISION_DATA_DIR`) regenerates it without downloading models. No database migration,
+duel-server restart, training run or index rebuild is needed.
