@@ -22,6 +22,9 @@ import { sharpness, classifyBorder } from './quality';
 import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck } from './search';
 import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
 
+/** Worker-only source ownership; never included in its public reply. */
+export interface DeferredAICrop { bytes:number; create:()=>RGBAImage|undefined }
+
 function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad {
   const h = Math.min(img.height * profile.fallbackHeight, img.width * profile.card.height / profile.card.width);
   const w = h * profile.card.width / profile.card.height;
@@ -76,7 +79,7 @@ export class RecognitionPipeline {
     result.timingsMs.total=performance.now()-start;
     return result;
   }
-  async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult> {
+  async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
     validateOptions(opts);
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
     const start = performance.now();
@@ -84,7 +87,7 @@ export class RecognitionPipeline {
     const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0 };
     const frameEvidence:RecognitionEvidence['frames']=[];
     const usedIndices:number[]=[];
-    const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
+    const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; deferredAICrop?:DeferredAICrop; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
     // Reuse unboosted evidence for each hypothesis and the single-frame final
     // decision. This cache lasts one read, so mutable caller queries cannot go stale.
@@ -179,11 +182,18 @@ export class RecognitionPipeline {
       usedIndices.push(frameIndex);
       // This source warp retains text detail; it never passes through the 295px embedding warp.
       let aiCrop:RGBAImage|undefined;
+      let deferredAICrop:DeferredAICrop|undefined;
       if(opts.includeCrop && !views.length) {
-        const large=warpQuadMasked(frame,found?corners as Quad:fallbackQuad(frame,this.profile,clickPoint),640,Math.round(640*this.profile.card.height/this.profile.card.width));
-        if(large) {const pixels=large.seenShare<1?fillUnseen(large,'art-mean',this.profile.artWindow):large.image;aiCrop=winningRotation===180?rotate180(pixels):pixels;}
+        const quad=found?corners as Quad:fallbackQuad(frame,this.profile,clickPoint);
+        const create=()=>{
+          const large=warpQuadMasked(frame,quad,640,Math.round(640*this.profile.card.height/this.profile.card.width));
+          if(!large)return;
+          const pixels=large.seenShare<1?fillUnseen(large,'art-mean',this.profile.artWindow):large.image;
+          return winningRotation===180?rotate180(pixels):pixels;
+        };
+        if(opts.deferAICrop)deferredAICrop={bytes:frame.data.byteLength,create};else aiCrop=create();
       }
-      views.push({ aiCrop, faceDown, clean, ranked:merged, confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || selected), corners: found, unambiguous: eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean, thresholds, this.profile.cardBack.cardId).confident, frameClass });
+      views.push({ aiCrop, deferredAICrop, faceDown, clean, ranked:merged, confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || selected), corners: found, unambiguous: eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean, thresholds, this.profile.cardBack.cardId).confident, frameClass });
       if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,thresholds,this.profile.cardBack.cardId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
     }
     const t = performance.now(), k = opts.k ?? 5;
@@ -223,6 +233,6 @@ export class RecognitionPipeline {
     const evidence=views[0];
     const collect=opts.includeFeedback && evidence?.corners && !fallback && !covered && !views.some(v=>v.partial) && !views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
-    return { ...(opts.includeRaw?{raw}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), candidates: candidates.slice(0, k), detectedCard, feedback, ...((opts.includeCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+    return { ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), candidates: candidates.slice(0, k), detectedCard, feedback, ...((opts.includeCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }

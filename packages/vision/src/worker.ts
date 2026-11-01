@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } from './runtime';
 import { fullArtProfile } from './full-art';
-import { RecognitionPipeline } from './pipeline';
+import { RecognitionPipeline, type DeferredAICrop } from './pipeline';
 import { embedImages } from './embed';
 import { detectScene } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
@@ -24,10 +24,12 @@ async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runt
 let sessions: ModelSession[] = [];
 let learningCache:LearningCache|undefined;
 let learningTimer:ReturnType<typeof setInterval>|undefined;
-const aiWarps=new Map<string,RGBAImage>(),cropScope=crypto.randomUUID();let cropSerial=0;
-function keepAIWarp(image:RGBAImage):string {
-  const token=`${cropScope}:${++cropSerial}`;aiWarps.set(token,image);
-  while(aiWarps.size>6)aiWarps.delete(aiWarps.keys().next().value!);
+const aiCrops=new Map<string,DeferredAICrop>(),cropScope=crypto.randomUUID();let cropSerial=0,cropBytes=0;
+function keepAICrop(source:DeferredAICrop):string {
+  const token=`${cropScope}:${++cropSerial}`;aiCrops.set(token,source);cropBytes+=source.bytes;
+  while(aiCrops.size>6 || cropBytes>64*1024*1024) {
+    const oldest=aiCrops.keys().next().value!;cropBytes-=aiCrops.get(oldest)!.bytes;aiCrops.delete(oldest);
+  }
   return token;
 }
 async function checkedJson(url: string): Promise<IndexMeta> {
@@ -119,7 +121,8 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
         if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor)});return;}
         if(message.type==='aiCrop') {
-          const warp=aiWarps.get(message.token);if(!warp)throw new Error('Card image expired. Read the card again before asking AI.');
+          const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');
+          const warp=source.create();if(!warp)throw new Error('Could not straighten the card image');
           const encoded=await jpeg(warp,warp.width,256*1024);if(!encoded)throw new Error('Could not encode the card image');
           scope.postMessage({id:message.id,result:encoded});return;
         }
@@ -132,12 +135,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }
         const result = await pipeline!.recognize(images, message.opts);
-        const {warpedCard,aiWarpedCard,...publicResult}=result;
+        const {warpedCard,aiWarpedCard,deferredAICrop,...publicResult}=result;
         if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
-        if(aiWarpedCard) {
-          if(message.opts?.deferAICrop)publicResult.aiCropToken=keepAIWarp(aiWarpedCard);
-          else publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
-        }
+        if(deferredAICrop)publicResult.aiCropToken=keepAICrop(deferredAICrop);
+        if(aiWarpedCard)publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
         scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }

@@ -124,6 +124,17 @@ test('AI crop is warped from source at text-readable resolution; feedback stays 
   const result=await fixture(false).recognize([frame],{card:selected,includeCrop:true,includeFeedback:true});
   assert.equal(result.aiWarpedCard?.width,640);assert.equal(result.warpedCard?.width,10);
 });
+test('deferred AI warping preserves exact source pixels while returning identification first',async()=>{
+  const source={...frame,data:frame.data.map((_,i)=>(i*17)%256)};
+  const card={...selected,quad:selected.quad.map(p=>({x:p.x-.1,y:p.y}))};
+  const eager=await fixture(false).recognize([source],{card,includeCrop:true});
+  const deferred=await fixture(false).recognize([source],{card,includeCrop:true,deferAICrop:true});
+  assert.equal(Boolean(deferred.aiWarpedCard),false);
+  assert.equal(deferred.deferredAICrop?.bytes,source.data.byteLength);
+  assert.deepEqual(deferred.deferredAICrop?.create(),eager.aiWarpedCard);
+  assert.deepEqual(deferred.candidates,eager.candidates);
+  assert.deepEqual(deferred.warpedCard,eager.warpedCard);
+});
 import {LearningCache} from './learning-cache';
 import {toRemoteRecognitionResult} from './remote-result';
 test('cached learning never fetches during reads, deduplicates refresh and expires failures',async()=>{
