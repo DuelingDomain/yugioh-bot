@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, Swords, UserX, Users, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, UserX, Users, X } from "lucide-react";
 import { isCustomDomain, type DuelFormat, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -617,9 +617,6 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
           <p className={ui.lede}>Automated 1v1 tables.</p>
         </div>
         <div className={styles.headActions}>
-          <Link href="/duels/new?challenge=1" className={sheetButtonClass("secondary", "lg")}>
-            <Swords size={17} strokeWidth={1.7} aria-hidden />Challenge a player
-          </Link>
           <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>
             <Plus size={17} strokeWidth={1.7} aria-hidden />Create game
           </Link>
