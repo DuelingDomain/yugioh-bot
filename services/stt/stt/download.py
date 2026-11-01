@@ -49,9 +49,9 @@ def download_vad() -> Path:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('models', nargs='*', metavar='MODEL', help='whisper, parakeet, zipformer (default: whisper parakeet)')
+    parser.add_argument('models', nargs='*', metavar='MODEL', help='whisper, parakeet, zipformer (default: parakeet)')
     args = parser.parse_args()
-    names = args.models or ['whisper', 'parakeet']
+    names = args.models or ['parakeet']
     if any(name not in MODELS for name in names):
         parser.error('Choose whisper, parakeet or zipformer')
     for name in names:

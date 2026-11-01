@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .catalog import catalog_path
 from .matcher import CardMatcher, STAPLES, clean, load_catalog
 from .models import Endpoint, RATE, Recognizer
+from .verification import needs_verification, has_card_correction
 
 LOG = logging.getLogger('stt')
 MAX_SECONDS = int(os.getenv('STT_MAX_SECONDS', '15'))
@@ -44,7 +45,17 @@ class Options(BaseModel):
 
 class Engine:
     def __init__(self):
-        self.recognizer = Recognizer(os.getenv('STT_MODEL', 'whisper'), int(os.getenv('STT_THREADS', '4')))
+        verify = os.getenv('STT_VERIFY', 'none')
+        if verify not in {'none', 'whisper'}:
+            raise ValueError('STT_VERIFY must be none or whisper')
+        self.verify_threshold = float(os.getenv('STT_VERIFY_THRESHOLD', '0.95'))
+        self.verify_confidence = float(os.getenv('STT_VERIFY_CONFIDENCE', '0.95'))
+        if not (0 <= self.verify_threshold <= 1 and 0 <= self.verify_confidence <= 1):
+            raise ValueError('STT_VERIFY_THRESHOLD and STT_VERIFY_CONFIDENCE must be in [0,1]')
+        self.recognizer = Recognizer(os.getenv('STT_MODEL', 'parakeet'), int(os.getenv('STT_THREADS', '4')))
+        self.verifier = Recognizer('whisper', self.recognizer.threads) if verify == 'whisper' and self.recognizer.name == 'parakeet' else None
+        self.verify_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='stt-verify') if self.verifier else None
+        self.verifications = set()
         self.partial_recognizer = self.recognizer
         partial_model = os.getenv('STT_PARTIAL_MODEL', 'parakeet' if self.recognizer.name == 'whisper' else self.recognizer.name)
         if partial_model != 'none' and partial_model != self.recognizer.name:
@@ -87,11 +98,22 @@ class Engine:
     def result(self, text, words):
         return self.matcher.match(text, words)
 
+    def verify(self, samples, words):
+        text = self.verifier.decode(samples, words + self.staples)
+        return self.result(text, words)
+
 @asynccontextmanager
 async def lifespan(app):
     app.state.engine = Engine()
-    yield
-    app.state.engine.pool.shutdown(wait=True)
+    try:
+        yield
+    finally:
+        for task in list(app.state.engine.verifications):
+            task.cancel()
+        await asyncio.gather(*app.state.engine.verifications, return_exceptions=True)
+        app.state.engine.pool.shutdown(wait=True)
+        if app.state.engine.verify_pool:
+            app.state.engine.verify_pool.shutdown(wait=True)
 
 app = FastAPI(title='Remote Duels STT', version='1.0.0', lifespan=lifespan)
 if ALLOWED_ORIGINS:
@@ -114,6 +136,7 @@ async def health(request: Request):
     return {'status': 'ready', 'model': engine.recognizer.name, 'sampleRate': RATE,
             'modelLoadSeconds': round(engine.recognizer.load_seconds, 3),
             'partialModel': engine.partial_recognizer.name if engine.partials_enabled else None, 'activeUtterances': engine.active,
+            'verifyModel': engine.verifier.name if engine.verifier else None, 'pendingVerifications': len(engine.verifications),
             'catalogSource': engine.catalog_source, 'catalogSize': len(engine.matcher.cards)}
 
 @app.post('/transcribe')
@@ -200,6 +223,7 @@ async def websocket(ws: WebSocket):
     engine = ws.app.state.engine
     utterance = None
     send_lock = asyncio.Lock()
+    verification_tasks = set()
 
     async def send(payload):
         async with send_lock:
@@ -234,8 +258,42 @@ async def websocket(ws: WebSocket):
                 'model': engine.recognizer.name, 'durationMs': u.count / 16,
                 'speechDetected': speech, 'processingMs': round((time.perf_counter() - started) * 1000, 2)}
 
+    async def verify(u, original):
+        started = time.perf_counter()
+        try:
+            native_job = engine.verify_pool.submit(engine.verify, u.samples(), u.words)
+            job = asyncio.wrap_future(native_job)
+            try:
+                result = await asyncio.shield(job)
+            except asyncio.CancelledError:
+                # Cancel queued work, or retain the slot until running native work stops.
+                if not native_job.cancel():
+                    await job
+                raise
+            if has_card_correction(original, result, engine.verify_confidence):
+                await send({**result, 'type': 'correction', 'requestId': u.options.requestId,
+                            'model': 'whisper', 'replacesModel': 'parakeet',
+                            'processingMs': round((time.perf_counter() - started) * 1000, 2)})
+        except (WebSocketDisconnect, ConnectionError, RuntimeError):
+            LOG.debug('Verification connection closed', exc_info=True)
+        except Exception:
+            LOG.exception('Optional STT verification failed')
+
+    async def send_final(u, reason):
+        result = await finalize(u, reason)
+        await send(result)
+        if (engine.verifier and result['speechDetected']
+                and needs_verification(result, engine.verify_threshold)
+                and len(engine.verifications) < MAX_ACTIVE):
+            task = asyncio.create_task(verify(u, result))
+            engine.verifications.add(task)
+            verification_tasks.add(task)
+            task.add_done_callback(engine.verifications.discard)
+            task.add_done_callback(verification_tasks.discard)
+
     try:
         await send({'type': 'ready', 'model': engine.recognizer.name,
+                    'verifyModel': engine.verifier.name if engine.verifier else None,
                     'partialModel': engine.partial_recognizer.name if engine.partials_enabled else None, 'sampleRate': RATE,
                     'format': 's16le', 'maxSeconds': MAX_SECONDS})
         while True:
@@ -273,10 +331,9 @@ async def websocket(ws: WebSocket):
                         u.partial_at = u.count
                         u.partial_task = asyncio.create_task(provisional(u))
                 if ended and u.options.mode == 'vad':
-                    result = await finalize(u, 'silence')
+                    await send_final(u, 'silence')
                     utterance = None
                     engine.active -= 1
-                    await send(result)
                 continue
             raw = message.get('text', '')
             if len(raw) > 64000:
@@ -300,10 +357,9 @@ async def websocket(ws: WebSocket):
             elif kind == 'end':
                 if utterance is None:
                     raise ValueError('No active utterance')
-                result = await finalize(utterance, 'release')
+                await send_final(utterance, 'release')
                 utterance = None
                 engine.active -= 1
-                await send(result)
             elif kind == 'cancel':
                 if utterance:
                     utterance.ending = True
@@ -330,6 +386,8 @@ async def websocket(ws: WebSocket):
         except (WebSocketDisconnect, RuntimeError):
             pass
     finally:
+        for task in list(verification_tasks):
+            task.cancel()
         if utterance:
             utterance.ending = True
             try:
@@ -337,3 +395,4 @@ async def websocket(ws: WebSocket):
             except (WebSocketDisconnect, ConnectionError, RuntimeError):
                 pass
             engine.active -= 1
+        await asyncio.gather(*verification_tasks, return_exceptions=True)
