@@ -257,7 +257,13 @@ test('field watcher automatic: card appearance fills the lab twin without clicki
 });
 test('field watcher automatic: owner table applies once, logs auto and Undo removes the placement',async({page,context})=>{
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
-  const slug=await soloTable(context.request,2);await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);
+  const slug=await soloTable(context.request,2);
+  // Next dev compiles these on first use. Warm them before a placement starts
+  // the five-second Undo window; compilation is not part of the Undo contract.
+  await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
+  await context.request.post('/api/cards/resolve',{data:{customCardIds:[45725480]}});
+  await context.request.get('/api/cards/45725480/image?variant=cropped');
+  await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
   await page.waitForTimeout(2000);await page.evaluate(()=>((window as any).fieldTest).appear());
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
@@ -284,4 +290,20 @@ test('field watcher automatic: a failed lazy recognition load leaves detection u
     }finally{reader.dispose();}
   });
   expect(answer.failure).toContain('503');expect(answer.detected).toBe(1);expect(answer.tier).toBe('sure');
+});
+
+test('field watcher automatic: actual table format places both EMZ above the main row and omits them in Genesys',async({page,context})=>{
+  test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
+  for(const format of ['normal','domain','genesys','genesys-domain']) {
+    const created=await context.request.post('/api/remote',{data:{gameId:'ygo',seatCount:2,solo:true,format}});expect(created.status()).toBe(201);
+    const {slug}=await created.json();await context.request.post(`/api/remote/${slug}/ready`,{data:{ready:true}});await context.request.post(`/api/remote/${slug}/start`,{data:{}});
+    await page.goto(`/duels/remote/${slug}`);const field=page.getByTestId('field-0');
+    await expect(field.locator('[data-zone^="emz"]')).toHaveCount(format.startsWith('genesys')?0:2);
+    if(!format.startsWith('genesys'))for(const [extra,main] of [['emz1','m2'],['emz2','m4']]) {
+      const a=await field.locator(`[data-zone="${extra}"]`).boundingBox(),b=await field.locator(`[data-zone="${main}"]`).boundingBox();
+      expect(a).not.toBeNull();expect(b).not.toBeNull();expect(a!.y+a!.height).toBeLessThanOrEqual(b!.y);
+      // The existing perspective tilt shifts the projected x coordinate by row.
+      expect(Math.abs(a!.x+a!.width/2-b!.x-b!.width/2)).toBeLessThan(b!.width*.1);
+    }
+  }
 });
