@@ -87,6 +87,9 @@ const server = createServer(async (request, response) => {
     response.end("ok\n");
     return;
   }
+  const disconnected = new AbortController();
+  const abort = () => { if (!response.writableFinished) disconnected.abort(); };
+  response.once("close", abort);
   try {
     const chunks: Buffer[] = [];
     let length = 0;
@@ -112,6 +115,7 @@ const server = createServer(async (request, response) => {
     const result = await host.handle(new Request(`http://localhost${request.url ?? "/"}`, {
       method,
       headers,
+      signal: disconnected.signal,
       body: method === "GET" || method === "HEAD" ? undefined : Buffer.concat(chunks),
     }));
     response.writeHead(result.status, {
@@ -123,6 +127,8 @@ const server = createServer(async (request, response) => {
     report(error, { tags: { operation: "[duel] Request failed" } });
     if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "Duel service request failed" }));
+  } finally {
+    response.off("close", abort);
   }
 });
 const port = Number(process.env.DUEL_INTERNAL_PORT ?? 4003);

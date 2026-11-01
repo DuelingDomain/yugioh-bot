@@ -28,9 +28,10 @@ function rankedCard(value: unknown): boolean {
     || (value.deckMasterFit !== undefined && typeof value.deckMasterFit !== "boolean")) return false;
   if (value.release === undefined) return true;
   const release = value.release;
-  return object(release) && keys(release, ["tcgDate", "ocgDate", "date", "region", "upcoming"])
+  return object(release) && keys(release, ["tcgDate", "ocgDate", "date", "region", "upcoming", "prerelease", "upcomingDate"])
     && typeof release.upcoming === "boolean"
-    && ["tcgDate", "ocgDate", "date"].every(key => release[key] === undefined || validReleaseMonth(release[key]))
+    && (release.prerelease === undefined || typeof release.prerelease === "boolean")
+    && ["tcgDate", "ocgDate", "date", "upcomingDate"].every(key => release[key] === undefined || validReleaseMonth(release[key]))
     && (release.region === undefined || release.region === "tcg" || release.region === "ocg");
 }
 

@@ -938,7 +938,7 @@ it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async (
     // A missing artifact/engine directory must not matter when the flag is off.
     await initializeServerCardEffects(isolated, cards, '/missing-effect-startup-directory');
     expect(isolated.prepare('SELECT total_changes() AS changes').get()).toEqual(before);
-    for (const table of ['card_tags', 'card_tag_profiles', 'card_tag_artifact_imports']) {
+    for (const table of ['card_tags', 'card_tag_profiles', 'card_tag_artifact_imports', 'card_capability', 'archetype_bridge', 'bridge_artifact_import']) {
       expect(isolated.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
     }
   } finally { vi.unstubAllEnvs(); isolated.close(); }
@@ -959,7 +959,8 @@ it("uses the selected format and preserves real card names and search filters", 
   expect(domain.effectHits?.[0]?.name).toBe("Graceful Charity");
   expect(domain.effectHits?.every(card => /of Domain decks$/.test(card.reason))).toBe(true);
   const genesys = search("staples", undefined, { format: "genesys" });
-  expect(genesys.effectHits?.[0]?.name).toBe("Lava Golem");
+  // The expanded measured Genesys cohort ranks Skull Meister first (30%).
+  expect(genesys.effectHits?.[0]).toMatchObject({ name: "Skull Meister", reason: "Played in 30% of Genesys decks" });
   expect(genesys.effectHits?.every(card => /of Genesys decks$/.test(card.reason))).toBe(true);
   expect(search("Morphtronic Staplen").cards[0]?.name).toBe("Morphtronic Staplen");
   expect(search("Morphtronic Staplen").reading).toBeNull();

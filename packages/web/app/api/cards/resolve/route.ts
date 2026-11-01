@@ -8,7 +8,8 @@ import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
-import { parseCardInsightRequest } from "@/lib/card-insights-api";
+import { CARD_INSIGHT_BODY_MAX_BYTES, parseCardInsightRequest } from "@/lib/card-insights-api";
+import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { env } from "@/lib/env";
@@ -59,7 +60,15 @@ async function handlePOST(request: Request) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
-  const body = (await request.json().catch(() => ({}))) as {
+  // A description request is small, so it is read with the insight size cap. A name or list import can be larger,
+  // so a body over the cap is read the old way, and refused only when it turns out to be a description request.
+  const capped = await readJsonBody(request.clone(), CARD_INSIGHT_BODY_MAX_BYTES);
+  const tooBig = !capped.ok && capped.response.status === 413;
+  const parsed = capped.ok ? capped.value : tooBig ? await request.json().catch(() => ({})) : {};
+  if (tooBig && parsed && typeof parsed === "object" && (parsed as { op?: unknown }).op !== undefined) {
+    return NextResponse.json({ error: "Insight request is too large" }, { status: 413 });
+  }
+  const body = parsed as {
     op?: unknown;
     setNames?: string[];
     customCardIds?: number[];
@@ -75,6 +84,17 @@ async function handlePOST(request: Request) {
     if (!env.discordGuildId) return NextResponse.json({ error: "community_not_configured" }, { status: 503 });
     if (!effectSearchEnabled()) return NextResponse.json({ effectSearchEnabled: false, error: "effect_search_disabled" }, { status: 404 });
     const input = parseCardInsightRequest(body);
+    if (input?.op === "hookSearch") {
+      // The cards for one "How it plays" row of the Describe pane. Same display details as a description search.
+      const db = getDb();
+      const hits = createCardInsightService(db, { guildId: env.discordGuildId }).hookSearch(input.archetype, input.hook, input.pool, input);
+      const details = new Map(createCardCatalogService(db, { memberId: actor.userId }).findByIds(hits.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
+      const cards = hits.flatMap(hit => {
+        const card = details.get(hit.passcode);
+        return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
+      });
+      return NextResponse.json({ cards, total: cards.length, effectSearchEnabled: true }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     if (input?.op !== "effectSearch") return NextResponse.json({ error: "Invalid effect search request" }, { status: 400 });
     const db = getDb();
     const outside = !input.exact && searchIntentTarget(input.text)?.kind === "outside";
@@ -92,7 +112,7 @@ async function handlePOST(request: Request) {
     } else {
       const service = createCardInsightService(db, { guildId: env.discordGuildId });
       result = service.effectSearch(input.text, input.pool, input);
-      if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+      if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && !result.reading?.query.supports?.archetypes.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
         if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
       }
     }
@@ -100,15 +120,18 @@ async function handlePOST(request: Request) {
     // Only explicit pools may need remote display metadata; cap lookups on this debounced path.
     const lookupBudget = createCardLookupBudget();
     lookupBudget.remaining = EFFECT_SEARCH_LOOKUP_LIMIT;
+    const hits = [...result.cards, ...(result.groups?.flatMap(group => group.cards) ?? [])];
     const unknownIds = input.pool !== undefined
-      ? await ensureCatalogCards(catalog, result.cards.map(card => card.passcode), lookupBudget)
+      ? await ensureCatalogCards(catalog, hits.map(card => card.passcode), lookupBudget)
       : [];
-    const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
-    const cards = result.cards.flatMap(hit => {
+    const details = new Map(catalog.findByIds(hits.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
+    const decorate = (rows: typeof result.cards) => rows.flatMap(hit => {
       const card = details.get(hit.passcode);
-      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
+      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release, ...(hit.synergyCategory ? { synergyCategory: hit.synergyCategory } : {}) }] : [];
     });
-    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
+    const cards = decorate(result.cards);
+    const groups = result.groups?.map(group => ({ ...group, cards: decorate(group.cards) }));
+    return NextResponse.json({ ...result, cards, ...(groups ? { groups } : {}), unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
   }
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)

@@ -1,0 +1,13 @@
+/* The tab bar on top of the right column of the deck editor (desktop). The phone uses the editor's own .seg control. */
+.bar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border-bottom: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.tab { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 36px; padding: 0 8px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: 500 14px/1 var(--f-ui); white-space: nowrap; cursor: pointer; }
+/* The only accent on the bar: the active tab. */
+.tab::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--pen); opacity: 0; transition: opacity 120ms var(--ease); }
+.tab[aria-selected="true"] { color: var(--pen-ink); background: var(--pen-soft); }
+.tab[aria-selected="true"]::after { opacity: 1; }
+@media (hover: hover) and (pointer: fine) { .tab:hover { color: var(--ink); } .tab[aria-selected="true"]:hover { color: var(--pen-ink); } }
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* A deep search finished while this tab was hidden. Gold, small, and gone once the tab opens. */
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--chain-ink); box-shadow: 0 0 0 2px rgb(220 197 143 / 0.22); }
+:global(.seg) .dot { position: absolute; top: 9px; right: 10px; }
+@media (prefers-reduced-motion: reduce) { .tab::after { transition: none; } }

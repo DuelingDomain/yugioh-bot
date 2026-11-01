@@ -22,7 +22,6 @@ import {
   type DuelDeckCardRef,
   type DuelMode,
   type GenesysSettings,
-  type SavedDeck,
   type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
 import {
@@ -43,8 +42,9 @@ import {
   X,
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
-import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
-import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
+import type { DeckMasterSelection } from "@/components/duel/ydk";
+import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { useBridgesEnabled, useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
@@ -57,9 +57,12 @@ import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser, type BrowserCard, type BrowserPartner } from "./card-browser";
+import { CardBrowser, hookPartner, type BrowserCard, type BrowserColumns, type BrowserPartner } from "./card-browser";
+import { EditorTabList } from "./editor-tab-list";
+import { EDITOR_TAB_ORDER, readLastTab, rememberTab, shownTab, type ColumnTab, type EditorTab } from "./editor-tabs";
 import type { BrowserSuggest } from "./suggestions-panel";
 import { CardBottomSheet } from "./card-bottom-sheet";
+import { DOMAIN_ONE_COPY, copiesText, planCardAdds, planCopyAdds, type CardAdder, type CopyRequest } from "./card-adder";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
 import { useCopyYdke } from "./copy-ydke";
@@ -86,7 +89,7 @@ import {
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
-import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { fetchGuide } from "./insights-api";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { TestDuelPopover } from "./test-duel-popover";
@@ -125,7 +128,6 @@ import {
   shuffled,
   snapshotOf,
   sortDeck,
-  uniqueCodes,
   type CopyProblem,
   type CardSource,
   type DeckSection,
@@ -150,7 +152,6 @@ import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./sectio
 import styles from "./editor.module.css";
 
 const HISTORY_LIMIT = 100;
-const PHONE_TAB_ORDER = ["deck", "cards"] as const;
 /** Passcodes per card-details request; the route takes at most 1000. */
 const POOL_CHUNK = 500;
 const HAND_SIZE = 5;
@@ -200,12 +201,6 @@ function draftDeckName(draftName: string): string {
   return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
 }
 
-const DOMAIN_ONE_COPY = "Domain decks hold one copy of each card.";
-
-function copiesText(max: number): string {
-  if (max === 0) return "is Forbidden";
-  return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
-}
 
 /**
  * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
@@ -287,10 +282,47 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolRetry, setPoolRetry] = useState(0);
   const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
-  const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  // The tab of the editor. A phone has four; a desktop has the column's three, and "deck" there is the Cards tab.
+  const [tab, setTabState] = useState<EditorTab>("deck");
+  const suggestionsFlag = useDeckSuggestionsEnabled();
+  const bridgesFlag = useBridgesEnabled();
+  const [suggestDenied, setSuggestDenied] = useState(false);
+  const [bridgesDenied, setBridgesDenied] = useState(false);
+  // A deep search finished while the Bridges tab was hidden.
+  const [bridgesDot, setBridgesDot] = useState(false);
+  // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
+  const suggestOn = suggestionsFlag && !suggestDenied;
+  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no request.
+  const bridgesOn = bridgesFlag && suggestOn && !pool && !bridgesDenied && mode !== "domain";
+  const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
+  const activeTab = shownTab(tab, columnTabs, isPhone);
+  // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,
+  // before the editor has measured itself; only a phone reads it.
+  const phoneTab = shownTab(tab, columnTabs, true);
+  // Only a tab the player chose slides in: not the one a reload brings back, and not a change of layout.
+  const [chosen, setChosen] = useState(false);
+  const setTab = useCallback((next: EditorTab) => { setChosen(true); setTabState(next); rememberTab(next); }, []);
+  // The tab this viewer used last. Read after the first render, so the server and the first paint agree.
+  useEffect(() => { const last = readLastTab(); if (last) setTabState(last); }, []);
+  // Opening the Bridges tab clears its dot.
+  useEffect(() => { if (activeTab === "bridges") setBridgesDot(false); }, [activeTab]);
+  const phoneDir = useTabDirection(phoneTab, EDITOR_TAB_ORDER, chosen);
+  const columns: BrowserColumns = {
+    tabs: columnTabs,
+    tab: activeTab === "deck" ? "cards" : activeTab,
+    onTab: setTab,
+    bar: !isPhone,
+    // The panes are named by the tab list on screen: the column bar on a desktop, the editor tabs on a phone.
+    tabIdPrefix: isPhone ? "deck-editor" : "deck-editor-column",
+    panels: isPhone || columnTabs.length > 1,
+    bridgesDot,
+    // A finished deep search only marks the tab when the tab is hidden.
+    onDeepFinished: () => { if (activeTab !== "bridges") setBridgesDot(true); },
+    onSuggestDisabled: () => setSuggestDenied(true),
+    onBridgesDisabled: () => setBridgesDenied(true),
+  };
   // "Works with: <card>": the card list shows the cards that work with this card.
   const [partner, setPartner] = useState<BrowserPartner | null>(null);
-  const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
   // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
   const [masterPick, setMasterPick] = useState(false);
@@ -650,13 +682,6 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     () => (genesysOn && genesys ? summarizeGenesys(deck, mode, catalog, genesys, settled) : null),
     [genesysOn, genesys, deck, mode, catalog, settled],
   );
-  // What the card list sends to ask for Suggestions. Points left count only in a Genesys deck.
-  const suggest = useMemo<BrowserSuggest>(() => ({
-    deck,
-    banlist: banlistOff ? "none" : query.banlist,
-    deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
-    ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
-  }), [deck, banlistOff, query.banlist, mode, genesysSummary]);
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
@@ -673,6 +698,14 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     }
     return best?.name ?? null;
   }, [deck.main, deck.extra, catalog, archetypes]);
+  // What the card list sends to ask for Suggestions. Points left count only in a Genesys deck.
+  const suggest = useMemo<BrowserSuggest>(() => ({
+    deck,
+    banlist: banlistOff ? "none" : query.banlist,
+    deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
+    deckId: savedId ?? (typeof routeId === "number" ? routeId : null),
+    ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
+  }), [deck, banlistOff, query.banlist, mode, genesysSummary, savedId, routeId]);
   const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   useEffect(() => {
@@ -690,6 +723,16 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
       ? usage.get(canonicalCardCode(card.code, catalog)) ?? 0
       : counts.get(`name:${card.name}`) ?? counts.get(`code:${card.code}`) ?? 0),
     [counts, poolMap, usage, catalog],
+  );
+
+  // Copies in Main and Extra only: the Side Deck is not part of a bridge's path.
+  const heldCounts = useMemo(() => copyCounts({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const heldUsage = useMemo(() => deckUsage({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const held = useCallback(
+    (card: DeckCardInfo) => (poolMap
+      ? heldUsage.get(canonicalCardCode(card.code, catalog)) ?? 0
+      : heldCounts.get(`name:${card.name}`) ?? heldCounts.get(`code:${card.code}`) ?? 0),
+    [heldCounts, heldUsage, poolMap, catalog],
   );
 
   const selectionRef = useRef(selection);
@@ -864,16 +907,16 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     setPartner({ code: card.code, name: card.name });
     // The search text named the card itself; the partners would not match it. Other filters stay.
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
-    setPhoneTab("cards");
+    setTab("cards");
     setCardSheetOpen(false);
   }
 
   /** A hook of the deck's "How it plays" panel: the card list shows the cards that fit it. */
-  function findHookCards(guide: ArchetypeGuide, index: number) {
+  function findHookCards(guide: ArchetypeGuide, index: number, find: HookFind) {
     setGuideOpen(false);
-    setPartner({ code: -(index + 1), name: guide.hooks[index]?.label ?? guide.archetype, hook: { archetype: guide.archetype, index } });
+    setPartner(hookPartner(guide, index, find));
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
-    setPhoneTab("cards");
+    setTab("cards");
     setCardSheetOpen(false);
   }
 
@@ -982,6 +1025,72 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     setNotice(`Added ${cardName(source.code)} (${have} of ${max}).`);
   }
 
+  /** What "Add cards" would do for these cards, with the same rules as one add from the card list. Changes nothing. */
+  function planAdds(cards: readonly DeckCardInfo[]) {
+    return planCardAdds({
+      cards, deck, mode, deckCount, held, limits, limitsPending, banlistName,
+      poolBlock: poolMap ? (card) => (canAddFromPool(poolMap, usage, poolCode(card.code), forcedMap) ? null : poolMap.has(poolCode(card.code)) ? "no copies left in your pool." : "it is not in your draft pool.") : undefined,
+      genesys: genesysOn,
+    });
+  }
+
+  /** Several cards from a list in one go (a bridge's path). One undo step; what cannot go in is named in the notice. */
+  function addCards(cards: readonly DeckCardInfo[]) {
+    if (busy) {
+      setNotice("Saving, try again in a moment.");
+      return;
+    }
+    const plan = planAdds(cards);
+    if (plan.add.length === 0) {
+      setNotice(plan.blocked.length ? `Nothing added. ${plan.blocked.map((entry) => `${entry.card.name}: ${entry.reason}`).join(" ")}` : "Those cards are already in your deck.");
+      return;
+    }
+    rememberCatalog(plan.add.map((entry) => entry.card));
+    let next = selection;
+    for (const { card, section } of plan.add) next = placeCardAt(next, { code: card.code, from: "list" }, section).selection;
+    if (!commit(next)) return;
+    const names = plan.add.map((entry) => entry.card.name).join(", ");
+    const unknown = plan.unknownPoints.length ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : "";
+    const left = plan.blocked.length ? ` Not added: ${plan.blocked.map((entry) => `${entry.card.name} (${entry.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
+    setNotice(`Added ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}: ${names}.${unknown}${left} Press Ctrl+Z to undo.`);
+  }
+
+  /** What "Add engine" would do for these copies: `planAdds` for several copies of a card. Changes nothing. */
+  function planCopies(requests: readonly CopyRequest[]) {
+    return planCopyAdds({
+      requests, deck, mode, deckCount, limits, limitsPending, banlistName,
+      poolBlock: poolMap ? (card) => (canAddFromPool(poolMap, usage, poolCode(card.code), forcedMap) ? null : poolMap.has(poolCode(card.code)) ? "no copies left in your pool." : "it is not in your draft pool.") : undefined,
+      poolRoom: poolMap ? (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap) : undefined,
+      genesys: genesysOn,
+    });
+  }
+
+  /** The copies of an engine's core in one go. One undo step; the copies that cannot go in are named in the notice. */
+  function addCopies(requests: readonly CopyRequest[]) {
+    if (busy) {
+      setNotice("Saving, try again in a moment.");
+      return;
+    }
+    const plan = planCopies(requests);
+    const of = (card: DeckCardInfo, copies: number) => (copies > 1 ? `${card.name} ×${copies}` : card.name);
+    if (plan.add.length === 0) {
+      setNotice(plan.blocked.length ? `Nothing added. ${plan.blocked.map((entry) => `${of(entry.card, entry.copies)}: ${entry.reason}`).join(" ")}` : "Those cards are already in your deck.");
+      return;
+    }
+    rememberCatalog(plan.add.map((entry) => entry.card));
+    let next = selection;
+    for (const { card, section, copies } of plan.add) {
+      for (let copy = 0; copy < copies; copy += 1) next = placeCardAt(next, { code: card.code, from: "list" }, section).selection;
+    }
+    if (!commit(next)) return;
+    const total = plan.add.reduce((sum, entry) => sum + entry.copies, 0);
+    const unknown = plan.unknownPoints.length ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : "";
+    const left = plan.blocked.length ? ` Not added: ${plan.blocked.map((entry) => `${of(entry.card, entry.copies)} (${entry.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
+    setNotice(`Added ${total} ${total === 1 ? "card" : "cards"}: ${plan.add.map((entry) => of(entry.card, entry.copies)).join(", ")}.${unknown}${left} Press Ctrl+Z to undo.`);
+  }
+
+  const adder: CardAdder = { held, plan: planAdds, add: addCards, planCopies, addCopies };
+
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
     if (card?.unavailableReason) {
@@ -1019,7 +1128,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   }
 
   function focusSearch() {
-    setPhoneTab("cards");
+    setTab("cards");
     requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
@@ -1555,16 +1664,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
-        <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" {...segmentSlide(2, phoneTab === "deck" ? 0 : 1)} onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const next = event.key === "Home" ? "deck" : event.key === "End" ? "cards" : phoneTab === "deck" ? "cards" : "deck";
-          setPhoneTab(next);
-          document.getElementById(next === "deck" ? "deck-editor-tab" : "deck-editor-cards-tab")?.focus();
-        }}>
-          <button type="button" role="tab" tabIndex={phoneTab === "deck" ? 0 : -1} id="deck-editor-tab" aria-controls="deck-editor-deck" aria-selected={phoneTab === "deck"} aria-pressed={phoneTab === "deck"} onClick={() => setPhoneTab("deck")}>Deck <b className="num">{deck.main.length}</b></button>
-          <button type="button" role="tab" tabIndex={phoneTab === "cards" ? 0 : -1} id="deck-editor-cards-tab" aria-controls="deck-editor-cards" aria-selected={phoneTab === "cards"} aria-pressed={phoneTab === "cards"} onClick={() => setPhoneTab("cards")}>Cards</button>
-        </div>
+        <EditorTabList variant="seg" idPrefix="deck-editor" label="Editor" className={styles["de-tabs"]} tabs={["deck", ...columnTabs]} tab={phoneTab} onChange={setTab} deckCount={deck.main.length} bridgesDot={bridgesDot} />
         <div className={styles["de-body"]}>
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
             {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview insightsEnabled={insightsOn} card={shown} /> : missingReader}
@@ -1605,7 +1705,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
                 />
               ) : null}
               {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
-              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index, find) => findHookCards(deckGuide, index, find)} /></Popover> : null}{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}
@@ -1633,7 +1733,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser suggest={suggest} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser adder={adder} suggest={suggest} columns={columns} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-column" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview insightsEnabled={insightsOn} card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}

@@ -4,7 +4,7 @@
     "frozenBeforeRanking": true,
     "expected": "Every omitted published-list card, plus only the independently reasoned genericSupport entries. A source omission remains in the expected universe even if its format legality has changed; legality is measured separately.",
     "precision": "For each returned row, relevant returned unique canonical passcodes divided by returned count. Unlisted potentially good alternatives remain misses; no expected IDs are added after inspecting output.",
-    "outsideQualityGate": "At least 5 expected passcodes among the first 8 Outside row cards, independently for every deck scenario.",
+    "outsideQualityGate": "Strict utility proofs required; underfilled rows are allowed. Report precision against this frozen expected universe without a minimum result or hit quota. Real-catalog positive and counterfactual checks live in deck-suggestions-outside.integration.test.ts.",
     "otherQualityGates": "Staples at most 25% of total returned cards and at most 6; zero cards outside authoritative host legality or over copy/pool limits; no duplicate shown passcodes.",
     "scope": "Full catalog from the real engine plus pinned artifact; expected sets never restrict candidate pool."
   },

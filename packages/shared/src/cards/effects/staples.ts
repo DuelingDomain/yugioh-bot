@@ -13,7 +13,7 @@ const Sample = z.object({ deckCount: z.int().min(20), archetypeCount: z.int().mi
   genericUsage: z.array(z.object({passcode:z.int().min(1).max(0xffffffff),decks:count}).strict()).max(7200),
   archetypeDeckCounts: z.record(z.string(),count),
   archetypeUsage: z.record(z.string(),z.array(z.object({passcode:z.int().min(1).max(0xffffffff),decks:count}).strict()).max(40)),
-  sources: z.array(z.object({ url: z.url(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(5) }).strict();
+  sources: z.array(z.object({ url: z.url(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(50) }).strict();
 const Artifact = z.object({ schemaVersion: z.literal(3), generatedAt: z.iso.datetime(),
   policy: z.object({ minimumDecks: z.literal(20), minimumShare: z.literal(0.1), minimumArchetypes: z.literal(3), maximumArchetypeShare: z.literal(0.6) }).strict(),
   formats: z.object({ tcg: Sample.optional(), domain: Sample.optional(), genesys: Sample.optional(), "genesys-domain": Sample.optional() }).strict(), version: z.string() }).strict();
@@ -25,12 +25,12 @@ function loadArtifact(): z.infer<typeof Artifact> {
     const fd = openSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"), "r");
     let bytes: Buffer;
     try {
-      if (fstatSync(fd).size > 500_000) throw Error("Staple artifact too large");
-      const bounded = Buffer.alloc(500_001);
+      if (fstatSync(fd).size > 2_000_000) throw Error("Staple artifact too large");
+      const bounded = Buffer.alloc(2_000_001);
       let length = 0, read = 0;
       do { read = readSync(fd,bounded,length,bounded.length-length,null); length += read; }
       while (read > 0 && length < bounded.length);
-      if (length > 500_000) throw Error("Staple artifact too large");
+      if (length > 2_000_000) throw Error("Staple artifact too large");
       bytes = bounded.subarray(0,length);
     } finally { closeSync(fd); }
     const rawArtifact = JSON.parse(bytes.toString());

@@ -1,0 +1,256 @@
+/* The Bridges row of Suggestions. Colors come from the .ms tokens; grade and way are always written out, color only helps. */
+.row { display: grid; gap: 8px; min-width: 0; }
+.rowTitle { margin: 0; color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
+.body { display: grid; gap: 10px; min-width: 0; }
+.results { display: grid; min-height: 120px; container-type: inline-size; }
+.results > div { min-width: 0; }
+.hint { box-sizing: border-box; margin: 0; padding: 12px 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
+.hint[data-state="loading"] { border-style: solid; background: rgb(239 231 213 / 0.03); }
+.note { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.45; }
+.errorLine { margin: 0; color: var(--loss-ink); font-size: 12.5px; line-height: 1.4; }
+.link { padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+.link:hover { color: var(--ink); }
+.link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Whole items only: columns share the width, so nothing is cut at an edge. An item grows with its text (cards in one row match in height); the skeleton is sized to a typical card (a narrow column wraps text more), so the list below moves little when the answer lands. */
+.list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.item { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 7px; box-sizing: border-box; min-height: 200px; min-width: 0; padding: 10px; border-radius: 10px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); }
+.item:hover, .item:focus-within { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.24); }
+.open { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.target { min-width: 0; overflow: hidden; color: var(--ink); font-size: 14px; font-weight: 500; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.arrow { color: var(--ink-4); }
+.chevron { flex: none; color: var(--ink-4); }
+.skeletons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; }
+.skeleton { display: block; height: 300px; border-radius: 10px; background: rgb(239 231 213 / 0.04); }
+@container (min-width: 320px) { .skeleton { height: 250px; } }
+
+.grade { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; background: var(--pen-soft); color: var(--pen-ink); font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
+.grade[data-grade="strong"] { background: var(--ok-soft); color: var(--ok); }
+.grade[data-grade="niche"] { background: var(--chain-soft); color: var(--chain-ink); }
+.grade[data-grade="risky"] { background: var(--loss-soft); color: var(--loss-ink); }
+.way { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-3); font-size: 11.5px; }
+.way[data-way="synergy"] { color: var(--ink-2); box-shadow: none; border: 1px dashed var(--rule); }
+.way[data-way="two"] { color: var(--gold-ink); box-shadow: inset 0 0 0 1px var(--rule); }
+
+.thumb { position: relative; display: block; box-sizing: border-box; width: 40px; aspect-ratio: 59 / 86; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: var(--panel-3); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.14); cursor: pointer; }
+.thumb:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
+.thumb:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+
+.points { display: grid; align-content: start; gap: 6px; min-width: 0; min-height: 0; }
+.pros, .cons { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.pros li, .cons li { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; }
+.pros li svg { flex: none; margin-top: 2px; color: var(--ok); }
+.cons li svg { flex: none; margin-top: 2px; color: var(--loss-ink); }
+/* In a list each point keeps to two lines; the full text is the tooltip. In the details it wraps freely. */
+.points[data-clamped] li span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.warnings { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.warnings li { display: flex; align-items: flex-start; gap: 6px; color: var(--warn-ink); font-size: 11.5px; line-height: 1.35; }
+.warnings li svg { flex: none; margin-top: 2px; }
+.item .warnings li span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+
+/* A quiet action, pushed to the end of the row: it must not read as one more label next to the grade. */
+.report { display: inline-flex; flex: none; align-items: center; gap: 4px; min-height: 24px; margin-left: auto; padding: 0 2px; border: 0; background: none; color: var(--ink-4, var(--ink-3)); font: inherit; font-size: 11.5px; cursor: pointer; }
+.report:hover { color: var(--ink-2); text-decoration: underline; }
+.report:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.reportForm { display: grid; flex: 1 1 100%; gap: 6px; }
+.reportLabel { display: grid; gap: 4px; color: var(--ink-3); font-size: 11.5px; }
+.reportText { resize: vertical; min-height: 44px; font-size: 12.5px; }
+.reportError { margin: 0; color: var(--loss-ink); font-size: 12px; }
+.reportActions { display: flex; gap: 6px; }
+.thanks { margin: 0; color: var(--ok); font-size: 12px; line-height: 1.4; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.deepButton { display: inline-flex; align-items: center; gap: 6px; }
+.actionHint { flex: 1 1 200px; min-width: 0; color: var(--ink-4); font-size: 12px; line-height: 1.35; }
+
+.progress { display: grid; gap: 6px; padding: 10px 12px; border-radius: 8px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px var(--rule-lo); }
+.progressText { margin: 0; color: var(--ink); font-size: 13px; }
+.bar { height: 6px; overflow: hidden; border-radius: 999px; background: rgb(239 231 213 / 0.1); }
+.bar span { display: block; height: 100%; border-radius: inherit; background: var(--pen); transition: width 300ms var(--ease); }
+.progress[data-state="failed"] .bar span { background: var(--loss); }
+.steps { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.steps li { color: var(--ink-4); }
+.steps li[data-state="current"] { color: var(--pen-ink); font-weight: 500; }
+.steps li[data-state="done"] { color: var(--ok); }
+.steps li[data-state="done"]::before { content: "\2713\00a0"; }
+
+/* "Details" beside the chevron: an item that opens says so in words. */
+.openHint { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--ink-3); font-size: 12px; font-weight: 400; }
+.pathButton:hover .openHint { color: var(--ink); }
+
+/* The path in a list: small cards with an arrow before each but the first. An arrow wraps with the card after it. */
+.path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; margin: 0; padding: 0; list-style: none; }
+.pathStep { display: inline-flex; align-items: center; gap: 4px; }
+.pathArrow { flex: none; color: var(--ink-4); }
+.thumbName { display: grid; place-items: center; padding: 3px; background: linear-gradient(160deg, #2a2340, #141b2e); color: var(--ink-2); font-size: 8.5px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; cursor: default; }
+
+/* The path in the details: each step is a card, its name, whether the deck holds it, and what the data says it does. */
+.pathBox { margin-top: 6px; min-width: 0; }
+.pathNote { margin: 0 0 6px; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
+.pathFull { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.fullStep { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-content: start; width: 100%; min-width: 0; }
+.fullArrow { grid-column: 1; grid-row: 1; display: grid; place-items: center; color: var(--ink-4); }
+.fullArt { position: relative; grid-column: 1; grid-row: 2; display: block; box-sizing: border-box; width: 72px; aspect-ratio: 59 / 86; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: var(--panel-3); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.14); cursor: pointer; }
+.fullStep:first-child .fullArt, .fullStep:first-child .fullText { grid-row: 1; }
+.fullArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
+.fullArt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fullArt img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.fullArt.thumbName { font-size: 10px; }
+.fullText { grid-column: 2; grid-row: 2; align-self: start; display: grid; gap: 2px; min-width: 0; }
+.stepName { color: var(--ink); font-size: 12.5px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.stepDeck { color: var(--ink-3); font-size: 11.5px; }
+.stepDeck[data-have] { color: var(--pen-ink); }
+.stepSays { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+
+/* Add cards: the button, then which cards go in, then which cannot. */
+.addBox { display: grid; justify-items: start; gap: 6px; margin-top: 10px; min-width: 0; }
+.addBox button[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.addList, .addBlocked { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.addBlocked { padding-left: 16px; }
+.addBlocked strong { color: var(--ink-2); font-weight: 500; }
+
+/* Engine core: each core card as a small image with its role, copies and what the deck holds. */
+.coreBox { display: grid; gap: 6px; min-width: 0; margin-top: 4px; }
+.coreCaption { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.coreGaps { margin: 0; padding: 6px 8px; border-radius: 6px; background: rgb(239 231 213 / 0.04); color: var(--ink-2); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.gapsLabel { color: var(--warn-ink); font-weight: 600; }
+.coreCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; margin: 0; padding: 0; list-style: none; }
+.coreCard { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0; }
+.coreText { grid-column: 2; grid-row: 1; align-self: start; display: grid; gap: 2px; min-width: 0; }
+.coreArt { position: relative; display: block; box-sizing: border-box; width: 44px; aspect-ratio: 59 / 86; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: var(--panel-3); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.14); cursor: pointer; }
+span.coreArt { cursor: default; }
+button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
+.coreArt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.coreArt img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.coreTags { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; color: var(--ink-3); font-size: 11.5px; }
+.roleTag { padding: 0 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); }
+.stepDeck [data-have] { color: var(--pen-ink); }
+.addRow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 16px; min-width: 0; }
+.addRow > .addBox { flex: 1 1 200px; }
+
+/* Other ways in: compact rows of card images with arrows. */
+.otherWays { display: grid; gap: 6px; min-width: 0; margin-top: 12px; }
+.otherRows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.otherRow { min-width: 0; }
+.otherSteps { margin-top: 2px; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
+.otherSteps summary { width: fit-content; cursor: pointer; color: var(--ink-3); }
+.otherSteps summary:hover { color: var(--ink-2); }
+.otherSteps summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+.otherSteps ol { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+.otherSteps strong { color: var(--ink-2); font-weight: 500; }
+
+.subTitle { margin: 0; color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
+
+.details { display: grid; gap: 12px; min-width: 0; }
+.detailHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.wayNote { flex: 1 1 100%; margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.lockNote { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--chain-soft); color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }
+.lockNote strong { color: var(--chain-ink); font-weight: 500; }
+.plainTile { cursor: default; }
+
+.comboField { display: grid; flex: 1 1 180px; gap: 4px; min-width: 0; }
+.comboLabel { color: var(--ink-3); font-size: 11.5px; }
+.combo { position: relative; display: block; }
+.comboInput { width: 100%; box-sizing: border-box; }
+.comboList { position: absolute; z-index: 5; inset: calc(100% + 4px) 0 auto; max-height: 220px; margin: 0; padding: 4px; overflow-y: auto; border-radius: 8px; background: var(--panel-3); box-shadow: 0 0 0 1px var(--rule), 0 12px 28px rgb(0 0 0 / 0.5); list-style: none; }
+.comboOption { padding: 6px 8px; border-radius: 5px; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+.comboOption[aria-selected="true"] { background: var(--pen-soft); color: var(--ink); }
+
+/* The engines of the open deck as chips, and the engines that fit next. */
+.chips { display: grid; gap: 8px; min-width: 0; }
+.chipRow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 6px; min-width: 0; }
+.chipList { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 28px; box-sizing: border-box; padding: 0 4px 0 10px; border: 0; border-radius: 999px; background: var(--pen-soft); color: var(--ink); font: inherit; font-size: 12.5px; }
+.chipName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chipX { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 999px; background: none; color: var(--ink-3); cursor: pointer; }
+.chipX:hover:not(:disabled) { background: rgb(239 231 213 / 0.12); color: var(--ink); }
+.chipX:disabled { opacity: 0.35; cursor: default; }
+.chipX:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.chipAdd { gap: 4px; padding: 0 10px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); cursor: pointer; }
+.chipAdd:hover { box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink); }
+.chipAdd:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.chipReset { min-height: 28px; margin-left: 4px; padding: 0 4px; }
+.addForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.also { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.alsoItem { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 8px; border: 0; border-radius: 999px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; }
+.alsoItem:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink); }
+.alsoItem:disabled { opacity: 0.5; cursor: default; }
+.alsoItem:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.engine { grid-template-rows: none; min-height: 0; }
+.modes { display: inline-flex; justify-self: start; padding: 2px; border-radius: 8px; background: rgb(239 231 213 / 0.04); box-shadow: inset 0 0 0 1px var(--rule-lo); }
+.mode { padding: 4px 12px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 12.5px; cursor: pointer; }
+.mode:hover { color: var(--ink); }
+.mode[aria-pressed="true"] { background: var(--pen-soft); color: var(--pen-ink); font-weight: 500; }
+.mode:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pathButton { display: grid; gap: 1px; width: 100%; min-width: 0; padding: 3px 4px; margin: -3px -4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pathButton:hover { background: rgb(239 231 213 / 0.05); }
+.pathButton:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pathButton .pathEnds { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.paths > li { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.35; }
+.pathEnds { color: var(--ink); font-weight: 500; }
+.need { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.35; }
+.betweenList { display: grid; gap: 12px; }
+/* Engine cards keep one order in the meta row (grade, links, two-way, new), with no part pushed to the far edge. */
+.engineMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.way[data-way="new"] { color: var(--pen-ink); box-shadow: inset 0 0 0 1px var(--pen-soft); }
+.engine:focus { outline: none; }
+.engine:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* A closed engine card is one compact row: the header (name, grade, links) is the toggle, the paths sit under it. */
+.engineHead { display: grid; gap: 6px; width: calc(100% + 8px); min-width: 0; padding: 3px 4px; margin: -3px -4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.engineHead:hover { background: rgb(239 231 213 / 0.05); }
+.engineHead:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.expandIcon { flex: none; margin-left: auto; color: var(--ink-4); transition: transform 0.15s; }
+.engineHead[aria-expanded="true"] .expandIcon { transform: rotate(180deg); }
+.engineBody { display: grid; gap: 10px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--rule-lo); }
+.lines { display: grid; gap: 8px; min-width: 0; }
+.lines section { display: grid; gap: 3px; min-width: 0; }
+.lineSteps { display: grid; gap: 3px; margin: 0; padding: 0 0 0 18px; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
+.lineSteps strong { color: var(--ink); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .expandIcon { transition: none; } }
+
+/* The bridges between the engines of a set: one short line each, so the next engine stays near the top. */
+.between { display: grid; gap: 6px; min-width: 0; }
+.betweenRows { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.betweenRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; box-sizing: border-box; width: 100%; min-width: 0; min-height: 36px; padding: 6px 8px 6px 10px; border: 0; border-radius: 8px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.betweenRow:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.24); }
+.betweenRow:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.betweenEnds { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.betweenTags { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+.rowTitle:focus { outline: none; }
+
+/* A phone or a touch screen: the small controls get a hit area of 40px or more, with room between them. */
+@container de-editor (width < 960px) {
+  .thumb { width: 44px; }
+  .openHint { min-height: 24px; }
+  .addBox button { min-height: 40px; }
+  .chipList { gap: 8px; }
+  .chip { min-height: 40px; padding-right: 0; }
+  .chipX { width: 40px; height: 40px; }
+  .chipAdd { padding-right: 12px; }
+  .alsoItem { min-height: 40px; padding: 0 12px; }
+  .also { gap: 8px; }
+  .mode { min-height: 40px; padding: 0 14px; }
+  .betweenRow { min-height: 44px; }
+  .link { padding-block: 10px; margin-block: -10px; }
+}
+@media (pointer: coarse) {
+  .chipList { gap: 8px; }
+  .chip { min-height: 40px; padding-right: 0; }
+  .chipX { width: 40px; height: 40px; }
+  .chipAdd { padding-right: 12px; }
+  .alsoItem { min-height: 40px; padding: 0 12px; }
+  .also { gap: 8px; }
+  .mode { min-height: 40px; padding: 0 14px; }
+  .betweenRow { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+
+/* The deck already holds the whole package: a quiet state, and the row reads as done, not as a recommendation. */
+.owned { display: inline-flex; align-items: center; gap: 4px; min-height: 20px; padding: 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-3); font-size: 11.5px; }
+.item[data-owned] .target, .betweenRow:has(.owned) .betweenEnds { color: var(--ink-3); }
+.item[data-owned] { background: rgb(239 231 213 / 0.018); }
+.chipSkeletons { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chipSkeleton { display: block; width: 104px; height: 30px; border-radius: 999px; background: rgb(239 231 213 / 0.04); }

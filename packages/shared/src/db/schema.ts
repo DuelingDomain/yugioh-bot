@@ -391,6 +391,62 @@ export function migrate(db: Database.Database) {
       imported_at text not null default current_timestamp
     );
 
+    create table if not exists card_capability (
+      passcode integer primary key,
+      capabilities_json text not null check(json_valid(capabilities_json)),
+      text_hash text not null,
+      evidence_hash text not null,
+      source_version text not null
+    );
+    create table if not exists archetype_bridge (
+      source text not null collate nocase,
+      target text not null collate nocase,
+      format text not null check(format in ('advanced','genesys')),
+      score real not null check(score >= 0 and score <= 100),
+      grade text not null check(grade in ('Strong','Good','Niche','Risky')),
+      bridge_json text not null check(json_valid(bridge_json)),
+      evidence_hash text not null,
+      source_version text not null,
+      primary key(source,target,format)
+    );
+    create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create index if not exists archetype_bridge_target on archetype_bridge(target,format,score desc);
+    create index if not exists archetype_bridge_evidence on archetype_bridge(evidence_hash);
+    create table if not exists bridge_graph (
+      id integer primary key check(id=1), graph_json text not null, source_version text not null
+    );
+    create table if not exists bridge_artifact_import (
+      version text primary key, imported_at text not null default current_timestamp
+    );
+    create table if not exists bridge_judgement (
+      evidence_hash text not null,
+      judge text not null,
+      verdict text not null check(verdict in ('approved','rejected','review')),
+      judgement_json text not null check(json_valid(judgement_json)),
+      created_at text not null default current_timestamp,
+      primary key(evidence_hash,judge)
+    );
+    create table if not exists bridge_judge_spend (
+      id text primary key,
+      request_key text unique,
+      month text not null,
+      state text not null check(state in ('reserved','submission_started','settled')),
+      reserved_micros integer not null check(reserved_micros >= 0),
+      actual_micros integer check(actual_micros >= 0),
+      requests integer not null check(requests > 0),
+      batch integer not null check(batch in (0,1)),
+      usage_json text check(usage_json is null or json_valid(usage_json)),
+      created_at text not null
+    );
+    create table if not exists bridge_feedback (
+      id integer primary key,
+      evidence_hash text not null,
+      actor_hash text not null,
+      reason text not null,
+      created_at text not null default current_timestamp,
+      resolved_at text,
+      unique(evidence_hash,actor_hash)
+    );
     create table if not exists players (
       id integer primary key autoincrement,
       guild_id text not null,
@@ -753,6 +809,47 @@ export function migrate(db: Database.Database) {
       db.exec(`create trigger if not exists ${table}_effect_${event}
         after ${event} on ${table} begin
           update card_effect_revision set revision = revision + 1 where id = 1;
+        end;`);
+    }
+  }
+  // Engine plans and legality read the imported capabilities and graph, not
+  // the on-demand catalog, release/tag metadata or archetype directory.
+  db.exec(`create table if not exists bridge_engine_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_engine_revision(id) values(1);`);
+  const bridgeInputs: Record<string, string[]> = {
+    card_capability: ["passcode", "capabilities_json", "text_hash", "evidence_hash"],
+    bridge_graph: ["graph_json", "source_version"],
+  };
+  db.transaction(() => {
+    // Upgrade changed definitions and remove old inputs without rewriting an
+    // already current schema on every startup.
+    const definitions = new Map<string, string>();
+    for (const [table, columns] of Object.entries(bridgeInputs)) for (const event of ["insert", "update", "delete"]) {
+      const changed = event === "update" ? `when ${columns.map(column => `old.${column} is not new.${column}`).join(" or ")}` : "";
+      definitions.set(`${table}_bridge_engine_${event}`, `CREATE TRIGGER ${table}_bridge_engine_${event}
+        after ${event} on ${table} ${changed} begin
+          update bridge_engine_revision set revision=revision+1 where id=1;
+        end`);
+    }
+    const existing = new Map((db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger'").all() as { name: string; sql: string }[])
+      .map(row => [row.name, row.sql]));
+    for (const table of ["card_catalog", "card_tags", "card_tag_profiles", "card_release", "archetypes", ...Object.keys(bridgeInputs)]) {
+      for (const event of ["insert", "update", "delete"]) {
+        const name = `${table}_bridge_engine_${event}`;
+        if (existing.has(name) && existing.get(name) !== definitions.get(name)) db.exec(`drop trigger ${name}`);
+      }
+    }
+    for (const [name, sql] of definitions) if (existing.get(name) !== sql) db.exec(sql);
+  }).immediate();
+  db.exec(`create table if not exists bridge_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_revision(id) values(1);`);
+  for (const table of ["bridge_graph", "archetype_bridge", "card_capability", "bridge_judgement", "bridge_feedback"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_bridge_${event}
+        after ${event} on ${table} begin
+          update bridge_revision set revision=revision+1 where id=1;
         end;`);
     }
   }

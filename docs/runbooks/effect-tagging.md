@@ -4,7 +4,7 @@ Workflow: `.github/workflows/effect-tagging.yml`. Full design, budget rules and 
 
 ## Purpose
 
-Uses Claude Haiku 5.5 (Batch API) to tag what each new card does. Opens a PR with the tags. The same workflow also refreshes the [format staples](format-staples.md) and fills card release months from the free YGOPRODeck API.
+Uses Claude Haiku 5.5 (Batch API) to tag what each new card does. Opens a PR with the tags. The same workflow also refreshes the [format staples](format-staples.md), fills card release months from the free YGOPRODeck API, and collects/submits [bridge judgements](bridge-judging.md) even when tags are unchanged. Bridges have a separate durable ledger and no default monthly cap.
 
 ## Schedule & triggers
 

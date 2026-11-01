@@ -5,7 +5,12 @@ export interface ArchetypeGuideHook {
   label: string;
   /** What in the archetype makes that kind of card work with it. */
   why: string;
-  /** True when the hook holds enough data to search for the cards that fit it. */
+  /**
+   * What a click can find. `is`: cards that are this kind of card, named in plain words, one ("LIGHT Fiend monster")
+   * and many ("LIGHT Fiend monsters"). `support`: cards that help it. A hook may offer both.
+   */
+  finds: { is: { one: string; many: string } | null; support: boolean };
+  /** True when the hook offers at least one of the two. */
   searchable: boolean;
 }
 

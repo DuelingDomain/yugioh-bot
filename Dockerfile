@@ -103,6 +103,7 @@ COPY --from=bot-build /app/packages/shared/package*.json packages/shared/
 COPY --from=bot-build /app/packages/shared/dist packages/shared/dist
 COPY --from=bot-build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=bot-build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
+COPY --from=bot-build /app/packages/shared/data/staples/bridge-observations.json packages/shared/data/staples/bridge-observations.json
 COPY --from=bot-build /app/packages/bot/package*.json packages/bot/
 COPY --from=bot-build /app/packages/bot/dist packages/bot/dist
 COPY --from=bot-build /app/packages/bot/assets packages/bot/assets
@@ -126,6 +127,7 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
+COPY --from=build /app/packages/shared/data/staples/bridge-observations.json packages/shared/data/staples/bridge-observations.json
 COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
 RUN mkdir -p /app/data && chown node:node /app/data
@@ -148,6 +150,7 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
+COPY --from=build /app/packages/shared/data/staples/bridge-observations.json packages/shared/data/staples/bridge-observations.json
 COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
 COPY --from=build /app/packages/duel-server/card-block-list.json packages/duel-server/card-block-list.json
 COPY --from=build /app/packages/duel-server/duelingbook-alt-passcodes.json packages/duel-server/duelingbook-alt-passcodes.json
@@ -171,6 +174,12 @@ COPY --from=engine --chmod=0755 . /opt/duel-engine/
 RUN DUEL_DATA_DIR=/opt/duel-engine node packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 
 # ── web ──────────────────────────────────────────────────────────────────────
+# Web delegates bridge discovery to the duel host. Filter before COPY so the
+# full tags and duel-only mechanic facts never enter the web runtime layer.
+FROM build AS web-runtime-data
+RUN mkdir /web-effects && cp -a packages/shared/data/effects/. /web-effects/ \
+    && rm /web-effects/tags.jsonl.gz /web-effects/bridge-mechanic-facts.json
+
 # Production stage for the Next.js web dashboard.
 # Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
 FROM node:22-bookworm-slim AS web
@@ -179,7 +188,7 @@ ENV NODE_ENV=production
 COPY --from=web-build /app/packages/web/.next/standalone ./
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
-COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=web-runtime-data /web-effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
@@ -199,6 +208,7 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
+COPY --from=build /app/packages/shared/data/staples/bridge-observations.json packages/shared/data/staples/bridge-observations.json
 COPY --from=build /app/packages/worker/package*.json packages/worker/
 COPY --from=build /app/packages/worker/dist packages/worker/dist
 RUN mkdir -p /app/data && chown node:node /app/data
