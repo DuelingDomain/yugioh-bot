@@ -6,3 +6,4 @@ export * from "./tournament-token.js";
 export * from "./admin-spectate-token.js";
 
 export * from "./remote-token.js";
+export * from "./remote-phone-token.js";

@@ -8,6 +8,9 @@ import { duelFontClasses } from "@/components/duel/fonts";
 import { COLORS } from "./model";
 import { remoteApi, type RoomController } from "./use-remote-room";
 import { remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
+import { PhoneLobbyPreview } from "../phone/lobby-preview";
+import { PhonePairing } from "../phone/pairing";
+import { useVideoHub } from "./video-hub";
 import l from "./remote-lobby.module.css";
 
 const go = remoteTableHref;
@@ -48,6 +51,7 @@ export function RemoteLobby() {
 /** The setup room of a table that has not started: seats, decks, rules, ready, start. */
 export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const { operation, busy, error } = ctl;
+  const hub = useVideoHub();
   const saved = useSavedDecks();
   const current = room.format ?? normalizeRemoteFormat();
   const [format, setFormat] = useState<string>(current.id);
@@ -66,6 +70,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
     <p className={l.status} role="status">{ctl.realtime}</p>
     {error ? <p className={l.err} role="alert">{error}</p> : saved.error ? <p className={l.err} role="alert">{saved.error.message}</p> : null}
 
+    <section className={l.card} aria-label="Camera setup"><h2>Choose your field camera</h2><PhonePairing room={room}/><p className={l.note}>Use a phone, a webcam, or play with the board twin and log.</p><p role="status">{hub.health(room.mySeat).label}</p><PhoneLobbyPreview room={room}/></section>
     <form className={l.card} aria-label="Rules" onSubmit={e => { e.preventDefault();
       void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
       <h2>Rules</h2>
