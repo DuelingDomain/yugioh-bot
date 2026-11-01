@@ -29,6 +29,9 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   if ((path === "/dev/vision-lab" || path.startsWith("/dev/vision-lab/assets/") || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !fxLabEnabled()) {
     return new NextResponse(null, { status: 404 });
   }
+  // Public camera shell + one narrowly scoped capability exchange. All other APIs retain session auth.
+  if ((request.method === "GET" && /^\/duels\/remote\/[A-Za-z0-9_-]{1,100}\/cam$/.test(path)) ||
+      (request.method === "POST" && /^\/api\/remote\/[A-Za-z0-9_-]{1,100}\/phone\/connect$/.test(path))) return NextResponse.next();
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
   // Clerk calls this signed endpoint without a browser session. Do not initialize
   // session middleware here; the route verifies the signature before any writes.

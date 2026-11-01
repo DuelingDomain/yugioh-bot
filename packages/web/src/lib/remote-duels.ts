@@ -67,6 +67,10 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data }); break;
       }
     }
+    // SQLite phone triggers revoke capabilities in the same transaction as leave/end.
+    // Retry durable SFU cleanup here; failures do not roll back an accepted game action.
+    const { cleanupPhones } = await import("./remote/phone-server");
+    await cleanupPhones(slug).catch(() => log("warn", "Phone participant cleanup pending", { slug }));
     await notifyRemoteChange(slug, actor.guildId);
     return remoteJson(result);
   } catch (error) { return remoteError(error); }
