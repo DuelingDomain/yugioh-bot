@@ -186,3 +186,56 @@ describe("cube creator ownership", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("remote duel API foundation", () => {
+  const request = (path: string, body?: unknown) => new Request(`http://localhost/api/remote${path}`, {
+    method: body === undefined ? "GET" : "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  it("defaults off and uses the shared signed-in boundary when enabled", async () => {
+    const { GET, POST } = await import("../app/api/remote/route");
+    expect((await GET(request(""))).status).toBe(404);
+    vi.stubEnv("REMOTE_DUELS", "1"); state.auth.mockResolvedValue(null);
+    expect((await POST(request("", { gameId: "ygo", seatCount: 2 }))).status).toBe(401);
+  });
+  it("runs create, join, ready, start and an action using persisted seat identity", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    const { GET, POST } = await import("../app/api/remote/route");
+    const created = await POST(request("", { gameId: "ygo", seatCount: 2 }));
+    expect(created.status).toBe(201);
+    let room = await created.json(); const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { GET: read } = await import("../app/api/remote/[slug]/route");
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await read(request(`/${room.slug}`), context)).status).toBe(404);
+    const { POST: join } = await import("../app/api/remote/[slug]/seat/route");
+    expect((await join(request(`/${room.slug}/seat`, { seat: 1 }), context)).status).toBe(200);
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    state.auth.mockResolvedValue({ user: { id: String(userId), name: "Yugi" } });
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    const { POST: start } = await import("../app/api/remote/[slug]/start/route");
+    room = await (await start(request(`/${room.slug}/start`, {}), context)).json();
+    const { POST: act } = await import("../app/api/remote/[slug]/actions/route");
+    const command = { baseSeq: room.lastSeq, action: { type: "lp.change", actorSeat: 0, idempotencyKey: "damage", seat: 1, delta: -500, reason: "effect" } };
+    const response = await act(request(`/${room.slug}/actions`, command), context);
+    expect(response.status).toBe(200); expect((await response.json()).state.seats[1].resources.lp).toBe(7500);
+    expect((await act(request(`/${room.slug}/actions`, { ...command, action: { ...command.action, actorSeat: 1, idempotencyKey: "spoof" } }), context)).status).toBe(403);
+    expect((await GET(request("?scope=mine"))).status).toBe(200);
+    expect(playerCount()).toEqual({ c: 0 });
+  });
+  it("keeps connection identity server-side and returns 503 for missing media config", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
+    const { POST } = await import("../app/api/remote/route");
+    const room = await (await POST(request("", { gameId: "ygo", seatCount: 2 }))).json();
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { GET } = await import("../app/api/remote/[slug]/connection/route");
+    expect((await GET(request(`/${room.slug}/connection?as=1`), context)).status).toBe(400);
+    const connection = await (await GET(request(`/${room.slug}/connection`), context)).json();
+    const { verifyRemoteConnectionToken } = await import("@yugidraft/shared/ws");
+    expect(verifyRemoteConnectionToken(connection.token, "remote-secret")).toMatchObject({ userId, seat: 0, guildId: "guild-1" });
+    const { POST: livekit } = await import("../app/api/remote/[slug]/livekit/route");
+    const response = await livekit(request(`/${room.slug}/livekit`, {}), context);
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("LIVEKIT_UNAVAILABLE");
+  });
+});

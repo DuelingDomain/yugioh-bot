@@ -10,6 +10,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
@@ -111,6 +112,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
