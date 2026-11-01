@@ -9,7 +9,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   const checks = next.deckChecks;
   const seen: RemoteCardInstance[] = [];
   const used = new Set<string>();
-  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; publicIdentity?: boolean; observationId?: string }) => {
+  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; publicIdentity?: boolean; observationId?: string; distinct?: boolean }) => {
     const code = card.cardId ?? card.passcode;
     const fact = code ? context.facts?.[code] : undefined;
     if (!fact) return;
@@ -31,7 +31,8 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const sightings = action.type === "card.identified" ? [action] : action.cards;
     for (const card of sightings) {
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
-      observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity } : card);
+      const distinct=!!twin && next.effectTracking?.origins.some(o=>o.seat===action.seat && o.ref===twin.ref);
+      observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity, distinct } : card);
       const code = card.cardId ?? card.passcode;
       next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
@@ -51,7 +52,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   if(action.type==="effect.choose" || action.type==="effect.announce") {
     const origin=next.effectTracking?.origins.find(o=>o.id===action.originId);
     const twin=origin ? next.seats[origin.seat].twin.find(c=>c.ref===origin.ref) : undefined;
-    if(origin && twin && remotePublicCard(twin)) observe(origin.seat,{...twin,cardRef:twin.ref});
+    if(origin && twin && remotePublicCard(twin)) observe(origin.seat,{...twin,cardRef:twin.ref,distinct:true});
   }
   if (action.type === "twin.place") {
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;

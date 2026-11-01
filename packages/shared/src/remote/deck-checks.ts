@@ -45,6 +45,8 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  /** Event-time rule; absent on events recorded before Deck publicity existed. */
+  showCardsSetFromDeck?: boolean;
   effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
   privateRecognition?: boolean;
   publicEffectChoice?: boolean;
@@ -78,7 +80,7 @@ export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
 export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean}): boolean {
-  return remotePublicZone(card.zone, card.faceUp) || (!!card.publicIdentity && !!card.zone && !["deck", "extra"].includes(card.zone));
+  return !!card.zone && !["deck","extra"].includes(card.zone) && (remotePublicZone(card.zone, card.faceUp) || !!card.publicIdentity);
 }
 export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {
   const max = zone === "monster" || zone === "spell-trap" ? 5 : zone === "extra-monster" || zone === "pendulum" ? 2 : 0;
@@ -95,13 +97,14 @@ export function instanceLocation(instance: Pick<RemoteCardInstance, "zone" | "sl
   const slot = remotePhysicalSlot(instance.zone, instance.slot);
   return name + (slot ? " zone " + slot : "");
 }
-type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; publicIdentity?: boolean; observationId?: string };
+type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; publicIdentity?: boolean; observationId?: string; distinct?: boolean };
 /** Pure. Unlocated/repeated sightings cannot prove new copies. */
 export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, actionId: string, used: ReadonlySet<string> = new Set()): { checks: RemoteDeckChecks; instance: RemoteCardInstance } {
   const checks = structuredClone(input);
   const { fact, seat, zone, ref } = sight;
   const slot = remotePhysicalSlot(zone, sight.slot);
-  const same = checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
+  // Separate resolved Deck choices prove separate copies, even in an unslotted hand pile.
+  const same = sight.distinct ? [] : checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
   const publicView = remotePublicCard(sight);
   const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && !remoteLocationsDistinct(i, { zone, slot });
   const pinned = ref ? checks.instances.find(i => i.seat === seat && i.refs.includes(ref)) : undefined;

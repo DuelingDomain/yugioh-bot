@@ -26,6 +26,7 @@ export function availableEffectCandidates(state: RemoteState, pool: RemoteEffect
 /** Pure reducer companion. Only server-resolved plans enter via persisted replay context. */
 export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState, action: RemoteAction, context: RemoteReductionContext = {}): void {
   const tracking=next.effectTracking ??= initialEffectTracking();
+  const publish=new Set<string>();
   if (before.phase!==next.phase || before.turn!==next.turn) tracking.contexts={};
   for(const [seat, active] of Object.entries(tracking.contexts)) if ((action.at ?? next.updatedAt)-active.at>120_000 || next.seats[Number(seat)].eliminated) delete tracking.contexts[Number(seat)];
   const newOrigin=(id:string, seat:number, ref:string, source:RemoteEffectSource, plan:RemoteEffectPlan) => {
@@ -33,6 +34,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
     const origin: RemoteEffectOrigin={id,seat,ref,source,destination:plan.destination,announceRecommended:plan.announceRecommended,derivedFrom:plan.derivedFrom,
       minimumCopies:plan.minimumCopies,pool:structuredClone(plan.pool),candidates,eligibleIds:candidates.map(c=>c.cardId)};
     tracking.origins.push(origin);
+    publish.add(origin.id);
     const twin=next.seats[seat].twin.find(c=>c.ref===ref); if(twin && plan.destination==="set") twin.setBy=source;
     return origin;
   };
@@ -68,6 +70,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
       const pick=origin.candidates?.find(c=>c.cardId===action.cardId);
       remoteAssert(pick,"Choose an available candidate",409);
       origin.chosenCardId=pick.cardId;
+      publish.add(origin.id);
       let twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
       if(!twin && origin.destination==="hand") {
         remoteAssert(next.seats[origin.seat].twin.length<100,"Field is full",409);
@@ -94,12 +97,13 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
       if(next.showCardsSetFromDeck===false) twin.faceUp=true;
       twin.cardId=sight.cardId ?? sight.passcode; delete twin.passcode;
       twin.name=context.facts?.[twin.cardId!]?.name ?? sight.name ?? twin.name;
+      publish.add(origin.id);
     }
   }
   for(const origin of tracking.origins) {
     const twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
     const code=twin?.cardId ?? twin?.passcode;
-    if(twin && code && next.showCardsSetFromDeck!==false && !["deck","extra"].includes(twin.zone)) {
+    if(twin && code && publish.has(origin.id) && next.showCardsSetFromDeck!==false && !["deck","extra"].includes(twin.zone)) {
       twin.publicIdentity=true;
       origin.chosenCardId=code;
       origin.announcedCard={cardId:code,name:context.facts?.[code]?.name ?? twin.name ?? "Card "+code};

@@ -908,6 +908,49 @@ function originSession(showCardsSetFromDeck = false) {
 }
 const originOf = (s: ReturnType<typeof originSession>) => s.room.state.effectTracking!.origins.at(-1)!;
 describe("remote effect origins and hidden information", () => {
+  it.each([false,true])("preserves old private-event semantics across migration and replay (camera=%s)", recognized => {
+    const s=originSession(); s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"legacy-set",faceUp:false}});
+    s.act({type:"effect.choose",originId:originOf(s).id,cardId:53582587});
+    if(recognized) s.act({type:"card.identified",seat:0,cardRef:"legacy-set",cardId:53582587,source:"auto"});
+    // Copy a pre-option fixture, leaving the original append-only events untouched.
+    const legacyState=structuredClone(s.room.state);
+    delete legacyState.showCardsSetFromDeck;
+    if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
+    const oldId=(s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id;
+    const id=s.db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,last_seq,created_at,last_event_at,solo,format_json) select 'legacy','g',game_id,seat_count,status,created_by,?,last_seq,created_at,last_event_at,solo,format_json from remote_tables where id=?")
+      .run(JSON.stringify(legacyState),oldId).lastInsertRowid;
+    for(const table of ["remote_seats","remote_bot_seats"]) {
+      const columns=table==="remote_seats" ? "seat,user_id,display_name,ready,saved_deck_id,deck_json" : "seat,display_name,saved_deck_id,deck_json";
+      s.db.prepare(`insert into ${table}(table_id,${columns}) select ?,${columns} from ${table} where table_id=?`).run(id,oldId);
+    }
+    const rows=s.db.prepare("select * from remote_events where table_id=? order by seq").all(oldId) as {seq:number;idempotency_key:string;actor_seat:number;user_id:number;action_json:string;created_at:number;effects_json:string|null;messages_json:string|null}[];
+    for(const row of rows) {
+      const action=JSON.parse(row.action_json); delete action.showCardsSetFromDeck;
+      const effects=row.effects_json ? JSON.parse(row.effects_json) : null;
+      if(effects) {delete effects.showCardsSetFromDeck;delete effects.publicEffectChoice;}
+      s.db.prepare("insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,created_at,effects_json,messages_json) values(?,?,?,?,?,?,?,?,?)")
+        .run(id,row.seq,row.idempotency_key,row.actor_seat,row.user_id,JSON.stringify(action),row.created_at,effects ? JSON.stringify(effects) : null,row.messages_json);
+    }
+    const cached=s.service.get("legacy","g",s.users[0]);
+    expect(cached.showCardsSetFromDeck).toBe(true);
+    expect(s.service.replay("legacy","g",s.users[0])).toEqual(cached.state);
+    s.service.act("legacy","g",s.users[0],{baseSeq:cached.lastSeq,action:{type:"lp.change",actorSeat:0,seat:0,delta:-100,reason:"effect",idempotencyKey:"after-upgrade"}},2300);
+    const publicView=s.service.snapshot("legacy","g");
+    expect(publicView.state.seats[0].twin[0].cardId).toBe(recognized ? 53582587 : undefined);
+    expect(s.service.replay("legacy","g",s.users[0])).toEqual(s.service.get("legacy","g",s.users[0]).state);
+  });
+  it("keeps Extra Deck placements and returns private even when their faceUp flag is true", () => {
+    const s=originSession(true);
+    s.act({type:"twin.place",seat:0,zone:"extra",card:{ref:"extra-secret",cardId:5318639,name:"Mystical Space Typhoon"}});
+    expect(s.service.snapshot(s.room.slug,"g").state.seats[0].twin[0].cardId).toBeUndefined();
+    s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"return",faceUp:false}});
+    s.act({type:"effect.choose",originId:originOf(s).id,cardId:53582587});
+    s.act({type:"twin.flip",seat:0,cardRef:"return",faceUp:true});
+    s.act({type:"twin.move",seat:0,cardRef:"return",zone:"extra"});
+    expect(s.service.snapshot(s.room.slug,"g").state.seats[0].twin.find(c=>c.ref==="return")?.cardId).toBeUndefined();
+  });
   it("publishes a default-table Set choice without flipping it or sharing the other candidates", () => {
     const s=originSession(true); s.act({type:"effect.activated",source:{cardId:70825459}});
     s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"public-set",faceUp:false,slot:1}});
@@ -977,6 +1020,20 @@ describe("remote effect origins and hidden information", () => {
     const publicView=s.service.snapshot(s.room.slug,"g");
     expect(publicView.state.seats[0].twin.find(c=>c.ref==="ordinary")?.cardId).toBeUndefined();
     expect(JSON.stringify(publicView)).not.toContain("Reckless Greed");
+    expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
+  });
+  it.each([true,false])("preserves distinct same-name searched copies for depletion (publicity=%s)", show => {
+    const s=deckSession("normal");
+    s.service.configure(s.room.slug,"g",s.users[0],{format:"normal",showCardsSetFromDeck:show},2000);
+    s.select(s.save(originDeck.map(code=>code===67616300 ? 47355498 : code)).id); s.start();
+    for(let i=0;i<2;i++) {
+      s.act({type:"effect.activated",source:{cardId:73628505}});
+      const origin=originOf(s); s.act({type:"effect.choose",originId:origin.id,cardId:47355498});
+      if(!show) s.act({type:"effect.announce",originId:origin.id});
+    }
+    expect(s.room.state.seats[0].twin.filter(c=>c.zone==="hand" && c.cardId===47355498)).toHaveLength(2);
+    s.act({type:"effect.activated",source:{cardId:73628505}});
+    expect(originOf(s).candidates).toEqual([]);
     expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
   });
   it.each([
