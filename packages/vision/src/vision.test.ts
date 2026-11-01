@@ -12,6 +12,19 @@ test('index roundtrip validates dimensions and ranks with bounded priors', () =>
   assert.throws(() => decodeIndex(new ArrayBuffer(3), meta));
   assert.throws(() => topK(new Float32Array(3), index, 2));
 });
+test('flat catalog search preserves cosine, alternate-art deduplication, ties and restrictions',()=>{
+  for(const vectors of [new Int8Array([3,4,5,0,0,0,-3,-4,0,5,3,4]),new Float32Array([.3,.4,.5,0,0,0,-.3,-.4,0,.5,.3,.4])]) {
+    const entries=['alt','alt','zero','negative','other','tie'].map((cardId,i)=>({cardId,passcode:i+1,name:cardId,frameClass:i===4?'Spell':'Effect'}));
+    const index={meta:{...meta,count:6,dtype:vectors instanceof Int8Array?'int8' as const:'float32' as const,entries},vectors};
+    const plain=topK(new Float32Array([1,0]),index,10);
+    assert.deepEqual(plain.map(c=>c.cardId),['alt','tie','other','negative']);
+    assert.ok(Math.abs(plain[0].score-1)<1e-6);assert.ok(Math.abs(plain[1].score-.6)<1e-6);
+    const restricted=topK(new Float32Array([1,0]),index,3,undefined,undefined,new Set(['tie','alt']));
+    assert.deepEqual(restricted.map(c=>c.cardId),['alt','tie']);
+    assert.equal(topK(new Float32Array([0,1]),index,1,{frameClasses:['Spell']})[0].cardId,'other');
+    assert.equal(topK(new Float32Array([.6,.8]),index,1,{voiceMentioned:['tie']})[0].cardId,'tie');
+  }
+});
 test('Laplacian variance distinguishes flat and detailed frames', () => {
   const data = new Uint8ClampedArray(16 * 16 * 4).fill(128);
   const flat = sharpness({ width: 16, height: 16, data });

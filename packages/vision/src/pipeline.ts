@@ -19,7 +19,7 @@ import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
-import { normalize, topK, mergeCandidates, decide, preferDeck } from './search';
+import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck } from './search';
 import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
 
 function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad {
@@ -34,13 +34,14 @@ export class RecognitionPipeline {
   constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor, private fullArtIndex?: LoadedIndex) {
     if(profile.id==='yugioh') { this.index=filterPhysicalIndex(index);this.fullArtIndex=fullArtIndex?filterPhysicalIndex(fullArtIndex):undefined; }
     this.catalog=new Map([...this.index.meta.entries,...(this.fullArtIndex?.meta.entries??[])].map(e=>[e.cardId,e]));
+    prepareSearch(this.index);if(this.fullArtIndex)prepareSearch(this.fullArtIndex);
   }
   private catalog:Map<string,IndexEntry>;
   private learning:LearningSnapshot=emptyLearning();
   setLearning(value:LearningSnapshot) { this.learning=value; }
-  private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string) {
+  private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string,clean?:Candidate[]) {
     const deck=priors?.decklist?.length?topK(vector,index,Math.max(k,2),undefined,undefined,new Set(priors.decklist)):[];
-    const catalog=learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',Math.max(k,2),priors,frameClass,this.catalog);
+    const catalog=learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',Math.max(k,2),priors,frameClass,this.catalog,clean);
     return preferDeck(deck,catalog,this.profile.embedding.thresholds).slice(0,k);
   }
   private confused(list:Candidate[]) {return this.learning.confusions.some(p=>p.a===list[0]?.cardId||p.b===list[0]?.cardId);}
@@ -85,6 +86,13 @@ export class RecognitionPipeline {
     const usedIndices:number[]=[];
     const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
+    // Reuse unboosted evidence for each hypothesis and the single-frame final
+    // decision. This cache lasts one read, so mutable caller queries cannot go stale.
+    const cleanCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
+    const cleanSearch=(query:Float32Array,index:LoadedIndex)=>{
+      let indexes=cleanCache.get(query);if(!indexes){indexes=new Map();cleanCache.set(query,indexes);}
+      let candidates=indexes.get(index);if(!candidates){candidates=topK(query,index,Math.max(10,opts.k??5));indexes.set(index,candidates);}return candidates;
+    };
     let covered=Boolean(opts.card?.covered);
     let detectedCard:DetectedQuad|undefined;
     let earlyExit=false;
@@ -130,7 +138,8 @@ export class RecognitionPipeline {
         if (vector.length !== this.index.meta.dim) throw new Error('Model embedding dimension mismatch');
         timings.embed += performance.now() - t;
         t = performance.now();
-        vectors.push(vector); lists.push(this.search(vector, this.index, 10,opts.priors));cleanLists.push(topK(vector,this.index,10));
+        const clean=cleanSearch(vector,this.index);
+        vectors.push(vector); lists.push(this.search(vector, this.index, 10,opts.priors,undefined,clean));cleanLists.push(clean);
         merged = mergeCandidates(lists, 10);
         if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds);
         timings.search += performance.now() - t;
@@ -150,7 +159,7 @@ export class RecognitionPipeline {
           t=performance.now();
           const [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[rotation ? rotate180(warped) : warped]);
           timings.embed+=performance.now()-t; t=performance.now();
-          const list=this.search(vector,this.fullArtIndex,10,opts.priors);fullLists.push(list);cleanLists.push(topK(vector,this.fullArtIndex,10));
+          const clean=cleanSearch(vector,this.fullArtIndex),list=this.search(vector,this.fullArtIndex,10,opts.priors,undefined,clean);fullLists.push(list);cleanLists.push(clean);
           if(!fullBest || (list[0]?.score ?? -Infinity)>fullBest.score) fullBest={vector,score:list[0]?.score ?? -Infinity};
           if((list[0]?.score ?? -Infinity)>(merged[0]?.score ?? -Infinity)) {winningIndex=this.fullArtIndex;winningVector=vector;winningRotation=rotation;}
           merged=mergeCandidates([merged,list],10);timings.search+=performance.now()-t;
@@ -188,9 +197,9 @@ export class RecognitionPipeline {
         const group=views.flatMap(view=>view.alternatives.filter(a=>a.index===index).map(a=>({...a,corners:view.corners}))); if(!group.length) continue;
         const average=new Float32Array(index.meta.dim);
         for(const view of group) for(let d=0;d<average.length;d++) average[d]+=view.vector[d]*(view.corners?1:.65);
-        const query=normalize(average);
-        visualLists.push(topK(query,index,Math.max(k,10)));
-        rankedLists.push(this.search(query,index,Math.max(k,10),opts.priors,index===this.index?frameClass:undefined));
+        const query=group.length===1?group[0].vector:normalize(average),clean=cleanSearch(query,index);
+        visualLists.push(clean);
+        rankedLists.push(this.search(query,index,Math.max(k,10),opts.priors,index===this.index?frameClass:undefined,clean));
       }
       visual=mergeCandidates(visualLists,Math.max(k,10));
       candidates=mergeCandidates(rankedLists,Math.max(k,10));
