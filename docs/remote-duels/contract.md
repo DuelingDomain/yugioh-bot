@@ -210,7 +210,10 @@ socket.emit('remote:data', {
 // Only feedOwnerSeat receives this request and runs recognition on its raw local feed.
 socket.emit('remote:data', {
   type: 'recognition.result', requestId,
-  candidates: [{cardId: 89631139, name: 'Blue-Eyes White Dragon', score: 0.91}]
+  candidates: [{cardId: 89631139, name: 'Blue-Eyes White Dragon', score: 0.91}],
+  tier: 'sure',        // 'sure' | 'not sure' | 'low match', from the owner's reader
+  faceDown: false,     // a card back: candidates are empty
+  covered: false,      // the card is partly hidden: never auto-confirm
 }, ack);
 ```
 

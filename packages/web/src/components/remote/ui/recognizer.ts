@@ -6,6 +6,8 @@ export type Priors = { decklist: number[]; seen: number[] };
 export type ReaderStatus = "vision" | "priors" | "none";
 export type ReadResult = {
   guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match";
+  /** The reader saw a card back (no guesses) or a card that is partly hidden. Both travel with a remote read. */
+  faceDown?: boolean; covered?: boolean;
   /** Set when this browser read the card itself. Names the kept crop: the tray can ask AI about it, and a confirmed choice can be saved as a training sample. */
   aiToken?: number;
 };
@@ -14,6 +16,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
+type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
@@ -140,11 +143,11 @@ export function setFeedbackCapture(on: boolean) { feedbackCapture = on; }
  * Reads one card. The time limit starts when the job leaves the reader queue, so a board read ahead of it does not use it up.
  * A read that runs too long answers with the decklist instead of failing.
  */
-export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, outer: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> {
+export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, outer: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[], own = false): Promise<ReadResult> {
   return enqueue(async () => {
     const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
     const signal = AbortSignal.any([outer, timeout]);
-    try { return await readCardNow(track, point, priors, signal, card, frames); }
+    try { return await readCardNow(track, point, priors, signal, card, frames, own); }
     catch (error) {
       if (timeout.aborted && !outer.aborted) return fallbackRead(priors, "The read took too long. Showing cards from the decklist.");
       throw error;
@@ -186,24 +189,29 @@ function fallbackRead(priors: Priors, note: string): ReadResult {
   const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
   return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
 }
-async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[]): Promise<ReadResult> {
+async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[], own = false): Promise<ReadResult> {
   const fallback = (note: string) => fallbackRead(priors, note);
-  if (!track && !kept?.length) return fallback("No camera frame available. Showing cards from the decklist.");
+  if (!track && !kept?.length && !(own && ownBuffer)) return fallback("No camera frame available. Showing cards from the decklist.");
   const vision = await loadRecognizer();
   const found = await loadMeta();
   if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
   // Frames the feed already holds (its ring buffer) read at once. Without them the track is sampled for about a second.
-  const frames = kept?.length ? await Promise.all(kept.map(frame => createImageBitmap(frame))) : await sampleFrames(track!, signal);
+  // The own feed keeps a native-resolution ring all the time, so a read of it never waits to sample the camera.
+  const frames = kept?.length ? await Promise.all(kept.map(frame => createImageBitmap(frame)))
+    : own && ownBuffer ? await ownFeedFrames().catch(() => track ? sampleFrames(track, signal) : [])
+    : await sampleFrames(track!, signal);
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
     const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
-    const guesses = result.candidates.flatMap(candidate => {
+    const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
+    const wire = toRemoteRecognitionResult(result, byId, "local");
+    const guesses = wire.faceDown ? [] : result.candidates.flatMap(candidate => {
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined };
+    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");
@@ -224,11 +232,29 @@ export function detectCards(frame: ImageBitmap): Promise<Detection> {
   });
 }
 
-/** Adapter for RemoteVideo: answers a remote request from the raw local track. */
+/** Adapter for RemoteVideo: answers a remote request from the raw local track. The owner's own decklist is the prior. */
 export function makeRecognizeRawFeed(getPriors: () => Priors, resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
   return async ({ track, request, signal }) => {
-    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal);
+    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal, undefined, undefined, true);
     const names = await resolveNames(result.guesses.filter(g => !g.name).map(g => g.cardId));
-    return result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);
+    const candidates = result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);
+    return { candidates, tier: result.tier ?? "low match", faceDown: !!result.faceDown, covered: !!result.covered };
   };
+}
+
+type OwnBuffer = { snapshot(): Promise<ImageBitmap[]>; stop(): void };
+let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = null;
+/** Starts the always-on native-resolution frame ring on the own feed. One per page; clicks and remote reads take their frames from it. */
+export function attachOwnFeed(video: HTMLVideoElement) {
+  if (ownVideo === video) return;
+  ownBuffer?.stop(); ownBuffer = null; ownVideo = video;
+  void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(() => undefined);
+}
+export function detachOwnFeed(video: HTMLVideoElement) {
+  if (ownVideo !== video) return;
+  ownBuffer?.stop(); ownBuffer = null; ownVideo = null;
+}
+/** Clones of the buffered frames (up to 6, newest second). The caller closes them. */
+export function ownFeedFrames(): Promise<ImageBitmap[]> {
+  return ownBuffer ? ownBuffer.snapshot() : Promise.reject(new Error("The own feed is not buffered"));
 }

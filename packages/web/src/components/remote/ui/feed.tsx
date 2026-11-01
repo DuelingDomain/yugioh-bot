@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, ty
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { Icon } from "./icons";
 import type { Rect } from "./popup";
-import { detectCards, type BoardRead, type Peek } from "./recognizer";
+import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -122,34 +122,48 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   // While the pointer is over a live feed, the last few frames are kept. A click then reads the sharpest one at once.
   const grab = useCallback((target?: HTMLCanvasElement) => {
     const element = video.current; if (!element || !element.videoWidth || element.readyState < 2) return null;
-    const scale = Math.min(1, RING_MAX_PX / Math.max(element.videoWidth, element.videoHeight));
+    // The own feed is read at the camera's own size; other feeds are capped so the ring stays light.
+    const scale = you ? 1 : Math.min(1, RING_MAX_PX / Math.max(element.videoWidth, element.videoHeight));
     const w = Math.round(element.videoWidth * scale); const h = Math.round(element.videoHeight * scale);
     const canvas = target ?? document.createElement("canvas");
     if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h;
     const context = canvas.getContext("2d"); if (!context) return null;
     context.drawImage(element, 0, 0, w, h); return canvas;
-  }, []);
+  }, [you]);
+  // The own feed has an always-on native-resolution ring (shared with remote reads), so it needs no hover ring.
   useEffect(() => {
-    if (!hovered || !source || frozen) return;
+    const element = video.current; if (!you || !source || !element) return;
+    attachOwnFeed(element); return () => detachOwnFeed(element);
+  }, [you, source]);
+  useEffect(() => {
+    if (!hovered || !source || frozen || you) return;
     const tick = () => {
       const list = ring.current; const reuse = list.length >= RING_SIZE ? list.shift()?.canvas : undefined;
       const canvas = grab(reuse); if (canvas) list.push({ canvas, at: performance.now() });
     };
     tick(); const timer = setInterval(tick, RING_GAP_MS);
     return () => clearInterval(timer);
-  }, [hovered, source, frozen, grab]);
+  }, [hovered, source, frozen, you, grab]);
   useEffect(() => { ring.current = []; return () => { ring.current = []; }; }, [source]);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   /** The two sharpest frames around a point, copied so the ring can go on. */
-  const sharpest = useCallback((p: Pt): HTMLCanvasElement[] => {
-    const fresh = grab(); const pool = [...ring.current.map(item => item.canvas), ...(fresh ? [fresh] : [])];
+  const sharpest = useCallback(async (p: Pt): Promise<HTMLCanvasElement[]> => {
+    const fresh = grab(); let pool = [...ring.current.map(item => item.canvas), ...(fresh ? [fresh] : [])];
+    if (you) {
+      const bitmaps = await ownFeedFrames().catch(() => []);
+      const buffered = bitmaps.flatMap(bitmap => {
+        const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+        const context = canvas.getContext("2d"); context?.drawImage(bitmap, 0, 0); bitmap.close(); return context ? [canvas] : [];
+      });
+      if (buffered.length) pool = buffered;
+    }
     if (!pool.length) return [];
     scratch.current ??= document.createElement("canvas");
     let ranked: { canvas: HTMLCanvasElement; score: number }[];
     try { ranked = pool.map(canvas => ({ canvas, score: sharpAt(canvas, p, scratch.current!) })).sort((a, b) => b.score - a.score); }
     catch { ranked = pool.map(canvas => ({ canvas, score: 0 })); }
     return ranked.slice(0, 2).map(({ canvas }) => canvas === fresh ? canvas : copyOf(canvas));
-  }, [grab]);
+  }, [grab, you]);
   const flashQuad = useCallback((quad: Pt[]) => {
     setFlash({ quad, key: Date.now() }); if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
@@ -228,8 +242,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
    */
   async function liveClick(p: Pt) {
     if (!box) return;
-    const token = ++run.current; const frames = sharpest(p); const feed = feedRect();
+    const token = ++run.current; const feed = feedRect();
     onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
+    const frames = await sharpest(p); if (token !== run.current) return;
     const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
     const found = bitmap ? await detectCards(bitmap) : null;
     if (token !== run.current) return;

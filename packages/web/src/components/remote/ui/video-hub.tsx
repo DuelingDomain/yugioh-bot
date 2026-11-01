@@ -139,7 +139,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const result = snap.result; if (!result) return;
     const done = wait.current.get(result.message.requestId); if (!done) return;
     wait.current.delete(result.message.requestId);
-    done({ guesses: result.message.candidates.map(c => ({ cardId: c.cardId, name: c.name, score: c.score })), reader: "vision", frames: 0, note: `Read on seat ${result.fromSeat + 1}'s device` });
+    const { candidates, tier, faceDown, covered } = result.message;
+    done({ guesses: candidates.map(c => ({ cardId: c.cardId, name: c.name, score: c.score })), reader: "vision", frames: 0, note: faceDown ? "This card is face down." : `Read on seat ${result.fromSeat + 1}'s device`, tier, faceDown, covered });
   }, [snap.result]);
 
   const snapRef = useRef(snap); snapRef.current = snap;
@@ -149,7 +150,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     // Own feed: the reader limits itself to 10 s from the moment its job starts.
     if (seat === mySeat) {
       const track = solo ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
-      return readCard(track ?? null, { x, y }, priors, new AbortController().signal, card, frames);
+      return readCard(track ?? null, { x, y }, priors, new AbortController().signal, card, frames, true);
     }
     const noSignal = new AbortController().signal;
     // No feed to ask (bot seat, camera off, not connected): go straight to the decklist.
@@ -164,7 +165,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
         abort.signal.addEventListener("abort", () => resolve({ guesses: [], reader: "none", frames: 0, note: "No answer from the feed owner" }), { once: true });
       });
       const answer = await early;
-      if (answer.guesses.length) return answer;
+      if (answer.guesses.length || answer.faceDown) return answer;
       const fallback = await readCard(null, { x, y }, priors, noSignal);
       return { ...fallback, note: answer.note || "The feed owner's reader found no card. Showing cards from the decklist." };
     } finally { clearTimeout(timer); if (requestId) wait.current.delete(requestId); }

@@ -2,6 +2,9 @@ import { remoteDataMessageSchema, type RemoteDataMessage } from "@yugidraft/shar
 
 export type RecognitionRequest = Extract<RemoteDataMessage, { type: "recognition.request" }>;
 export type RecognitionResult = Extract<RemoteDataMessage, { type: "recognition.result" }>;
+/** What the feed owner's reader says about one click: the guesses plus how sure it was. */
+export type RecognitionAnswer = Pick<RecognitionResult, "candidates" | "tier" | "faceDown" | "covered">;
+export const NO_ANSWER: RecognitionAnswer = { candidates: [], tier: "low match", faceDown: false, covered: false };
 export type VideoMember = { seat: number; userId: number | null };
 export const RECOGNITION_TOPIC = "remote.recognition.v1";
 export const PENDING_TOPIC = "remote.recognition.pending.v1";
@@ -49,7 +52,7 @@ export class RecognitionChannel {
   private lastAccepted = new Map<number, number>();
   private closed = false;
   constructor(private seat: number, private send: Send,
-    private recognize: (request: RecognitionRequest) => Promise<RecognitionResult["candidates"]>,
+    private recognize: (request: RecognitionRequest) => Promise<RecognitionAnswer>,
     private onResult: (result: RecognitionResult, fromSeat: number) => void,
     private now = () => Date.now()) {}
   private prune() { for (const [id, value] of this.pending) if (this.now() - value.at > 10_000) this.pending.delete(id); }
@@ -82,10 +85,10 @@ export class RecognitionChannel {
       const pending = this.pending.get(message.requestId);
       if (!pending || pending.owner !== this.seat || pending.requester !== from || pending.started) return;
       pending.started = true;
-      let candidates: RecognitionResult["candidates"];
-      try { candidates = await this.recognize(message); } catch { candidates = []; }
+      let answer: RecognitionAnswer;
+      try { answer = await this.recognize(message); } catch { answer = NO_ANSWER; }
       if (this.closed || this.now() - pending.at > 10_000) return;
-      const result = remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, candidates }) as RecognitionResult;
+      const result = remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, ...answer }) as RecognitionResult;
       await this.send(result);
       await this.receive(this.seat, result);
     } else {

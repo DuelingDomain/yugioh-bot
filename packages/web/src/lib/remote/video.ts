@@ -3,8 +3,8 @@ import {
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
-  participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC,
-  type VideoMember, type RecognitionRequest, type RecognitionResult,
+  participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
+  type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean };
@@ -13,9 +13,9 @@ export type VideoSnapshot = {
   cameraId: string; microphone: boolean; error: string; result?: { fromSeat: number; message: RecognitionResult };
 };
 /** @yugidraft/vision integration point: crop/recognize on this unprocessed local capture track.
- * Honor signal; return at most five candidates within 10 seconds. No frames enter the data channel.
+ * Honor signal; return at most five candidates, with the reader's tier, within 10 seconds. No frames enter the data channel.
  */
-export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal }) => Promise<RecognitionResult["candidates"]>;
+export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal }) => Promise<RecognitionAnswer>;
 
 export class RemoteVideo {
   private room = new Room({ adaptiveStream: true, dynacast: true });
@@ -110,7 +110,7 @@ export class RemoteVideo {
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: announcement ? PENDING_TOPIC : RECOGNITION_TOPIC,
           destinationIdentities: participant ? [participant.identity] : undefined });
       }, async request => {
-        if (!this.rawLocalTrack || !this.options.recognize) return []; // Attach @yugidraft/vision here via options.recognize.
+        if (!this.rawLocalTrack || !this.options.recognize) return NO_ANSWER; // Attach @yugidraft/vision here via options.recognize.
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
       }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }));
       this.patch({ connection: this.room.state, microphone: false }); this.sync(); await this.refreshDevices();

@@ -403,7 +403,7 @@ describe("remote rooms", () => {
       expect(await received).toMatchObject({ fromSeat: 0, message: { requestId: "r" } });
       expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "r2", x: 0, y: 0 })).ok).toBe(false);
       const result = new Promise<any>(resolve => a.once("remote:data", resolve));
-      expect((await send(b, { type: "recognition.result", requestId: "r", candidates: [{ cardId: 1, name: "Card", score: 0.9 }] })).ok).toBe(true);
+      expect((await send(b, { type: "recognition.result", requestId: "r", candidates: [{ cardId: 1, name: "Card", score: 0.9 }], tier: "sure", faceDown: false, covered: false })).ok).toBe(true);
       expect(await result).toMatchObject({ fromSeat: 1 }); expect(foreign).not.toHaveBeenCalled();
       revoked = true; remote.snapshot("remote", "g");
       expect(roomsFor(server.io, b.id)).not.toContain("remote:g:remote");

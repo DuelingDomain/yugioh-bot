@@ -12,7 +12,7 @@ export type TrayState = {
   seat: number; ownerName: string; status: "reading" | "guesses" | "empty" | "sure";
   guesses: Guess[]; note: string; reader: string; at: PopAt;
   /** How sure the local reader was, and the kept crop for an optional AI second opinion (own camera reads only). */
-  tier?: Tier; aiToken?: number; covered?: boolean;
+  tier?: Tier; aiToken?: number; covered?: boolean; faceDown?: boolean;
 };
 import type { FeedbackSource } from "./recognizer";
 /** `feedback` names how a person chose this card; set only for an explicit choice, so it can be saved as a training sample. */
@@ -90,7 +90,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
             {inDeck(current.cardId) === false ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span> : null}
           </div>
         </CardText>
-      </> : <div className={s.bsk}><b className={s.skbig}>No match</b><p className={s.bdetails}>{tray.note || "Search for the card below or say its name."}</p></div>}
+      </> : <div className={s.bsk}><b className={s.skbig}>{tray.faceDown ? "Face-down card" : "No match"}</b><p className={s.bdetails}>{tray.faceDown ? "The reader sees a card back. Search for the card below or say its name." : tray.note || "Search for the card below or say its name."}</p></div>}
       {strip ? <ul className={s.bstrip} role="listbox" aria-label="Top 5 guesses">
         {list.length === 0 ? <li className={s.noGuess} role="presentation">No guesses. Type the name below.</li> : list.map((g, i) =>
           <li key={g.cardId} role="option" aria-selected={i === cursor} tabIndex={0} data-testid="guess" data-on={i === cursor} aria-label={`${i + 1}. ${nameOf(g)}${g.score === null ? "" : `, ${Math.round(g.score * 100)} percent`}`}

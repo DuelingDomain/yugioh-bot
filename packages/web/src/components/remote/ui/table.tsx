@@ -262,7 +262,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (readCounter.current !== id) return;
     const top = result.guesses[0];
     if (ctx.current && ctx.current.id === id) { if (result.tier) ctx.current.tier = result.tier; ctx.current.token = result.aiToken; }
-    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered) {
+    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered && !result.covered) {
       await loadCards([top.cardId]);
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
@@ -273,7 +273,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     }
     reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
     setTimeout(() => reticle(seat, null, rid), 1800);
-    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered ? { covered: true } : {}) } : old);
+    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name]);
   const closeTray = () => { readCounter.current++; setTray(null); layers.close("tray"); };

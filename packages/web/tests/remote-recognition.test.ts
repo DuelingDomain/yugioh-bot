@@ -84,13 +84,13 @@ it("binds media to authenticated seat metadata rather than names or track labels
 it("routes requests only to the raw feed owner and accepts one correlated bounded result", async () => {
   const { RecognitionChannel } = await import("../src/lib/remote/video-protocol");
   const sends: { message: unknown; destination?: number }[] = [];
-  const result = vi.fn(); const recognize = vi.fn(async () => [{ cardId: 1, name: "Card", score: 0.9 }]);
+  const result = vi.fn(); const recognize = vi.fn(async () => ({ candidates: [{ cardId: 1, name: "Card", score: 0.9 }], tier: "sure" as const, faceDown: false, covered: false }));
   let now = 0;
   const channel = new RecognitionChannel(1, async (message, destination) => { sends.push({ message, destination }); }, recognize, result, () => now);
   const request = { type: "recognition.request", requestId: "one", feedOwnerSeat: 1, x: 0.4, y: 0.5 } as const;
   await channel.receive(0, request);
   expect(recognize).toHaveBeenCalledWith(request);
-  expect(sends[0]).toEqual({ message: { type: "recognition.result", requestId: "one", candidates: [{ cardId: 1, name: "Card", score: 0.9 }] }, destination: undefined });
+  expect(sends[0]).toEqual({ message: { type: "recognition.result", requestId: "one", candidates: [{ cardId: 1, name: "Card", score: 0.9 }], tier: "sure", faceDown: false, covered: false }, destination: undefined });
   await channel.receive(1, sends[0].message);
   expect(result).toHaveBeenCalledTimes(1);
   now = 101; await channel.receive(1, sends[0].message);
@@ -99,16 +99,16 @@ it("routes requests only to the raw feed owner and accepts one correlated bounde
   expect(recognize).toHaveBeenCalledTimes(1);
   now = 202; await channel.request(0, 0.2, 0.3, "outgoing");
   expect(sends.at(-1)?.destination).toBe(0);
-  await channel.receive(2, { type: "recognition.result", requestId: "outgoing", candidates: [] });
+  await channel.receive(2, { type: "recognition.result", requestId: "outgoing", candidates: [], tier: "sure", faceDown: false, covered: false });
   expect(result).toHaveBeenCalledTimes(1);
-  now = 10_203; await channel.receive(0, { type: "recognition.result", requestId: "outgoing", candidates: [] });
+  now = 10_203; await channel.receive(0, { type: "recognition.result", requestId: "outgoing", candidates: [], tier: "sure", faceDown: false, covered: false });
   expect(result).toHaveBeenCalledTimes(1);
   channel.close();
 });
 
 it("announces only correlation metadata, targets the owner, and broadcasts suggestions to every seat", async () => {
   const { RecognitionChannel } = await import("../src/lib/remote/video-protocol");
-  const results = [vi.fn(), vi.fn(), vi.fn()]; const recognizers = [vi.fn(async () => []), vi.fn(async () => [{ cardId: 2, name: "Card two", score: 1 }]), vi.fn(async () => [])];
+  const results = [vi.fn(), vi.fn(), vi.fn()]; const recognizers = [vi.fn(async () => ({ candidates: [], tier: "low match" as const, faceDown: false, covered: false })), vi.fn(async () => ({ candidates: [{ cardId: 2, name: "Card two", score: 1 }], tier: "sure" as const, faceDown: false, covered: false })), vi.fn(async () => ({ candidates: [], tier: "low match" as const, faceDown: false, covered: false }))];
   const queue: (() => Promise<void>)[] = [];
   const channels: InstanceType<typeof RecognitionChannel>[] = [];
   for (let seat = 0; seat < 3; seat++) channels.push(new RecognitionChannel(seat, async (message, destination, announcement) => {
@@ -124,6 +124,6 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   while (queue.length) await queue.shift()!();
   expect(recognizers[0]).not.toHaveBeenCalled(); expect(recognizers[2]).not.toHaveBeenCalled();
   expect(recognizers[1]).toHaveBeenCalledOnce();
-  for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }] }, 1);
+  for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }], tier: "sure", faceDown: false, covered: false }, 1);
   channels.forEach(channel => channel.close());
 });

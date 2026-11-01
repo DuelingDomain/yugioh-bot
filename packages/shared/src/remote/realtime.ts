@@ -7,7 +7,7 @@ export const remoteDataMessageSchema = z.discriminatedUnion("type", [
     x: z.number().min(0).max(1), y: z.number().min(0).max(1), requestId }),
   z.strictObject({ type: z.literal("recognition.result"), requestId, candidates: z.array(z.strictObject({
     cardId: z.number().int().positive().max(0xffffffff), name: z.string().min(1).max(200), score: z.number().min(0).max(1),
-  })).max(5) }),
+  })).max(5), tier: z.enum(["sure", "not sure", "low match"]), faceDown: z.boolean(), covered: z.boolean() }),
 ]);
 export type RemoteDataMessage = z.infer<typeof remoteDataMessageSchema>;
 export type RemoteDataPayload = { slug: string; fromSeat: number; message: RemoteDataMessage };
