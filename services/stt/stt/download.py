@@ -4,8 +4,10 @@ import os
 from pathlib import Path
 from huggingface_hub import hf_hub_download
 
-ROOT = Path(__file__).resolve().parents[3]
-MODEL_ROOT = Path(os.environ.get('STT_MODEL_DIR', ROOT / 'data/stt-models'))
+ROOT = (Path(__file__).resolve().parents[3]
+        if Path(__file__).resolve().parent.parent.name == 'stt' else Path.cwd())
+DATA_ROOT = Path(os.environ.get('STT_DATA_DIR', ROOT / 'data'))
+MODEL_ROOT = Path(os.environ.get('STT_MODEL_DIR', DATA_ROOT / 'stt-models'))
 MODELS = {
     'parakeet': ('csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8',
                  '2bda32ec70b097a55adaa07d9a7173915b43cc78',

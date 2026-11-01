@@ -41,7 +41,8 @@ class Recognizer:
     def stream(self, hotwords=()):
         if self.name != 'zipformer':
             return None
-        encoded = '/'.join(w.upper() for w in hotwords)
+        from .matcher import clean
+        encoded = '/'.join(clean(w).upper() for w in hotwords)
         return self.model.create_stream(encoded) if encoded else self.model.create_stream()
 
     def feed(self, stream, samples):

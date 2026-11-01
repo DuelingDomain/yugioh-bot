@@ -7,9 +7,12 @@ class MatcherTest(unittest.TestCase):
         matcher = CardMatcher([
             Card('Blue-Eyes White Dragon', 89631139),
             Card('Dark Magician', 46986414),
+            Card('Dark Magician Girl', 38033121),
             Card('Ash Blossom & Joyous Spring', 14558127),
             Card('Battle', 1),  # Short catalog names must not hijack phase commands.
             Card('Imran', 2),
+            Card('Set Rotation', 73468603),
+            Card('Raigeki', 12580477),
         ])
         text = 'Blue eyes white dragoon attacks dark magician'
         result = matcher.match(text, ['Blue-Eyes White Dragon', 'Dark Magician'])
@@ -19,9 +22,12 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual(matcher.match('I activate ash blossom and joyous spring')['cardMatches'][0]['passcode'], 14558127)
         self.assertEqual(matcher.match('I activate ash')['cardMatches'][0]['passcode'], 14558127)
         self.assertEqual(matcher.match('I activate ashe', ['Ash Blossom & Joyous Spring'])['cardMatches'][0]['passcode'], 14558127)
+        self.assertEqual(matcher.match('I activate Set Rotation')['cardMatches'][0]['passcode'], 73468603)
+        self.assertEqual(matcher.match('Raigeki')['cardMatches'][0]['passcode'], 12580477)
         for command in ['moving to standby phase', 'battle phase', 'take 2400 damage', 'Imran attack directly', 'I summon something incomprehensible']:
             self.assertEqual(matcher.match(command)['cardMatches'], [], command)
         self.assertEqual(matcher.match('I summon dark magician')['cardMatches'][0]['span'], [9, 22])
+        self.assertEqual(matcher.match('I summon Dark Magician Girl', ['Dark Magician'])['cardMatches'][0]['passcode'], 38033121)
 
 if __name__ == '__main__':
     unittest.main()

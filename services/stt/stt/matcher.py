@@ -50,8 +50,11 @@ def load_catalog(path: Path) -> tuple[list[Card], str]:
         # Read-only: never migrate or lock the application's catalog.
         with sqlite3.connect(f'{path.resolve().as_uri()}?mode=ro', uri=True) as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            query = 'SELECT id, name FROM texts' if 'texts' in tables else 'SELECT ygoprodeck_id, name FROM card_catalog'
-            cards = [Card(str(name), int(code)) for code, name in db.execute(query) if name]
+            query = ('''SELECT coalesce(a.id, t.id), t.name FROM texts t
+                        JOIN datas d ON d.id=t.id
+                        LEFT JOIN texts a ON a.id=d.alias AND a.name=t.name'''
+                     if 'texts' in tables else 'SELECT ygoprodeck_id, name FROM card_catalog')
+            cards = list({Card(str(name), int(code)) for code, name in db.execute(query) if name})
         return cards, str(path)
     payload = json.loads(path.read_text())
     rows = payload.get('data', payload) if isinstance(payload, dict) else payload
@@ -59,7 +62,7 @@ def load_catalog(path: Path) -> tuple[list[Card], str]:
 
 class CardMatcher:
     def __init__(self, cards: list[Card]):
-        # Alternate-art passcodes may share names: deterministic original passcode.
+        # Catalog loader resolves alternate artwork aliases to canonical passcodes.
         self.cards = {clean(c.name): c for c in sorted(cards, key=lambda c: c.passcode, reverse=True)}
         self.full = {name: (card, False) for name, card in self.cards.items()}
         self.staples = {}
@@ -87,12 +90,13 @@ class CardMatcher:
                 span = [tokens[start].start(), tokens[end - 1].end()]
                 phrase = clean(text[span[0]:span[1]])
                 words = phrase.split()
-                if not words or words[0] in BOUNDARIES or words[-1] in BOUNDARIES:
+                exact = phrase in self.full or phrase in preferred
+                if not words or (not exact and (words[0] in BOUNDARIES or words[-1] in BOUNDARIES)):
                     continue
                 # Never consume a verb/phase inside a possible card span.
-                if any(w in CUES | {'phase', 'damage', 'directly'} for w in words):
+                if not exact and any(w in CUES | {'phase', 'damage', 'directly'} for w in words):
                     continue
-                if len(words) == 1 and not cue:
+                if len(words) == 1 and not cue and phrase not in preferred:
                     continue
                 pools = [(preferred, 0.83)]
                 if cue or len(words) >= 2:
@@ -103,19 +107,21 @@ class CardMatcher:
                     hits = process.extract(phrase, pool.keys(), scorer=fuzz.ratio, score_cutoff=70, limit=3)
                     for name, lexical, _ in hits:
                         card, priority = pool[name]
+                        if name != clean(card.name) and end < len(tokens):
+                            if clean(tokens[end].group()) not in BOUNDARIES and not re.search(r'[,.;!?]', text[span[1]:tokens[end].start()]):
+                                continue
                         if abs(len(name.split()) - len(words)) > 1:
                             continue
                         a, b = set(filter(None, phonetic(phrase))), set(filter(None, phonetic(name)))
                         phone = 100 if a & b else max((fuzz.ratio(x, y) for x in a for y in b), default=0)
                         score = (0.82 * lexical + 0.18 * phone) / 100
+                        if priority and len(words) >= 2 and a & b:
+                            score = max(score, 0.88)
                         if score < threshold or (len(words) == 1 and lexical < 85):
                             continue
-                        candidates.append((score + (0.015 if priority else 0), size, span, card, score))
-                    # A confident preferred candidate wins the same span over catalog guesses.
-                    if candidates and candidates[-1][2] == span and pool is preferred:
-                        break
+                        candidates.append((score + (0.015 if priority else 0), size, span, card, score, phrase == clean(card.name)))
         selected = []
-        for _, _, span, card, score in sorted(candidates, key=lambda c: (c[0], c[1]), reverse=True):
+        for _, _, span, card, score, exact in sorted(candidates, key=lambda c: (c[5], c[1] if c[5] else 0, c[0], c[1]), reverse=True):
             if any(span[0] < s['span'][1] and s['span'][0] < span[1] for s in selected):
                 continue
             selected.append({'name': card.name, 'passcode': card.passcode, 'score': round(score, 4), 'span': span})
