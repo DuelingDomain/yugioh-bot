@@ -741,6 +741,9 @@ it("lists bridge feedback only for owners and binds their identity to host revie
   const response = await GET(); expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ state: "ok", data: reply });
   expect(calls[0]).toEqual({ op: "bridges", guildId: "guild-1", userId: 1, playerId: 11, bridgeRequest: { op: "review" } });
+
+  calls.length = 0; vi.stubEnv("BRIDGES_ENABLED", "0");
+  expect(await (await GET()).json()).toMatchObject({ state: "not-configured" }); expect(calls).toHaveLength(0);
 });
 
 it("caps streamed bodies before forwarding deep searches", async () => {
