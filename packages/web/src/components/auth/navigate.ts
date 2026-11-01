@@ -2,3 +2,8 @@
 export function hardNavigate(href: string): void {
   window.location.assign(href);
 }
+
+/** Restart the current document, preserving its ticket/query/hash even when the URL has a fragment. */
+export function reloadPage(): void {
+  window.location.reload();
+}

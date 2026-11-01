@@ -33,7 +33,7 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
 
   // The wired page views (shell, captcha mount, tone, pack) with static flow state; /access is the real server content.
   if (view === "access") return <AccessContent marketingUrl="https://duelingdomain.com" />;
-  if (view === "sign-in" || view === "sign-up" || view === "sso-callback" || view === "signing-stuck" || view === "invite-stuck") return <ViewPreview view={view as PreviewView} />;
+  if (view === "sign-in" || view === "sign-up" || view === "sso-callback" || view === "signing-stuck" || view === "invite-stuck" || view === "join-signed-in" || view === "sign-up-signed-in") return <ViewPreview view={view as PreviewView} />;
 
   if (!isPreviewStep(step)) {
     return (
@@ -45,7 +45,7 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
               <Link className="underline" href={`/dev/sign-in-preview?step=${id}`}>{id}</Link>
             </li>
           ))}
-          {["sign-in", "sign-up", "sso-callback", "signing-stuck", "invite-stuck", "access"].map((id) => (
+          {["sign-in", "sign-up", "sso-callback", "signing-stuck", "invite-stuck", "join-signed-in", "sign-up-signed-in", "access"].map((id) => (
             <li key={id}>
               <Link className="underline" href={`/dev/sign-in-preview?view=${id}`}>view: {id}</Link>
             </li>

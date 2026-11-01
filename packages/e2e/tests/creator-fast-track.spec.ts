@@ -84,6 +84,13 @@ test("owner makes a 2-use link; two invites go out; the link is then full, and c
     const linkRow = detail.getByRole("list", { name: "Invite links" }).getByRole("listitem").filter({ hasText: LABEL });
     await expect(linkRow).toContainText("2 / 2 used");
     await expect(linkRow).toContainText("Full");
+    await expect(linkRow).toContainText("0 sign-ups");
+    const pendingInvites = detail.getByRole("list", { name: "Unused invites" }).getByRole("listitem");
+    await expect(pendingInvites).toHaveCount(2);
+    for (const invite of await pendingInvites.all()) {
+      await expect(invite).toContainText(LABEL);
+      await expect(invite).toContainText("Sent");
+    }
     await linkRow.getByRole("button", { name: `Revoke ${LABEL}` }).click();
     await expect(linkRow.getByRole("status")).toHaveText("Revoke this link? Unused invites stop working.");
     await linkRow.getByRole("button", { name: "Revoke", exact: true }).click();
@@ -110,7 +117,7 @@ const SIZES = [
   { name: "mobile", width: 390, height: 844 },
 ] as const;
 
-test("Personal locks one inbox; Friends admits three inboxes; every preset allows an expiry choice", async ({ browser }) => {
+test("Personal accepts any email; only Custom offers an optional one-use email lock", async ({ browser }) => {
   const owner = await browser.newContext({ storageState: authFile("p1") });
   const visitor = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": "192.0.2.42" } });
   try {
@@ -120,31 +127,41 @@ test("Personal locks one inbox; Friends admits three inboxes; every preset allow
     const form = sheet.getByRole("form", { name: "New link" });
     await form.getByRole("button", { name: /^Personal/ }).click();
     await expect(form.getByLabel("Days")).toHaveValue("14");
+    await expect(form.getByLabel("Locked to email")).toHaveCount(0);
+    await form.getByLabel("Label").fill("Any email personal");
+    const madeAnyEmail = admin.waitForResponse(r => r.url().endsWith("/links") && r.request().method() === "POST");
     await form.getByRole("button", { name: "Make link" }).click();
-    await expect(form.getByRole("alert")).toHaveText("Enter the creator’s email to lock this personal invite.");
-    await expect(form.getByLabel("Locked to email")).toBeFocused();
-    await expect(form.getByLabel("Locked to email")).toHaveAttribute("aria-invalid", "true");
-    await expect(form.getByLabel("Locked to email")).toHaveAccessibleDescription(/Enter the creator’s email to lock this personal invite\./);
+    const anyEmail = (await (await madeAnyEmail).json()).link;
+    expect(anyEmail).toMatchObject({ maxUses: 1, lockedEmail: null });
+    expect(anyEmail.expiresAt - anyEmail.createdAt).toBe(14 * 86_400_000);
+    const personalJoin = await visitor.newPage();
+    await personalJoin.goto(`/join/${anyEmail.code}`);
+    await personalJoin.getByLabel("Email address").fill("any.personal@example.test");
+    await personalJoin.getByRole("button", { name: "Send my invite" }).click();
+    await expect(heading(personalJoin)).toHaveText("Check your inbox");
+    await personalJoin.reload();
+    await expect(heading(personalJoin)).toHaveText("This invite link is full");
+
+    await form.getByRole("button", { name: "Custom", exact: true }).click();
     await form.getByLabel("Locked to email").fill("invalid");
     await form.getByRole("button", { name: "Make link" }).click();
     await expect(form.getByRole("alert")).toHaveText("Enter a valid email in Locked to email.");
     await expect(form.getByLabel("Locked to email")).toBeFocused();
     await expect(form.getByLabel("Locked to email")).toHaveAttribute("aria-invalid", "true");
-    await expect(form.getByLabel("Locked to email")).toHaveAccessibleDescription(/Enter a valid email in Locked to email\./);
     await form.getByLabel("Locked to email").fill("a.b+creator@googlemail.com");
     await expect(form.getByLabel("Locked to email")).not.toHaveAttribute("aria-invalid");
     await form.getByLabel("Days").fill("90");
-    await form.getByLabel("Label").fill("Locked personal");
-    const madePersonal = admin.waitForResponse(r => r.url().endsWith("/links") && r.request().method() === "POST");
+    await form.getByLabel("Label").fill("Locked custom");
+    const madeLocked = admin.waitForResponse(r => r.url().endsWith("/links") && r.request().method() === "POST");
     await form.getByRole("button", { name: "Make link" }).click();
-    const personal = (await (await madePersonal).json()).link;
-    expect(personal).toMatchObject({ maxUses: 1, lockedEmail: "a.b+creator@googlemail.com" });
-    expect(personal.expiresAt - personal.createdAt).toBe(90 * 86_400_000);
-    const personalRow = sheet.getByRole("list", { name: "Invite links" }).getByRole("listitem").filter({ hasText: "Locked personal" });
-    await expect(personalRow).toContainText("Locked:");
+    const locked = (await (await madeLocked).json()).link;
+    expect(locked).toMatchObject({ maxUses: 1, lockedEmail: "a.b+creator@googlemail.com" });
+    expect(locked.expiresAt - locked.createdAt).toBe(90 * 86_400_000);
+    const lockedRow = sheet.getByRole("list", { name: "Invite links" }).getByRole("listitem").filter({ hasText: "Locked custom" });
+    await expect(lockedRow).toContainText("Locked:");
 
     const join = await visitor.newPage();
-    await join.goto(`/join/${personal.code}`);
+    await join.goto(`/join/${locked.code}`);
     expect(await join.content()).not.toMatch(/googlemail\.com|lockedEmail|locked_email/);
     await join.getByLabel("Email address").fill("someone@example.test");
     await join.getByRole("button", { name: "Send my invite" }).click();
@@ -162,6 +179,7 @@ test("Personal locks one inbox; Friends admits three inboxes; every preset allow
     const friends = (await (await madeFriends).json()).link;
     expect(friends).toMatchObject({ maxUses: 3, lockedEmail: null });
     expect(friends.expiresAt - friends.createdAt).toBe(14 * 86_400_000);
+    await visitor.setExtraHTTPHeaders({ "x-forwarded-for": "192.0.2.43" });
     await join.goto(`/join/${friends.code}`);
     for (let i = 0; i < 3; i++) {
       if (i > 0) await join.getByRole("button", { name: "Use a different email" }).click();
@@ -190,6 +208,13 @@ test("Personal locks one inbox; Friends admits three inboxes; every preset allow
     await form.getByLabel("Locked to email").fill("");
     await expect(form.getByLabel("Uses")).toBeEnabled();
     await expect(form.getByLabel("Uses")).toHaveValue("500");
+    await form.getByLabel("Locked to email").fill("custom@example.test");
+    await form.getByRole("button", { name: /^Personal/ }).click();
+    await expect(form.getByLabel("Locked to email")).toHaveCount(0);
+    const madeAfterCustom = admin.waitForResponse(r => r.url().endsWith("/links") && r.request().method() === "POST");
+    await form.getByRole("button", { name: "Make link" }).click();
+    expect((await (await madeAfterCustom).json()).link).toMatchObject({ maxUses: 1, lockedEmail: null });
+    await form.getByRole("button", { name: "Custom", exact: true }).click();
     await form.getByLabel("Locked to email").fill("custom@example.test");
     const madeCustom = admin.waitForResponse(r => r.url().endsWith("/links") && r.request().method() === "POST");
     await form.getByRole("button", { name: "Make link" }).click();
@@ -251,7 +276,8 @@ test("every new screen at 1920, 2560, 1366 and 390 wide, with no sideways scroll
       const form = sheet.getByRole("form", { name: "New link" });
       for (const preset of ["Personal", "Custom"] as const) {
         await form.getByRole("button", { name: new RegExp(`^${preset}`) }).click();
-        await form.getByLabel("Locked to email").fill("creator@example.test");
+        if (preset === "Custom") await form.getByLabel("Locked to email").fill("creator@example.test");
+        else await expect(form.getByLabel("Locked to email")).toHaveCount(0);
         await form.scrollIntoViewIfNeeded();
         await expect(form).toBeInViewport({ ratio: 0.99 });
         const bounds = await form.evaluate((element) => {
@@ -296,5 +322,32 @@ test("every new screen at 1920, 2560, 1366 and 390 wide, with no sideways scroll
       await expect(page.getByLabel(/How did you hear about us/)).toBeVisible();
       await save(page, "create-account");
     } finally { await owner.close(); await visitor.close(); }
+  }
+});
+
+
+test("signed-in invite notices fit desktop and mobile", async ({ browser }) => {
+  const shots = process.env.E2E_INVITE_FLOW_SHOTS_DIR;
+  if (shots) mkdirSync(shots, { recursive: true });
+  for (const size of [{ name: "desktop", width: 1920, height: 1080 }, { name: "768p", width: 1366, height: 768 }, { name: "mobile", width: 390, height: 844 }]) {
+    const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, reducedMotion: "reduce" });
+    try {
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      for (const view of ["join-signed-in", "sign-up-signed-in"]) {
+        // Offline auth previews reuse the production views without initializing Clerk.
+        await page.goto(`/dev/sign-in-preview?view=${view}`);
+        await expect(page.getByRole("status")).toHaveText(/You're signed in as cardshark\. To accept this invite with a new account, sign out first\./);
+        const button = page.getByRole("button", { name: view === "join-signed-in" ? "Sign out" : "Sign out and continue", exact: true });
+        await expect(button).toBeVisible();
+        await expect(button).toBeInViewport();
+        if (view === "join-signed-in") await expect(page.getByLabel("Email address")).toBeEnabled();
+        await page.evaluate(() => document.fonts.ready);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+        if (shots) await page.screenshot({ path: resolve(shots, `${view}-${size.name}.png`) });
+      }
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
   }
 });
