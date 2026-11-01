@@ -119,6 +119,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         card.zone = action.zone;
+        if (action.position !== undefined) card.position = action.position;
       }
       if (action.type === "twin.flip") card.faceUp = action.faceUp;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);

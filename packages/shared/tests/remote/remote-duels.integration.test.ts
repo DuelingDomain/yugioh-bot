@@ -834,3 +834,12 @@ describe("tolerant voice attack resolution", () => {
     expect(room.events.some(e => JSON.stringify(e).includes("attack Imran"))).toBe(false);
   });
 });
+
+it('moves a physical twin to defense under the same ref, with Undo and owner checks',()=>{
+  const s=deckSession();s.start();s.place('rotation');
+  s.act({type:'twin.move',seat:0,cardRef:'rotation',zone:'monster',slot:1,position:'defense'});
+  expect(s.room.state.seats[0].twin[0]).toMatchObject({ref:'rotation',position:'defense'});
+  const event=s.room.state.undo!.actionId;
+  s.act({type:'undo',targetActionId:event});expect(s.room.state.seats[0].twin[0].position).toBe('attack');
+  expect(()=>s.act({type:'twin.move',actorSeat:1,seat:0,cardRef:'rotation',zone:'monster',position:'defense'})).toThrow(/owner/);
+});

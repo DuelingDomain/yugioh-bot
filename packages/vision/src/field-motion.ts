@@ -3,7 +3,7 @@ import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number }
+export interface FieldAnalysis { motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -22,6 +22,18 @@ export function createFieldAnalyzer() {
     const before=previous;previous=image;
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     return {
+      halo(card) {
+        const b=boundsOf(card.quad),values:number[]=[];
+        // Sparse RGB ring outside the card: a stationary hand/arm must clear it
+        // before an absent card can produce a removal suggestion.
+        for(let y=0;y<10;y++)for(let x=0;x<10;x++) {
+          if(x>1&&x<8&&y>1&&y<8)continue;
+          const px=Math.max(0,Math.min(image.width-1,Math.round((b.x+b.w*(-.3+1.6*x/9))*image.width)));
+          const py=Math.max(0,Math.min(image.height-1,Math.round((b.y+b.h*(-.3+1.6*y/9))*image.height))),i=(py*image.width+px)*4;
+          values.push(image.data[i]/255,image.data[i+1]/255,image.data[i+2]/255);
+        }
+        return values;
+      },
       motion(card) {
         if(!before||before.width!==image.width||before.height!==image.height)return 1;
         const b=crop(card,.18);let sum=0,n=0,changed=0;
