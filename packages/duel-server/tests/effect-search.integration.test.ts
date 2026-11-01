@@ -959,7 +959,8 @@ it("uses the selected format and preserves real card names and search filters", 
   expect(domain.effectHits?.[0]?.name).toBe("Graceful Charity");
   expect(domain.effectHits?.every(card => /of Domain decks$/.test(card.reason))).toBe(true);
   const genesys = search("staples", undefined, { format: "genesys" });
-  expect(genesys.effectHits?.[0]?.name).toBe("Lava Golem");
+  // The expanded measured Genesys cohort ranks Skull Meister first (30%).
+  expect(genesys.effectHits?.[0]).toMatchObject({ name: "Skull Meister", reason: "Played in 30% of Genesys decks" });
   expect(genesys.effectHits?.every(card => /of Genesys decks$/.test(card.reason))).toBe(true);
   expect(search("Morphtronic Staplen").cards[0]?.name).toBe("Morphtronic Staplen");
   expect(search("Morphtronic Staplen").reading).toBeNull();
