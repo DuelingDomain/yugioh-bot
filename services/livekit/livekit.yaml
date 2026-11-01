@@ -3,4 +3,6 @@ rtc:
   tcp_port: 7881
   udp_port: 7882
   use_external_ip: false
-  enable_loopback_candidate: true
+  # Gather on the container NIC, then advertise --node-ip. Gathering container
+  # loopback too would select a socket that Docker port forwarding cannot reach.
+  enable_loopback_candidate: false
