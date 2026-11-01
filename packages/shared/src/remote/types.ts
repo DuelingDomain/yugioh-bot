@@ -2,14 +2,17 @@ import type { RemoteAction, RemoteActionProposal, TwinCard } from "./actions.js"
 import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
+import type { RemoteEffectTracking } from "./effect-tracking.js";
+
 export type SeatCount = 2 | 3 | 4;
 export type RemoteSeatState = { seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
 export type RemotePosition = {
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   startedSeats: number[]; seats: RemoteSeatState[]; ended: boolean; winnerSeat: number | null;
   attack: { id: string; attackerSeat: number; attackerCardRef?: string; targetSeat: number; targetCardRef?: string; direct?: boolean } | null;
-  identified: { seat: number; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
+  identified: { seat: number; cardRef?: string; private?: boolean; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
   deckChecks: RemoteDeckChecks;
+  effectTracking?: RemoteEffectTracking;
 };
 export type RemoteState = RemotePosition & {
   updatedAt: number;
@@ -31,7 +34,7 @@ export interface GameModule {
   resolveAttack(state: RemoteState, input: string | AttackHints, actorSeat: number): AttackResolution;
 }
 export type RemoteStatus = "lobby" | "active" | "ended";
-export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deck?: RemoteDeckRegistration | null };
+export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
   | { type: "table.created"; gameId: string; seatCount: SeatCount; solo?: boolean; format?: RemoteFormat }
   | { type: "table.configured"; format: RemoteFormat; registrations: RemoteDeckChecks["registrations"] }

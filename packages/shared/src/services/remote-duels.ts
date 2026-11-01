@@ -1,3 +1,4 @@
+import { projectRemoteSnapshot, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomUUID } from "node:crypto";
 import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
@@ -67,7 +68,11 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     const events = db.prepare(`select * from remote_events where table_id=? and seq>? order by seq limit 200`)
       .all(row.id, afterSeq ?? Math.max(0, row.last_seq - 50)) as EventRow[];
     const metadata = table(row);
-    return { ...metadata, mySeat: viewer.seat, state: readState(row), events: events.map(e => event(e, metadata.seats)) };
+    const projected=projectRemoteSnapshot({table:metadata,state:readState(row),events:events.map(e=>event(e,metadata.seats))}, privateSeats(row,userId));
+    return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events};
+  }
+  function privateSeats(row:Row,userId:number):Set<number> {
+    return new Set(seats(row).filter(s=>s.userId===userId || (!!row.solo && row.created_by===userId && s.bot)).map(s=>s.seat));
   }
   function append(row: Row, action: RemoteAction | RemoteSystemAction, at: number, userId: number | null = null, actorSeat: number | null = null, activity = true, effects?: RemoteReductionContext, messages?: EventMessage[]) {
     const id = "idempotencyKey" in action ? action.idempotencyKey : `sys:${randomUUID()}`;
@@ -150,12 +155,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         ? "t.solo=0 and t.status='lobby' and (select count(*) from remote_seats s where s.table_id=t.id)<t.seat_count"
         : "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)"} order by t.created_at desc,t.id desc limit 100`)
         .all(...(scope === "open" ? [guildId] : [guildId, userId])) as Row[];
-      return rows.map(row => {
-        const result = table(row);
-        // Open discovery is available before room admission; saved lists remain member-only.
-        if (scope === "open") result.seats = result.seats.map(({ deck: _deck, ...seat }) => seat);
-        return result;
-      });
+      return rows.map(row => projectRemoteTable(table(row)));
     },
     join(slug: string, guildId: string, userId: number, displayName: string, requestedSeat?: number, now = Date.now()): RemoteRoom {
       return transaction(() => {
@@ -185,7 +185,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           db.prepare("update remote_tables set state_json=? where id=?").run(JSON.stringify(state), row.id);
           append(row, { type: "seat.left", seat: s.seat, userId }, now, userId, s.seat);
         }
-        return table(load(slug, guildId));
+        return projectRemoteTable(table(load(slug, guildId)));
       });
     },
     ready(slug: string, guildId: string, userId: number, ready: boolean, now = Date.now()): RemoteRoom {
@@ -233,8 +233,22 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const action = { ...command, at: now };
         const before = readState(row);
         const effects: RemoteReductionContext = {};
+        if(command.type==="card.identified" || command.type==="cards.identified") {
+          effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
+            const twin=card.cardRef ? before.seats[command.seat].twin.find(c=>c.ref===card.cardRef) : undefined;
+            const revealsOrigin=!!twin && !["hand","deck","extra"].includes(twin.zone) && before.effectTracking?.origins.some(o=>o.destination==="set" && o.seat===command.seat && o.ref===twin.ref);
+            return !revealsOrigin && (twin ? !twin.faceUp || ["hand","deck","extra"].includes(twin.zone) : ["hand","deck","extra"].includes(card.zone ?? ""));
+          });
+        }
+        if(command.type==="effect.activated") {
+          const twin=command.source.cardRef ? before.seats[command.actorSeat].twin.find(c=>c.ref===command.source.cardRef) : undefined;
+          remoteAssert(!command.source.cardRef || twin,"Unknown source card",409);
+          effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main ?? []);
+        }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
-          command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] : [];
+          command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
+          command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
+          command.type === "effect.choose" ? [{cardId:command.cardId}] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
         const registrations = before.deckChecks.registrations;
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
@@ -267,12 +281,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       });
     },
     /** Trusted server transport only. Never expose this without the session/member guard. */
-    snapshot(slug: string, guildId: string) {
+    snapshot(slug: string, guildId: string, userId?: number) {
       return db.transaction(() => {
         const row = load(slug, guildId);
         const metadata = table(row);
-        return { table: metadata, state: readState(row),
-          events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) };
+        if(userId!==undefined) member(row,userId);
+        return projectRemoteSnapshot({ table: metadata, state: readState(row),
+          events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) },userId===undefined ? new Set() : privateSeats(row,userId));
       })();
     },
     replay(slug: string, guildId: string, userId: number): RemoteState {
@@ -287,7 +302,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; }
           else if (action.type === "seat.left") delete state.deckChecks.registrations[action.seat];
         }
-        return state;
+        return projectRemoteState(state,privateSeats(row,userId));
       })();
     },
     /** Warnings append an event but deliberately leave last_event_at unchanged. Presence never calls this service's writes. */

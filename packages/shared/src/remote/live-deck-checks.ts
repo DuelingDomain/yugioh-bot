@@ -33,12 +33,20 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
       observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp } : card);
       const code = card.cardId ?? card.passcode;
-      next.identified = { seat: action.seat, cardId: card.cardId, passcode: card.passcode, zone: card.zone,
+      next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
         notInDecklist: context.identified?.notInDecklist ?? false, addErrors: context.identified?.addErrors ?? [] };
       // An explicit ref attaches recognition to the same physical twin card.
       if (twin && twin.faceUp) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; }
     }
+  }
+  if (action.type === "twin.flip" || action.type === "twin.move") {
+    const twin=next.seats[action.seat].twin.find(c=>c.ref===action.cardRef);
+    if(twin && remotePublicZone(twin.zone,twin.faceUp)) observe(action.seat,{...twin,cardRef:twin.ref});
+  }
+  if(action.type==="effect.activated" && context.effect?.source.cardRef) {
+    const twin=next.seats[action.actorSeat].twin.find(c=>c.ref===context.effect!.source.cardRef);
+    if(twin) observe(action.actorSeat,{...twin,cardRef:twin.ref});
   }
   if (action.type === "twin.place") observe(action.seat, { ...action.card, zone: action.zone, cardRef: action.card.ref });
   if (action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove") {

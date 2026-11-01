@@ -37,7 +37,7 @@ export type RemoteCardInstance = {
 };
 export type RemoteDeckFlag = {
   id: string; seat: number; copyKey: number; count: number; limit: number; message: string;
-  instanceIds: string[]; proof: string[]; dismissed: boolean; reason?: string;
+  private?: boolean; instanceIds: string[]; proof: string[]; dismissed: boolean; reason?: string;
 };
 export type RemoteDeckChecks = {
   format: RemoteFormat; registrations: Record<number, RemoteDeckRegistration | null>;
@@ -45,6 +45,8 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
+  privateRecognition?: boolean;
   facts?: RemoteCardFacts; registration?: RemoteDeckRegistration;
   identified?: { notInDecklist: boolean; addErrors: string[] };
 };
@@ -140,6 +142,7 @@ export function flagRemoteCopies(input: RemoteDeckChecks, seen: RemoteCardInstan
   }
   for (const observed of groups.values()) {
     const lead = observed[0];
+    const privateFlag=observed.every(i=>i.zone!==undefined && i.zone!=="hand-reveal" && !i.public);
     const concurrent: RemoteCardInstance[] = [];
     const publicCopies = checks.instances.filter(i => i.seat === lead.seat && i.copyKey === lead.copyKey && i.public)
       .sort((a, b) => Number(remotePhysicalSlot(b.zone, b.slot) !== undefined) - Number(remotePhysicalSlot(a.zone, a.slot) !== undefined));
@@ -153,7 +156,7 @@ export function flagRemoteCopies(input: RemoteDeckChecks, seen: RemoteCardInstan
     const count = Math.max(1, concurrent.length);
     if (count <= lead.limit) continue;
     const ids = (concurrent.length ? concurrent : [lead]).map(i => i.id).sort();
-    if (checks.flags.some(f => f.seat === lead.seat && f.copyKey === lead.copyKey && f.count >= count &&
+    if (checks.flags.some(f => !!f.private===privateFlag && f.seat === lead.seat && f.copyKey === lead.copyKey && f.count >= count &&
       (f.limit === 0 || ids.every(id => f.instanceIds.includes(id))))) continue;
     const label = checks.format.mode === "domain" ? checks.format.id === "genesys-domain" ? "Genesys Domain" : "Domain" : checks.format.id === "genesys" ? "Genesys" : "Advanced";
     const proof = (concurrent.length ? concurrent : [lead]).map(i => instanceLocation(i));
@@ -162,7 +165,7 @@ export function flagRemoteCopies(input: RemoteDeckChecks, seen: RemoteCardInstan
       " seen (" + label + " allows " + lead.limit + "). " +
       (count > 1 ? count + " copies of " + lead.name + " seen at the same time: " : "Seen: ") + proof.join(" and ");
     checks.flags.push({ id: "flag:" + actionId + ":" + checks.flags.length, seat: lead.seat, copyKey: lead.copyKey,
-      count, limit: lead.limit, message, instanceIds: ids, proof, dismissed: false });
+      ...(privateFlag ? {private:true} : {}), count, limit: lead.limit, message, instanceIds: ids, proof, dismissed: false });
   }
   return checks;
 }

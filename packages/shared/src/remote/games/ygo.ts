@@ -5,6 +5,8 @@ import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
 
+import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
+
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
   { id: "battle", name: "Battle" }, { id: "main2", name: "Main 2" }, { id: "end", name: "End" },
@@ -103,6 +105,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       break;
     }
+    case "effect.activated": case "effect.choose": case "effect.announce": case "effect.context.clear": case "effect.note.dismiss": break;
     case "deck.add": ownField(action.seat); break;
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
@@ -126,7 +129,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
+  applyRemoteEffectTracking(next, state, action, context);
   next = applyLiveDeckChecks(next, action, context);
+  for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
+    origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);

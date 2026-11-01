@@ -21,7 +21,14 @@ const meta = {
   /** Optimistic clients may supply this; the service ALWAYS replaces it with server time. */
   at: z.number().int().nonnegative().optional(),
 };
+const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
+  .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
 export const remoteActionSchema = z.discriminatedUnion("type", [
+  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource }),
+  z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
+  z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),
+  z.strictObject({ ...meta, type: z.literal("effect.context.clear") }),
+  z.strictObject({ ...meta, type: z.literal("effect.note.dismiss"), noteId: z.string().min(1).max(110) }),
   z.strictObject({ ...meta, type: z.literal("phase.set"), phase: zone }),
   z.strictObject({ ...meta, type: z.literal("phase.advance") }),
   z.strictObject({ ...meta, type: z.literal("turn.end") }),
@@ -48,7 +55,7 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
-export type TwinCard = z.infer<typeof twinCardSchema> & { zone: string };
+export type TwinCard = z.infer<typeof twinCardSchema> & { zone: string; setBy?: import("./effect-filters.js").RemoteEffectSource };
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }
 }
