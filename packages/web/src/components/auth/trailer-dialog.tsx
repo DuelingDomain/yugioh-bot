@@ -24,7 +24,9 @@ export function useTrailerDialog() {
     setOpen(false);
     const opener = openerRef.current;
     openerRef.current = null;
-    if (opener?.isConnected) opener.focus();
+    // The opener can be hidden by a resize while the dialog is open (thumbnail vs phone link); then use the form zone.
+    const target = opener?.isConnected && opener.offsetParent !== null ? opener : document.getElementById("form-zone");
+    target?.focus();
   }, []);
 
   return { open, show, close };
@@ -42,20 +44,29 @@ interface TrailerDialogProps {
 export function TrailerDialog({ open, onClose }: TrailerDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
 
   useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const { body, documentElement } = document;
+    const original = body.style.overflow;
+    const originalPadding = body.style.paddingRight;
+    // Keep the layout still when the scrollbar disappears.
+    const scrollbar = window.innerWidth - documentElement.clientWidth;
+    if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
+    body.style.overflow = "hidden";
+    body.setAttribute("data-trailer-open", "");
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.body.style.overflow = original;
+      body.style.overflow = original;
+      body.style.paddingRight = originalPadding;
+      body.removeAttribute("data-trailer-open");
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open, onClose]);
@@ -65,6 +76,8 @@ export function TrailerDialog({ open, onClose }: TrailerDialogProps) {
   return createPortal(
     <div className={`${signInFontClasses} ${styles["trailer-dialog"]}`} role="dialog" aria-modal="true" aria-label={TRAILER_TITLE}>
       <div className={styles["trailer-scrim"]} aria-hidden="true" onClick={onClose} />
+      {/* Focus guards. The trap listens on this document, and Tab inside the YouTube frame never reaches it, so the guards catch focus leaving the frame. */}
+      <span className={styles["trailer-guard"]} tabIndex={0} onFocus={() => frameRef.current?.focus()} />
       <div className={styles["trailer-panel"]} ref={panelRef}>
         <div className={styles["trailer-bar"]}>
           <span className={styles["trailer-bar-title"]} aria-hidden="true">Launch trailer</span>
@@ -76,6 +89,7 @@ export function TrailerDialog({ open, onClose }: TrailerDialogProps) {
         </div>
         <div className={styles["trailer-stage"]}>
           <iframe
+            ref={frameRef}
             className={styles["trailer-frame"]}
             src={TRAILER_EMBED_URL}
             title={TRAILER_TITLE}
@@ -87,6 +101,7 @@ export function TrailerDialog({ open, onClose }: TrailerDialogProps) {
           />
         </div>
       </div>
+      <span className={styles["trailer-guard"]} tabIndex={0} onFocus={() => closeRef.current?.focus()} />
     </div>,
     document.body,
   );

@@ -23,9 +23,11 @@ import {
 } from "@/components/auth/community-links";
 
 beforeEach(() => {
+  // jsdom has no layout, so offsetParent is always null; treat every attached element as visible.
+  Object.defineProperty(HTMLElement.prototype, "offsetParent", { configurable: true, get() { return this.parentNode; } });
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); Reflect.deleteProperty(HTMLElement.prototype, "offsetParent"); vi.unstubAllGlobals(); });
 
 const shell = () => (
   <SignInShell marketingUrl="https://duelingdomain.com">
@@ -132,6 +134,23 @@ describe("sign-in community links", () => {
       expect(document.body.style.overflow).toBe("");
       expect(document.activeElement).toBe(opener);
     }
+  });
+
+  it("sends focus back into the dialog from the guards and restores the page when it closes", () => {
+    render(shell());
+    const opener = screen.getByRole("button", { name: /Watch trailer/ });
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog");
+    const guards = [...dialog.children].filter((el) => el.tagName === "SPAN") as HTMLElement[];
+    expect(guards).toHaveLength(2);
+    guards[1].focus();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close the trailer" }));
+    guards[0].focus();
+    expect(document.activeElement).toBe(dialog.querySelector("iframe"));
+    expect(document.body).toHaveAttribute("data-trailer-open");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.body).not.toHaveAttribute("data-trailer-open");
+    expect(document.body.style.paddingRight).toBe("");
   });
 
   it("opens the same dialog from the phone link on a plain click only", () => {
