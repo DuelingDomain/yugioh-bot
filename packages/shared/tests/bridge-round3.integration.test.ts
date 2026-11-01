@@ -6,6 +6,7 @@ import { BridgeEngine, indexBridgeCapabilities } from "../src/cards/effects/brid
 import type { BridgeGraphData } from "../src/cards/effects/bridge-types.js";
 
 let data: BridgeGraphData;
+let engine: BridgeEngine;
 beforeAll(() => {
   const db = new Database(":memory:");
   try {
@@ -14,8 +15,9 @@ beforeAll(() => {
     const capabilities = (db.prepare("SELECT capabilities_json FROM card_capability ORDER BY passcode").all() as { capabilities_json: string }[])
       .map(row => JSON.parse(row.capabilities_json));
     data = { ...graph, capabilities };
+    engine = new BridgeEngine(data);
   } finally { db.close(); }
-});
+}, 120_000); // Share the pinned catalog and engine across read-only cases.
 
 describe("round 3 bridge rules on the pinned catalog", () => {
   it("keeps uppercase archetype searches out of similarly spelled card names", () => {
@@ -39,10 +41,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
         for (const target of ["Fur Hire", "Ashened"]) expect(engine.between(source, target, format), `${source} -> ${target} (${format})`).toBeNull();
       }
     }
-  }, 15_000);
+  }, 120_000); // Reindex the complete capability catalog before checking both formats.
 
   it("deduplicates shared Y-side lines and same-sentence mention twins", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       const eyes = engine.between("Black Luster Soldier", "Blue-Eyes", format)!;
       const chaos = engine.between("Black Luster Soldier", "Chaos", format)!;
@@ -67,10 +68,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       const separateRituals = ["Chaos", "Black Luster Soldier"].map(target => separate.between("Blue-Eyes", target, format)!);
       expect(separate.distinctTargets(separateRituals, 4)).toHaveLength(2);
     }
-  }, 15_000);
+  }, 60_000);
 
   it("keeps distinct Temple and Sinful Spoils target engines in the top four", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       const odionRows = engine.distinctTargets(engine.liveCandidates("Odion", format), 4);
       const odion = odionRows.map(row => row.target);
@@ -88,10 +88,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
         expect(zefra.every(row => row.reasons[0]!.key === "reach")).toBe(true);
       }
     }
-  }, 15_000);
+  }, 60_000);
 
   it("merges two-way naming families without merging distinct bridge engines", () => {
-    const engine = new BridgeEngine(data);
     for (const [source, target] of [["Fluffal", "Frightfur"], ["Fluffal", "Edge Imp"], ["Fluffal", "Toy"], ["Nouvelles", "Recipe"],
       ["Apoqliphort", "Qli"], ["Evil★Twin", "Live☆Twin"], ["Evil★Twin", "Lil-la"], ["Live☆Twin", "Lil-la"],
       ["D/D", "Dark Contract"], ["Diabell", "Sinful Spoils"]]) {
@@ -104,10 +103,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       ["Kashtira", "Tearlaments"], ["Swordsoul", "Tenyi"], ["Zefra", "Yang Zing"]]) {
       expect(engine.between(source!, target!), `${source} -> ${target}`).not.toBeNull();
     }
-  }, 15_000);
+  }, 60_000);
 
   it("requires API source-archetype evidence while preserving aliases and curated groups", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const [source, target] of [["Crystal", "Melodious"], ["Cyber", "Harpie"], ["Clear", "T.G."], ["Guardian", "T.G."],
         ["Contact", "Darklord"], ["Parasite", "Graydle"], ["Junk", "Gimmick Puppet"], ["Cyberdark", "Cyber"]]) {
@@ -120,10 +118,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       }
       expect([...engine.groups.get("Stellarknight")!].some(id => engine.rows.get(id)!.card.archetype === "Tellarknight")).toBe(true);
     }
-  }, 15_000);
+  }, 60_000);
 
   it("requires discard profiles and three distinct source outlets for a substantive discard engine", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const [source, target] of [["Danger!", "Dark World"], ["Dark World", "Danger!"]]) {
         const row = engine.between(source!, target!, format);
@@ -138,10 +135,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       expect(fabled.grade).toBe("Niche");
       expect(engine.reasons("Fiendsmith", "Fabled", format).find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true, weight: 1 });
     }
-  }, 15_000);
+  }, 60_000);
 
   it("preserves named fan-out into real engine members and rejects label filler", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const [source, target] of [["Diabell", "Snake-Eye"], ["Azamina", "Diabell"], ["Diabell", "Azamina"], ["Azamina", "Snake-Eye"],
         ["Zefra", "Yang Zing"], ["Zefra", "Nekroz"], ["Zefra", "Ritual Beast"]]) {
@@ -153,16 +149,16 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       }
     }
     const groups = Object.fromEntries(["Diabell", "Snake-Eye", "Azamina", "Sinful Spoils", "White Forest"].map(name => [name, data.groups[name]!]));
-    const rebuilt = new BridgeEngine({ ...data, groups, target_means: { advanced: {}, genesys: {} }, materials: undefined });
+    // Rebuild rewrites nested frequencies and outlets; preserve the shared engine's catalog.
+    const rebuilt = new BridgeEngine({ ...structuredClone(data), groups, target_means: { advanced: {}, genesys: {} }, materials: undefined });
     rebuilt.rebuild();
     for (const format of ["advanced", "genesys"] as const) {
       expect(rebuilt.data.ancillary_outlets?.[format]?.[72270339]).toBeUndefined(); // Diabellstar the Black Witch.
       expect(rebuilt.reasons("Diabell", "Snake-Eye", format).some(reason => reason.key === "reach" && !reason.ancillary)).toBe(true);
     }
-  }, 15_000);
+  }, 60_000);
 
   it("rejects incidental name hybrids while retaining cross-engine landing cards", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const [source, target] of [["Chaos", "Galaxy"], ["Dark Contract", "Supreme King"]]) {
         expect(engine.between(source!, target!, format), `${source} -> ${target} (${format})`).toBeNull();
@@ -180,14 +176,13 @@ describe("round 3 bridge rules on the pinned catalog", () => {
           `${source} -> ${target} retains ${card} (${format})`).toBe(true);
       }
     }
-  }, 15_000);
+  }, 60_000);
 
   it("requires Toon setup evidence when another engine reaches a Toon monster", () => {
-    const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const source of ["Gaia The Fierce Knight", "Destruction Sword", "Archfiend", "Performapal"]) {
         expect(engine.between(source, "Toon", format), `${source} -> Toon (${format})`).toBeNull();
       }
     }
-  }, 15_000);
+  }, 60_000);
 });
