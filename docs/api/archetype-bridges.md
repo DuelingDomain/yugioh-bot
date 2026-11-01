@@ -6,7 +6,9 @@ Engine labels use official archetype or key-card names. `Temple of the Kings` is
 
 ## Feature flag
 
-Bridges are off by default in every environment. Set `BRIDGES_ENABLED=1` in the web server's environment (read at request time; the compose file passes it to `web`) to turn them on. Any other value, or none, keeps them off. Only the web server reads it: the app layout (`app/(app)/layout.tsx`) hands the answer to the page through `EffectSearchProvider`, so the browser never reads an environment variable. Bridges also need `EFFECT_SEARCH=1` and `DECK_SUGGESTIONS=1`, like the Suggest tab.
+Bridges are off by default in every environment. Set `BRIDGES_ENABLED=1` in both the web and duel server environments to turn them on; Compose passes it to both services with a default of `0`. Any other value, or none, keeps them off. The web reads it at request time: the app layout (`app/(app)/layout.tsx`) hands the answer to the page through `EffectSearchProvider`, so the browser never reads an environment variable. The duel server reads it at startup: when off, it skips bridge artifact and judgement imports and does not construct the bridge API or initialize bridge jobs. An authenticated `op: "bridges"` request returns the existing retryable 503 when Suggestions are enabled. Synergy search and Suggestions use effect tags and profiles independently of bridge tables and artifacts. Bridges also need `EFFECT_SEARCH=1` and `DECK_SUGGESTIONS=1`, like the Suggest tab.
+
+For host-run systemd services, add `Environment=BRIDGES_ENABLED=1` to both the web and duel service drop-ins (or their shared `EnvironmentFile`), then reload systemd and restart both services. Use `0` to disable bridges. For Docker, set the value in the Compose `.env` and recreate both containers; a container restart does not reload environment values. Ordinary effect-tag imports and the effect search index still run when `EFFECT_SEARCH=1`.
 
 While it is off:
 

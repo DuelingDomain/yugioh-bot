@@ -116,7 +116,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const user = seedIdentity(fixture, { name: "Available host" });
     const session = createDuelService(fixture).create({ guildId: "g", organizerPlayerId: user.playerId, name: "Available lobby", mode: "normal" });
     let host: ReturnType<typeof createDuelHost> | undefined;
-    vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1");
+    vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1"); vi.stubEnv("BRIDGES_ENABLED", "1");
     try {
       host = createDuelHost({ db: fixture, dataDirectory: directory, secret: "bridge-startup-failure", searchCards: () => [], pollIntervalMs: 60_000 });
       expect(errorReport).toHaveBeenCalledWith(expect.objectContaining({

@@ -441,9 +441,11 @@ export function createDuelHost(options: {
   const pool = new WorkerPool(options.maxWorkers ?? limits.maxWorkers, options.maxTablesPerPlayer ?? limits.maxTablesPerPlayer);
   const suggestionWorkers = new DeckSuggestionWorkers(options.db, options.dataDirectory);
   let bridgeApi: BridgeApi | undefined;
-  try { bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now); }
-  catch (error) {
-    report(error, { tags: { operation: "[duel] bridge search startup failed" } });
+  if (process.env.BRIDGES_ENABLED === "1") {
+    try { bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now); }
+    catch (error) {
+      report(error, { tags: { operation: "[duel] bridge search startup failed" } });
+    }
   }
   const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
