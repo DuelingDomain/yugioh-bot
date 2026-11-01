@@ -1,6 +1,7 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad } from './types';
+import { validateBoard } from './board';
+import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
   game?: 'yugioh';
@@ -12,6 +13,10 @@ export interface Recognizer {
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
+  /** Local name/tier only, without a crop, AI request or correction history. Same-frame outlines only. */
+  peek(frame: ImageBitmap | ImageData, opts: PeekOptions): Promise<PeekResult>;
+  /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
+  readAll(frame: ImageBitmap | ImageData, opts?: ReadAllOptions): Promise<BoardResult>;
   askAI(result: RecognitionResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   dispose(): void;
 }
@@ -44,7 +49,26 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     }
     return initial;
   }
+  async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: PeekOptions | ReadAllOptions) {
+    if(disposed) throw new Error('Recognizer is disposed');
+    opts.signal?.throwIfAborted();
+    if(inFlight) throw new Error('Recognition is already in progress');
+    if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
+    if(opts.cards) validateBoard(opts.cards);
+    if('card' in opts) validateOptions({card:opts.card});
+    const {signal,...workerOptions}=opts;
+    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
+    inFlight=true;
+    signal?.addEventListener('abort',abort,{once:true});
+    try {
+      await initialize(); signal?.throwIfAborted();
+      if(disposed) throw new Error('Recognizer is disposed');
+      return await request({type,frame,opts:workerOptions},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]);
+    } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
+  }
   return {
+    async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
+    async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },
     async recognize(frames, opts = {}) {
       if (disposed) throw new Error('Recognizer is disposed');
       validateOptions(opts);
