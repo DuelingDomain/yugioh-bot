@@ -177,6 +177,24 @@ ring-buffer originals before calling. A reader permits one pending recognition;
 `dispose()` terminates its worker and rejects outstanding requests. Initial model
 loading is outside `timingsMs.total`; cold wall time is measured separately below.
 
+The owner-feed watcher explicitly calls `reader.prepare()` when auto-detect
+starts, displaying **Preparing card reader…** until the resident index,
+embedding session and first inference are ready. Detector-only callers still
+load just the detector. The default backend prefers WebGPU; isolated browsers
+fall back to threaded SIMD WASM. Models, vectors and precomputed row norms stay
+in that worker across reads.
+
+Desktop outlined clicks keep the exact frame/quad pair, use one frame and avoid
+a second detector pass or a new one-second camera sampling window. Normal remote
+and lab reads use `deferAICrop: true`: the worker retains at most six AI source
+frames (64 MiB total) under worker-scoped tokens, returning identification and the
+small feedback crop immediately. Only **Ask AI** warps and encodes the same 640 px
+source crop for upload;
+an evicted token requires a new read. API callers retain eager encoding by default,
+as does calibration capture. See
+[Automatic owner-field watcher](#automatic-owner-field-watcher) for format-aware
+EMZ geometry, tracking behavior and latency benchmark instructions.
+
 Pipeline: Laplacian-variance selection → detector/card corners → edge refinement →
 perspective warp → profile artwork crops → DINOv2 embedding → cosine search,
 best artwork per card. As in Duel Lens, extra windows/180° readings run only if
@@ -707,8 +725,12 @@ no card click is needed. `Auto-detect cards` pauses/resumes it. `Watching field`
 reports its state. `Calibrate zones` takes four clockwise mat-corner clicks
 (top-left first) and saves the grid per user/seat in localStorage. Without a
 saved grid, normalized vertical bands and left-to-right ordering estimate
-M1–M5, S1–S5, field, EMZ, GY, banished, Deck and Extra areas. Keep the owner's
-mat inside the frame; the heuristic does not identify players in a shared image.
+M1–M5, S1–S5, field, GY, banished, Deck and Extra areas. Advanced and Domain
+also have **EMZ1 left** above M2 and **EMZ2 right** above M4. Neither Genesys
+format has EMZ. The actual table format drives both the virtual field and
+calibration instructions; include the upper EMZ row in the calibrated mat when
+present. Keep the owner's mat inside the frame; the heuristic does not identify
+players in a shared image.
 
 The core API is independent of React and remote transport:
 
@@ -717,6 +739,7 @@ import { createOwnFeedBuffer, createFieldWatcher, yugioh } from '@yugidraft/visi
 const buffer = createOwnFeedBuffer(nativeOwnVideo);
 const watcher = createFieldWatcher({
   recognizer: reader, buffer, profile: yugioh,
+  format: 'normal', // also 'domain', 'genesys', 'genesys-domain'
   getPriors: () => ({ decklist: deckCardIds, seen: publicSeenCardIds }),
   // Optional existing public twins: { id, zone: 'M3', cardId, faceDown, position, card? }
   getKnownCards: () => existingInstances,
@@ -730,21 +753,26 @@ watcher.start();
 // On teardown: off(); watcher.dispose(); buffer.stop(); reader.dispose();
 ```
 
-`detectCards` now initializes **only the detector**; index/embedding sessions and
-learned references are lazy until a full read. The watcher normally samples at
-2–4 fps, pauses for hidden tabs, input pressure and long main-thread tasks, and
-slows further when needed to keep detector inference duty near 20%. This duty
+`detectCards` initializes **only the detector**. Auto-detect explicitly calls
+`reader.prepare()` at startup to load its resident index/embedding session and
+warm inference, showing **Preparing card reader…** until ready. The watcher
+normally samples at 2–4 fps and briefly uses 200 ms intervals while a new card
+settles. It pauses for hidden tabs, input pressure and long main-thread tasks,
+then slows when idle to keep detector inference duty near 20%. This duty
 is elapsed work/scheduled interval, not a hardware CPU percentage. Model startup
 and occasional recognition are excluded from that continuous duty estimate.
 `getSnapshot()` exposes status, tracks, detector/read timings, interval, skips,
 placement latency and errors. The caller owns its recognizer and buffer; disposal
 drops late results without terminating another caller's shared reader.
 
-A placement needs 0.8–1.2 seconds of consistent quads (default 1 second, at least
-three clean observations), detector confidence ≥ .7, low frame-difference energy,
-no partial/covered flag and no scene overlap. The sharpest sample in that stable
-window retains its **same-frame quad**. One full deck-first recognition follows.
-A visual `sure` with all pipeline guards becomes a public identification with
+Recognition starts after 400–600 ms of consistent quads (400 ms minimum and at
+least three clean observations), detector confidence ≥ .7, low frame-difference
+energy, no partial/covered flag and no scene overlap. The sharpest sample retains
+its **same-frame quad**. Motion/appearance tracking continues during inference;
+a later clean detector frame must match that read's appearance and geometry
+before publishing. Motion, occlusion, Stop, recalibration, confirmation and
+dismissal invalidate stale work, including pending frame clones. A visual `sure`
+with all pipeline guards becomes a public identification with
 `source: auto` followed by placement, so normal five-second Undo removes the new
 twin. Other tiers keep five alternatives in an anchored **New card?** prompt.
 No AI, crop upload or feedback capture runs automatically. A stable detected
@@ -766,8 +794,10 @@ Browser integration is isolated in
 `packages/web/src/lib/remote/use-field-watcher.ts` and
 `src/components/remote/field-watcher.tsx`. The table has one component mount;
 `ui/recognizer.ts` supplies a short shared-buffer/reader-queue bridge, and the log
-labels automatic identification. `feed.tsx`, video sizing, field visuals and
-styles are untouched. Manual reads take priority over detector polling.
+labels automatic identification. The virtual field renders two interactive EMZ
+above M2/M4 only when the table format supports them, including keyboard and
+attack targeting. `feed.tsx` and video sizing are unchanged. Manual reads take
+priority over detector polling.
 
 ### Try and measure
 
@@ -783,6 +813,7 @@ Reproduce the offline benchmark using the existing prepared full index and
 export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npx tsx scripts/vision/prepare.ts --bundle-only
 npx tsx scripts/vision/benchmark-field-watcher.ts
+LATENCY_LABEL=release-60 LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
 ```
 
 The benchmark uses an ephemeral localhost listener, actual isolated Chromium,
@@ -795,7 +826,14 @@ it contains a person and room, not an overhead playmat. Raw results, fixture
 provenance and the small generated card image remain ignored under
 `data/vision/benchmark/field-watcher/`. CPU comes from Chromium CDP process CPU
 time, with both one-core and whole-machine percentages. See [REPORT.md](REPORT.md)
-for numbers and domain limits.
+for numbers and domain limits. The latency harness alternates 20 placements
+and clicks per condition (with/without a 60-card decklist), compares 120 timed full-catalog
+searches with the prior implementation, checks ordering parity and asserts one
+index/model fetch per reader lifetime. Its results stay under
+`data/vision/benchmark/latency/<label>.json`. Desktop clicks include native-frame
+cloning, detection, warp, embedding, catalog search and the worker reply/crop;
+placement timing ends at the identified event, with remote action/rendering
+covered separately by e2e. Cold startup is reported separately.
 
 The isolated camera/table e2e suite does not start the full application stack:
 

@@ -1,7 +1,114 @@
-# Remote vision round 2 — 2026-11-01
+# Remote vision measurements — 2026-11-01
 
-Implemented on `feat/remote-vision` in the dedicated `remote-vision` worktree.
-The main checkout and port 3000 were not changed. Apache notices remain intact.
+## Format and latency follow-up
+
+Implemented on `feat/remote-autodetect` in `.worktrees/remote-autodetect`.
+Advanced (`normal`) and Domain tables have **two interactive Extra Monster
+Zones**, left above M2 and right above M4. Both Genesys formats have **zero**.
+The actual table format controls rendering, mapping and calibration instructions;
+keyboard movement and attack targeting include both EMZ slots.
+
+Recognition begins after **400–600 ms** of stable geometry (default 400 ms,
+at least three clean observations). New candidates receive bounded 200 ms
+sampling bursts. Pixel tracking continues during inference, and identification
+requires a subsequent clean detector frame matching the read's geometry and
+appearance. Motion, cancellation, confirmation, dismissal and recalibration
+invalidate pending work, including asynchronous frame clones. Auto-detect prepares
+the full reader before reporting ready. Default execution prefers **WebGPU** and
+falls back to isolated, threaded SIMD **WASM**; GPU selection/failure paths have
+regression coverage, while the measurements below use actual CPU inference.
+
+Measured with Node **22.23.3**, Chromium **153.0.8010.12**, GPU disabled, an AMD
+Ryzen 7 9800X3D host with **8 exposed logical CPUs**, cross-origin isolation,
+SIMD and **4 actual WASM threads**. The existing physical catalog contains
+**14,652 int8 vectors**, **14,488 distinct cards**, **384 dimensions**. The worker
+retains the index, precomputed row norms and per-card row lookup across reads;
+flat dot products and bounded top-k selection avoid whole-catalog sorting.
+Repeated clean searches within a recognition reuse their visual evidence.
+
+Final run: **20 placements and 20 clicks per condition**, alternating a
+**60-card decklist** with no decklist. Every positive uses one existing indexed
+standard card at varying positions on a synthetic plain mat, through 1280×720
+canvas `captureStream` and the native camera frame buffer. All distributions use
+nearest-rank percentiles. Reader preparation is outside warm trial timing.
+
+| Final measured workload | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Placement → identified, 60-card decklist | 20 | **1,283.0 ms** | **1,552.7 ms** | 1,980.9 ms |
+| Placement → identified, no decklist | 20 | **1,149.5 ms** | **1,548.6 ms** | 1,687.8 ms |
+| Desktop click, 60-card decklist | 20 | **194.0 ms** | **218.2 ms** | 224.0 ms |
+| Desktop click, no decklist | 20 | **193.6 ms** | **205.1 ms** | 241.9 ms |
+| Full-catalog top-10 search, previous implementation | 120 | 7.01 ms | 8.50 ms | 11.86 ms |
+| Full-catalog top-10 search, resident prepared index | 120 | **2.93 ms** | **3.62 ms** | 6.44 ms |
+| 60-card subset top-10 search | 120 | 0.025 ms | 0.040 ms | 0.305 ms |
+
+**40/40 placements and 40/40 clicks were correct `sure` results.** All final
+placements were under 2 seconds and all clicks under 300 ms. Fresh-reader local
+preparation took **726.7 ms**; search preparation took **7.30 ms once**. Across
+150 alternating before/after search comparisons there were **0 ranking
+mismatches**, with maximum score difference **1.11×10⁻¹⁶**. The recognition
+worker requested the binary index, metadata, embedder and detector **once each**
+across all 80 reads. There were **0 uncaught browser errors**.
+
+Click timing includes native-frame cloning, full-scene detection, refinement,
+warp, embedding, full-catalog search, the small feedback crop and worker reply.
+Outlined UI reads reuse the exact held frame/quad and skip duplicate detection.
+Normal remote/lab reads defer the large AI source warp and JPEG until explicit
+**Ask AI**. The worker retains at most **6 sources / 64 MiB**, under worker-scoped
+handles. A pixel-equality regression verifies the same source crop as eager
+creation, including partial-card filling. After timed trials, one **mocked** AI
+request received the original **640×933** crop (**79,094 JPEG bytes**); an evicted
+handle was refused. **0 real provider calls** occurred. Eager API behavior and
+calibration capture remain available.
+
+The prior JPEG-only deferral run missed the click gate: with-deck p95 **300.6 ms**,
+maximum **370.7 ms**. Deferring source warping too removed avoidable per-click work
+and allocation. A separate final-code run with a one-card prior measured click
+p95 **238.4/242.4 ms** (with/without prior), all 40 clicks under 290 ms; its
+placement p95 was **1,504.0/1,635.0 ms**, with one **2,024.3 ms** outlier.
+Earlier runs contended with builds were slower. The final table is the 60-card
+run, not a universal worst-case guarantee under scheduling or CPU contention.
+
+The hand-only negative was rerun for **30 seconds / 109 detector samples**:
+**0 placement events, 0 prompts**. Chromium used **7.31%** of the entire exposed
+eight-core machine (58.45% of one core), including full-reader preparation during
+the negative. This is not a controlled CPU comparison with the earlier lazy
+reader. Fixture provenance and its narrow scene coverage are preserved below.
+
+Validation: **83 vision tests + 85 targeted web tests + 93 shared remote tests +
+4 real-worker camera/table e2e cases = 265 passing cases**. Vision/web/e2e
+typechecks and the worker bundle pass. Browser checks cover all four actual table
+formats, projected EMZ geometry, automatic lab/table identification and movement,
+owner actions and Undo, and recovery from a failed lazy asset request. Review
+also reproduced and fixed cancellation-during-clone and appearance-change races;
+final review found no remaining actionable defects.
+
+These are warm desktop synthetic timing measurements, not held-out physical
+webcam accuracy, mobile performance or measured WebGPU latency. Placement timing
+ends at the local identified event; remote network/action/rendering is exercised
+separately by e2e and is not included in these latency numbers. The same indexed
+image is repeated, so 40/40 is fixture correctness rather than open-set recall.
+
+Reproduce without model/index downloads:
+
+```bash
+export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+LATENCY_LABEL=release-60 LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
+FIELD_NEGATIVE_SECONDS=30 npx tsx scripts/vision/benchmark-field-watcher.ts
+```
+
+Ignored raw artifacts: `data/vision/benchmark/latency/release-60.{json,log}`,
+`release-deferred.{json,log}` (one-card prior, final code), `release.{json,log}`
+(JPEG-only deferral), and `data/vision/benchmark/field-watcher/results.json`.
+No main-checkout or protected-service changes, port-3000 use, new unit-test files,
+model downloads or index rebuilds were needed. No PR is created.
+
+## Earlier implementation snapshots
+
+The remaining sections preserve earlier measurements and their original scope;
+the format/latency follow-up above supersedes their watcher timings and stillness
+settings. Earlier round-2 work used `feat/remote-vision` in `remote-vision`.
+Apache notices remain intact.
 
 ## Automatic field watcher — 2026-11-01
 
