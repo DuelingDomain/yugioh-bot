@@ -33,8 +33,6 @@ test("every engine input still enables the full engine suites on push", () => {
     "packages/shared/src/duels/banlist.ts",
     "packages/shared/src/services/duels.ts",
     "packages/shared/src/services/replay-forks.ts",
-    "packages/shared/src/db/schema.ts",
-    // The host now imports services that PRs historically exempted.
     "packages/shared/src/services/bug-reports.ts",
     "packages/shared/src/services/drafts.ts",
     "packages/shared/package.json",
@@ -68,13 +66,14 @@ test("PRs and main use the same import-aware engine rule", () => {
       "packages/e2e/src/duel.ts", "packages/shared/tests/duels.test.ts",
       "packages/shared/src/maintenance/repair-ratings.ts", "packages/shared/src/util/eastern-time.ts",
       "packages/shared/src/future-unused-module.ts", "packages/shared/data/staples/usage.json",
+      "packages/shared/src/db/schema.ts", "packages/shared/src/services/creator-access.ts",
       "packages/shared/data/effects/tags.json", "packages/duel-server/domain-core/proposals/future.md",
       "scripts/effects/tag.ts", "scripts/staples/update.ts", "scripts/deployment/prepare-runtime-data.sh",
       "scripts/ci/publish-images.mjs", "Dockerfile",
       "packages/duel-server/README.md",
     ]) assert.deepEqual(changedLayers([file], event), noEngine, `${event}: ${file}`);
     for (const file of ["packages/shared/src/services/duels.ts", "packages/shared/src/services/drafts.ts",
-      "packages/shared/src/db/schema.ts", "packages/shared/src/cards/effects/artifact.ts",
+      "packages/shared/src/cards/effects/artifact.ts",
       "packages/shared/src/duels/settings.ts", "packages/duel-server/scripts/install-engine-bundle.sh",
       "scripts/ci/build-core.sh", "scripts/ci/publish-engine-data.mjs", "scripts/native/checks/run.sh",
       "docs/adr/0002-multiplayer-duel-rules.md", "docs/specs/multiplayer-rule-coverage.md",
@@ -94,6 +93,31 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
     assert.deepEqual(changedLayers(null, event), allLayers);
   }
   for (const event of ["workflow_dispatch", "schedule"]) assert.deepEqual(changedLayers([], event), allLayers);
+});
+
+test("shared database and service changes retain consumer checks without engine suites", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["packages/shared/src/db/schema.ts", "packages/shared/src/services/creator-access.ts"]) {
+      const layers = classify([file], event);
+      assert.equal(layers.engine, false, `${event}: ${file}`);
+      for (const area of ["shared", "duel_unit", "web", "bot", "ws", "worker", "e2e"]) {
+        assert.equal(layers[area], true, `${event}: ${file}: ${area}`);
+      }
+    }
+  }
+});
+
+test("shared duel rules and engine runtime imports retain engine coverage", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "packages/shared/src/duels/settings.ts",
+      "packages/shared/src/duels/future-rule.ts",
+      // cards.ts imports this outside shared/duels.
+      "packages/shared/src/observability/index.ts",
+      // Deck validation uses passcode remaps even though they live under db/.
+      "packages/shared/src/db/card-passcode-remaps.ts",
+    ]) assert.equal(classify([file], event).engine, true, `${event}: ${file}`);
+  }
 });
 
 test("TS-only engine PRs and main pushes skip native and differential core checks", () => {
@@ -286,16 +310,16 @@ test("shared graph follows export aliases, barrels, relative and dynamic imports
   const files = engineSharedFiles({
     "packages/duel-server/src/host.ts": 'import { service } from "@yugidraft/shared/services"; import("@yugidraft/shared/lazy");',
     "packages/shared/src/services/index.ts": 'export * from "./duels.js";',
-    "packages/shared/src/services/duels.ts": 'import type { Schema } from "../db/schema.js";',
+    "packages/shared/src/services/duels.ts": 'import type { Rules } from "../rules.js"; export const service = true;',
     "packages/shared/src/unused.ts": 'export const unused = true;',
   }, { "./services": { default: "./dist/services/index.js" }, "./lazy": { source: "./src/lazy.ts" } });
-  for (const file of ["services/index.ts", "services/duels.ts", "db/schema.ts", "lazy.ts"]) {
+  for (const file of ["services/index.ts", "services/duels.ts", "rules.ts", "lazy.ts"]) {
     assert.ok(files.has("packages/shared/src/" + file), file);
   }
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
 });
 
-test("shared graph starts from duel tests and follows their test-only imports", () => {
+test("shared graph starts from core suites and follows their test-only imports", () => {
   const files = engineSharedFiles({
     "packages/duel-server/tests/host.test.ts": 'import { fixture } from "@yugidraft/shared/test-only";',
     "packages/shared/src/test-only/index.ts": 'export * from "../deleted.js";',
@@ -304,6 +328,64 @@ test("shared graph starts from duel tests and follows their test-only imports", 
   assert.ok(files.has("packages/shared/src/test-only/index.ts"));
   assert.ok(files.has("packages/shared/src/deleted.ts"));
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
+});
+
+test("shared graph excludes HTTP startup and unit-only service imports", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/src/server.ts": 'import "@yugidraft/shared/http-only";',
+    "packages/duel-server/tests/unit-only.test.ts": 'import("@yugidraft/shared/services");',
+    "packages/shared/src/services/index.ts": 'export * from "./creator-access.js";',
+    "packages/shared/src/services/creator-access.ts": 'export const creator = true;',
+  }, {});
+  assert.equal(files.has("packages/shared/src/http-only.ts"), false);
+  assert.equal(files.has("packages/shared/src/services/creator-access.ts"), false);
+});
+
+test("shared graph finds new core suites through helpers and keeps legacy suites", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/tests/future.test.ts": 'import "./helpers/future.js"; import "@yugidraft/shared/future-rules";',
+    "packages/duel-server/tests/helpers/future.ts": 'import "../support/cores.js";',
+    "packages/duel-server/tests/legacy-main/future.test.ts": 'import "@yugidraft/shared/legacy-rules";',
+    "packages/duel-server/tests/support/setup.ts": 'import "@yugidraft/shared/test-setup";',
+  }, {});
+  for (const file of ["future-rules.ts", "legacy-rules.ts", "test-setup.ts"]) {
+    assert.ok(files.has("packages/shared/src/" + file), file);
+  }
+});
+
+test("shared graph resolves named application barrel imports without unrelated services or DB setup", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/src/host.ts": 'import { engineRule as rule } from "@yugidraft/shared/services"; import { remap } from "@yugidraft/shared/db";',
+    "packages/duel-server/src/worker.ts": 'import { otherRule } from "@yugidraft/shared/services";',
+    "packages/duel-server/tests/host.test.ts": 'import { migrate } from "@yugidraft/shared/db";',
+    "packages/shared/src/services/index.ts": 'export * from "./rules.js"; export { original as otherRule } from "./other.js"; export * from "./creator-access.js";',
+    "packages/shared/src/services/rules.ts": 'export { engineRule } from "./nested.js";',
+    "packages/shared/src/services/nested.ts": 'export const engineRule = true;',
+    "packages/shared/src/services/creator-access.ts": 'export const creator = true;',
+    "packages/shared/src/db/index.ts": 'export { remap } from "./card-passcode-remaps.js"; export { migrate } from "./schema.js";',
+    "packages/shared/src/db/card-passcode-remaps.ts": 'export const remap = true;',
+    "packages/shared/src/db/schema.ts": 'import "../services/creator-access.js"; export const migrate = true;',
+  }, { "./db": "./dist/db/index.js", "./services": "./dist/services/index.js" });
+  for (const file of ["services/rules.ts", "services/nested.ts", "services/other.ts", "db/card-passcode-remaps.ts"]) {
+    assert.ok(files.has("packages/shared/src/" + file), file);
+  }
+  assert.equal(files.has("packages/shared/src/services/creator-access.ts"), false);
+  assert.equal(files.has("packages/shared/src/db/schema.ts"), false);
+});
+
+test("shared graph keeps namespace, dynamic and unresolved barrel exports conservative", () => {
+  for (const statement of [
+    'import * as services from "@yugidraft/shared/services";',
+    'import("@yugidraft/shared/services");',
+    'import { deletedExport } from "@yugidraft/shared/services";',
+  ]) {
+    const files = engineSharedFiles({
+      "packages/duel-server/src/host.ts": statement,
+      "packages/shared/src/services/index.ts": 'export * from "./rules.js";',
+      "packages/shared/src/services/rules.ts": 'export const rule = true;',
+    }, {});
+    assert.ok(files.has("packages/shared/src/services/rules.ts"), statement);
+  }
 });
 
 test("shared source imported only by duel tests selects engine checks", () => {
