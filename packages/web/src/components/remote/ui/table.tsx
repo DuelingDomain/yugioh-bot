@@ -13,7 +13,7 @@ import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, Log
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Tier } from "./popup";
 import { interpret, trySaying, type VoiceIntent } from "./grammar";
-import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, foundationZone, hasDeck, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { setFeedbackCapture, type FeedbackSource } from "./recognizer";
@@ -26,12 +26,14 @@ import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { RemoteLobbyRoom } from "./lobby";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
+import { Icon } from "./icons";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const UNDO_MS = 5000;
+const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
@@ -50,13 +52,14 @@ export function RemoteTableScreen({ slug }: { slug: string }) {
   return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
+/** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
 function CameraControl({room}: {room:RemoteRoom}) {
   const hub = useVideoHub();
-  if (!hub.cameraOn) return <div className={s.camsel}><PhonePairing room={room} /></div>;
-  return <div className={s.camsel}><PhonePairing room={room} />
-    {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
+  const leave = hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off";
+  return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
+    {hub.cameraOn && hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>{hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off"}</button>
+    {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
 }
 
@@ -70,6 +73,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const name = useCallback((seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`, [room.seats]);
   const lpOf = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const startingLp = room.format?.settings.startingLP ?? 8000;
+  const extraZones = hasExtraZones(room.format?.id);
   const turnActor = solo ? state.turnSeat : mySeat;
   const myTurn = solo || mySeat === state.turnSeat;
   const [feedbackPref, setFeedbackPref] = useState<FeedbackPreference | null>(null);
@@ -132,6 +136,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [unread, setUnread] = useState(false); const lastSeq = useRef(room.lastSeq);
   useEffect(() => { if (room.lastSeq !== lastSeq.current) { lastSeq.current = room.lastSeq; if (layers.layer !== "log") setUnread(true); } }, [room.lastSeq, layers.layer]);
   useEffect(() => { if (layers.layer === "log") setUnread(false); }, [layers.layer]);
+  // The popup for a card closed: its outline on the feed goes with it.
+  const heldBefore = useRef(false);
+  useEffect(() => {
+    const held = layers.layer === "card" || layers.layer === "tray";
+    popupHeld.current = held ? ctx.current?.seat ?? null : null;
+    if (heldBefore.current && !held) { setMarks({}); setReticles({}); }
+    heldBefore.current = held;
+  }, [layers.layer]);
   const addVoiceLog = useCallback((text: string) => setVoiceLog(list => [...list.slice(-30), { id: `vx:${Date.now()}`, time: fmtTime(Date.now()), kind: "VX" as const, text, fresh: true }]), []);
 
   // ---- actions ----
@@ -162,7 +174,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [act, toast, undoText]);
 
   // ---- feed marks, recognition ----
-  const [marks, setMarks] = useState<Record<number, FeedMark[]>>({}); const [reticles, setReticles] = useState<Record<number, FeedReticle[]>>({});
+  const [marks, setMarks] = useState<Record<number, FeedMark[]>>({});
+  const popupHeld = useRef<number | null>(null);
+  const resetFeed = useCallback((seat: number) => {
+    setMarks(all => (all[seat]?.length ? { ...all, [seat]: [] } : all)); setReticles(all => (all[seat]?.length ? { ...all, [seat]: [] } : all));
+  }, []); const [reticles, setReticles] = useState<Record<number, FeedReticle[]>>({});
   const [tray, setTray] = useState<TrayState | null>(null); const ctx = useRef<ReadCtx | null>(null); const readCounter = useRef(0);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null }); const beginId = useRef(0); const [adding, setAdding] = useState(false); const [fresh, setFresh] = useState<string | undefined>();
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
@@ -175,10 +191,19 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>) => {
     const current = R.current.room;
     const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = spellTrap && /field/i.test(found?.type ?? "");
-    const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : "monster";
+    const emzSlot = !spellTrap && /link/i.test(found?.type ?? "") && hasExtraZones(current.format?.id) ? freeEmzSlot(seat, current.state.seats) : undefined;
+    const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : emzSlot ? "extra-monster" : "monster";
     const used = new Set(current.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
-    const slot = row === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !used.has(n));
+    const slot = row === "field" ? undefined : emzSlot ?? [1, 2, 3, 4, 5].find(n => !used.has(n));
     return { row, slot, ref: `c${seat}-${cardId}-${Date.now().toString(36)}` };
+  };
+  /** A free Extra Monster Zone for this seat: not used by its own cards and not taken by the facing seat, which shares the row (my zone 1 is their zone 2). */
+  const freeEmzSlot = (seat: number, seats: readonly { twin: readonly TwinCard[] }[], also: ReadonlySet<number> = new Set()) => {
+    const other = facingSeat(seat, seatCount);
+    const used = new Set<number>(also);
+    for (const card of seats[seat]?.twin ?? []) if (card.zone === "extra-monster" && card.slot) used.add(card.slot);
+    if (other !== null) for (const card of seats[other]?.twin ?? []) if (card.zone === "extra-monster" && card.slot) used.add(mirrorEmz(card.slot));
+    return [1, 2].find(n => !used.has(n));
   };
   /** A public copy of this card already on the field. The same physical card must not be put there twice. */
   const copyOnField = (seat: number, cardId: number) =>
@@ -214,8 +239,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
     const not = updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
-    setMarks(all => ({ ...all, [seat]: [...(all[seat] ?? []).slice(-7), { id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(updated.state.identified?.addErrors?.length) }] }));
+    // One outline per card, and one active selection at a time: a new read replaces the older outlines on this feed.
+    setMarks(all => ({ ...all, [seat]: [{ id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(updated.state.identified?.addErrors?.length) }] }));
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
+    // The outline expires after a few seconds, unless the popup for this card is still open.
+    const expire = () => { if (popupHeld.current === seat) { setTimeout(expire, 2000); return; } setMarks(all => (all[seat] ?? []).some(mark => mark.id === markId) ? { ...all, [seat]: (all[seat] ?? []).filter(mark => mark.id !== markId) } : all); };
+    setTimeout(expire, MARK_LIFE_MS);
     setPopAt(at.at); layers.open("card");
     if(ctx.current) delete ctx.current.cardRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -322,13 +351,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     });
     const fresh = sure.filter(card => !reveals.some(item=>item.card===card)).filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
       .sort((a, b) => a.quad.reduce((n, p) => n + p.x, 0) - b.quad.reduce((n, p) => n + p.x, 0));
-    const taken: Record<string, Set<number | undefined>> = { monster: new Set(), "spell-trap": new Set() };
+    const taken: Record<string, Set<number | undefined>> = { monster: new Set(), "spell-trap": new Set(), "extra-monster": new Set() };
+    const emzOn = hasExtraZones(R.current.room.format?.id);
     for (const item of current.seats[seat].twin) taken[item.zone]?.add(item.slot);
     const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number }[] = [];
     for (const card of fresh) {
       const type = cardInfo(card.cardId)?.type ?? ""; const spellTrap = /spell|trap/i.test(type);
-      const zone = spellTrap && /field/i.test(type) ? "field" : spellTrap ? "spell-trap" : "monster";
-      const slot = zone === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !taken[zone].has(n));
+      const emzSlot = !spellTrap && emzOn && /link/i.test(type) ? freeEmzSlot(seat, current.seats, new Set([...taken["extra-monster"]].filter((n): n is number => !!n))) : undefined;
+      const zone = spellTrap && /field/i.test(type) ? "field" : spellTrap ? "spell-trap" : emzSlot ? "extra-monster" : "monster";
+      const slot = zone === "field" ? undefined : emzSlot ?? [1, 2, 3, 4, 5].find(n => !taken[zone].has(n));
       if (slot) taken[zone].add(slot);
       placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone, slot });
     }
@@ -356,7 +387,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
     if (!live) return "The table is closed."; if (!card) return "No card selected.";
-    if (card.zone !== "monster") return "Only monsters in a monster zone can attack.";
+    if (card.zone !== "monster" && card.zone !== "extra-monster") return "Only monsters in a monster zone can attack.";
     if (seat !== state.turnSeat) return `Only ${name(state.turnSeat)}'s monsters can attack this turn.`;
     if (!myTurn) return "Wait for your turn.";
     if (state.phase !== "battle") return "Move to the Battle Phase first.";
@@ -545,8 +576,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onPin: () => layers.open("insp"),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
-      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone,
-      onMove: (zone: string) => void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref }),
+      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, extraZones,
+      onMove: (zone: string) => {
+        // A move into the Extra Monster Zones picks a slot the facing seat has not taken. Pendulum Zones use the outer Spell/Trap cells.
+        const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
+        if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
+        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}) });
+      },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
     } } : {}),
@@ -568,6 +604,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const format = room.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
+  const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
   const draftPhase = PHASES.length;
   void draftPhase;
@@ -596,11 +633,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
-            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReadBoard={readBoardInto}
-            twin={twin} info={info} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
+            twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} pickPlate={plate}
-            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && card.zone === "monster") void declare(seat, card.ref); else if (card) openSubject(card); }}
+            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}

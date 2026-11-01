@@ -32,6 +32,7 @@ export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
+const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
@@ -69,23 +70,29 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, below, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
   onBegin: (seat: number, start: FeedStart) => void;
   /** A click that found no outlined card. The table reads at that point. */
   onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
   onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
+  /** The outlines and labels on this feed are stale (camera off or changed, freeze changed, video shape changed). The table drops them. */
+  onReset: (seat: number) => void;
   /** Called with the cards read from the whole frame. Resolves to a short summary for the feed. */
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
-  holdSelection: boolean; extra?: ReactNode; emptyText: string; emptyAction?: ReactNode;
+  holdSelection: boolean; extra?: ReactNode;
+  /** A strip under the video box (camera controls). It never covers the video. */
+  below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
 }) {
   const hub = useVideoHub();
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null); const wrap = useRef<HTMLDivElement>(null); const cam = useRef<HTMLDivElement>(null); const holder = useRef<HTMLDivElement>(null);
   const maskId = useId().replace(/:/g, "");
   const [box, setBox] = useState<Box | null>(null);
+  // The box has the camera's real shape (4:3 or 16:9 webcams, a phone), so the whole video fills it with no bars and no crop.
+  const [ratio, setRatio] = useState(DEFAULT_RATIO);
   const [frozen, setFrozenState] = useState<Frozen | null>(null);
   const [active, setActive] = useState(-1); const [hover, setHover] = useState(-1); const [selected, setSelected] = useState<string | null>(null);
   const [peekLabel, setPeekLabel] = useState<PeekLabel | null>(null); const [board, setBoard] = useState<BoardState | null>(null);
@@ -106,11 +113,14 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     return () => { stopWatching(); detach(); setFrozenHealth(seat, false); };
   }, [source, seat, setFrozenHealth]);
 
+  useEffect(() => { if (!source) setRatio(DEFAULT_RATIO); }, [source]);
   useEffect(() => {
     const element = video.current; const area = cam.current; if (!element || !area) return;
     const measure = () => {
       const w = area.clientWidth; const h = area.clientHeight; const vw = element.videoWidth; const vh = element.videoHeight;
       if (!w || !h || !vw || !vh) { setBox(null); return; }
+      const real = Math.min(MAX_RATIO, Math.max(MIN_RATIO, vw / vh));
+      setRatio(previous => Math.abs(previous - real) < 0.002 ? previous : real);
       const scale = Math.min(w / vw, h / vh); const width = vw * scale; const height = vh * scale;
       setBox({ left: (w - width) / 2, top: (h - height) / 2, width, height });
     };
@@ -175,6 +185,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
   }, []);
   useEffect(() => { if (!source) unfreeze(); }, [source, unfreeze]);
+  // Outlines and labels are short-lived. They go when the camera turns off or changes, when the feed freezes or resumes, and when the video changes shape.
+  const isFrozenNow = !!frozen;
+  useEffect(() => { onReset(seat); }, [seat, source, isFrozenNow, ratio, onReset]);
   useEffect(() => () => { if (dwell.current) clearTimeout(dwell.current); }, []);
   // The table closed its popover: the outline stays frozen, only the highlight goes.
   const hadHold = useRef(false);
@@ -380,7 +393,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     : frozen.status === "ready" ? (frozen.cards.length ? `${frozen.cards.length} ${frozen.cards.length === 1 ? "card" : "cards"} outlined` : "No cards found. Click one to read it anyway.")
     : frozen.status === "unavailable" ? "Outlines need the card reader. Click a card to read it here." : "Outlines failed. Click a card to read it here.";
 
-  return <div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
+  return <div className={s.feedcol} data-testid={`feed-col-${seat}`} style={{ "--vr": ratio } as CSSProperties}><div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
@@ -414,7 +427,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       {board ? <div className={`${s.boardbar} ${board.state === "reading" ? s.boardbarWait : ""} ${board.state === "fail" ? s.boardbarFail : ""}`} role="status" data-testid="board-status" data-state={board.state}>
         <span>{board.text}</span>{board.state === "reading" ? <i aria-hidden="true" /> : <button type="button" onClick={() => setBoard(null)} aria-label="Dismiss"><Icon name="x" /></button>}
       </div> : null}
-      {marks.map(mark => {
+      {source && !frozen ? marks.map(mark => {
         const r = rect(mark.x, mark.y, mark.quad); const rh = typeof r.height === "number" ? r.height : 0; const rt = typeof r.top === "number" ? r.top : 0;
         const flip = box ? rt + rh + (mark.notInDecklist ? 62 : 30) > (wrap.current?.clientHeight ?? 0) : false;
         return <div key={mark.id} className={`${s.lk} ${mark.notInDecklist ? s.nid : ""} ${mark.show ? s.show : ""}`} style={r} data-testid="lock">
@@ -423,8 +436,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
             <Icon name="warn" />Not in decklist{mark.canAdd ? <button type="button" onClick={() => onAdd(mark)}>Add to decklist</button> : null}
           </span> : null}
         </div>;
-      })}
-      {reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>)}
+      }) : null}
+      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
     </div>
     <span className={s.ctag}><i />{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`}>
@@ -440,5 +453,5 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>
     {extra}
-  </div>;
+  </div>{below}</div>;
 }

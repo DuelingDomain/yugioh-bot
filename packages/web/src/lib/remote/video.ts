@@ -117,7 +117,7 @@ export class RemoteVideo {
       if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
       if (capture) {
       const camera = await createLocalVideoTrack({ deviceId: deviceId ? { exact: deviceId } : undefined,
-        facingMode: "environment", resolution: { width: 1920, height: 1080, frameRate: 24 } });
+        facingMode: "environment", resolution: { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } });
       if (this.closed || epoch !== this.epoch) { camera.stop(); await this.room.disconnect(); return; }
       this.camera = camera; camera.mediaStreamTrack.contentHint = "detail";
       await this.room.localParticipant.publishTrack(camera, { name: "field-cam", source: Track.Source.Camera,
@@ -159,7 +159,7 @@ export class RemoteVideo {
   async selectCamera(deviceId: string) {
     const camera = this.camera; const epoch = this.epoch;
     if (!camera) { this.patch({ cameraId: deviceId }); return; }
-    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: { width: 1920, height: 1080, frameRate: 24 } });
+    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } });
     if (this.closed || epoch !== this.epoch || camera !== this.camera) { camera.stop(); return; }
     camera.mediaStreamTrack.contentHint = "detail";
     this.patch({ cameraId: deviceId }); this.sync();
