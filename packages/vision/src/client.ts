@@ -1,6 +1,6 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
-import type { GameProfile, RecognitionResult, RecognizeOptions } from './types';
+import type { DetectionResult, GameProfile, RecognitionResult, RecognizeOptions } from './types';
 export interface RecognizerConfig {
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
@@ -10,6 +10,8 @@ export interface RecognizerConfig {
 export interface Recognizer {
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
+  /** Finds every card in one frame (quads as fractions of the frame). Shares the worker queue with recognize(). */
+  detect(frame: ImageBitmap | ImageData): Promise<DetectionResult>;
   dispose(): void;
 }
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
@@ -54,6 +56,13 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const bitmaps = frames.filter(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap);
         return await request({ type: 'recognize', frames, opts }, bitmaps) as RecognitionResult;
       } finally { inFlight = false; }
+    },
+    async detect(frame) {
+      if (disposed) throw new Error('Recognizer is disposed');
+      if (frame.width < 3 || frame.height < 3 || frame.width * frame.height > 16_000_000) throw new Error('Supply a frame of 3 pixels to 16 MP');
+      await initialize();
+      if (disposed) throw new Error('Recognizer is disposed');
+      return await request({ type: 'detect', frame }, typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? [frame] : []) as DetectionResult;
     },
     dispose() { disposed = true; worker?.terminate(); worker = undefined; failAll(new Error('Recognizer disposed')); },
   };

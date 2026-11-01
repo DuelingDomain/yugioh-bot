@@ -11,7 +11,7 @@ import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
 import { normalize, topK, mergeCandidates, decide, tierFor } from './search';
-import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate } from './types';
+import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, DetectedCardQuad } from './types';
 
 function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad {
   const h = Math.min(img.height * profile.fallbackHeight, img.width * profile.card.height / profile.card.width);
@@ -23,6 +23,20 @@ function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad
 
 export class RecognitionPipeline {
   constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor) {}
+  /** Every card the detector sees in one frame, with edge-fitted corners when the fit succeeds. Corners are fractions of the frame. */
+  async detectCards(frame: RGBAImage): Promise<DetectedCardQuad[]> {
+    if (frame.width < 3 || frame.height < 3 || frame.width * frame.height > 16_000_000 || frame.data.length !== frame.width * frame.height * 4) throw new Error('Supply a valid frame of at most 16 MP');
+    let cards = await detect(this.detector, this.Tensor, frame, this.profile.detector.longSide);
+    // Same crop-scale second pass as recognize(): large close-ups sit outside the trained size range.
+    if (!cards.length && this.profile.detector.longSide > 448) cards = await detect(this.detector, this.Tensor, frame, 448);
+    const norm = (p: Point) => ({ x: Math.min(1, Math.max(0, p.x / frame.width)), y: Math.min(1, Math.max(0, p.y / frame.height)) });
+    return cards.map(card => {
+      const fitted = refinedCorners(card, frame);
+      const refined = fitted.length === 4;
+      const quad = refined ? fitted : card.pts.map(([x, y]) => ({ x, y }));
+      return { quad: quad.map(norm), kind: card.kind, confidence: card.conf, refined };
+    }).sort((a, b) => b.confidence - a.confidence);
+  }
   async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult> {
     validateOptions(opts);
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');

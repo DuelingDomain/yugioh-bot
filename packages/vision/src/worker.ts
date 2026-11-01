@@ -40,7 +40,7 @@ function pixels(frame: ImageBitmap | ImageData): RGBAImage {
   }
   return frame;
 }
-type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions };
+type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | { id: number; type: 'detect'; frame: ImageBitmap | ImageData };
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data;
@@ -48,7 +48,13 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   queue = queue.then(async () => {
     try {
       if (message.type === 'init') { await initialize(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null }); }
-      else {
+      else if (message.type === 'detect') {
+        if (!pipeline) throw new Error('Recognizer has not initialized');
+        const image = (() => { try { return pixels(message.frame); } finally { if ('close' in message.frame) message.frame.close(); } })();
+        const start = performance.now();
+        const cards = await pipeline.detectCards(image);
+        scope.postMessage({ id: message.id, result: { cards, width: image.width, height: image.height, timingMs: performance.now() - start, backend: sessions[0]?.backend ?? 'wasm' } });
+      } else {
         if (!pipeline) throw new Error('Recognizer has not initialized');
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }

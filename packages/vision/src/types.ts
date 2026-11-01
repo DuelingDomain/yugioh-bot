@@ -35,6 +35,9 @@ export interface RecognitionPriors {
   frameClasses?: string[];
 }
 export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors }
+/** One card found in a frame. `quad` has four corners (clockwise from top-left) as fractions of the frame (0..1). */
+export interface DetectedCardQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; refined: boolean }
+export interface DetectionResult { cards: DetectedCardQuad[]; width: number; height: number; timingMs: number; backend: 'webgpu' | 'wasm' }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];
