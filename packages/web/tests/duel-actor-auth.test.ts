@@ -191,6 +191,36 @@ describe("remote duel API foundation", () => {
   const request = (path: string, body?: unknown) => new Request(`http://localhost/api/remote${path}`, {
     method: body === undefined ? "GET" : "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  it.each([2, 3, 4])("creates a %i-seat solo table and authorizes only its owner to act as bots", async seatCount => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    const { POST } = await import("../app/api/remote/route");
+    for (const solo of ["true", 1, null]) expect((await POST(request("", { gameId: "ygo", seatCount, solo }))).status).toBe(400);
+    const response = await POST(request("", { gameId: "ygo", seatCount, solo: true }));
+    expect(response.status).toBe(201);
+    let room = await response.json();
+    expect(room.solo).toBe(true); expect(room.seats.filter((s: { bot: boolean }) => s.bot)).toHaveLength(seatCount - 1);
+    const context = { params: Promise.resolve({ slug: room.slug }) };
+    const { POST: livekit } = await import("../app/api/remote/[slug]/livekit/route");
+    const media = await livekit(request(`/${room.slug}/livekit`, {}), context);
+    expect(media.status).toBe(200);
+    expect(await media.json()).toMatchObject({ mode: "solo", required: false, code: "SOLO_LOCAL_PREVIEW" });
+    const { POST: ready } = await import("../app/api/remote/[slug]/ready/route");
+    await ready(request(`/${room.slug}/ready`, { ready: true }), context);
+    const { POST: start } = await import("../app/api/remote/[slug]/start/route");
+    room = await (await start(request(`/${room.slug}/start`, {}), context)).json();
+    const { POST: act } = await import("../app/api/remote/[slug]/actions/route");
+    const command = { baseSeq: room.lastSeq, action: { type: "twin.place", actorSeat: 1, idempotencyKey: "bot-field", seat: 1, zone: "monster", card: { ref: "bot", name: "Dark Magician" } } };
+    const edited = await act(request(`/${room.slug}/actions`, command), context);
+    expect(edited.status).toBe(200);
+    expect((await edited.json()).state.seats[1].twin[0].name).toBe("Dark Magician");
+    const guest = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000008", displayName: "Guest" }).id;
+    state.auth.mockResolvedValue({ user: { id: String(guest), name: "Guest" } });
+    expect((await act(request(`/${room.slug}/actions`, command), context)).status).toBe(404);
+    expect((await livekit(request(`/${room.slug}/livekit`, {}), context)).status).toBe(404);
+    const { POST: join } = await import("../app/api/remote/[slug]/seat/route");
+    expect((await join(request(`/${room.slug}/seat`, { seat: 1 }), context)).status).toBe(403);
+    expect(playerCount()).toEqual({ c: 0 });
+  });
   it("defaults off and uses the shared signed-in boundary when enabled", async () => {
     const { GET, POST } = await import("../app/api/remote/route");
     expect((await GET(request(""))).status).toBe(404);

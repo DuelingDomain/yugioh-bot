@@ -1,6 +1,7 @@
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
 import type { GameModule, RemotePosition, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
+import { parseRemoteCommand } from "../command-parser.js";
 
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
@@ -125,5 +126,5 @@ export const ygoModule: GameModule = {
     return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, updatedAt: 0, undo: null };
-  }, reduce, parseCommand: () => null, resolveAttack,
+  }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
 };

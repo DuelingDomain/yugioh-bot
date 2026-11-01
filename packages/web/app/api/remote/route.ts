@@ -12,10 +12,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
-    const body = await remoteBody(request, ["gameId", "seatCount"]);
+    const body = await remoteBody(request, ["gameId", "seatCount", "solo"]);
     remoteAssert(typeof body.gameId === "string", "Invalid game");
+    remoteAssert(body.solo === undefined || typeof body.solo === "boolean", "Invalid solo setting");
     const room = actor.remote.create({ guildId: actor.guildId, userId: actor.userId, displayName: actor.displayName,
-      gameId: body.gameId, seatCount: remoteSeatCount(body.seatCount) });
+      gameId: body.gameId, seatCount: remoteSeatCount(body.seatCount), solo: body.solo as boolean | undefined });
     await notifyRemoteChange(room.slug, actor.guildId);
     return remoteJson(room, 201);
   } catch (error) { return remoteError(error); }

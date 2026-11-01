@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type RemoteRoom, type SeatCount } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -15,6 +15,32 @@ function setup() {
   return { db, users, service, table };
 }
 describe("solo remote tables", () => {
+  it("parses voice controls for the selected bot through the same reducer", () => {
+    let state = ygoModule.initialState({ seatCount: 3 }); let n = 0;
+    const speak = (text: string, actorSeat = 1) => {
+      const proposal = ygoModule.parseCommand({ text, actorSeat, state });
+      expect(proposal, text).not.toBeNull();
+      state = ygoModule.reduce(state, { ...proposal!, idempotencyKey: `speech-${++n}`, at: n });
+    };
+    speak("place Dark Magician in monster slot 3");
+    expect(state.seats[1].twin[0]).toMatchObject({ name: "Dark Magician", slot: 3, faceUp: true });
+    speak("flip Dark Magician face down");
+    speak("move slot 3 to graveyard");
+    expect(state.seats[1].twin[0]).toMatchObject({ zone: "graveyard", faceUp: false });
+    speak("lose 500 LP"); expect(state.seats[1].resources.lp).toBe(7500);
+    speak("undo"); expect(state.seats[1].resources.lp).toBe(8000);
+    speak("set LP to 7000"); expect(state.seats[1].resources.lp).toBe(7000);
+    speak("gain 1000 LP"); expect(state.seats[1].resources.lp).toBe(8000);
+    speak("note bot adjusted");
+    speak("identify 89631139", 0); expect(state.identified).toMatchObject({ seat: 0, cardId: 89631139, source: "voice" });
+    speak("end turn", 0); speak("next phase"); expect(state.phase).toBe("standby");
+    speak("main 1 phase"); expect(state.phase).toBe("main1");
+    speak("remove Dark Magician"); expect(state.seats[1].twin).toEqual([]);
+    expect(ygoModule.parseCommand({ text: "nonsense", actorSeat: 1, state })).toBeNull();
+    expect(ygoModule.parseCommand({ text: "gain 0 LP", actorSeat: 1, state })).toBeNull();
+    expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
+  });
+
   it.each([2, 3, 4] as SeatCount[])("fills a %i-seat solo table with userless, ready bots and runs the full action loop", seatCount => {
     const { service, users, db } = setup();
     let room = service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount, solo: true }, 2000);
