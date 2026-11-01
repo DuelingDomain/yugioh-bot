@@ -699,3 +699,115 @@ captures. Zero observed errors on a finite tuning set is not a population guaran
 No webcam threshold file is shipped without physical webcam labels.
 
 Measurement details and limitations: [REPORT.md](REPORT.md#recognition-review-follow-up--2026-11-01).
+
+## Automatic owner-field watcher
+
+The remote table now watches its **owner's native-resolution buffer** by default;
+no card click is needed. `Auto-detect cards` pauses/resumes it. `Watching field`
+reports its state. `Calibrate zones` takes four clockwise mat-corner clicks
+(top-left first) and saves the grid per user/seat in localStorage. Without a
+saved grid, normalized vertical bands and left-to-right ordering estimate
+M1–M5, S1–S5, field, EMZ, GY, banished, Deck and Extra areas. Keep the owner's
+mat inside the frame; the heuristic does not identify players in a shared image.
+
+The core API is independent of React and remote transport:
+
+```ts
+import { createOwnFeedBuffer, createFieldWatcher, yugioh } from '@yugidraft/vision';
+const buffer = createOwnFeedBuffer(nativeOwnVideo);
+const watcher = createFieldWatcher({
+  recognizer: reader, buffer, profile: yugioh,
+  getPriors: () => ({ decklist: deckCardIds, seen: publicSeenCardIds }),
+  // Optional existing public twins: { id, zone: 'M3', cardId, faceDown, position, card? }
+  getKnownCards: () => existingInstances,
+});
+const off = watcher.subscribe(event => {
+  // placed / moved / flipped / removed / prompt; event.track.id is the physical ref.
+  // Only placed is an immediate placement proposal; prompt/removal require a pick.
+  handleProposal(event);
+});
+watcher.start();
+// On teardown: off(); watcher.dispose(); buffer.stop(); reader.dispose();
+```
+
+`detectCards` now initializes **only the detector**; index/embedding sessions and
+learned references are lazy until a full read. The watcher normally samples at
+2–4 fps, pauses for hidden tabs, input pressure and long main-thread tasks, and
+slows further when needed to keep detector inference duty near 20%. This duty
+is elapsed work/scheduled interval, not a hardware CPU percentage. Model startup
+and occasional recognition are excluded from that continuous duty estimate.
+`getSnapshot()` exposes status, tracks, detector/read timings, interval, skips,
+placement latency and errors. The caller owns its recognizer and buffer; disposal
+drops late results without terminating another caller's shared reader.
+
+A placement needs 0.8–1.2 seconds of consistent quads (default 1 second, at least
+three clean observations), detector confidence ≥ .7, low frame-difference energy,
+no partial/covered flag and no scene overlap. The sharpest sample in that stable
+window retains its **same-frame quad**. One full deck-first recognition follows.
+A visual `sure` with all pipeline guards becomes a public identification with
+`source: auto` followed by placement, so normal five-second Undo removes the new
+twin. Other tiers keep five alternatives in an anchored **New card?** prompt.
+No AI, crop upload or feedback capture runs automatically. A stable detected
+back creates an unnamed face-down twin without embedding or exposing identity.
+The Deck area never publishes face-up identity.
+
+IoU association preserves IDs during moves. A unique temporarily hidden card can
+reconnect across the mat only with matching small warped pixel appearances;
+ambiguous replacements are not assigned the old identity. Appearance comparison
+is not another embedding/recognition. Existing public refs survive watcher
+restarts; known flips, missing identity and attack/defense changes reconcile at
+settlement. `twin.move` accepts optional `position` for an undoable orientation
+update. A missed identified card needs more than two seconds of clear observations
+before a **GY / Banish / Hand** suggestion; it never moves automatically. A saved
+RGB surround suppresses stationary hand/arm occlusion, and reappearance invalidates
+the old removal suggestion. Dismissing that suggestion preserves tracking.
+
+Browser integration is isolated in
+`packages/web/src/lib/remote/use-field-watcher.ts` and
+`src/components/remote/field-watcher.tsx`. The table has one component mount;
+`ui/recognizer.ts` supplies a short shared-buffer/reader-queue bridge, and the log
+labels automatic identification. `feed.tsx`, video sizing, field visuals and
+styles are untouched. Manual reads take priority over detector polling.
+
+### Try and measure
+
+Open `/dev/vision-lab`, choose **Auto-detect**, select **WASM · CPU benchmark**
+for comparable measurements, and start the webcam. Place a card, clear your hand,
+and inspect the local twin, proposals, events, track outlines and timing/duty
+readout. The local lab's Undo is separate from the remote table's server Undo.
+
+Reproduce the offline benchmark using the existing prepared full index and
+`benchmark/board/board-2.jpg` (generate it with `benchmark-board.ts` if absent):
+
+```sh
+export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+npx tsx scripts/vision/prepare.ts --bundle-only
+npx tsx scripts/vision/benchmark-field-watcher.ts
+```
+
+The benchmark uses an ephemeral localhost listener, actual isolated Chromium,
+four WASM threads, a 1280×720 canvas camera and the full index. Its sole fixture
+preparation download is the checksum-pinned 945 KiB
+[IPN Hand published sample](https://gibranbenitez.github.io/IPN_Hand/) by
+Benitez-Garcia et al. (CC BY 4.0), converted with `ffmpeg` to a 197 KiB MP4.
+Inference is offline. The 3.4-second real gesture clip is looped for 30 seconds;
+it contains a person and room, not an overhead playmat. Raw results, fixture
+provenance and the small generated card image remain ignored under
+`data/vision/benchmark/field-watcher/`. CPU comes from Chromium CDP process CPU
+time, with both one-core and whole-machine percentages. See [REPORT.md](REPORT.md)
+for numbers and domain limits.
+
+The isolated camera/table e2e suite does not start the full application stack:
+
+```sh
+# Start a separate lab-enabled server, e.g. on 3449, using the auth setup above.
+# The table check also needs a seeded E2E user 101, REMOTE_DUELS=1 and a private DB.
+VISION_LAB_ORIGIN=http://127.0.0.1:3449 E2E_AUTH_SECRET="$LOCAL_E2E_SECRET" \
+  npx playwright test -c packages/e2e/playwright.vision.config.ts
+```
+
+Motion/surround checks cannot prove that every hand is clear, distinguish identical
+backs or perfectly occluded replacements, or reconstruct hidden cards. Appearance,
+zone heuristics and upstream confidence thresholds are not calibrated for all
+webcams. The measured indexed synthetic card trials and single short negative clip
+are workflow/regression evidence, not a real-player false-sure guarantee.

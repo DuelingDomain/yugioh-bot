@@ -335,3 +335,18 @@ holdout. See the current [runbook](../../docs/runbooks/vision-feedback.md) and
 [REPORT.md](REPORT.md). Historical inventory counts in the earlier report predate
 the delta-index adaptation above; current application rows: 4 ported, 53 adapted,
 58 not ported (115 total).
+
+
+## Automatic field watcher continuation
+
+`src/field-{watcher,motion,zones}.ts` is new local owner-camera integration, not
+an upstream auto-placement port. It combines detector-only polling, IoU and small
+pixel-appearance association, stillness/motion/surround guards, selected-quad
+recognition, zone calibration, stable physical refs and removal suggestions.
+`detect-scene.ts` extracts the existing detect-all behavior; worker index/embedder
+loading is lazy and a failed full-reader initialization preserves the detector.
+A stable face-down detection proposes presence only, never hidden identity.
+React lifecycle/settings/calibration, the remote normal-action adapter and the
+Auto-detect lab tab are application-specific. Indexed synthetic positives and one
+short real IPN Hand negative do not inherit upstream private-footage calibration
+or establish real-duel automatic-identification accuracy; see REPORT.md.

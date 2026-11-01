@@ -3,6 +3,83 @@
 Implemented on `feat/remote-vision` in the dedicated `remote-vision` worktree.
 The main checkout and port 3000 were not changed. Apache notices remain intact.
 
+## Automatic field watcher — 2026-11-01
+
+Implemented in `feat/remote-autodetect`, based on `origin/feat/remote-ui` at
+`0a96a709c`, in `.worktrees/remote-autodetect`. No main-checkout source changes,
+protected service changes, new unit-test files, model downloads or index rebuild.
+
+Measured with Node 22.23.3, Chromium 153.0.8010.12, GPU disabled, isolation/SIMD
+on, **four actual WASM threads**, eight logical host CPUs and the existing full
+index. The HTTP benchmark is offline after preparing one small negative fixture;
+it serves on an ephemeral localhost port. Startup requested only
+`models/card-detector.onnx`: **no embedding model, index or learning request**.
+Detector-only cold initialization took **436.4 ms**.
+
+| Workload / measure | Result |
+| --- | --- |
+| Real hand-motion negative | 30 s, 120 detector samples, **4.00 fps** |
+| False placements / prompts on that negative | **0 / 0** |
+| Negative Chromium CPU, entire eight-core machine | **5.17%** (41.33% of one core) |
+| Native 1280×720 synthetic card-appearance trials | **5/5 correct sure placements**, no card click |
+| Appearance → identified/placed event, median | **2,301.6 ms** |
+| Appearance → event, p95 (five trials; maximum) | **2,655.1 ms** |
+| Individual wall latencies | 2,552.6 / 1,968.1 / 2,043.2 / 2,655.1 / 2,301.6 ms |
+| Placement-trial Chromium CPU, whole machine | **12.33%** (98.66% of one core) |
+| Browser errors | **0** |
+
+CPU is the sum of Chromium CDP process CPU-time deltas divided by wall time;
+whole-machine CPU divides again by eight logical cores. It includes decoding,
+canvas camera/buffering, browser overhead and inference; it is not just detector
+CPU. Placement workload includes the first lazy full-reader load. A previous
+run under concurrent builds/browser work was slower (median 4.35 s); adaptive
+budgeting deliberately reduces detector frequency under load. These numbers do
+not describe a GPU, phone or unconstrained laptop battery budget.
+
+The negative is the **3.4-second** published
+[IPN Hand example](https://gibranbenitez.github.io/IPN_Hand/images/sample.gif),
+looped for 30 seconds, from Benitez-Garcia et al., *IPN Hand: A Video Dataset and
+Benchmark for Real-Time Continuous Hand Gesture Recognition* (ICPR 2020), data
+CC BY 4.0. Its person gestures in front of a room; there are no playing cards.
+It is one short negative scene, not thirty seconds of distinct scenes and not a
+real overhead duel-camera false-placement corpus. SHA256:
+`0a88ace3eef79a7c5712f25b9a3e0d92657b8e0adc7ccd7f328ac6e76894c3a9`.
+The positive trials render one existing indexed standard card on a plain mat
+through canvas `captureStream`/a native frame buffer. No claim of physical-card
+recall, broad hand rejection or calibrated webcam false-sure rate is made.
+
+Validation: **71 vision tests, 93 shared remote integration tests, 82 targeted
+web tests, and 3 real-worker camera e2e cases pass (249 total)**. Vision/web/e2e
+typechecks and the worker bundle pass. The final three-case browser run completed
+in 25.1 seconds on the isolated development server at port 3449.
+
+Correctness checks include stillness/motion/confidence/partial/overlap gating,
+sharpest frame+quad binding, deck priors, uncertain prompts, face-down privacy,
+ID persistence for moves and brief occlusion, appearance mismatch replacement,
+known-card restart/flip/unknown identity, removal/return/dismissal, stationary
+arm surround, normal 200/400 ms buffer jitter, an early missed detection,
+adaptive slow samples, cancellation and calibration/defense geometry. Server
+coverage verifies same-ref attack/defense changes, owner checks and Undo.
+The live fake-camera e2e verifies automatic appearance/movement, local Undo,
+owner-table identification+placement with `source:auto`, server Undo with no
+reapplication, and recovery after a deliberately failed lazy index request.
+
+The engine is in `packages/vision/src/field-{watcher,motion,zones}.ts`.
+`detect-scene.ts` is shared by the normal pipeline and detector-only worker path.
+Table wiring is one mount plus a short shared-reader bridge and log suffix;
+video sizing, card visuals and CSS are unchanged. Calibration and settings are
+versioned localStorage values per user/seat. Frames, appearance descriptors and
+physical tracks remain local. Removal and uncertain identity always require a
+choice. Automatic placement uses the normal action route/Undo contract.
+
+Reproduce: `npx tsx scripts/vision/benchmark-field-watcher.ts`.
+Raw ignored results: `data/vision/benchmark/field-watcher/results.json`.
+The script fetches/converts its pinned small hand fixture only if absent; `ffmpeg`
+is required for that preparation. Reuses `benchmark-board.ts`'s local card fixture.
+Models/index/runtime/dependencies are reused with hardlinks; generated assets,
+clips and browser artifacts are not committed. Live trial: `/dev/vision-lab` →
+**Auto-detect** → **Start camera**, or enable the camera on a Remote Duels table.
+
 ## Board continuation: local peeks, read-all and COVERED
 
 Measured with Node **22.23.3**, Chromium **153.0.8010.12**, GPU disabled,
