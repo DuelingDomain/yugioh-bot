@@ -7,11 +7,11 @@ import { REMOTE_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTabl
 import { duelFontClasses } from "@/components/duel/fonts";
 import { COLORS } from "./model";
 import { remoteApi, type RoomController } from "./use-remote-room";
+import { remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
 import l from "./remote-lobby.module.css";
 
-/** The table page is cross-origin isolated (COOP/COEP), so we reach it with a full document load. */
-const go = (slug: string) => `/duels/remote/${slug}`;
-const formatName = (id: string | undefined) => REMOTE_FORMATS.find(item => item.value === id)?.label ?? "Advanced";
+const go = remoteTableHref;
+const formatName = remoteFormatName;
 
 function TableLinks({ title, tables, error }: { title: string; tables?: RemoteTable[]; error?: string }) {
   return <section className={l.card} aria-label={title}>
@@ -28,33 +28,16 @@ function TableLinks({ title, tables, error }: { title: string; tables?: RemoteTa
   </section>;
 }
 
-/** /duels/remote: create a table and list yours and the open ones. */
+/** /duels/remote: the open and your own tables. Creating a table happens on the normal create screen. */
 export function RemoteLobby() {
-  const [seatCount, setSeatCount] = useState(2); const [solo, setSolo] = useState(false); const [format, setFormat] = useState<string>("normal");
-  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const mine = useSWR("remote:mine", () => remoteApi<{ tables: RemoteTable[] }>("?scope=mine"), { refreshInterval: 5000 });
   const open = useSWR("remote:open", () => remoteApi<{ tables: RemoteTable[] }>("?scope=open"), { refreshInterval: 5000 });
-  async function create() {
-    setBusy(true); setError("");
-    try { const room = await remoteApi<RemoteRoom>("", { gameId: "ygo", seatCount, solo, format }); window.location.assign(go(room.slug)); }
-    catch (e) { setError((e as Error).message); setBusy(false); }
-  }
   return <div className={`${duelFontClasses} ${l.lobby}`} data-testid="remote-lobby">
     <div className={l.head}><h1>Remote Duels</h1><p className={l.sub}>Play with real cards on your webcam. The table keeps score.</p></div>
-    <form className={l.card} onSubmit={event => { event.preventDefault(); void create(); }} aria-label="Create a table">
-      <h2>New table</h2>
-      <div className={l.row}>
-        <label className={l.field}>Game<select disabled><option>Yu-Gi-Oh!</option></select></label>
-        <label className={l.field}>Duel format<select value={format} onChange={e => setFormat(e.target.value)} data-testid="create-format">
-          {REMOTE_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className={l.field}>Seats<select value={seatCount} onChange={e => setSeatCount(Number(e.target.value))} data-testid="create-seats">
-          {[2, 3, 4].map(n => <option key={n} value={n}>{n === 2 ? "2 (1 v 1)" : n === 3 ? "3 (free for all)" : "4 (free for all)"}</option>)}</select></label>
-        <label className={l.check}><input type="checkbox" checked={solo} onChange={e => setSolo(e.target.checked)} data-testid="create-solo" />Solo test with bots</label>
-        <button className={`${l.btn} ${l.go}`} disabled={busy} data-testid="create-table">{busy ? "Creating…" : "Create table"}</button>
-      </div>
-      {solo ? <p className={l.note}>One webcam player with {seatCount - 1} test {seatCount === 2 ? "opponent" : "opponents"} you control. The camera stays on this device. No video server needed.</p> : null}
-      {error ? <p className={l.err} role="alert">{error}</p> : null}
-    </form>
+    <div className={l.actions}>
+      <a className={`${l.btn} ${l.go}`} href="/duels/new?type=remote" data-testid="new-remote-duel">New Remote Duel</a>
+      <a className={l.back} href="/duels">Back to duels</a>
+    </div>
     <div className={l.lists}>
       <TableLinks title="Your tables" tables={mine.data?.tables} error={mine.error?.message} />
       <TableLinks title="Open tables" tables={open.data?.tables} error={open.error?.message} />
@@ -65,11 +48,7 @@ export function RemoteLobby() {
 /** The setup room of a table that has not started: seats, decks, rules, ready, start. */
 export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const { operation, busy, error } = ctl;
-  const saved = useSWR("remote:saved-decks", async () => {
-    const response = await fetch("/api/decks", { cache: "no-store" }); const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Could not load saved decks");
-    return data as { decks: { id: number; name: string }[] };
-  });
+  const saved = useSavedDecks();
   const current = room.format ?? normalizeRemoteFormat();
   const [format, setFormat] = useState<string>(current.id);
   const [banlist, setBanlist] = useState(current.settings.banlist);
