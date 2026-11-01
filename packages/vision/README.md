@@ -30,14 +30,14 @@ E2E_AUTH=1 E2E_AUTH_SECRET=vision-lab-local-only-633-not-a-real-key \
 This does not sign a user in. It permits the gated public lab to render without
 initializing Clerk. Camera access needs localhost or HTTPS.
 
-For a quick first trial, use `--selection subset` instead. Full coverage
-includes Tokens, Skills and every named card/artwork in the source snapshot.
+For a quick first trial, use `--selection subset` instead. Physical-card coverage retains field Tokens and alternate artworks. Skill cards,
+nonphysical passcode-zero rows and duplicate image rows are excluded; see the runtime filter below.
 The single unnamed `???` record (nine images) is excluded as an upstream
 placeholder. Older filtered catalog caches are automatically refetched once.
 
 Use **Start camera**, then click a card, or **Freeze & outline cards** to select an exact gold quad with pointer/Tab/Enter. The caller owns a one-second ring of up
-to six full-resolution frames; the worker selects the sharpest three near the
-click. **Upload photo** exercises the same path with one frame. The page shows
+to six full-resolution frames; the worker evaluates up to the sharpest three near the
+click, stopping after a safe first sure frame with a clean lead of at least .05. **Upload photo** exercises the same path with one frame. The page shows
 five cached artwork thumbnails/scores, confidence tier, frame quality and stage timings. Click
 a candidate or press 1–5, or search the local index by name/passcode to correct
 it. **Export confirmations** downloads a local JSON log; it contains IDs and
@@ -183,17 +183,22 @@ best artwork per card. As in Duel Lens, extra windows/180° readings run only if
 the first view is uncertain. Selected-frame embeddings are normalized and averaged.
 A missed click uses a card-shaped crop around that click, reduces similarity by
 15%, and can never be `sure`. Border samples supply a conservative soft class
-penalty; explicit `priors.frameClasses` is a hard filter. Deck/seen/voice boosts
+penalty; explicit `priors.frameClasses` is a hard filter. Decklist rows are searched
+first, then the full catalog. A clear off-deck catalog winner survives as
+**Not in decklist**; a deck preference cannot manufacture sure. Seen/voice boosts
 are bounded to .06 and only affect plausible visual matches (raw cosine ≥ .5).
 Scores include ranking adjustments and are **not probabilities**.
 
 Confidence uses **unboosted visual candidates**, including the runner-up when
-`k=1`. Duel Lens's synthetic-only embedder thresholds are preserved: score ≥ .80
+`k=1`. Duel Lens's **broadcast-calibrated, not webcam-calibrated** thresholds are preserved: score ≥ .80
 and margin ≥ .02, or score ≥ .73 and margin ≥ .10, with floor .74 and a .10
 card-back margin. Below the floor is `low match`; above it without a sure match
 is `not sure`. A prior that changes the winner cannot make it sure. These are
 upstream thresholds, not a webcam calibration. The actual card back competes in
-the embedding index; a face-down detector prediction alone never identifies it.
+the embedding index. A face-down detection cannot be sure as a face-up card or
+produce feedback. Every evaluated frame must independently name the same clean
+catalog winner and pass the thresholds. Temporal reads redetect the quad per
+frame; an explicit selected quad applies only to a single frozen frame.
 
 The full upstream runtime handles WebGPU adapter/build/session/run timeouts,
 nonfinite GPU outputs and failures by retrying on a separate WASM runtime. A
@@ -264,7 +269,7 @@ The Yu-Gi-Oh catalog adapter is intentionally outside the generic runtime.
 
 Subset selection combines 1,000 cards ranked by repository format staple/generic
 deck usage (then catalog views), with recent released cards. It includes all
-alternate artworks, Tokens and Skills, and fills unavailable cards with the
+alternate artworks and field Tokens, excludes Skills/nonphysical rows, and fills unavailable cards with the
 next recent releases. Derived 224px JPEGs and model/profile-keyed float vectors
 are resumable. Local `data/card-images/<imageId>.jpg` full cards are preferred;
 otherwise use YGOPRODeck cropped art, falling back to the full render and the
@@ -276,7 +281,7 @@ placeholders are removed with Duel Lens's cosine ≥ .90 rule.
 ### Full catalog, verified 2026-11-01 UTC
 
 **14,652 cards, 14,816 artwork vectors + one card-back vector** (14,817 total).
-This includes 230 Tokens/Skills and 164 alternate images beyond one per card.
+This historical unfiltered build included 230 Tokens/Skills and 164 alternate images beyond one per card. The current runtime physical filter described below applies before search.
 Every named catalog card/image ID and every thumbnail was checked against the
 source snapshot. There are **zero missing artworks, failures or card-back
 placeholder exclusions** among these named entries. The source's one unnamed
@@ -567,7 +572,9 @@ await reader.recordFeedback(result, chosenCardId, 'pick');
 ```
 
 Eligible results carry a crop-bound normalized vector, game/model/hash, index
-and preprocessing identity. The Worker makes only a 224px JPEG. Fallback,
+and preprocessing identity. Feedback uses a bounded 224px JPEG. Explicit AI
+requests use a separate 640 × 933 source-frame warp and ten clean candidate names;
+the server rejects an answer outside that list. Fallback,
 partial, covered and card-back results have no feedback evidence. The client
 sends the original top five, tier, source, frame class and sharpness; it never
 sends source frames or audio. The server re-decodes/re-encodes JPEGs without
@@ -581,8 +588,14 @@ prune on access. User/account deletion removes crops and derived contributions.
 
 The deployment-wide delta requires two distinct authenticated users confirming
 the same card with cosine >= .97, or owner approval. It is scoped by model,
-index and preprocessing space, refreshed before each recognition/peek/board read,
-and discarded on refresh failure. Known confusion pairs require two users and
+index and preprocessing space. A worker refreshes it in the background on startup
+and every 60 seconds; reads never fetch or wait for it. Refresh failures retain
+the last good version for at most two minutes, then reads use an empty snapshot.
+Successful refreshes replace the entire snapshot, including deletions. References
+only rerank the clean top ten, require cosine ≥ .90, and are capped at eight per
+card. Known confusion identities do not use learned references. A learned score
+cannot establish sure: the same winner must pass the unmodified clean catalog
+score and margin against another card in every evaluated frame. Known confusion pairs require two users and
 force additional visual checks with a stricter margin; they never raise scores.
 Admin metrics include top-1/top-5 and **sure-but-wrong** per UTC day/original tier,
 with explicit submitted-feedback denominators.
@@ -605,3 +618,84 @@ lower top-1/top-5, increased sure-but-wrong, changed corpus or errors. No-baseli
 runs are labelled BASELINE. No real-player accuracy improvement is claimed yet.
 Full operating details, model/index overrides, offline-export deletion limits
 and browser smoke commands: [feedback runbook](../../docs/runbooks/vision-feedback.md).
+
+
+## Recognition review follow-up (2026-11-01)
+
+The active runtime applies `filterPhysicalIndex` to the standard and whole-card
+indexes. It leaves the shared on-disk binary/metadata untouched and copies only
+eligible rows into memory. On the existing catalog this removes **165 rows**:
+**14,817 → 14,652 vectors**, **14,652 → 14,487 card identities** plus the back.
+The policy retains field Tokens, ordinary cards such as Skill Drain, and all
+alternate image IDs; it excludes actual Skill-card entries, other nonphysical
+passcode-zero entries and repeated image IDs. `scripts/vision/catalog.ts` applies
+the corresponding source policy for future builds (catalog cache v3). No image
+download, retraining or re-embedding is needed to activate the runtime filter.
+The filtered count changes `indexVersion`, so old learned deltas are intentionally
+incompatible until new matching evidence is submitted.
+
+For an own camera feed, the lab uses the exported native-resolution API:
+
+```ts
+import {createOwnFeedBuffer,toRemoteRecognitionResult} from '@yugidraft/vision';
+const buffer=createOwnFeedBuffer(video); // always captures at native size, 5 fps
+const frames=await buffer.snapshot();    // clones; no new 1-second recording wait
+const result=await reader.recognize(frames,{clickPoint:{x,y},priors:{decklist}});
+const message=toRemoteRecognitionResult(result,entriesById,requestId);
+// {type:'recognition.result',requestId,candidates,tier,faceDown,covered}
+// candidates use positive catalog IDs, including Tokens without printed passcodes.
+buffer.stop(); // closes owned bitmaps/timer; caller keeps its camera track
+```
+
+The remote-room transport lives on `feat/remote-ui`, outside this worktree. This
+branch provides the payload producer/type and tests its tier/guard/ID mapping.
+That transport's strict schema and receiving UI must accept and preserve these
+fields when integrating the branches; no remote-room network timing is claimed.
+`catalogCardId(entry)` uses the catalog identity rather than `passcode=0`.
+Unmapped choices and the card back cannot trigger a card-identification action.
+
+### Real webcam test set capture and tuning
+
+In `/dev/vision-lab`, enable **Real webcam test set capture mode**, enter conditions,
+then **Freeze & outline cards**. Click a card, confirm its true name using the tray
+or search, then **Label confirmed card**. For negatives click any object or empty
+area, including a missed detection, then **Mark non-card object**. Capture mode
+retains all art views, raw clean/deck/ranked top-ten evidence, per-frame identities,
+static safety guards, provenance, native image dimensions, target and card width.
+It disables temporal early exit and feedback uploads. **Export N test samples**
+downloads a local JSON bundle containing full-frame JPEGs; no server upload occurs.
+Export before leaving; clear an exported batch to continue beyond 20 samples.
+
+Aim for roughly **300 physical-card positives and 100 negatives**, using 720p/1080p
+webcams and a phone, overhead/angled, bare/sleeved, matte/foil, bright/dim, near/far.
+Include alternate art, look-alikes, pendulums, art-sleeve backs, boxes, logos, hands
+and empty mat. Include about 10% off-deck cards when providing deck IDs. Freeze
+this evaluation corpus; keep it out of any future training data.
+
+```sh
+# Repeated --input accepts multiple batches. Existing manifest samples are retained.
+npx tsx scripts/vision/tune-thresholds.ts --input /private/vision-realset-1.json \
+  --input /private/vision-realset-2.json --import-dir data/vision/realset \
+  --out data/vision/yugioh-thresholds.json --gap .01
+```
+
+The tool verifies that each recorded tier replays exactly, validates/imports JPEGs,
+merges previous manifest evidence, rejects duplicate IDs and mixed model/index/layout
+identities, and emits thresholds plus a `.report.json`. It searches conservative
+single score/margin rules for maximal correct sure coverage with **zero observed
+wrong sure**, including a .01 score/lead safety gap on wrong individual crops,
+prefixes, frame results and final results. It removes the secondary broadcast rule
+so that it cannot bypass the calibrated gate; the low-match floor stays .74.
+If data cannot separate correct and incorrect readings, the result can disable
+sure entirely. Reports include top-1/top-5 counts, sure coverage, wrong-sure and
+negative-sure counts, condition, card-width and in/off-deck splits. Top-1/top-5 use
+the complete ranked candidate evidence, not the displayed five alone.
+
+The worker loads `yugioh-thresholds.json` once per initialization without HTTP
+caching and checks model/hash, filtered index version, layout and sample/negative
+counts. A missing file preserves the broadcast defaults; an incompatible file
+fails initialization. Reload the reader after tuning, then re-evaluate fresh
+captures. Zero observed errors on a finite tuning set is not a population guarantee.
+No webcam threshold file is shipped without physical webcam labels.
+
+Measurement details and limitations: [REPORT.md](REPORT.md#recognition-review-follow-up--2026-11-01).

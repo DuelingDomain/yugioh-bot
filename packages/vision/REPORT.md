@@ -306,3 +306,140 @@ version overrides, browser smoke configuration and privacy limitations are in
 [the feedback runbook](../../docs/runbooks/vision-feedback.md). The canonical
 marketing privacy page was updated; the app's legal links point there and it has
 no separate privacy/terms page.
+
+## Recognition review follow-up — 2026-11-01
+
+Implemented the requested Part 1 scope from
+`data/briefs/remote-duels/recognition-review-and-explainer.md` on
+`feat/remote-vision-feedback`, starting at `a73bb2c5f`. All writes stayed in
+`.worktrees/remote-vision-feedback`. The main checkout and existing port 3000/3417
+processes were left alone. No retraining, paid API request, PR or merge.
+
+| Item | Delivered |
+| --- | --- |
+| (2) Deck-first/catalog search | Actual restricted deck-row scan runs before the catalog scan. A confident off-deck clean winner survives; ambiguous reads can prefer a qualifying deck candidate. Sure always requires the same unboosted full-catalog winner and margin, so a wrong decklist cannot manufacture certainty. No unmeasured webcam accuracy gain is claimed. |
+| (2) Physical index | In-memory filter removes Skill/nonphysical zero-passcode rows and duplicate image IDs, retaining field Tokens and alternate art. **14,817 → 14,652 vectors; 14,652 → 14,487 card identities**, plus the back. Builder catalog policy v3 applies to future builds. No shared binary/metadata rewrite or re-embedding. Ordinary Skill Drain/Prisoner/Successor cards remain eligible. |
+| (4) Correctness | Every evaluated frame must independently agree with the final clean identity and pass confidence. Temporal frames redetect quads rather than reuse a selected outline. Face-down art guesses cannot be sure or contribute feedback. Exported remote message includes tier, covered and faceDown. |
+| Vision-side (3) | Safe first frame with clean lead ≥ .05 can end a read. Learning snapshots refresh once on initialization and every 60s outside inference; failed refreshes retain the prior version for at most 120s. Shared own-feed buffer keeps native pixels, up to six frames/one second, without a fresh recording delay. The lab consumes this API. |
+| P2 / P7 / P8 / P11 | Learned crops only rerank clean top-ten identities, cosine ≥ .90, cap eight/card; clean scores/competitors establish sure. Known confusion identities do not use learned rows. Actions use positive catalog IDs, including Token IDs, rather than zero passcodes. AI receives a separate **640 × 933** warp made from source pixels and ten clean candidate names; out-of-list responses abstain. Feedback remains a bounded 224px JPEG. README now says **broadcast-calibrated, not webcam-calibrated**. |
+| (1) Tooling | Explicit lab mode labels true cards and arbitrary non-card targets, exports native JPEGs plus raw candidates/guards/provenance, and keeps captures local. Offline import merges batches without dropping old labels. Threshold tuning replays the recorded tier, uses cards and negatives, excludes wrong crop/frame/final decisions with a .01 safety gap, and maximizes sure coverage within conservative single score/margin rules at **zero observed wrong sure**. It emits a version-bound runtime configuration and condition/width/deck reports. |
+
+The remote room and strict data-channel schema are on the separate
+`feat/remote-ui` branch and do not exist here. This work supplies
+`toRemoteRecognitionResult` and its typed payload; that branch must accept and
+preserve the new fields when integrated. Actual remote-room click latency was
+not measurable in this worktree.
+
+### Synthetic before/after
+
+Reused the exact existing **30 JPEGs**, seed **633**, five each of clean, blur,
+perspective, glare, sleeve and combined conditions. No new reference downloads.
+Node **22.23.3**, Chromium **153.0.8010.12**, Ryzen 7 9800X3D, WSL2, GPU disabled,
+WASM SIMD/four threads with cross-origin isolation. Both workers used the same
+model weights and original on-disk catalog; the candidate filters it in memory.
+
+Unrelated worktrees began CPU-heavy Next/browser jobs during measurement. The
+initial isolated-before run measured pipeline p50/p95 **235.2/426.7 ms**; the
+first contended after run measured **773.8/1080.2 ms**. These runs are retained
+but do not establish a latency regression. The comparison below instead runs
+the old worker from `a73bb2c5f` and the candidate consecutively for each photo in
+one browser, under the same ongoing load. Baseline runs first for each pair,
+so residual scheduling/order noise remains.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Top-1 | **30/30 (100%)** | **30/30 (100%)** |
+| Top-5 | **30/30 (100%)** | **30/30 (100%)** |
+| Detected / corners found | **30/30 / 30/30** | **30/30 / 30/30** |
+| Sure | **29/30 (96.7%)** | **30/30 (100%)** |
+| Sure-but-wrong / all positives | **0/30** | **0/30** |
+| Wrong / sure answers | **0/29** | **0/30** |
+| Pipeline p50 | **389.9 ms** | **428.8 ms** (+10.0%) |
+| Pipeline p95 | **694.3 ms** | **659.6 ms** (−5.0%) |
+| Worker API wall p50 / p95 | **393.1 / 700.6 ms** | **430.8 / 661.5 ms** |
+| Six-frame API read (one fixture) | **839.7 ms; 3 frames** | **270.6 ms; 1 frame** (−67.8%) |
+
+The full-catalog top-1/top-5 and wrong-sure gates hold; paired p95 is below the
++20% budget. These are indexed-image synthetic positives, **not a physical
+webcam/open-set evaluation**. The off-card fallback probe remained `low match`;
+one negative probe does not establish a false-positive rate. The Skill duplicate
+that previously narrowed Double Evolution Pill's lead no longer blocks sure.
+No physical webcam corpus was available, so there are **no real webcam accuracy,
+negative sure-rate, mobile latency, or set-code readability measurements**. The
+640px output preserves available text pixels; it cannot recreate text missing
+from a distant or blurred source frame. No webcam-calibrated threshold file is
+published from synthetic or mocked data.
+
+Raw ignored evidence:
+`data/vision/benchmark/results-review-before.json`,
+`results-review-after.json`, `results-review-paired.json` (contains both workers'
+per-photo records and timings), and their matching logs.
+
+### Verification and tooling reproduction
+
+The focused regression file is `packages/vision/src/pipeline.test.ts`; it covers
+deck restriction/off-deck fallback, Skill Drain preservation, Token ID mapping,
+poisoned references inside/outside the clean ten, face-down art sleeves,
+disagreeing/moving frames, early exit, learning-cache expiry, source AI crop,
+threshold safety including a misleading whole-card view, and a mocked AI answer
+outside its candidate list. No paid API is called.
+
+```sh
+npx tsx --test packages/vision/src/pipeline.test.ts
+npx tsc -p packages/vision/tsconfig.json --noEmit
+npx tsc -p packages/web/tsconfig.json --noEmit --incremental false
+npx tsx scripts/vision/check-realset.ts
+npx tsx scripts/vision/tune-thresholds.ts \
+  --input data/vision/realset-smoke/export.json \
+  --import-dir data/vision/realset-smoke/imported \
+  --out data/vision/realset-smoke/thresholds.json
+```
+
+The browser harness bundles the actual lab React components and runs the actual
+WASM worker on an ephemeral HTTP port. It mocks API responses and the unrelated
+shared sheet button, avoiding Next's server/font build environment. It does not
+start or stop a Next server, touch protected ports, or change a real user's
+feedback preferences. Its synthetic camera is explicitly labelled as such.
+
+
+Fresh verification: **25/25 cases passed in the one small targeted test file**;
+vision and web TypeScript checks passed; browser worker bundle generated. The
+isolated real-component/real-WASM smoke exported **one labelled card and one
+empty-mat negative**, reproduced both recorded tiers offline, retained native
+**1920 × 1080** buffer frames, and made **one mocked AI request** with a
+**640 × 933, 95,685-byte JPEG and ten candidate names**. Repeated reads used
+**one learning fetch**; starting a new recognizer for the camera used a second
+initialization fetch. There were **zero feedback uploads and zero browser errors**.
+A new freeze cannot export prior live evidence while detection is busy.
+
+The offline smoke replay had **top-1/top-5 1/1**, **one correct sure**, and
+**zero sure-but-wrong / 2 total samples** before and after tuning. A second import
+with copied smoke imagery and distinct IDs retained all **four records**, with
+zero wrong sure; this verifies batch retention, not additional accuracy evidence.
+The deliberately poisoned/mock threshold regression also excludes wrong sure
+and demonstrates refusal to calibrate without both cards and negatives.
+The generated smoke threshold JSON stays under `realset-smoke/`; it is **not**
+the default runtime threshold file.
+
+Evidence: `data/vision/realset-smoke/{report.json,export.json,capture.png,unit.log,
+thresholds.json,thresholds.report.json,thresholds-merged.report.json}` and
+`imported/manifest.json` plus its two JPEGs. Temporary baseline source and UI
+bundles were removed; models/runtime/index were reused. Only the pre-existing
+`packages/web/next-env.d.ts` change is intentionally left uncommitted.
+
+To repeat the paired comparison, build the old worker from the pinned source
+without switching checkouts, then use the ordinary benchmark's comparison mode:
+
+```sh
+mkdir -p data/vision/baseline-src
+git archive a73bb2c5f packages/vision/src | tar -x -C data/vision/baseline-src
+npx esbuild data/vision/baseline-src/packages/vision/src/worker.ts --bundle \
+  --format=esm --platform=browser --target=es2022 --minify \
+  --outfile=data/vision/worker-before.js
+npx tsx scripts/vision/benchmark.ts --label review-paired \
+  --compare-worker /dev/vision-lab/assets/worker-before.js
+```
+
+Small commits: `317c51d8b` core safety, `6c2b35894` AI candidate validation,
+`6dd70e15e` raw replay/calibration, `620c752df` native lab capture. The final
+follow-up/documentation commit and pushed head are reported in the final answer.
