@@ -544,17 +544,47 @@
   .app[data-mode] .seat[data-view="field"] .fwrap:has([data-emz]){height:310px}
 }
 
-/* Webcam only: the virtual field is hidden and the camera takes its space. LP, the undo button and the rail stay. */
+/* Webcam only: the virtual field is hidden and the camera takes its space. LP, the undo button and the rail stay.
+   Tall seats: the camera takes the height and the width, LP is one row under it.
+   Wide seats: LP moves to a narrow column on the side, so the camera gets the width (no empty bands). */
 .viewseg{flex:none}
 .seat[data-wc] .fwrap{display:none}
 .app[data-wc] :is(.arrow,.amath){display:none}
+.wcpiles{display:inline-flex;gap:4px}
+.wcpiles button{height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:5px;background:var(--p0);color:var(--ink2);font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em}
+.wcpiles button:hover,.wcpiles button:focus-visible{border-color:var(--gold);color:var(--gold-ink)}
+.wcpiles b{margin-left:3px;color:var(--ink)}
+/* Cards of the seat as a list for keyboard and screen reader: hidden until a button has focus. */
+.wclist{position:absolute;width:1px;height:1px;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;list-style:none}
+.wclist:focus-within{position:absolute;z-index:8;left:8px;bottom:8px;width:auto;max-width:calc(100% - 16px);height:auto;max-height:50%;overflow:auto;clip-path:none;padding:6px;border-radius:8px;border:1px solid var(--gold);background:rgb(7 4 14/.94);display:grid;gap:3px}
+.wclist button{width:100%;text-align:left;padding:4px 8px;border:0;border-radius:5px;background:transparent;color:var(--ink);font:600 12.5px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.wclist button:focus-visible{outline:2px solid var(--gold);background:rgb(232 185 79/.12)}
+.seat[data-wc] .fside{position:relative}
+/* The battle line (attacker, target, result) for every player, since the field strip is hidden. */
+.wcbattle{position:absolute;z-index:7;left:50%;top:56px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:rgb(7 4 14/.94);border:1px solid var(--gold);color:var(--ink);font:600 13px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;pointer-events:none}
+.wcbattle b{color:var(--gold-ink)}.wcbattle em{font-style:normal}.wcbattle s{text-decoration:none;color:var(--ink2)}
+/* No browser callout (image menu, link preview) on a long press over the table. The table menu opens instead. */
+.app{-webkit-touch-callout:none}
+.app :is(input,textarea,[contenteditable]){-webkit-touch-callout:default}
+@container seat (max-aspect-ratio:1.55){
+  .seat[data-wc] .sbody{justify-content:center}
+  .seat[data-wc] .feedcol{flex:0 1 auto;width:100%}
+  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 190px) * var(--vr)));max-height:none}
+}
 @container seat (min-aspect-ratio:1.55){
-  .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
-  .seat[data-wc] .feedcol{--cellw:calc(100cqw - 18px)}
+  .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
+  .seat[data-wc] .feedcol{--cellw:calc(100cqw - 26px - 128px);justify-content:center}
+  .seat[data-wc] .fside{align-self:center;justify-content:flex-start}
+  .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
+  .seat[data-wc] .lpn{font-size:34px}
+  .seat[data-wc] .lpin{width:100%;margin:0;order:4}
+  .seat[data-wc] .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
+  .seat[data-wc] .lpbtn button{height:28px}
 }
 @media (max-width:900px){
   .vlong{display:none}
   .viewseg button{padding:6px 9px}
+  .wcbattle{top:8px}
 }
 
 /* ============ phone ============ */
