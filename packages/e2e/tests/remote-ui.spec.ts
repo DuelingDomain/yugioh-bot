@@ -657,8 +657,10 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
-  test("webcam only hides the virtual field and is remembered; right click opens card actions and never the browser menu", async ({ page, context }) => {
+  test("webcam only hides the virtual field and is remembered; a camera card shows its name and opens its actions; right click never shows the browser menu", async ({ page, context }) => {
+    test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2); await seed(context, slug);
+    await fakeCamera(page, "16:9");
     await page.goto(`/duels/remote/${slug}`);
     const field = page.getByTestId("field-0");
     await expect(field.locator('[data-zone="m1"]')).toBeVisible();
@@ -668,9 +670,23 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await field.locator('[data-zone="m1"]').click({ button: "right" });
     await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
+    // The camera: confirm the mat grid, then use webcam only.
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
+    // The Graveyard and Banished counts sit in the seat header, one click from their pile.
+    await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
+    // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
+    const grid = page.locator('[data-testid="feed-0"] [data-testid="zone-grid"]'); const m1 = (await grid.locator('polygon[data-zone="M1"]').boundingBox())!;
+    const at = { x: m1.x + m1.width / 2, y: m1.y + m1.height / 2 };
+    await page.mouse.move(at.x, at.y); await expect(page.getByTestId("hover-tip")).toContainText("Dark Magician");
+    await page.mouse.click(at.x, at.y); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await page.keyboard.press("Escape"); await expect(page.getByTestId("inspector")).toBeHidden();
+    await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
@@ -1111,7 +1127,7 @@ const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/ben
 async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   const data=readFileSync(cardFile).toString('base64');
   await page.addInitScript(async ({data,guided})=>{
-    if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration}));}
+    if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
     let back='',stacks=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
@@ -1266,9 +1282,10 @@ async function measuredFieldChange(page:Page,kind:'move'|'remove') {
   }),kind);
 }
 test('field watcher automatic: camera follows EMZ/DEF moves and clear departure with destinations and Undo',async({page,context})=>{
-  test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
+  test.setTimeout(180_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2,true);await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
-  await appearingCamera(page,EXTRA_CARD);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await context.request.post('/api/cards/resolve',{data:{lookupIds:[44508094]}});
+  await appearingCamera(page,EXTRA_CARD);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:60_000});
   await page.evaluate(()=>((window as any).fieldTest).place(345,8,true));
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:44508094,zone:'extra-monster',slot:1,position:'defense'});
@@ -1278,10 +1295,10 @@ test('field watcher automatic: camera follows EMZ/DEF moves and clear departure 
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:20_000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2,position:'attack'});
   expect((await room()).state.seats[0].twin).toHaveLength(1);
   const removalMs=await measuredFieldChange(page,'remove');
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'graveyard'});
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'hand'});
   const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Stardust Dragon left the field');
   await expect(page.getByTestId('field-0').locator('[data-zone="e2"]')).not.toContainText('Stardust');
-  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Stardust Dragon'});
+  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'hand',name:'Stardust Dragon'});
   await toast.getByRole('button',{name:'Undo',exact:true}).click();
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2});
   await page.waitForTimeout(3200);expect((await room()).events.length).toBe(departed.events.length+1);
@@ -1293,7 +1310,7 @@ test('field watcher automatic: camera follows EMZ/DEF moves and clear departure 
   });
   await page.evaluate(()=>((window as any).fieldTest).clear());
   await expect(toast).toContainText('update failed',{timeout:15000});await toast.getByRole('button',{name:'Retry removal',exact:true}).click();
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:15000}).toMatchObject({ref:first.ref,zone:'graveyard'});
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:15000}).toMatchObject({ref:first.ref,zone:'hand'});
   for(const [label,zone] of [['Banish','banished'],['Hand','hand'],['Extra Deck','extra'],['GY','graveyard']] as const){
     await toast.getByRole('button',{name:label,exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe(zone);
   }
@@ -1412,13 +1429,13 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   const slug=await soloTable(context.request,2);
   // Compile lazy save/catalog routes before measuring camera changes.
   await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
-  await context.request.post('/api/cards/resolve',{data:{customCardIds:[44508094]}});
+  await context.request.post('/api/cards/resolve',{data:{lookupIds:[44508094]}});
   await context.request.get('/api/cards/44508094/image?variant=cropped');
   await appearingCamera(page,EXTRA_CARD);
   // Camera faces the owner: Deck at upper left, Extra Deck at upper right.
   await page.addInitScript(()=>{
     const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
-    for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration}));
+    for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
   });
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Mou
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
-import { sg, MINUS, type TwinCard, type ZoneKey } from "./model";
+import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, type ZoneKey } from "./model";
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -39,7 +39,7 @@ export type SeatPanelProps = {
   undo?: SeatUndo;
   /** The virtual field is hidden. The camera feed takes its space. */ webcamOnly?: boolean;
   /** Camera card info for webcam only (click and hover), and the card actions on right click or long press (always). Same shapes as on the feed. */
-  onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
+  onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -73,6 +73,7 @@ export function SeatPanel(p: SeatPanelProps) {
     setDelta(p.lp - previous.current); previous.current = p.lp;
     const timer = setTimeout(() => setDelta(0), 2400); return () => clearTimeout(timer);
   }, [p.lp]);
+  const gy = p.twin.filter(card => card.zone === "graveyard").length; const banished = p.twin.filter(card => card.zone === "banished").length;
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
@@ -80,6 +81,11 @@ export function SeatPanel(p: SeatPanelProps) {
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
+      {p.webcamOnly && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
+        <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
+        <button type="button" onClick={event => p.onPile?.("banished", event.currentTarget)} aria-label={`${p.name} Banished: ${banished} cards. Open`}>BAN <b className={s.num}>{banished}</b></button>
+      </span> : null}
+      {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
@@ -95,7 +101,7 @@ export function SeatPanel(p: SeatPanelProps) {
       </button>
     </header>
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.webcamOnly ? p.onZoneCard : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.webcamOnly ? p.onZoneCard : undefined} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         below={p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
@@ -107,6 +113,10 @@ export function SeatPanel(p: SeatPanelProps) {
         </>} />
       <div className={s.fside}>
         {p.fieldNotice}
+        {p.webcamOnly ? <ul className={s.wclist} aria-label={`${p.name}'s cards on the field`} data-testid={`wc-cards-${p.seat}`}>
+          {(Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).filter(([key, cell]) => cell?.card && !isPile(key)).map(([key, cell]) =>
+            <li key={cell!.card!.ref}><button type="button" onClick={() => p.onInspect(cell!.card!)}>{`${ZN[key]}: ${cardName(cell!.card!, p.info(cardCode(cell!.card!)))}`}</button></li>)}
+        </ul> : null}
         <div className={s.fwrap} onClick={enlargeFromField} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />

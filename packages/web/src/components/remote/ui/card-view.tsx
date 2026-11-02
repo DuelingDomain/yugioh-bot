@@ -116,8 +116,14 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
 export function InspectorBody({ subject, info, warning, actions, sourceLine }: {
   subject: Subject | null; info: CardInfo | undefined; warning?: string; actions: CardActions; sourceLine: string;
 }) {
-  const status = useCardStatus(subject?.cardId);
+  const status = useCardStatus(subject?.cardId || undefined);
   if (!subject) return <p className={s.dempty}>No card selected.<br />Click a card on a camera feed, or press <kbd>F</kbd> over a feed to outline every card.</p>;
+  // cardId 0: your own card the table cannot name. Its actions (move, flip, Graveyard, Wrong card?) still work.
+  if (!subject.cardId) return <div data-testid="inspector-body">
+    <h3 className={s.dname} style={{ margin: 0 }}>{subject.name ?? "Face-down card"}</h3>
+    <p className={s.dmeta}>Not identified.</p>
+    <Actions a={{ ...actions, onPin: undefined }} subject={subject} />
+  </div>;
   const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
   return <div data-testid="inspector-body">
     <Art id={subject.cardId} />
