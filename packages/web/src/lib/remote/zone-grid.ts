@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { createFieldCalibration, fieldMatPoint, hasExtraMonsterZones, onMat, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
+import { createFieldCalibration, fieldMatPoint, hasExtraMonsterZones, onMat, type FieldCalibration, type FieldFormat, type PlayerSide } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
@@ -23,6 +23,20 @@ export function fieldGridCells(format: FieldFormat = "normal"): GridCell[] {
 export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
 let defaultGrid: FieldCalibration | undefined;
 export const defaultGridCalibration = () => defaultGrid ??= createFieldCalibration(DEFAULT_GRID_CORNERS);
+/** Webcams usually face the player across the table (flipped); a phone is held from the player's own side. */
+export const defaultSideFor = (kind: "webcam" | "phone"): PlayerSide => kind === "phone" ? "bottom" : "top";
+const guessed = new Map<PlayerSide, FieldCalibration>(); const guessedFrom = new WeakMap<FieldCalibration, Map<PlayerSide, FieldCalibration>>();
+/**
+ * What a feed draws and the controls show. A saved calibration with a side is used as is; without one, the grid
+ * is drawn on the likely side only as a guess. The watcher still waits until the player confirms it.
+ */
+export function displayCalibration(calibration: FieldCalibration | undefined, defaultSide: PlayerSide = "bottom"): FieldCalibration {
+  if (calibration?.orientation) return calibration;
+  const cache = calibration ? guessedFrom.get(calibration) ?? guessedFrom.set(calibration, new Map()).get(calibration)! : guessed;
+  let value = cache.get(defaultSide);
+  if (!value) { value = createFieldCalibration(calibration?.corners ?? DEFAULT_GRID_CORNERS, { playerSide: defaultSide, mirrored: false }); cache.set(defaultSide, value); }
+  return value;
+}
 
 /** Cell corners and centre in normalized picture coordinates, through the calibration's homography. */
 export function projectCell(cell: GridCell, calibration: FieldCalibration) {
@@ -53,6 +67,8 @@ export function straddledZones(quad: readonly Point[], calibration: FieldCalibra
 /** What the field watcher shares with the camera feeds: the saved calibration and the cards it sees. */
 export interface ZoneGridState {
   ownSeat: number | null; format: FieldFormat; calibration?: FieldCalibration;
+  /** Side to guess for the own feed until the player confirms one. */
+  defaultSide?: PlayerSide;
   tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];
   /** Opens the calibration dialog. Missing when the watcher is not running. */
   calibrate?: () => void;

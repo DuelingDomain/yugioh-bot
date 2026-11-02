@@ -97,7 +97,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
         <p>Move the grid or adjust its four corners until the zones line up. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right. Arrow keys adjust a focused handle; hold Shift for larger steps.</p>
         <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
       </div>
-      {preview?<FieldOrientationControls calibration={preview} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setHandStep(null);setCalibrationCards([]);}}/>:null}
+      {preview?<FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setHandStep(null);setCalibrationCards([]);}}/>:null}
       <p>{handStep==='left'?'Tap the corner nearest your LEFT hand.':handStep==='right'?'Now tap the corner nearest your RIGHT hand.':orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
       <button type="button" className={table.btn} disabled={busy} onClick={()=>{setCalibrationCards([]);setHandStep('left');leftHand.current=null;}}>Set side from near corners</button>
       {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
