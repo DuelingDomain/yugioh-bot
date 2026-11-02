@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
+import { ThemedSelect } from "@/components/ui/themed-select";
 
 type Flag = NonNullable<RemoteRoom["state"]["deckChecks"]>["flags"][number];
 type Instance = NonNullable<RemoteRoom["state"]["deckChecks"]>["instances"][number];
@@ -31,8 +32,8 @@ export function DeckFlagPopover({ open, flag, instances, canMerge, busy, onDismi
       <div className={s.fact}>
         <button type="button" className={`${s.btn} ${s.sm}`} disabled={busy} onClick={() => onDismiss(flag)} data-testid="flag-dismiss">Dismiss as wrong</button>
         {canMerge && others.length ? <>
-          <label>Keep <select value={kept?.id ?? ""} onChange={event => setKeep(event.target.value)} aria-label="Card to keep">
-            {pool.map(instance => <option key={instance.id} value={instance.id}>{instance.name} · {where(instance)}</option>)}</select></label>
+          <ThemedSelect variant="menu" wide prefix="Keep" label="Card to keep" value={kept?.id ?? ""} testId="flag-keep"
+            choices={pool.map(instance => ({ value: instance.id, label: `${instance.name} · ${where(instance)}` }))} onChange={setKeep} />
           <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={busy || !kept} onClick={() => kept && onMerge(flag, kept.id, others[0].id)} data-testid="flag-merge">Merge: same physical card</button>
         </> : null}
         <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={onClose}>Close</button>

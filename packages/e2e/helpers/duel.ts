@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+import { pickSelect } from "./themed-select";
 
 export const ydkFixture = fileURLToPath(new URL("../fixtures/earth-normals-40.ydk", import.meta.url));
 
@@ -101,19 +102,19 @@ export async function createTable(page: Page, name: string, options: TableOption
   await page.goto("/duels/new");
   await page.getByLabel("Table name").fill(name);
   if (options.visibility) await chooseOption(page, "Visibility", options.visibility === "private" ? "Private" : "Public");
-  if (options.format && options.format !== "1v1") await page.getByLabel("Table type").selectOption(options.format);
+  if (options.format && options.format !== "1v1") await pickSelect(page, "Table type", { value: options.format });
   if (options.domain) await chooseOption(page, "Duel type", "Domain");
-  await page.getByLabel("Turn timer").selectOption({ label: "Unlimited" });
+  await pickSelect(page, "Turn timer", { label: "Unlimited" });
   // The Genesys toggle's label holds the same words, so match the select by role. A Genesys table has no list: the select is off and already "none".
   const banlist = page.getByRole("combobox", { name: "Forbidden & Limited list" });
-  if (options.noBanlist && await banlist.isEnabled()) await banlist.selectOption({ index: 0 });
+  if (options.noBanlist && await banlist.isEnabled()) await pickSelect(page, "Forbidden & Limited list", { index: 0 });
   if (options.ordered) await chooseOption(page, "Opening deck order", "Not shuffled");
   if (options.looseDecks) await chooseOption(page, "Deck validation", "Allow invalid decks");
   if (options.startingHand !== undefined) {
-    await page.getByLabel("Starting hand").selectOption({ label: `${options.startingHand} ${options.startingHand === 1 ? "card" : "cards"} in Starting Hand` });
+    await pickSelect(page, "Starting hand", { label: `${options.startingHand} ${options.startingHand === 1 ? "card" : "cards"} in Starting Hand` });
   }
-  if (options.drawPerTurn !== undefined) await page.getByRole("combobox", { name: "Draw Phase", exact: true }).selectOption(String(options.drawPerTurn));
-  if (options.startingLP !== undefined) await page.getByLabel("Starting Life Points").selectOption({ label: `${options.startingLP} Life Points` });
+  if (options.drawPerTurn !== undefined) await pickSelect(page, "Draw Phase", { value: String(options.drawPerTurn) });
+  if (options.startingLP !== undefined) await pickSelect(page, "Starting Life Points", { label: `${options.startingLP} Life Points` });
   await page.getByRole("button", { name: /^Create game/ }).click();
   await page.waitForURL(/\/duels\/(?!new)[^/?]+$/);
   await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();

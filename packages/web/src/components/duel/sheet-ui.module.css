@@ -101,29 +101,6 @@
 .input[aria-invalid="true"] { border-color: var(--duel-loss); }
 .textarea { height: auto; min-height: 132px; padding: 10px 12px; resize: vertical; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: calc(12.5px * var(--tt, 1)); line-height: 1.55; }
 
-.selectWrap { position: relative; display: block; min-width: 0; }
-.select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 38px;
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-.selectWrap > svg {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  translate: 0 -50%;
-  color: var(--duel-ink-3);
-  pointer-events: none;
-  transition: color 160ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.selectWrap:hover > svg,
-.selectWrap:focus-within > svg { color: var(--duel-pen-ink); }
-.select option { background: #0e1729; color: #efe7d5; font-weight: 400; }
-.select option:disabled { color: var(--duel-ink-3); }
-.selectSm .select { height: 36px; font-size: calc(14px * var(--tt, 1)); }
-
 /* ---------- segmented controls ---------- */
 .seg {
   display: inline-grid;
@@ -256,6 +233,6 @@
 .alert { color: var(--duel-loss-ink); font-size: calc((13.5px + 0.5px * var(--ft, 0)) * var(--tt, 1)); }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn, .input, .seg *, .selectWrap > svg { transition: none; }
+  .btn, .input, .seg * { transition: none; }
   .spin { animation: none; }
 }

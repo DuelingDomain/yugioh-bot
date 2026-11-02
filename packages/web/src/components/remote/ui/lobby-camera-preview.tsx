@@ -305,7 +305,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       </div>
     </div>
     <div className={s.controls}>
-      {devices.length > 1 ? <SheetSelect label="Camera" value={cameraId} compact disabled={starting}
+      {devices.length > 1 ? <SheetSelect label="Camera" placeholder="Choose camera" value={cameraId} compact disabled={starting}
         choices={devices.map((device, i) => ({ value: device.deviceId, label: device.label || `Camera ${i + 1}` }))}
         onChange={id => { saveCamera(id); void start(id); }} /> : null}
       <div className={s.row}>

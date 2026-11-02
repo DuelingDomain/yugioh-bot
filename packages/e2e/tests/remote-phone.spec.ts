@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
+import { pickSelect } from "../helpers/themed-select";
 
 const base = "http://localhost:3436";
 // Next dev recompiles shared server modules as API routes are first requested.
@@ -210,7 +211,7 @@ test("no-camera desktop pairs an unsigned-in mobile, scans a real still and conf
     await expect(mobile.locator("video")).toHaveJSProperty("srcObject",null);
     await mobile.reload();await expect(mobile.getByTestId("phone-scan")).toBeEnabled({timeout:30_000});
     await expect(mobile.locator("video")).toHaveJSProperty("srcObject",null);
-    await mobile.getByLabel("Scan zone").selectOption("M3");
+    await pickSelect(mobile, "Scan zone", { label: "M3" });
     const timings:number[]=[];
     for(let i=0;i<3;i++){
       const started=Date.now();await mobile.getByTestId("phone-scan").click();

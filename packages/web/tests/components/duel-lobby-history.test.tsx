@@ -7,6 +7,7 @@ import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import type { DuelListItem } from "@yugidraft/shared/duels";
 import { EMPTY_HISTORY_FILTERS, toLocalInput } from "../../src/components/duel/history-filters";
 import { makeSeriesRoom } from "../helpers/duel-series";
+import { chooseThemed } from "../helpers/themed-select";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock("next/navigation", () => ({
@@ -204,10 +205,10 @@ describe("Match history filters", () => {
     await screen.findByLabelText("Card");
 
     respond({ duels: [entry("b")] });
-    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "ffa4" } });
+    chooseThemed("Format", "ffa4");
     await screen.findByText("Duel b");
     respond({ duels: [entry("c")] });
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "interrupted" } });
+    chooseThemed("Status", "interrupted");
     await screen.findByText("Duel c");
 
     respond({ duels: [entry("d")] });
@@ -331,7 +332,7 @@ describe("Match history page URL", () => {
     renderHistory();
     await screen.findByText("Duel a");
     respond({ duels: [entry("b")] });
-    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "tag" } });
+    chooseThemed("Format", "tag");
     await screen.findByText("Duel b");
     const calls = replaceState.mock.calls.filter((call) => String(call[2]).includes("format=tag"));
     expect(calls.length).toBeGreaterThan(0);
@@ -398,7 +399,7 @@ describe("Match history scope", () => {
     respond({ duels: [entry("b")], canSeeAll: true });
     fireEvent.click(segment("All"));
     await screen.findByText("Duel b");
-    expect(screen.getByLabelText("Status")).toHaveValue("cancelled");
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveTextContent("Cancelled");
     expect(screen.getByText(/Admin: all duels/)).toBeInTheDocument();
     expect(urls().at(-1)!.searchParams.get("status")).toBe("cancelled");
     expect(window.location.search).toBe("?view=history&scope=all&status=cancelled");
@@ -506,7 +507,7 @@ describe("Load more", () => {
     await screen.findByRole("button", { name: "Loading…" });
 
     respond({ duels: [entry("x")], nextCursor: "cur-x" });
-    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "tag" } });
+    chooseThemed("Format", "tag");
     await screen.findByText("Duel x");
     release(Response.json({ duels: [entry("late")], nextCursor: null, canSeeAll: true }));
     await new Promise((resolve) => setTimeout(resolve, 50));
