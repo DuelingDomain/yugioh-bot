@@ -23,13 +23,13 @@ export function fieldPlacementProposals({track,seat,cardId,name,existing=false,c
 /** Leave the playable field once; pile disappearance never guesses a destination. */
 export function fieldDepartureProposal(card:TwinCard,seat:number):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(card.zone))return;
-  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:'graveyard',source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
+  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:'hand',source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
 }
 
 /** Queue delays must not attach an old read to replacement pixels. */
 export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined) {
-  return !!current&&!current.removed&&!!current.visible&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
-    (event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
+  return !!current&&!current.removed&&(event.type==='reading'||!!current.visible)&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
+    (event.type==='reading'?current.state==='candidate':event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
 }
 
 export class StaleFieldPlacementError extends Error {
