@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,7 +94,7 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   let n = 0;
   const act = (input: Record<string, unknown>) => room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq,
     action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "check-" + (++n), ...input }) }, 2100 + n);
-  const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, card: { ref, cardId, slot } });
+  const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,room.state.seats[0].twin.length+1),at:room.state.updatedAt},card: { ref, cardId, slot } });
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
 describe("remote deck registration and live checks", () => {
@@ -191,7 +191,12 @@ describe("remote deck registration and live checks", () => {
     expect(service.get(table.slug,"g",users[0]).showCardsSetFromDeck).toBe(true);
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
-  it("guards camera duplicates across piles, supports copy proof/manual confirmation and merge Undo, and replays old events", () => {
+  it("version 1 replay: guards camera duplicates across piles, supports copy proof/manual confirmation and merge Undo, and replays old events", () => {
+    // Preserve every version-1 guard/replay assertion. Current live A–E cases
+    // above use version 2; historical service fixtures explicitly use version 1.
+    const reduce=ygoModule.reduce;
+    const legacy=vi.spyOn(ygoModule,'reduce').mockImplementation((state,action,context)=>reduce(state,action,context?.twinPlacementGuard===2?{...context,replay:true,twinPlacementGuard:1}:context));
+    try {
     const s = deckSession("normal");
     const talent = 25311006;
     s.service.configure(s.room.slug, "g", s.users[0], { format: "normal", rules: { banlist: "none" } }, 2000);
@@ -272,11 +277,12 @@ describe("remote deck registration and live checks", () => {
     expect(piles.room.state.seats[0].twin).toHaveLength(2);
     expect(piles.room.state.seats[0].twin.find(t => t.ref === "pile-a")).toMatchObject({ zone: "monster", slot: 1 });
     expect(piles.service.replay(piles.room.slug, "g", piles.users[0])).toEqual(piles.room.state);
+    }finally{legacy.mockRestore();}
   });
   it("keeps manual duplicate confirmation private in snapshots and Undo history", () => {
     const s = deckSession("normal"); s.start();
     for (const [index, ref] of ["private-first", "private-second"].entries())
-      s.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref, cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: index + 1 }, ...(index ? { copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } } : {}) });
+      s.act({ type: "twin.place", seat: 0, zone: index ? "monster" : "graveyard", card: { ref, cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: index + 1 }, ...(index ? { copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } } : {}) });
     expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.twinConfirmation?.message).toContain("Ash Blossom");
     expect(s.service.snapshot(s.room.slug, "g").state.twinConfirmation).toBeUndefined();
     s.act({ type: "phase.set", phase: "main1" });
@@ -334,7 +340,7 @@ describe("remote deck registration and live checks", () => {
     const s = deckSession(); s.start(); s.place("first");
     s.act({ type: "twin.move", seat: 0, cardRef: "first", zone });
     s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "monster", slot: 2, source: "auto" });
-    s.place("replayed", "monster", 2);
+    s.act({type:'twin.place',seat:0,zone:'monster',fromRef:'first',card:{ref:'replayed',cardId:14558127,slot:2}});
     expect(s.room.state.deckChecks.flags).toEqual([]);
     expect(s.room.state.deckChecks.instances).toHaveLength(1);
   });
@@ -360,8 +366,10 @@ describe("remote deck registration and live checks", () => {
   it("reuses instances through unlocated recognition, hidden returns and removals", () => {
     const s = deckSession(); s.start(); s.place("one");
     for (let i=0;i<3;i++) s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "auto" });
-    s.act({ type: "twin.move", seat: 0, cardRef: "one", zone: "hand", faceUp: false }); s.place("two", "monster", 2);
-    s.act({ type: "twin.remove", seat: 0, cardRef: "two" }); s.place("three", "monster", 3);
+    s.act({ type: "twin.move", seat: 0, cardRef: "one", zone: "hand", faceUp: false });
+    s.act({type:'twin.place',seat:0,zone:'monster',fromRef:'one',card:{ref:'two',cardId:14558127,slot:2}});
+    s.act({ type: "twin.remove", seat: 0, cardRef: "one" });
+    s.act({type:'twin.place',seat:0,zone:'monster',card:{ref:'three',cardId:14558127,slot:3}});
     expect(s.room.state.deckChecks.flags).toEqual([]);
     expect(s.room.state.deckChecks.instances).toHaveLength(1);
   });
@@ -953,7 +961,7 @@ describe("tolerant voice attack resolution", () => {
     let seq = 0;
     const place = (seat: number, card: Record<string, unknown>, zone = "monster") => {
       state = ygoModule.reduce(state, remoteActionSchema.parse({
-        type: "twin.place", actorSeat: seat, seat, zone, card,
+        type: "twin.place", actorSeat: seat, seat, zone, card,anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,state.seats[seat].twin.length+1),at:state.updatedAt},
         idempotencyKey: `voice-${++seq}`,
       }));
     };
@@ -1709,7 +1717,9 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const revealed=structuredClone(state),actionId=state.undo!.actionId;
   reduce({type:'undo',targetActionId:actionId});expect(state.seats[0].twin).toEqual(before.seats[0].twin);
   state=revealed;reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false});expect(state.seats[0].twin[0].publicIdentity).toBe(true);
-  reduce({type:'twin.move',seat:0,cardRef:'set',zone:'hand'});
+  const publicSet=structuredClone(state);reduce({type:'twin.move',seat:0,cardRef:'set',zone:'hand'});
   expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
+  state=publicSet;state.twinConfirmation={seat:0,cardRef:'incoming',existingRefs:['set'],anotherCopyAllowed:true,message:'Where did this card come from?',options:[{ref:'set',label:'Moved from M2'},{label:'New copy'}]};reduce({type:'twin.place',seat:0,zone:'monster',originRequestRef:'incoming',anotherCopy:true,card:{ref:'incoming',cardId:46986414,slot:3}});
+  expect(state.seats[0].twin.find(c=>c.ref==='set')).toMatchObject({zone:'hand'});expect(state.seats[0].twin.find(c=>c.ref==='set')?.publicIdentity).toBeUndefined();
   expect(remoteActionSchema.safeParse({type:'twin.flip',actorSeat:0,seat:0,idempotencyKey:'bad',cardRef:'set',faceUp:false,cardId:46986414}).success).toBe(false);
 });

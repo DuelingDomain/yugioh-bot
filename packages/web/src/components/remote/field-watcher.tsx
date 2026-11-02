@@ -185,6 +185,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       placeholders.current.delete(event.track.id);bindings.current.set(event.track.id,manual.ref);
       if(!chosen){watch.confirm(event.track.id,String(cardCode(manual)),manual.ref);return;}
     }
+    // A textured back already has its visual Set. Adopt that ref atomically;
+    // deleting/replacing it would flicker and add spurious Undo entries.
+    const setPlaceholder=twins.find(c=>c.ref===placeholderRef&&!c.faceUp);
+    if(track.faceDown&&setPlaceholder&&setPlaceholder.zone===location.zone&&setPlaceholder.slot===location.slot){
+      if(setPlaceholder.position!==fieldTwinPosition(track)){
+        const updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.move',actorSeat:seat,seat,cardRef:setPlaceholder.ref,...location,position:fieldTwinPosition(track)});if(!updated)return;
+      }
+      placeholders.current.delete(event.track.id);bindings.current.set(event.track.id,setPlaceholder.ref);
+      watch.confirm(event.track.id,undefined,setPlaceholder.ref,false);rememberPhysical(setPlaceholder.ref,track.zone);return;
+    }
     // Reserve the visual cue until catalog loading and duplicate checks finish.
     twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
     track={...track,id:bindings.current.get(event.track.id)??event.track.id};
@@ -193,7 +203,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     existing=resolved.existing;
     if(existing)track={...track,id:existing.ref};
     const code=entry?catalogCardId(entry):undefined;
-    if(code&&!track.faceDown)await loadCards([code]);
+    if(code&&!track.faceDown){
+      const metadata=loadCards([code]);
+      if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);else await metadata;
+    }
     const latest=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,latest))return;
     // Keep the reserved physical ref while refreshing geometry and occupancy after I/O.
     track={...latest!,id:existing?.ref??bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
@@ -210,13 +223,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     try {
       if(!await removePlaceholder(event.track.id,act))return;
       let updated:RemoteRoom|null=null;
-      if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
+      const atomicReveal=!!existing&&!existing.faceUp&&!track.faceDown&&!!entry;
+      if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch,source:'auto' as const}:{})});if(!updated)return;}
       // The resolver has just required a distinct, same-frame witness for every
       // existing copy. Undo's clock estimate rounds HTTP Date up; evidence must
       // use its lower bound so the server never sees a future camera sample.
       const copyCount=code?twins.filter(c=>{if(!publicField(c.zone)||!sameObservedCard(c,{cardId:code,name:entry?.name}))return false;const other=watch.getTrack(c.ref)??tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===c.ref);return !!other&&simultaneousFieldCopies(track,other,true);}).length:0;
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
-      for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
+      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(holdOrigin(updated,event,proposal.type==='twin.place'?proposal.card.ref:track.id))return;
         if(proposal.type==='twin.place'){

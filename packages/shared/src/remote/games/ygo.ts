@@ -134,7 +134,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
       if (card.zone !== "hand") delete card.departedFrom;
-      if(!card.faceUp || ["deck","extra"].includes(card.zone)) delete card.publicIdentity;
+      if(!card.faceUp&&!reuse?.card?.publicIdentity || ["hand","deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (action.card.slot === undefined) delete card.slot;
       if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
       else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
@@ -161,11 +161,15 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
         if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
-        if(["deck","extra"].includes(card.zone)) delete card.publicIdentity;
+        if(["hand","deck","extra"].includes(card.zone)) delete card.publicIdentity;
         if (action.position !== undefined) card.position = action.position;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
       }
-      if (action.type === "twin.flip") card.faceUp = action.faceUp;
+      if (action.type === "twin.flip") {
+        card.faceUp = action.faceUp;
+        if(action.position!==undefined)card.position=action.position;
+        if(action.faceUp&&action.cardId)deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};
+      }
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }

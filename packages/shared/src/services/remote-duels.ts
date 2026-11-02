@@ -283,7 +283,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main ?? []);
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
-          command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
+          command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
           command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
           command.type === "effect.choose" ? [{cardId:command.cardId}] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
@@ -291,7 +291,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
         const twinCodes = before.seats.flatMap(s => s.twin.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []));
         effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
-        if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add") {
+        if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add" || command.type === "twin.flip" && command.faceUp && command.cardId) {
           const code = codes.at(-1); const fact = code ? effects.facts[code] : undefined;
           const registration = registrations[command.seat];
           let candidate: RemoteDeckRegistration | undefined;

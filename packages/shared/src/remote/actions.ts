@@ -57,7 +57,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     /** Player explicitly chose New copy. */
     anotherCopy: z.boolean().optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
-  z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean() }),
+  z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
+    cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
+    .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),

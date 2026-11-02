@@ -50,7 +50,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     if(!pending)return;
     for(const card of twins)if(card.ref!==keepRef&&remoteFieldZone(card.zone)&&
       pending.options?.some(o=>o.ref===card.ref&&o.label.startsWith("Moved from "))){
-      card.departedFrom={zone:card.zone,...(card.slot?{slot:card.slot}:{})};card.zone="hand";delete card.slot;
+      card.departedFrom={zone:card.zone,...(card.slot?{slot:card.slot}:{})};card.zone="hand";delete card.publicIdentity;delete card.slot;
       const instance=state.deckChecks.instances.find(i=>i.seat===action.seat&&i.refs.includes(card.ref));
       if(instance){instance.zone="hand";delete instance.slot;instance.public=false;instance.anchored=false;}
     }
