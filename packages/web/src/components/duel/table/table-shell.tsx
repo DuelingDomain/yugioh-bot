@@ -84,6 +84,7 @@ import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 import { withDestroyCards } from "../destroy-cards";
 import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -405,7 +406,7 @@ function TableShellBody({
       const state = escRef.current;
       if (event.key !== "Escape" || !state.open || state.owned || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest?.("[data-table-chrome], input, textarea, select, [contenteditable='true'], [aria-modal='true']") || document.querySelector("[aria-modal='true']")) return;
+      if (target?.closest?.("[data-table-chrome], [aria-modal='true']") || isTypingTarget(target) || document.querySelector("[aria-modal='true']")) return;
       event.preventDefault();
       state.close();
     };

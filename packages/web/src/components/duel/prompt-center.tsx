@@ -56,6 +56,7 @@ import { drawerClaimed, hoverDrawerOpen, pinnedDrawerOpen, promptOwnsPress, setP
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /**
  * Prompts answered in the middle of the board.
@@ -1848,7 +1849,7 @@ export function PromptCenter(props: PromptCenterProps) {
       // Hidden behind its human beat: a right-click answers nothing yet.
       if (!revealedRef.current) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("input,textarea,select,[contenteditable='true'],[data-duel-menu],[role='menu'],[role='dialog']")) return;
+      if (target?.closest("[data-duel-menu],[role='menu'],[role='dialog']") || isTypingTarget(target)) return;
       if (swallow) {
         // This right-click already closed a menu or backed out of an attack confirm.
         swallow = false;
@@ -1885,7 +1886,7 @@ export function PromptCenter(props: PromptCenterProps) {
       const check = precheckRef.current;
       if (check?.checking) {
         const target = event.target instanceof Element ? event.target : null;
-        if (target?.closest("input,textarea,select,[contenteditable='true'],[role='dialog']")) return;
+        if (target?.closest("[role='dialog']") || isTypingTarget(target)) return;
         const action = precheckKeyAction(event.key, target?.closest("button,a,summary,[role='button']") != null, check.listFollows);
         if (!action) return;
         event.preventDefault();

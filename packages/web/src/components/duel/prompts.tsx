@@ -22,6 +22,7 @@ import baseStyles from "./prompts.module.css";
 import { anyEdgeDrawerOpen } from "./edge-drawer";
 import { drawerClaimed, hoverDrawerOpen, pinnedDrawerOpen, promptOwnsPress } from "./hover-drawer";
 import { useSkinStyles } from "./skin";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /** Watching another seat must not make gameplay requests on the viewer's behalf. */
 export const ReadOnlyPromptContext = createContext(false);
@@ -175,7 +176,7 @@ function shouldIgnoreKeyboard(event: KeyboardEvent, menuOpen: boolean): boolean 
   ) {
     return true;
   }
-  if (target.closest("input,textarea,select,[contenteditable='true']")) return true;
+  if (isTypingTarget(target)) return true;
   return (
     (event.key === "Enter" || event.key === " ") &&
     target.closest("button,a,summary,[role='button']") != null

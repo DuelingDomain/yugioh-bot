@@ -18,6 +18,7 @@ import { findMasterCard, masterActionParts, masterActionText, masterNextCost, ma
 import type { HudMasterProps } from "./table/hud-layer";
 import { useHandCover } from "./hand-cover";
 import styles from "./master-badge.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /**
  * The Deck Master as a round portrait badge in a player's name plate (concept D, "Portrait badges"). It is the smallest
@@ -336,8 +337,6 @@ function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | unde
 /** A press or click inside the badge or its pop-over belongs to it alone: the table (a hand card, a zone, a background) never sees it. */
 const contain = { onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(), onPointerDown: (e: { stopPropagation: () => void }) => e.stopPropagation(), onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(), onDoubleClick: (e: { stopPropagation: () => void }) => e.stopPropagation() };
 
-const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
-
 /** The seat's badge, read from the table's `MasterBadgeContext`. Nothing without a context, a master or a Domain table. */
 export function SeatMasterBadge({ seat, side, shortcut }: { seat: number | undefined; side: BadgeSide; shortcut?: boolean }) {
   const source = useContext(MasterBadgeContext);
@@ -402,7 +401,7 @@ export function DeckMasterBadge({
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
       if (event.key?.toLowerCase() !== "m") return;
-      if (event.target instanceof Element && event.target.closest(EDITABLE)) return;
+      if (isTypingTarget(event.target)) return;
       if (document.querySelector('[aria-modal="true"]')) return;
       event.preventDefault();
       viaKey.current = true;

@@ -11,6 +11,7 @@ import { safeAnimate } from "./safe-animate";
 import baseStyles from "./room.module.css";
 import baseFx from "./battle-fx.module.css";
 import { useSkinStyles } from "./skin";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /** The card action menu the room or the table shell has open: where it sits, what it offers, and which prompt it answers. */
 export type CardMenuState = {
@@ -452,7 +453,7 @@ export function AttackConfirm({
         return;
       }
       // Inside the popover a button activates natively; on a zone, Enter re-aims at that zone.
-      if (target?.closest("[data-attack-confirm],[data-zones],input,textarea,select,[contenteditable='true']")) return;
+      if (target?.closest("[data-attack-confirm],[data-zones]") || isTypingTarget(target)) return;
       event.preventDefault();
       event.stopPropagation();
       if (!event.repeat && !busyRef.current) confirmRef.current();

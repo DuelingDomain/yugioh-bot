@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 import { backOutAnswer } from "../pick-backout";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /** Where the 4-way grid looks. `seat` is the field in focus (large), or null for all four fields (an equal 2x2). */
 export interface GridFocus {
@@ -84,11 +85,7 @@ export interface UseGridFocus {
   hold: (seats: readonly number[]) => void;
 }
 
-function typing(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  if (!node || typeof node.tagName !== "string") return false;
-  return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
-}
+const typing = isTypingTarget;
 
 /** The focus of the grid and its keys: 1 to 4 focus a field, O and Esc show all fields. */
 export function useGridFocus({ enabled, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {

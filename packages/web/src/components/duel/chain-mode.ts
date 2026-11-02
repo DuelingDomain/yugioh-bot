@@ -1,4 +1,5 @@
 import type { DuelChainMode } from "@yugidraft/shared/duels";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /**
  * The chain response switch: what it says, what it remembers, and what the R key does.
@@ -61,8 +62,7 @@ export function isChainHotkey(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "me
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || event.defaultPrevented) return false;
   const target = event.target as HTMLElement | null;
   if (target && typeof target.closest === "function") {
-    if (target.isContentEditable) return false;
-    if (target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return false;
+    if (isTypingTarget(target)) return false;
   }
   if (typeof document !== "undefined" && document.querySelector("[role='dialog'][aria-modal='true'], dialog[open]")) return false;
   return true;

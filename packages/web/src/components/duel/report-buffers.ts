@@ -60,14 +60,6 @@ export function addChecklistResult(presetId: string, item: string, result: "pass
   return entry;
 }
 
-/** True when a key press is typing into a field. The "M" mark key must ignore it. */
-export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
-
 /** Stable short signature of an error, to report each one once per page load. */
 export function errorSignature(message: string, source?: string | null, line?: number | null): string {
   return `${message.slice(0, 200)}|${source ?? ""}|${line ?? ""}`;

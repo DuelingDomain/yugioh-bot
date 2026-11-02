@@ -11,6 +11,7 @@ import { ThemedSelect } from "@/components/ui/themed-select";
 import styles from "./vision-lab.module.css";
 import {GPUCheck} from "./gpu-check";
 import { AutoDetectLab } from "./auto-detect-lab";
+import { isTypingTarget } from "@/lib/typing-target";
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
 // Modified for React and a local exportable correction log; no extension/report service.
@@ -223,7 +224,7 @@ function ManualVisionLab() {
       if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
       if(event.key==='Escape' && popover) {event.preventDefault();setPopover(false);previewRef.current?.focus();return;}
       if(event.key==='Escape' && outlineReads.peek) {event.preventDefault();void outlineReads.cancelPeek();return;}
-      if (event.target instanceof HTMLElement && (event.target.matches("input,select,textarea") || event.target.isContentEditable)) return;
+      if (isTypingTarget(event.target)) return;
       if(event.key==='ArrowDown' || event.key==='ArrowUp') {
         if(!popover) return;const buttons=[...(popoverRef.current?.querySelectorAll<HTMLButtonElement>('button')??[])];
         const at=buttons.indexOf(document.activeElement as HTMLButtonElement);if(buttons.length){event.preventDefault();buttons[at<0?(event.key==='ArrowDown'?0:buttons.length-1):(at+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}return;
@@ -307,8 +308,8 @@ function ManualVisionLab() {
 
           {frozenUrl ? <><p className={styles.hint}>{quads.length} detected card{quads.length===1?'':'s'} · gold outlines · Hover or focus to peek · Enter to read</p>
             <div className={styles.controls}>
-              <div className={styles.inlineSelect}><span aria-hidden="true">Camera side</span><ThemedSelect hideLabel compact className={styles.sideSelect} label="Board side" value={outlineReads.side} disabled={busy} choices={SIDE_CHOICES} onChange={outlineReads.setSide} /></div>
-              <div className={styles.inlineSelect}><span aria-hidden="true">Fill seat</span><ThemedSelect hideLabel compact className={styles.seatSelect} label="Board twin seat" value={outlineReads.seat} disabled={busy} choices={SEAT_CHOICES} onChange={outlineReads.setSeat} /></div>
+              <div className={styles.inlineSelect}><label htmlFor="ts-camera-side">Camera side</label><ThemedSelect id="ts-camera-side" hideLabel compact className={styles.sideSelect} label="Camera side" value={outlineReads.side} disabled={busy} choices={SIDE_CHOICES} onChange={outlineReads.setSide} /></div>
+              <div className={styles.inlineSelect}><label htmlFor="ts-fill-seat">Fill seat</label><ThemedSelect id="ts-fill-seat" hideLabel compact className={styles.seatSelect} label="Fill seat" value={outlineReads.seat} disabled={busy} choices={SEAT_CHOICES} onChange={outlineReads.setSeat} /></div>
               <button type="button" disabled={busy || !quads.length} onClick={()=>{setPopover(false);setError(null);void outlineReads.readAll(quads);}}>Read all cards</button>
               {outlineReads.reading ? <button type="button" onClick={outlineReads.cancelBoard}>Cancel board read</button> : null}
             </div></> : null}

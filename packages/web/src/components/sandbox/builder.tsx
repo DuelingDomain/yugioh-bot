@@ -59,6 +59,7 @@ import { SandboxTableView } from "./table-view";
 import type { CardInfoMap, SandboxDrag } from "./zone-slot";
 import styles from "./builder.module.css";
 import extra from "./builder-extras.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 const FORMAT_CHOICES: readonly { value: DuelFormat; label: string }[] = [
   { value: "1v1", label: "1v1" },
@@ -121,9 +122,7 @@ export function formatBlockReason(caps: DuelTableCapabilities | undefined, forma
   );
 }
 
-function typing(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
-}
+const typing = isTypingTarget;
 
 export function SandboxBuilder({
   initial,
@@ -515,15 +514,15 @@ export function SandboxBuilder({
           </fieldset>
 
           <div className={styles.group}>
-            <span className={styles.legend} aria-hidden="true">Master Rule</span>
-            <ThemedSelect hideLabel compact label="Master Rule" value={state.board.masterRule ?? 5}
+            <label className={styles.legend} htmlFor="ts-master-rule">Master Rule</label>
+            <ThemedSelect id="ts-master-rule" hideLabel compact label="Master Rule" value={state.board.masterRule ?? 5}
               choices={MASTER_RULES.map((rule) => ({ value: rule, label: `Master Rule ${rule}` }))}
               onChange={(masterRule) => act({ type: "setMasterRule", masterRule: masterRule as DuelMasterRule })} />
           </div>
 
           <div className={styles.group}>
-            <span className={styles.legend} aria-hidden="true">Turn player</span>
-            <ThemedSelect hideLabel compact label="Turn player" value={state.board.turn ?? "p0"}
+            <label className={styles.legend} htmlFor="ts-turn-player">Turn player</label>
+            <ThemedSelect id="ts-turn-player" hideLabel compact label="Turn player" value={state.board.turn ?? "p0"}
               choices={seats.map((id) => ({ value: id, label: id.toUpperCase() }))}
               onChange={(turn) => act({ type: "setTurn", turn })} />
           </div>
@@ -550,8 +549,8 @@ export function SandboxBuilder({
           </label>
 
           <div className={styles.group}>
-            <span className={styles.legend} aria-hidden="true">Start in</span>
-            <ThemedSelect hideLabel compact label="Start in" value={state.board.startAt ?? "draw"}
+            <label className={styles.legend} htmlFor="ts-start-in">Start in</label>
+            <ThemedSelect id="ts-start-in" hideLabel compact label="Start in" value={state.board.startAt ?? "draw"}
               describedBy={battleReason ? "sbx-start-hint" : undefined}
               choices={SANDBOX_START_PHASES.map((phase) => ({ value: phase, label: `${PHASE_LABEL[phase]} Phase`, disabled: phase === "battle" && battleReason !== null }))}
               onChange={(phase) => act({ type: "setStartAt", phase })} />

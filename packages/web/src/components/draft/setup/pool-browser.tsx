@@ -74,6 +74,7 @@ import {
 } from "./pool-browser-model";
 import { ThemedSelect, type ThemedChoice } from "@/components/ui/themed-select";
 import styles from "./setup.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface PoolBrowserHandle {
   focusSearch: () => void;
@@ -119,10 +120,7 @@ function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   return width;
 }
 
-const isTyping = (t: EventTarget | null) => {
-  const el = t as HTMLElement | null;
-  return !!el && typeof el.matches === "function" && el.matches("input, textarea, select, [contenteditable='true']");
-};
+const isTyping = isTypingTarget;
 
 const NAV_KEYS = new Set<string>(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 

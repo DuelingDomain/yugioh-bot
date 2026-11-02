@@ -150,6 +150,7 @@ import {
 } from "./pool-model";
 import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./section-grid";
 import styles from "./editor.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 const HISTORY_LIMIT = 100;
 /** Passcodes per card-details request; the route takes at most 1000. */
@@ -191,10 +192,7 @@ function parseRouteId(raw: string | undefined): number | "new" | "invalid" {
   return id;
 }
 
-function typingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
-}
+const typingTarget = isTypingTarget;
 
 /** The name a new draft deck starts with. */
 function draftDeckName(draftName: string): string {

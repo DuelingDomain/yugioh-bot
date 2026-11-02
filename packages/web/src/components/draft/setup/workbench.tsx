@@ -30,6 +30,7 @@ import { PageBar, SheetRoot, SvButton, segmentSlide } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { tileImage } from "./pool-browser-model";
 import styles from "./workbench.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export type WorkbenchMode = "wide" | "mid" | "phone";
 export type PhoneTab = "sources" | "pool" | "rules";
@@ -120,11 +121,6 @@ export function useWorkbenchLayout(mode: WorkbenchMode): WorkbenchLayout {
 
 /** Class for the source rail while its mid-width drawer is closed: it hides the rail once it has slid out of sight. */
 export const DRAWER_SHUT_CLASS: string = styles.shut;
-
-const isTypingTarget = (target: EventTarget | null) => {
-  const el = target as HTMLElement | null;
-  return !!el && typeof el.matches === "function" && el.matches("input, textarea, select, [contenteditable='true'], [contenteditable='']");
-};
 
 /** Sets `--wb-top` (distance from the top of the page) and `--topH` (distance from the top of the sheet) on the element. */
 function useTopOffset(ref: React.RefObject<HTMLElement | null>) {

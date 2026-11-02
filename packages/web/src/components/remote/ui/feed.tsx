@@ -12,6 +12,7 @@ import { useVideoHub, type Health } from "./video-hub";
 import { ZoneGridOverlay } from "./zone-grid";
 import { readGridPref, writeGridPref } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
 export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[];
@@ -44,7 +45,6 @@ const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
 const AUTO_KEY = "dd-remote-hover-freeze";
 const RING_SIZE = 6; const RING_GAP_MS = 140; const RING_MAX_PX = 1280; const FLASH_MS = 1200;
-const TYPING = "input,textarea,select,[contenteditable=true]";
 
 // Hover freeze is an opt-in mode now. A click on the live feed is the main way to read a card.
 const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
@@ -331,7 +331,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (frozenRef.current && !frozenRef.current.pinned) unfreeze("Live feed.");
   }
   function key(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.ctrlKey || event.metaKey || event.altKey || (event.target as HTMLElement).closest(TYPING)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return;
     const f = frozenRef.current;
     if (event.key === "f" || event.key === "F") { event.preventDefault(); if (f) unfreeze("Live feed."); else void freeze(true); return; }
     if (!f) return;
@@ -398,7 +398,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     function onKey(event: KeyboardEvent) {
       if ((event.key !== "f" && event.key !== "F") || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
       const target = event.target as HTMLElement;
-      if (target.closest(TYPING) || wrap.current?.contains(target)) return;
+      if (isTypingTarget(target) || wrap.current?.contains(target)) return;
       event.preventDefault(); wrap.current?.focus({ preventScroll: true });
       if (frozenRef.current) unfreeze("Live feed."); else void freeze(true);
     }
