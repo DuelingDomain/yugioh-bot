@@ -1,6 +1,7 @@
 export * from "./actions.js";
 export * from "./types.js";
 export * from "./attack-resolver.js";
+export * from "./phases.js";
 export * from "./games/ygo.js";
 import { ygoModule } from "./games/ygo.js";
 import { remoteAssert } from "./actions.js";

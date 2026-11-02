@@ -1,4 +1,4 @@
-import { ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
+import { parsePhaseCommand, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
 export type VoiceIntent =
@@ -48,10 +48,6 @@ export function spokenNumber(input: string): number {
 }
 
 const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
-const PHASES: [RegExp, string][] = [
-  [/\b(draw phase)\b/, "draw"], [/\bstand ?by( phase)?\b/, "standby"], [/\bmain (phase )?(one|1|won)\b/, "main1"],
-  [/\bbattle( phase)?\b/, "battle"], [/\bmain (phase )?(two|2|to|too)\b/, "main2"], [/\bend phase\b/, "end"],
-];
 
 const SLOT = "(1|2|3|4|5|one|won|two|too|three|four|for|five)";
 const SLOT_VALUE: Record<string, number> = { "1": 1, one: 1, won: 1, "2": 2, two: 2, too: 2, "3": 3, three: 3, "4": 4, four: 4, for: 4, "5": 5, five: 5 };
@@ -108,7 +104,8 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   const text = norm(raw);
   if (!text) return { kind: "none" };
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
-  if (/^(undo|take (that|it) back|cancel that)\b/.test(text)) return { kind: "undo" };
+  const phase = parsePhaseCommand(raw, ctx.state);
+  if (phase) return phase;
   const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state});
   if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
   if (ctx.trayOpen) {
@@ -117,7 +114,6 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
     if (pick) return { kind: "pick", index: spokenNumber(pick[1]) - 1 };
     return { kind: "name", name: raw.trim() };
   }
-  if (/\b(end|pass|finish) (my |the |your )?turn\b|\bnext turn\b/.test(text)) return { kind: "turn" };
   // Attack lines are for the attack resolver. "attack position" is a position word, not an attack.
   const attacking = /\battacks\b|\bdirect/.test(text) || /\battack\b(?! (?:position|mode)\b)/.test(text);
   const move = attacking ? null : parseMove(raw);
@@ -130,8 +126,6 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
     const resolution = ygoModule.resolveAttack(ctx.state, input, ctx.me);
     if (resolution.status !== "none") return { kind: "attack", text, resolution };
   }
-  const phase = PHASES.find(([pattern]) => pattern.test(text));
-  if (phase) return { kind: "phase", phase: phase[1] };
   const lp = /^(?:(.+?)\s+)?(minus|loses|lose|lost|takes|take|pays|pay|plus|gains|gain|gets|heals|heal)\s+(.+)$/.exec(text);
   if (lp) {
     const amount = spokenNumber(lp[3]);
@@ -148,6 +142,17 @@ export function trySaying(players: { seat: number; displayName: string }[], me: 
   const others = players.filter(player => player.seat !== me);
   const first = others[0]?.displayName.split(" ")[0] ?? "Imran";
   const second = others[1]?.displayName.split(" ")[0] ?? first;
-  return ["battle phase", `${first} minus five hundred`, "Blue-Eyes attacks Dark Magician", `direct attack on ${second}`, "end turn", "undo", "chain",
+  return ["main phase", "battle phase", "go back a phase", `${first} minus five hundred`, "Blue-Eyes attacks Dark Magician", `direct attack on ${second}`, "end turn", "undo", "chain",
     "monster zone two", "set in trap zone one", "Dark Magician to spell zone three", "extra monster zone left", "graveyard", "defense position"];
+}
+
+/** Suggestions are labels for explicit user picks, never a fallback execution path. */
+export function suggestCommands(raw: string, ctx: GrammarContext): string[] {
+  if (!raw.trim() || interpret(raw, ctx).kind !== "none") return [];
+  const words = new Set(norm(raw).split(" "));
+  const samples = [...new Set(["draw phase", "standby phase", "main phase", "main phase one", "main phase two",
+    "battle phase", "end phase", "go back a phase", "end turn", "undo", ...trySaying(ctx.players, ctx.me)])];
+  return samples.filter(text => interpret(text, ctx).kind !== "none")
+    .map((text, index) => ({ text, index, score: norm(text).split(" ").filter(word => words.has(word)).length }))
+    .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3).map(item => item.text);
 }

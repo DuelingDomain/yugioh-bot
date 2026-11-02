@@ -1,9 +1,9 @@
 import { remoteActionSchema, type RemoteActionProposal } from "./actions.js";
 import type { GameModule } from "./types.js";
+import { parsePhaseCommand } from "./phases.js";
 
 const fold = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const zones: Record<string, string> = { monster: "monster", "extra monster": "extra-monster", "spell trap": "spell-trap", field: "field", graveyard: "graveyard", banished: "banished" };
-const phases: Record<string, string> = { draw: "draw", standby: "standby", "main 1": "main1", "main one": "main1", battle: "battle", "main 2": "main2", "main two": "main2", end: "end" };
 
 /** Small explicit speech grammar. Produces proposals only; the reducer remains authoritative. */
 export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat, state }) => {
@@ -11,12 +11,14 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   if (!seat || text.length > 500) return null;
   const raw = text.trim().replace(/[.!?]+$/, ""); const words = fold(raw);
   let proposal: RemoteActionProposal | null = null;
-  if (words === "undo" && state.undo) proposal = { type: "undo", actorSeat, targetActionId: state.undo.actionId };
+  const phase = parsePhaseCommand(text, state);
+  if (phase?.kind === "undo" && state.undo) proposal = { type: "undo", actorSeat, targetActionId: state.undo.actionId };
+  if (phase?.kind === "phase") proposal = { type: "phase.set", actorSeat, phase: phase.phase };
+  if (phase?.kind === "turn") proposal = { type: "turn.end", actorSeat };
+  // A recognized table command must not fall through into the card-edit grammar.
+  if (phase) return proposal;
   if (words === "next phase") proposal = { type: "phase.advance", actorSeat };
-  if (words === "end turn") proposal = { type: "turn.end", actorSeat };
   if (words === "concede") proposal = { type: "player.concede", actorSeat };
-  const phase = words.replace(/^(?:set phase to |set phase |phase )/, "").replace(/ phase$/, "");
-  if (phases[phase]) proposal = { type: "phase.set", actorSeat, phase: phases[phase] };
   const lp = words.match(/^(lose|gain|set lp to) (\d+)(?: lp| life points)?$/);
   if (lp) {
     const amount = Number(lp[2]);
