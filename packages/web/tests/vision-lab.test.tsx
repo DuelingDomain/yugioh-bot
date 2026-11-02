@@ -733,7 +733,7 @@ describe('remote room navigation',()=>{
   });
 });
 
-async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:string},zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>){
+async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:string},zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>,diagnosticsAllowed=false){
  const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations'),{ygoModule}=await import('@yugidraft/shared/remote');
  let room:any={guildId:'g',slug:'typed-zone',mySeat:0,lastSeq:0,status:'active',format:{id:'normal'},seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=twins;
  const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,lastSeen:1000};
@@ -742,8 +742,8 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  let source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
  const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
- let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
- return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+ let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
+ return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
@@ -920,5 +920,16 @@ it('a placed best match follows its physical card into GY with one ref and no pr
   await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'graveyard',bestMatch:true})]));
   expect(fixture.post.mock.calls.map(([action]:any)=>action.type)).toEqual(['twin.place','twin.move']);
   expect(screen.queryByTestId('field-watcher-prompt')).not.toBeInTheDocument();
+ }finally{fixture.dispose();}
+});
+
+
+it.each([false,true])('field diagnostics require server-confirmed owner permission (%s)',async diagnosticsAllowed=>{
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'prompt',undefined,undefined,diagnosticsAllowed);
+ try {
+  await fixture.emit({result:{cropJpeg:'local-diagnostic-crop',tier:'not sure',candidates:[{cardId:zoneEntries[0].cardId,score:.9}],timingsMs:{total:100}}});
+  const uploads=fetcher.mock.calls.filter(([url])=>url==='/api/remote-vision/diagnostics');
+  expect(uploads).toHaveLength(diagnosticsAllowed?1:0);
+  expect(fixture.post).not.toHaveBeenCalled();
  }finally{fixture.dispose();}
 });

@@ -752,7 +752,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   void draftPhase;
 
   return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-testid="remote-table" data-status={room.status}>
-    <AutoFieldWatcher room={room} transaction={ctl.transaction} />
+    <AutoFieldWatcher room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}

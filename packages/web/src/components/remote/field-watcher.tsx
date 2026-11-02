@@ -33,7 +33,7 @@ type Entry={cardId:string;passcode:number;name:string};
 type Departure={ref:string;name:string;zone:string};
 const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['extra','Extra Deck']] as const;
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
-export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction:RoomTransaction}) {
+export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{room:RemoteRoom;transaction:RoomTransaction;diagnosticsAllowed?:boolean}) {
   const hub=useVideoHub(),seat=room.mySeat,source=hub.sourceFor(seat);
   const current=useRef({room,active:false});
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
@@ -175,7 +175,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     }finally{setPending(false);}
   }
   function handle(event:FieldEvent) {
-    if(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch))void saveLocalFieldDiagnostic(event,entries.current);
+    if(diagnosticsAllowed&&(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch)))void saveLocalFieldDiagnostic(event,entries.current);
     if(event.type==='prompt'){
       if(event.reason==='pile'&&event.result?.tier==='sure'&&event.track.zone==='GY')void queue(act=>apply(event,act));
       else offer(event);
