@@ -1,5 +1,86 @@
 # Remote vision measurements — 2026-11-01
 
+## Branch 2: merged server duplicate guard — 2026-11-02
+
+Merged `origin/feat/remote-dup-guard` (`2f8ec21d3`). Camera placements send
+`source: 'auto'`; top-level two-copy proof is emitted only for distinct,
+identified quads in the same frame. The client adopts the authoritative twin ref
+in the returned slot, including when the server moves an existing GY/pile twin
+instead of creating the proposed camera ref. Legacy duplicate recovery now uses
+the ref-based `twin.merge` action, with its ordinary atomic Undo.
+
+An isolated real-table browser replay inserted a GY twin immediately before the
+camera placement request. The server retained that GY ref and the watcher adopted
+it, kept one twin through GY and S4 return, and continued tracking it. A separate
+two-card replay sent one unmodified proof **207 ms** old; the merged server accepted
+it and retained exactly two twins. Duplicate repair took **5344 ms**; Undo retained
+the restored duplicate for **6500 ms**, without repair repeating. Browser errors:
+zero. Full-table GY/return timings under concurrent native/build load were
+**741/1852 ms**; these are separate from native tracker latency.
+
+Fresh native Chromium/WASM harness: **10/10 GY → S/T round trips**, one placement,
+one surviving ref and one visible track each, **zero duplicate births and zero
+extra recognition reads**. GY p50/p95 **448.5/652.9 ms**; S/T return p50/p95
+**513.9/1257.8 ms** (previous run **518.6/640.8** and **395.8/542.3 ms**, respectively).
+This run overlapped compilation/browser probes; the 500 ms tail-latency target
+remains unmet. Hand-only **30 s / 279 samples / zero events**; tracked hand
+occlusion **30 s / zero false removals**. Native browser errors: zero.
+Evidence: ignored `data/vision/benchmark/field-watcher/guard-merged-10.json` and
+`/tmp/remote-guard-{native,browser,proof}.log` / browser/proof JSON snapshots.
+
+Existing **153 vision + 137 web + 140 remote-service checks pass**. Shared production
+build and vision/web typechecks pass. The broader shared typecheck still fails on
+unchanged vision-feedback imports outside its rootDir and NodeNext extension
+errors in `scripts/vision/feedback.ts`; no unrelated fix or new tests were added.
+No worker change or face-state wiring is included. The isolated stack was stopped
+by recorded PID and its TCP ports were confirmed closed.
+
+## Branch 2: strict physical copies and GY round trips — 2026-11-02
+
+Coordinator scope split: only the duplicate watcher fix is published here.
+Second-copy camera placements now send `copyProof: {simultaneousQuads: 2, at}`,
+using the verified camera sample translated to server wall time. Both witnesses
+come from the running watcher because the React snapshot can lag the event.
+A real two-card browser capture emitted exactly one proof, **218 ms** old at the
+request, and retained two distinct twins. The isolated legacy server does not yet
+accept this field; the probe captured it, then stripped it solely for compatibility.
+No server-guard validation is claimed. `origin/feat/remote-dup-guard` was not yet
+published at the final fetch; the client uses the coordinator's specified shape.
+Face-state work is stashed and unwired, per the split. Existing 137 web checks and
+the web typecheck pass after this payload change; no new tests were added.
+
+The same identity reuses its existing physical ref when that track is lost,
+including returns from GY, banish or hand. Another automatic twin requires two
+distinct face-up, identified quads in the same detector frame. Cached bound
+visibility now checks pixels rather than treating every old outline as visible.
+
+A fresh matching read in a pile used to be discarded because pile sightings
+cannot create cards. It now moves the existing ref, including when cheap pixel
+tracking failed. A clear matching incoming card can follow its existing ref while
+a hand still covers the old spot; it does not create a speculative second copy.
+
+Recovery waits five seconds with one verified live copy and another absent ref.
+Covered live tracks are exempt. It uses the mutation queue and the existing merge
+action (or removes an unregistered ghost), offers Undo, and respects that Undo as
+an owner override rather than immediately merging again.
+
+Existing native Chromium/WASM harness, **10/10 GY → S/T round trips**: one placement,
+one surviving ref and one visible track in every trial; **zero duplicate births,
+zero extra recognition reads**. Physical returns land in S2, not the monster row.
+GY entry p50/p95 **518.6/640.8 ms**; return p50/p95 **395.8/542.3 ms**. These measure
+tracker events, excluding table HTTP/rendering; p95 still exceeds 500 ms.
+Hand-only **30 s / 281 samples / zero events**; tracked hand occlusion **30 s /
+zero false removals**. Browser errors: zero.
+
+An isolated full-table browser replay also kept one ref through GY (**460 ms**)
+and S4 return (**453 ms**), repaired an injected legacy duplicate in **5504 ms**,
+and retained both refs for **6500 ms after Undo** without reapplying the repair.
+Existing **153 vision + 137 web checks pass**; vision/web typechecks pass. Only
+stale expectations were updated; no test cases were added. Evidence is in
+`copy-return-10.json` under the ignored benchmark directory and
+`/tmp/remote-copy-{native,browser,vision,web}.*`. No worker change is required for
+this copy/GY fix. The separate plain-sleeve work remains saved for the next commit.
+
 ## Branch 2: audit of the two reported table browser failures
 
 Checked the unchanged tests on `feat/remote-autodetect-2` at `63126fd2b`, after

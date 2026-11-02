@@ -5,7 +5,7 @@ import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,t
 import type {RemoteRoom,TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
-import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation,StaleFieldPlacementError} from '@/lib/remote/field-proposals';
+import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone} from '@/lib/remote/field-legality';
@@ -45,6 +45,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
   const prompted=useRef(new Set<string>());
+  const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
@@ -94,10 +95,18 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       existing=bound??twins.find(c=>sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(!existing&&entry){
-      // An unread restart track may reserve the physical spot before adopting its ref.
-      const unbound=twins.filter(c=>publicField(c.zone)&&c.faceUp&&cardCode(c)===catalogCardId(entry)&&(!tracks.current.some(t=>owns(t,c.ref)||(t.id!==event.track.id&&!t.removed&&t.zone===knownZone(c)))||sameSlot(c)));
-      if(unbound.length>1){return {existing,blocked:true};}
-      if(unbound.length===1)existing=unbound[0];
+      const copies=twins.filter(c=>cardCode(c)===catalogCardId(entry));
+      for(const copy of copies){
+        const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
+        // Events precede the React snapshot render. Both witnesses must be read
+        // from the running watcher, rather than comparing a new frame to stale UI.
+        const other=watch.getTrack(copy.ref)??(cached?watch.getTrack(cached.id):undefined);
+        if(other&&simultaneousFieldCopies(track,other))continue;
+        // An occluded/lost copy or an existing pile/hand copy owns this read.
+        // An unmatched visible outline is insufficient proof for another twin.
+        if(other?.visible&&!other.removed)return {existing,blocked:true};
+        existing=copy;break;
+      }
     }
     return {existing,blocked:false};
   }
@@ -114,6 +123,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     let location=fieldZoneLocation(track.zone);
     if(!track.faceDown&&!entry){offer({...event,type:'prompt',reason:'recognition-error'});return;}
     if(piles.has(track.zone)){
+      const resolved=resolveExisting(event,track,entry,twins);
+      if(resolved.blocked)return;
+      existing=resolved.existing;
       // A pile outline can follow a uniquely lost instance; it cannot create one.
       const lost=tracks.current.filter(t=>t.id!==track.id&&t.state==='identified'&&(!t.visible||t.removed)&&t.cardId===track.cardId&&track.firstSeen-t.lastSeen<10000&&twins.some(c=>c.ref===t.id));
       if(!existing&&lost.length===1){existing=twins.find(c=>c.ref===lost[0].id);}
@@ -146,11 +158,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     try {
       let updated:RemoteRoom|null=null;
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
-      for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
+      // The resolver has just required a distinct, same-frame witness for every
+      // existing copy. Timestamp the actual camera sample in the server clock.
+      const copyProof=!existing&&code&&twins.some(c=>cardCode(c)===code)?{simultaneousQuads:2 as const,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
+      for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(proposal.type==='twin.place'){
           const canonical=placedTwin(updated.state.seats[seat].twin,{...proposal.card,zone:proposal.zone});
+          if(!canonical)throw new Error('Camera placement was not returned in its slot');
           if(canonical && canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
+          bindings.current.set(event.track.id,canonical.ref);
         }
       }
       const currentTarget=()=>{
@@ -173,8 +190,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         if(!matches(target)){setNotice('The card is still moving. Confirm it once settled.');return;}
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      if(existing)bindings.current.set(event.track.id,existing.ref);
-      watch.confirm(event.track.id,track.cardId,existing?.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+      bindings.current.set(event.track.id,target.card.ref);
+      watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
@@ -217,6 +234,32 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:source,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
+  useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
+  useEffect(()=>{
+    const timer=setInterval(()=>{
+      if(!live()||repairingCopies.current||calibrationBusy.current||document.hidden)return;
+      const twins=current.current.room.state.seats[seat].twin,at=Date.now();
+      const tracked=(ref:string)=>tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===ref);
+      for(const ghost of twins){
+        const code=cardCode(ghost),lost=tracked(ghost.ref),mergedAt=mergedCopies.current.get(ghost.ref);
+        // A restored merge is an owner override. A covered live track is not gone.
+        if(!code||(mergedAt!==undefined&&current.current.room.lastSeq>mergedAt)||(lost&&!lost.removed)){missingCopies.current.delete(ghost.ref);continue;}
+        const keep=twins.find(c=>c.ref!==ghost.ref&&cardCode(c)===code&&publicField(c.zone)&&c.faceUp&&(()=>{const t=tracked(c.ref);return t?.state==='identified'&&t.visible&&!t.removed&&entries.current.get(t.cardId??'')?.passcode===code;})());
+        if(!keep){missingCopies.current.delete(ghost.ref);continue;}
+        const since=missingCopies.current.get(ghost.ref)??at;missingCopies.current.set(ghost.ref,since);
+        if(at-since<5000)continue;
+        repairingCopies.current=true;
+        void queue(async act=>{
+          const latest=current.current.room,twins=latest.state.seats[seat].twin,survivor=twins.find(c=>c.ref===keep.ref),duplicate=twins.find(c=>c.ref===ghost.ref),t=tracked(keep.ref),gone=tracked(ghost.ref);
+          if(!live()||!survivor||!duplicate||!t?.visible||t.removed||(gone&&!gone.removed))return;
+          const updated=await act({type:'twin.merge',actorSeat:seat,seat,keepRef:survivor.ref,removeRef:duplicate.ref,reason:'Camera sees one physical copy; absent duplicate merged'});
+          if(updated){mergedCopies.current.set(duplicate.ref,updated.lastSeq);missingCopies.current.delete(duplicate.ref);setDeparture(null);setNotice(`${survivor.name??'Card'} duplicate merged · one physical copy`);setUndoId(updated.state.undo?.actionId??'');}
+        }).finally(()=>{repairingCopies.current=false;});
+        break;
+      }
+    },500);
+    return()=>clearInterval(timer);
+  },[room.slug,seat,watch.enabled]);
   const video=host?.querySelector('video')??null;
   useEffect(()=>{if(!watch.calibrationNeeded||!video)return;const open=()=>{if(video.videoWidth)setCalibrating(true);};open();video.addEventListener('loadedmetadata',open);return()=>video.removeEventListener('loadedmetadata',open);},[watch.calibrationNeeded,video]);
   useEffect(()=>{
