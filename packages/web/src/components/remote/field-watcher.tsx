@@ -105,7 +105,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       const moved=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});
       if(!moved){offer({...event,type:'prompt',reason:'recognition-error'});return;}
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref);
+      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,Boolean(chosen));
       setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;
     }
     const resolved=resolveExisting(event,track,entry,twins);
@@ -154,7 +154,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
-      watch.confirm(event.track.id,track.cardId,existing?.ref);rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+      watch.confirm(event.track.id,track.cardId,existing?.ref,Boolean(chosen));rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
@@ -193,7 +193,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }else if(event.type==='flipped'&&card.faceUp===event.track.faceDown)await act({type:'twin.flip',actorSeat:seat,seat,cardRef:card.ref,faceUp:!event.track.faceDown});
     });
   }
-  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,deviceKey:hub.cameraId,sourceKey:source,
+  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:source,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
   const video=host?.querySelector('video')??null;

@@ -92,14 +92,15 @@ test('read all preserves slots and face-down uncertainty, groups sides and limit
 
 // The field watcher is deterministic with timestamped native-frame samples.
 import * as field from './field-watcher';
+import {createFieldIdentityGallery} from './field-gallery';
 import * as zones from './field-zones';
 import type { RecognitionResult } from './types';
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20) {
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>) {
   let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=1, appearance=Array(12).fill(.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',appearanceAt:((card:DetectedQuad)=>number[])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
   const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
-  const watcher=field.createFieldWatcher({recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...frame,data:new Uint8ClampedArray(frame.data).fill(detail)} as ImageData,at})},
+  const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...frame,data:new Uint8ClampedArray(frame.data).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??appearance,halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>events.push(event));
@@ -574,4 +575,17 @@ test('a different card returning to an explicitly restored spot abstains without
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
  r.outlines=[];for(let i=0;i<11;i++)await r.tick(300);r.watcher.dismiss(id);r.identity='B';r.decklist=['A','B'];r.embedding=[0,1];r.appearance=Array.from({length:12},(_,i)=>i%2);r.outlines=[card(.3,.3)];for(let i=0;i<20;i++)await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved').length,0);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+});
+
+// One duel-gallery feature probe: persistence, hysteresis, corrected answers and copy refs.
+test('duel gallery reuses confirmed and dismissed embeddings without stealing physical refs',async()=>{
+ const gallery=createFieldIdentityGallery();const vector={values:[1,0],space:'art-box' as const};
+ gallery.remember(vector,'A');assert.deepEqual(gallery.resolve(vector),{kind:'match',cardId:'A'});
+ assert.equal(gallery.resolve({values:[.75,Math.sqrt(1-.75**2)],space:'art-box'}).kind,'hold');
+ assert.equal(gallery.resolve({values:[0,1],space:'art-box'}).kind,'new');
+ const restored=createFieldIdentityGallery(JSON.parse(JSON.stringify(gallery.entries())));
+ const a=fieldRig('low match',20,restored);a.embedding=[1,0];a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
+ const placements=a.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.ok(placements.every(e=>e.track.cardId==='A'));assert.notEqual(placements[0].track.id,placements[1].track.id);assert.equal(a.events.some(e=>e.type==='prompt'),false);a.watcher.dispose();
+ restored.remember(vector,undefined);const b=fieldRig('low match',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
+ restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
