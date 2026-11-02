@@ -91,7 +91,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
         const start=performance.now();
         const result=await request({ type: 'recognize', frames, opts }, [...new Set(transfers)]) as RecognitionResult;
-        result.timingsMs.roundTrip=performance.now()-start;return result;
+        if(result.timingsMs)result.timingsMs.roundTrip=performance.now()-start;return result;
       } finally { inFlight = false; }
     },
     async detectCards(frame) {
