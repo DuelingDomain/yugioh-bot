@@ -3,7 +3,7 @@ import type { Recognizer } from './client';
 import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } from './types';
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
-import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, type FieldFrame, type FieldAnalysis } from './field-motion';
+import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, clearFieldTransfer, type FieldFrame, type FieldAnalysis } from './field-motion';
 import { fieldCenter, onMat, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
@@ -121,10 +121,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const appearances=new Map(cards.map(c=>[c,evidence.appearance?.(c)]));
       const appearance=(c:DetectedQuad)=>appearances.get(c);
       const matched=new Map<InternalTrack,DetectedQuad>(),taken=new Set<DetectedQuad>();
-      const clearOldSpot=(t:InternalTrack)=>{
-        const halo=evidence.halo?.(t.view.card);
-        return evidence.motion(t.view.card)<=.01&&!!halo?.length&&halo.length===t.halo?.length&&halo.filter((v,i)=>Math.abs(v-t.halo![i])>.06).length/halo.length<=.08&&clearFieldBackground(evidence.appearance?.(t.view.card),t.halo);
-      };
+      const clearOldSpot=(t:InternalTrack,incoming:DetectedQuad)=>evidence.motion(t.view.card)<=.01&&clearFieldTransfer(evidence,t.view.card,incoming,t.halo);
       const followsAppearance=(t:InternalTrack,c:DetectedQuad)=>bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c));
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
@@ -134,7 +131,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const sameSpot=overlap>=.84&&d<.012;
         const needsLook=!bound(t)&&t.view.state==='identified'&&t.view.card.kind==='face-up'&&!sameSpot&&(d>.02||overlap<.84||t.missed);
         const looks=c.kind==='face-up'&&((!t.identityAppearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.identityAppearance,appearance(c)));
-        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&sameFieldAppearance(t.identityAppearance,appearance(c))))&&(!needsLook||looks)&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t))};
+        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&sameFieldAppearance(t.identityAppearance,appearance(c))))&&(!needsLook||looks)&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t,c))};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
@@ -146,7 +143,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){
-          if(clearOldSpot(lost[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
+          if(clearOldSpot(lost[0],incoming[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
           // Do not turn the first motion frame into a new birth. Reserve this
           // ambiguous outline until the old spot clears or both copies reappear.
           else if(bound(lost[0]))taken.add(incoming[0]);
