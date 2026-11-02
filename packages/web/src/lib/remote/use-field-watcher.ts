@@ -8,21 +8,32 @@ export interface UseFieldWatcherOptions {
   owner:boolean; active:boolean; seatKey:string; duelKey?:string; sourceKey?:unknown; deviceKey?:string;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
-const keyOf=(seatKey:string)=>`dd-field-watcher:v1:${seatKey}`;
-/** The saved field calibration of a seat, or undefined. The lobby reads and writes the same record the table watcher uses. */
-export function loadFieldCalibration(seatKey:string):FieldCalibration|undefined {
-  try {const stored=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}');return stored?.calibration?createFieldCalibration(stored.calibration.corners):undefined;}catch{return undefined;}
+export const fieldCalibrationKey=(seatKey:string,deviceKey?:string)=>`dd-field-watcher:v1:${seatKey}${deviceKey?`:device:${encodeURIComponent(deviceKey)}`:''}`;
+function readSaved(seatKey:string,deviceKey?:string):{enabled?:boolean;calibration?:FieldCalibration;cameraId?:string} {
+  try {
+    const exact=localStorage.getItem(fieldCalibrationKey(seatKey,deviceKey));
+    if(exact){const value=JSON.parse(exact);return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}
+    const legacy=JSON.parse(localStorage.getItem(fieldCalibrationKey(seatKey))??'{}');
+    if(!legacy||typeof legacy!=='object'||Array.isArray(legacy))return {};
+    // Phone pairings never inherit a webcam's geometry.
+    if(deviceKey?.startsWith('phone:')||deviceKey&&legacy.cameraId&&legacy.cameraId!==deviceKey)return {};
+    return legacy;
+  }catch{return {};}
 }
-/** The camera the saved calibration was made with, when the lobby saved it. */
+/** Lobby and table share the same seat + camera record, including orientation. */
+export function loadFieldCalibration(seatKey:string,deviceKey?:string):FieldCalibration|undefined {
+  try {const saved=readSaved(seatKey,deviceKey).calibration;return saved?createFieldCalibration(saved.corners,saved.orientation):undefined;}catch{return undefined;}
+}
 export function loadFieldCalibrationCamera(seatKey:string):string|undefined {
-  try {const id=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}')?.cameraId;return typeof id==='string'&&id?id:undefined;}catch{return undefined;}
+  return readSaved(seatKey).cameraId;
 }
 export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string) {
   try {
-    let stored:{enabled?:boolean}={};
-    try {const old=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}');if(old&&typeof old==='object')stored=old;}catch{/* Start from empty. */}
-    localStorage.setItem(keyOf(seatKey),JSON.stringify({...stored,calibration:grid,cameraId}));
-  } catch {/* Memory-only fallback. */}
+    const value={...readSaved(seatKey,cameraId),calibration:grid,cameraId};
+    localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
+    // Retain the last-camera pointer for older clients and the lobby summary.
+    if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));
+  }catch{/* Memory-only fallback. */}
 }
 /** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
@@ -32,22 +43,22 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const galleryKey=`dd-field-gallery:v1:${options.seatKey}:${options.duelKey??'lab'}`;
   const [enabled,setOn]=useState(true),[loaded,setLoaded]=useState('');
   const [calibration,setGrid]=useState<FieldCalibration|undefined>();
+  const gridRef=useRef(calibration);gridRef.current=calibration;
   const [snapshot,setSnapshot]=useState<FieldSnapshot>(initial);
-  const storageKey=`dd-field-watcher:v1:${options.seatKey}${options.deviceKey?`:device:${encodeURIComponent(options.deviceKey)}`:''}`;
-  const hasCalibration=!!calibration;
+  const storageKey=fieldCalibrationKey(options.seatKey,options.deviceKey);
+  const hasCalibration=!!calibration?.orientation;
   const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!hasCalibration;
   useEffect(()=>{
-    let value:{enabled?:boolean;calibration?:FieldCalibration}={};
-    try {const stored=JSON.parse(localStorage.getItem(storageKey)??'{}');if(stored&&typeof stored==='object')value=stored;}catch{/* Private mode/storage unavailable. */}
+    const value=readSaved(options.seatKey,options.deviceKey);
     setOn(value.enabled!==false);
-    try {setGrid(value.calibration?createFieldCalibration(value.calibration.corners):undefined);}catch{setGrid(undefined);}
+    setGrid(loadFieldCalibration(options.seatKey,options.deviceKey));
     setLoaded(storageKey);
-  },[storageKey]);
-  const save=useCallback((on:boolean,grid?:FieldCalibration)=>{try{localStorage.setItem(storageKey,JSON.stringify({enabled:on,calibration:grid}));}catch{/* Memory-only fallback. */}},[storageKey]);
+  },[storageKey,options.seatKey,options.deviceKey]);
+  const save=useCallback((on:boolean,grid?:FieldCalibration)=>{try{localStorage.setItem(storageKey,JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey}));}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey]);
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
-  const setCalibration=useCallback((grid?:FieldCalibration)=>{setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
+  const setCalibration=useCallback((grid?:FieldCalibration)=>{gridRef.current=grid;setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
   useEffect(()=>{
-    if(!options.owner||!options.active||!enabled||loaded!==storageKey||!calibration){setSnapshot(initial);return;}
+    if(!options.owner||!options.active||!enabled||loaded!==storageKey||!calibration?.orientation){setSnapshot(initial);return;}
     let cancelled=false,reader:FieldWatcher|null=null;
     void latest.current.create().then(config=>{
       if(cancelled)return;
@@ -57,7 +68,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
         const value=createFieldIdentityGallery(saved,()=>{try{sessionStorage.setItem(galleryKey,JSON.stringify(value.entries()));}catch{/* Memory-only fallback. */}});
         gallery.current={key:galleryKey,value};
       }
-      reader=createFieldWatcher({...config,calibration,gallery:gallery.current.value});watcher.current=reader;
+      reader=createFieldWatcher({...config,calibration:gridRef.current,gallery:gallery.current.value});watcher.current=reader;
       reader.subscribe(event=>{if(!cancelled)latest.current.onEvent(event);});
       reader.subscribeState(()=>{if(!cancelled)setSnapshot(reader!.getSnapshot());});reader.start();
     }).catch(error=>{if(!cancelled)setSnapshot({...initial,status:'error',error:error instanceof Error?error.message:'Card watcher unavailable'});});

@@ -6,7 +6,9 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { loadFieldCalibration, loadFieldCalibrationCamera, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
+import { loadFieldCalibration, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
+import { FieldOrientationControls } from "../field-orientation";
+import { defaultGridCalibration, fieldGridCells, projectCell } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
 import { detectCards, prewarmRecognizer } from "./recognizer";
@@ -64,10 +66,29 @@ function useQr(url: string) {
  * One seat's live feed from table video. Click a face-up card to test the reader on that seat's camera.
  * The test ids are the ones the phone e2e uses.
  */
-function SeatFeed({ seat, name }: { seat: number; name: string }) {
+function PreviewGrid({calibration,format}:{calibration?:FieldCalibration;format:FieldFormat}){
+  const grid=calibration??defaultGridCalibration();
+  return <svg className={s.fieldGrid} viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden>
+    {fieldGridCells(format).map(cell=>{const {corners,center}=projectCell(cell,grid);return <g key={cell.zone}>
+      <polygon points={corners.map(p=>`${p.x*1000},${p.y*1000}`).join(' ')}/>
+      <text x={center.x*1000} y={center.y*1000}>{cell.label}</text>
+    </g>;})}
+  </svg>;
+}
+async function calibrationCards(frame:HTMLCanvasElement){
+  const result=await detectCards(await createImageBitmap(frame));
+  if(result.status!=='ready')throw new Error(result.note);
+  return result.cards;
+}
+function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string; room?:RemoteRoom; cameraKey?:string }) {
   const hub = useVideoHub();
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null);
+  const [calibration,setCalibration]=useState<FieldCalibration>();
+  const [calibrating,setCalibrating]=useState(false);
+  const seatKey=room?seatKeyOf(room):undefined;
+  useEffect(()=>{setCalibration(seatKey?loadFieldCalibration(seatKey,cameraKey):undefined);},[seatKey,cameraKey]);
+  const saveCalibration=(grid:FieldCalibration)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey);setCalibration(grid);}};
   const inFlight = useRef(false);
   const [note, setNote] = useState("");
   const [reading, setReading] = useState(false);
@@ -95,8 +116,13 @@ function SeatFeed({ seat, name }: { seat: number; name: string }) {
         <video ref={video} className={s.video} autoPlay playsInline muted
           onLoadedMetadata={event => { const el = event.currentTarget; if (el.videoWidth && el.videoHeight) setRatio(el.videoWidth / el.videoHeight); }} />
       </button>
+      {room?<PreviewGrid calibration={calibration} format={formatOf(room)}/>:null}
       <span className={s.chip}><i aria-hidden /> {name} · {hub.health(seat).label}</span>
     </div>
+    {room?<><FieldOrientationControls calibration={calibration??defaultGridCalibration()} onChange={saveCalibration}/>
+      <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
+      {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
+        onSave={grid=>{saveCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
     <p className={ui.hint}>Click a face-up card to test the reader.</p>
     <p className={cx(ui.hint, s.readNote)} role="status" data-testid={`lobby-phone-read-${seat}`}>{note}</p>
   </div>;
@@ -123,9 +149,10 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [outlines, setOutlines] = useState<Point[][]>([]);
   const [calibrating, setCalibrating] = useState(false);
   const seatKey = seatKeyOf(room);
-  const [calibrated, setCalibrated] = useState(false);
-  const [calibratedFor, setCalibratedFor] = useState<string | undefined>();
-  const readCalibration = useCallback(() => { setCalibrated(!!loadFieldCalibration(seatKey)); setCalibratedFor(loadFieldCalibrationCamera(seatKey)); }, [seatKey]);
+  const [calibration,setCalibration]=useState<FieldCalibration>();
+  const calibrated=!!calibration?.orientation;
+  const readCalibration=useCallback(()=>setCalibration(loadFieldCalibration(seatKey,cameraId||undefined)),[seatKey,cameraId]);
+  const saveCalibration=(grid:FieldCalibration)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined);setCalibration(grid);};
   useEffect(() => { readCalibration(); }, [readCalibration]);
 
   const release = useCallback(() => { stream.current?.getTracks().forEach(track => track.stop()); stream.current = null; }, []);
@@ -254,7 +281,6 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     : seenOnce ? <>Card check passed. Hold a card to test again.</> : <>Hold a card under the camera.</>;
   const micLine = !micWanted ? "Not tested yet." : mic === "heard" ? "Hearing you" : mic === "on" ? "Say something. The bar should move." : mic === "off" ? "Microphone blocked or missing. Voice commands need it." : "Starting the microphone…";
   const zonesLine = !calibrated ? "Not calibrated yet. Do it now so the duel starts ready."
-    : live && calibratedFor && cameraId && calibratedFor !== cameraId ? "Calibrated for another camera. Calibrate again."
     : "Field zones saved for this seat.";
   const ratio = size.w / size.h;
 
@@ -263,6 +289,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       <div className={s.view} style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties} data-found={check === "found" || undefined}>
         <video ref={attach} className={s.video} autoPlay muted playsInline data-testid="lobby-cam-video"
           onLoadedMetadata={event => { const el = event.currentTarget; if (el.videoWidth && el.videoHeight) setSize({ w: el.videoWidth, h: el.videoHeight }); }} />
+        {live?<PreviewGrid calibration={calibration} format={formatOf(room)}/>:null}
         {outlines.length ? <svg className={s.outlines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
           {outlines.map((quad, i) => <polygon key={i} points={quad.map(p => `${p.x},${p.y}`).join(" ")} />)}
         </svg> : null}
@@ -293,11 +320,12 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Crosshair size={13} strokeWidth={1.6} aria-hidden /> Field zones</span>
         <p className={ui.hint}>{zonesLine}</p>
+        <FieldOrientationControls calibration={calibration??defaultGridCalibration()} onChange={saveCalibration} disabled={!live}/>
         <SheetButton size="sm" disabled={!live} onClick={() => setCalibrating(true)} data-testid="lobby-cam-calibrate">{calibrated ? "Calibrate again" : "Calibrate now"}</SheetButton>
       </div>
     </div>
-    {calibrating ? <FieldCalibrationControl video={video.current} format={formatOf(room)}
-      onSave={(grid: FieldCalibration) => { saveFieldCalibration(seatKey, grid, cameraId || undefined); readCalibration(); setCalibrating(false); }} onCancel={() => setCalibrating(false)} /> : null}
+    {calibrating ? <FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
+      onSave={(grid: FieldCalibration) => { saveCalibration(grid); setCalibrating(false); }} onCancel={() => setCalibrating(false)} /> : null}
   </div>;
 }
 
@@ -349,7 +377,7 @@ function PhonePanel({ room, onUnpaired }: { room: RemoteRoom; onUnpaired: () => 
     const me = room.seats.find(item => item.seat === seat);
     return <div className={s.stage}>
       <div className={s.viewCol}>
-        {hub.sourceFor(seat) ? <SeatFeed seat={seat} name={me?.displayName ?? "You"} />
+        {hub.sourceFor(seat) ? <SeatFeed seat={seat} name={me?.displayName ?? "You"} room={room} cameraKey={`phone:${phone.id}`} />
           : <div className={s.view} style={{ "--ar": "1.7778" } as React.CSSProperties}><div className={s.veil}><LoaderCircle size={22} className={s.spin} aria-hidden /> Waiting for the phone video…</div></div>}
       </div>
       <div className={s.controls}>
