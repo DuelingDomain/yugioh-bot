@@ -347,3 +347,23 @@ an incoming-card mask. Hand-only276samples and30s tracked occlusion have zero fa
 removals. Browser scenario changes remain unrun. Route fixture failures remain
 unverified. Quick touched-package types, commit/push and recorded-PID cleanup only.
 Zone mapping is DONE; owner test stack must rebundle the ignored vision worker.
+
+
+## Branch 2 reliability follow-up
+
+Continue only on feat/remote-autodetect-2 from d9e66f427; never push the deployment
+branch. No new tests or services. Two independent tasks ran in parallel, with native
+CPU measurement separated from heavy checks.
+
+- [x] Reproduce route failures; measure setup and fix the existing stale fixture.
+  Migration took 4.13 s before cold imports and 5 s deadlines; seed-and-copy preserves
+  all 13 original cases and file-backed DB isolation. All 13 pass; no timeout changes.
+- [x] Exclude the incoming quad when checking exposed old mat; retain 50% minimum
+  exposed footprint/ring and keep full disappearance checks unchanged.
+- [x] Confirm fresh detector poses with two clean pixel samples, keeping face/overlap
+  guards, expiry and lifecycle reset. Existing 153 vision tests pass unchanged.
+- [x] Native reliability 4/10→10/10 with zero extra reads. Slide/GY p50=357/364 ms,
+  p95=672/966 ms. Median meets 0.3–0.5s; tail remains above 500 ms and is documented.
+  Thirty-second hand checks have zero false removals; 12 s jitter has no extra events.
+- [x] Final vision/web typechecks pass. Own native harnesses closed their processes;
+  no protected services started. Small commits and push only the new branch; no PR.

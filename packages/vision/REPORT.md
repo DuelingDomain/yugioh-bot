@@ -1,5 +1,70 @@
 # Remote vision measurements — 2026-11-01
 
+## Branch 2: route fixtures and reliable tracked transfers
+
+Work continues from `d9e66f427` on **`feat/remote-autodetect-2` only**. This section
+supersedes the stopped/incomplete status in the earlier handoff below.
+
+The five reported route failures came from slow fixture setup, followed by stale
+asynchronous setup work running into later cases. An exact repeat reproduced three
+5s timeouts (10/13 passed, 39.96 s). Phase timing showed SQLite migration alone taking
+**4129.9 ms** of **4387 ms** setup, before cold route imports. The existing fixture now
+migrates one seed and copies a fresh file-backed database per case, including the
+empty-catalog cases. Route imports warm during suite setup. No app/auth behavior or
+timeout changed. All original **13/13 pass**: 7.30 s in isolated verification and 11.24 s
+in the final run alongside typechecks. No test cases were added.
+
+Transfers now mask the incoming card from the old footprint and surrounding-ring
+check. At least half of both regions must remain exposed, match the saved ring,
+and look like uniform clear mat. A hand still covering the old card cannot provide
+that evidence. Disappearance removal continues checking the entire footprint.
+
+For speed, a moved/turned quad from the detector may be confirmed by two fresh,
+matching pixel samples at least 100 ms apart. The quad expires after 600 ms, and any
+motion, appearance change, overlap, face transition or hidden/busy lifecycle reset
+returns it to normal detection. This preserves the same ref without another model
+read. Flip/reveal paths keep their normal handling. Review found two missing guards
+(overlapping cards and unsettled face state); both were fixed before final checks.
+
+Existing native harness, 10 trials per cohort, cached real WASM models/index,
+1280×720 canvas camera and no app/network rendering time:
+
+| Metric | Before `d9e66f427` | Mask only | Final |
+| --- | ---: | ---: | ---: |
+| Same-ref slide/DEF/GY with zero extra reads | 4/10 | 10/10 |**10/10** |
+| Slide p50 / p95, ms | 517.8 / 852.6* | 812.5 / 1227.8 | **357.1 / 671.8** |
+| GY p50 / p95, ms | 612.1 / 1149.7* | 565.8 / 1324.9 | **363.8 / 966.5** |
+| DEF rotation p50 / p95, ms |Not comparable** | 766.1 / 5089.1 | **450.4 / 660.5** |
+
+Before timings include only the four successful transfers; six failures are not
+silently included as zero latency. Earlier rotation events included new refs,
+so they cannot supply a valid same-ref baseline. The final run is 10/10 correct for
+all three moves, 10/10 correct placements and 10/10 removals, with **zero additional
+recognition reads**, no browser errors and exit 0.
+
+Median follow meets the 0.3–0.5s target; **p95 does not meet 500 ms**. Shared-machine
+Next/Playwright workloads were observed during timing; this is a local synthetic
+WASM measurement, not a hard webcam/desktop bound. Remaining tails are reported,
+not excluded. Valid final removal p50/p95 is 3044.9/4743.0 ms.
+
+Final hand-only check: **0 events over 30 s / 277 samples**. Moving/frozen tracked hand
+occlusion: **0 false removals over 30 s**. Twelve seconds of brightness/angle jitter
+produced **0 unexpected placements/prompts/flips/removals**.
+
+Verification: existing **153 vision + 13 route = 166 checks pass**; vision/web
+typechecks pass. Test case count is unchanged, with no new test files or dependency
+or model downloads. Both native benchmark processes exited and closed their own
+browser/ephemeral listener; no isolated app stack or protected service was started.
+No additional worker rebundle is needed beyond the earlier `d9e66f427` pipeline
+bundle: this branch changes the app-side tracker and test fixture, not worker code.
+
+Local ignored evidence: `data/vision/benchmark/field-watcher/gallery-verified.json`
+(before), `follow2-masked.json`, and `follow2-fast.json`. Timing JSONs remain small;
+existing cached models/images/index were reused. Route captures are in
+`/tmp/remote-follow2-route-{before,phase,after}-captured.log`; final checks are in
+`/tmp/remote-follow2-final-{vision,routes,vision-types,web-types}.log`.
+
+
 ## Coordinator stop / handoff
 
 Stopped further implementation and tests at the coordinator's request. Zone layout
