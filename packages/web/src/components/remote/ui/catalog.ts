@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CardSummary } from "@/lib/card-types";
 
 /** Card details the table screen needs: name, type line, ATK/DEF and text. Shared by every component. */
-export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "attribute" | "level" | "effectText" | "atk" | "def">;
+export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "race" | "attribute" | "level" | "effectText" | "atk" | "def">;
 
 const cache = new Map<number, CardInfo>();
 const inflight = new Map<number, Promise<void>>();
@@ -29,18 +29,26 @@ export function retryCards(ids: Iterable<number>): Promise<void> {
 }
 
 async function post(body: unknown): Promise<CardSummary[]> {
-  const response = await fetch("/api/cards/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!response.ok) throw new Error(`Card lookup failed (${response.status})`);
-  return ((await response.json()) as { cards?: CardSummary[] }).cards ?? [];
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  const deadline=new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Card details timed out after 10 seconds.'));},10_000);});
+  try {
+    // Include body decoding in the deadline so missing facts cannot hold the table queue.
+    return await Promise.race([deadline,(async()=>{
+      const response = await fetch("/api/cards/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),signal:controller.signal });
+      if (!response.ok) throw new Error(`Card lookup failed (${response.status})`);
+      return ((await response.json()) as { cards?: CardSummary[] }).cards ?? [];
+    })()]);
+  }finally{clearTimeout(timer);}
 }
 
 const CHUNK = 80;
 
 /** Loads missing card ids, 80 per request. Safe to call often. */
 export function loadCards(ids: Iterable<number>): Promise<void> {
-  const missing = [...new Set(ids)].filter(id => id > 0 && !cache.has(id) && !inflight.has(id));
-  if (!missing.length) return Promise.resolve();
-  const jobs: Promise<void>[] = [];
+  const needed=[...new Set(ids)].filter(id=>id>0&&!cache.has(id));
+  const jobs=[...new Set(needed.map(id=>inflight.get(id)).filter((work):work is Promise<void>=>!!work))];
+  const missing=needed.filter(id=>!inflight.has(id));
+  if(!missing.length)return Promise.all(jobs).then(()=>undefined);
   for (let i = 0; i < missing.length; i += CHUNK) {
     const chunk = missing.slice(i, i + CHUNK);
     const work = post({ lookupIds: chunk }).then(remember).catch(() => undefined)

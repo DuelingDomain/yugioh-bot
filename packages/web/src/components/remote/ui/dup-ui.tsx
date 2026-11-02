@@ -19,15 +19,15 @@ export function DupBanner({ seat, name, count, more, busy, canAct, onMerge, onTw
   </div>;
 }
 
-/** The table answered a manual placement with "already on the field". One tap decides: move that card, or add another. */
-export function CopyAsk({ seat, name, place, busy, onMove, onCopy, onCancel }: {
-  seat: number; name: string; place: string; busy: boolean; onMove: () => void; onCopy: () => void; onCancel: () => void;
+/** The table placed a card the seat already has on the field and asks: the same card (merge) or another copy? */
+export function CopyAsk({ seat, message, place, busy, onMove, onCopy, onCancel }: {
+  seat: number; message: string; place: string; busy: boolean; onMove: () => void; onCopy: () => void; onCancel: () => void;
 }) {
-  return <div className={s.dupbar} role="group" aria-label={`${name} is already on the field`} data-testid={`copy-ask-${seat}`}
+  return <div className={s.dupbar} role="group" aria-label={message} data-testid={`copy-ask-${seat}`}
     onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onCancel(); } }}>
     <Icon name="warn" />
-    <span className={s.duptx}><b>{name}</b> is already on the field {"—"} another copy?</span>
-    <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={busy} autoFocus onClick={onMove} data-testid={`copy-move-${seat}`} title={`Move it to ${place}`}>Move it here</button>
+    <span className={s.duptx}>{message}</span>
+    <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={busy} autoFocus onClick={onMove} data-testid={`copy-move-${seat}`} title={`Keep the new card at ${place} and remove the old one`}>Move it here</button>
     <button type="button" className={`${s.btn} ${s.sm}`} disabled={busy} onClick={onCopy} data-testid={`copy-another-${seat}`}>Another copy</button>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={onCancel} data-testid={`copy-cancel-${seat}`}>Cancel</button>
   </div>;

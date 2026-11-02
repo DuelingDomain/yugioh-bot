@@ -901,20 +901,23 @@ test("create screen and lobby expose the default-on Deck publicity rule",async({
 
 // Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
-async function appearingCamera(page:Page) {
-  const data=readFileSync(AUTO_CARD).toString('base64');
-  await page.addInitScript(async data=>{
+const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
+const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
+async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
+  const data=readFileSync(cardFile).toString('base64');
+  await page.addInitScript(async ({data,guided})=>{
+    if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let visible=false,x=460,y=170,defense=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible){ctx.save();if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as unknown as {fieldTest:{appear():void;place(left:number,top:number,defense?:boolean):void;move():void;clear():void;many(points:{x:number;y:number}[]):void}}).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},clear:()=>{visible=false;others=[];paint();},many:points=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
-    navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');return canvas.captureStream(15);};
+    navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
-  },data);
+  },{data,guided});
 }
-test('field watcher automatic: a lab without a deck asks before placement and follows a confirmed card',async({page})=>{
+test('field watcher automatic: a lab without a deck settles a best match and follows the card',async({page})=>{
   test.setTimeout(120_000);await appearingCamera(page);await page.goto('/dev/vision-lab');
   await page.getByRole('tab',{name:'Auto-detect',exact:true}).click();
   await page.getByLabel('Auto-detect compute').selectOption('wasm');await page.getByRole('button',{name:'Start camera',exact:true}).click();
@@ -922,11 +925,9 @@ test('field watcher automatic: a lab without a deck asks before placement and fo
   await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.videoWidth)).toBe(1280);
   await page.waitForTimeout(2000);await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);
   await page.evaluate(()=>((window as any).fieldTest).appear());
-  const prompt=page.getByRole('group',{name:'New card?',exact:true});await expect(prompt).toBeVisible({timeout:30_000});
-  await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);
-  await prompt.getByRole('button',{name:/Sacred Sword of Seven Stars/}).click();
-  await expect(page.getByTestId('auto-detect-twin')).toContainText('Sacred Sword of Seven Stars');
-  await expect(page.getByTestId('auto-detect-events')).toContainText('prompt');
+  const prompt=page.getByRole('group',{name:'New card?',exact:true});await expect(prompt).toHaveCount(0);
+  await expect(page.getByTestId('auto-detect-twin')).toContainText('Sacred Sword of Seven Stars',{timeout:30_000});
+  await expect(page.getByTestId('auto-detect-events')).toContainText('placed');
   await page.evaluate(()=>((window as any).fieldTest).move());
   await expect(page.getByTestId('auto-detect-events')).toContainText('moved',{timeout:15_000});
   await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(1);
@@ -951,6 +952,7 @@ test('field watcher automatic: owner table applies once and Undo removes the ato
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
   await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.length;},{timeout:30_000}).toBe(1);
   const placed=await room();expect(placed.state.seats[0].twin[0].cardId).toBe(45725480);
+  expect(placed.state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:2});
   expect(placed.events.filter((e:any)=>e.action.type==='twin.place'&&e.action.source==='auto')).toHaveLength(1);
   expect(placed.events.some((e:any)=>e.action.type==='card.identified')).toBe(false);
   await page.getByTestId('undo').click();await expect.poll(async()=>(await room()).state.seats[0].twin.length).toBe(0);
@@ -1051,7 +1053,7 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
 async function measuredFieldChange(page:Page,kind:'move'|'remove') {
   return page.evaluate(kind=>new Promise<number>((resolve,reject)=>{
     const started=performance.now(),observer=new MutationObserver(()=>{
-      const done=kind==='move'?document.querySelector('[data-testid="field-0"] [data-zone="e2"]')?.textContent?.includes('Sacred Sword'):document.querySelector('[data-testid="field-departure-toast"]')?.textContent?.includes('left the field');
+      const done=kind==='move'?document.querySelector('[data-testid="field-0"] [data-zone="e2"]')?.textContent?.includes('Stardust'):document.querySelector('[data-testid="field-departure-toast"]')?.textContent?.includes('left the field');
       if(done){clearTimeout(timer);observer.disconnect();resolve(performance.now()-started);}
     }),timer=setTimeout(()=>{observer.disconnect();reject(Error('Camera field update timed out: '+kind));},15000);
     observer.observe(document.body,{childList:true,subtree:true});
@@ -1061,20 +1063,20 @@ async function measuredFieldChange(page:Page,kind:'move'|'remove') {
 test('field watcher automatic: camera follows EMZ/DEF moves and clear departure with destinations and Undo',async({page,context})=>{
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2,true);await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
-  await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await appearingCamera(page,EXTRA_CARD);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
   await page.evaluate(()=>((window as any).fieldTest).place(345,8,true));
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:45725480,zone:'extra-monster',slot:1,position:'defense'});
-  const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="e1"]')).toContainText('Sacred Sword');
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:44508094,zone:'extra-monster',slot:1,position:'defense'});
+  const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="e1"]')).toContainText('Stardust');
   await expect.poll(()=>page.getByTestId('field-0').locator('[data-zone="e1"]').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el.firstElementChild!).transform);return Math.round(Math.atan2(m.b,m.a)*180/Math.PI);})).toBe(-90);
   const moveMs=await measuredFieldChange(page,'move');
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:20_000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2,position:'attack'});
   expect((await room()).state.seats[0].twin).toHaveLength(1);
   const removalMs=await measuredFieldChange(page,'remove');
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'graveyard'});
-  const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Sacred Sword of Seven Stars left the field');
-  await expect(page.getByTestId('field-0').locator('[data-zone="e2"]')).not.toContainText('Sacred Sword');
-  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Sacred Sword of Seven Stars'});
+  const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Stardust Dragon left the field');
+  await expect(page.getByTestId('field-0').locator('[data-zone="e2"]')).not.toContainText('Stardust');
+  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Stardust Dragon'});
   await toast.getByRole('button',{name:'Undo',exact:true}).click();
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2});
   await page.waitForTimeout(3200);expect((await room()).events.length).toBe(departed.events.length+1);
@@ -1091,8 +1093,57 @@ test('field watcher automatic: camera follows EMZ/DEF moves and clear departure 
     await toast.getByRole('button',{name:label,exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe(zone);
   }
   await toast.getByRole('button',{name:'Undo',exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe('extra');
-  await page.getByTestId('log-button').click();await expect(page.getByTestId('log-drawer')).toContainText('Sacred Sword of Seven Stars left the field');
+  await page.getByTestId('log-button').click();await expect(page.getByTestId('log-drawer')).toContainText('Stardust Dragon left the field');
   console.log('Table camera follow',JSON.stringify({moveMs,removalMs}));mkdirSync(new URL('../../../data/vision/benchmark/field-watcher/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/field-watcher/table-follow.json',import.meta.url),JSON.stringify({moveMs,removalMs,ref:first.ref},null,2));
+});
+
+test('field watcher automatic: Solemn Judgment uses the legal row and confirmed prompts stay quiet through jitter and moves',async({page,context})=>{
+  test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
+  const records:{registeredDeck:boolean;moveMs:number;gyMs:number}[]=[];
+  for(const registeredDeck of [true,false]){
+    const slug=await soloTable(context.request,2,registeredDeck),room=()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
+    await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
+    await context.request.post('/api/cards/resolve',{data:{customCardIds:[41420027]}});
+    await appearingCamera(page,TRAP_CARD,true);await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId('camera-on-feed').click();await page.getByLabel('Auto-detect cards',{exact:true}).check();
+    const calibration=page.getByRole('dialog',{name:'Calibrate field zones',exact:true});
+    if(registeredDeck){
+      await expect(calibration).toContainText('Drag the field grid over your mat');
+      await page.evaluate(()=>((window as any).fieldTest).calibrateTwo());await page.waitForTimeout(300);
+      await calibration.getByRole('button',{name:'Use cards in M1 and M5',exact:true}).click();
+      await expect(calibration).not.toHaveAttribute('aria-busy','true');await expect(calibration.getByRole('alert')).toHaveCount(0);
+      await page.evaluate(()=>((window as any).fieldTest).clear());
+      const shots=new URL('../../../data/vision/benchmark/field-watcher/pad-shots/',import.meta.url).pathname;mkdirSync(shots,{recursive:true});
+      for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:`${shots}/calibration-${width}x${height}.png`});}
+      await page.setViewportSize({width:1440,height:1000});await calibration.getByRole('button',{name:'Save calibration',exact:true}).click();
+    }else await expect(calibration).toHaveCount(0);
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await page.evaluate(()=>((window as any).fieldTest).place(650,170,false));
+    const prompt=page.getByTestId('field-watcher-prompt');
+    await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:30_000}).toMatchObject([{cardId:41420027,zone:'spell-trap',slot:4}]);
+    await expect(prompt).toHaveCount(0);const first=(await room()).state.seats[0].twin[0];
+    const moveMs=await page.evaluate(()=>new Promise<number>((resolve,reject)=>{
+      const start=performance.now(),observer=new MutationObserver(()=>{
+        if(document.querySelector('[data-testid="field-0"] [data-zone="s2"]')?.textContent?.includes('Solemn Judgment')){
+          clearTimeout(timer);observer.disconnect();resolve(performance.now()-start);
+        }
+      }),timer=setTimeout(()=>{observer.disconnect();reject(Error('Trap did not follow its legal column'));},10000);
+      observer.observe(document.body,{subtree:true,childList:true});(window as any).fieldTest.place(360,170,false);
+    }));
+    await expect.poll(async()=>(await room()).state.seats[0].twin).toMatchObject([{ref:first.ref,cardId:41420027,zone:'spell-trap',slot:2}]);
+    await expect(prompt).toHaveCount(0);const eventCount=(await room()).events.length;
+    await page.evaluate(()=>((window as any).fieldTest).jitter(true));await page.waitForTimeout(12_000);
+    await expect(prompt).toHaveCount(0);const stable=await room();expect(stable.events).toHaveLength(eventCount);
+    expect(stable.state.seats[0].twin).toMatchObject([{ref:first.ref,cardId:41420027,zone:'spell-trap',slot:2}]);
+    expect.soft(moveMs).toBeLessThan(1000);if(!registeredDeck){expect(first.bestMatch).toBe(true);await expect(page.getByTestId('field-0')).toContainText('Best match');}
+    await page.evaluate(()=>((window as any).fieldTest).jitter(false));
+    const gyAt=performance.now();await page.evaluate(()=>((window as any).fieldTest).place(1040,170,false));
+    await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:10_000}).toMatchObject([{ref:first.ref,cardId:41420027,zone:'graveyard'}]);
+    const gyMs=performance.now()-gyAt;await expect(prompt).toHaveCount(0);records.push({registeredDeck,moveMs,gyMs});
+  }
+  console.log('Solemn Judgment legal row and quiet prompts',JSON.stringify(records));
+  writeFileSync(new URL('../../../data/vision/benchmark/field-watcher/solemn-follow.json',import.meta.url),JSON.stringify({records,jitterSecondsPerMode:12,repeatedPrompts:0,illegalPlacements:0},null,2));
 });
 
 test('field watcher automatic: a manual feed read before settling keeps exactly one physical twin',async({page,context})=>{
@@ -1116,24 +1167,21 @@ test('field watcher automatic: a manual feed read before settling keeps exactly 
   expect(initial.ref).toMatch(/^c0-/);
 });
 
-for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive prompt and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
+for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive best-match and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
   test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
-  const slug=await soloTable(context.request,seatCount),directory=new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
+  const slug=await soloTable(context.request,seatCount),directory=process.env.E2E_FIELD_SHOTS??new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
   mkdirSync(directory,{recursive:true});await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
   await page.evaluate(()=>((window as any).fieldTest).many([{x:300,y:440},{x:800,y:440}]));
-  const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible({timeout:40_000});await expect(prompt).toContainText('+1 more',{timeout:40_000});
-  expect((await context.request.get(`/api/remote/${slug}`).then(r=>r.json())).state.seats[0].twin).toHaveLength(0);
+  const prompt=page.getByTestId('field-watcher-prompt');await expect.poll(async()=>(await context.request.get(`/api/remote/${slug}`).then(r=>r.json())).state.seats[0].twin.length,{timeout:40_000}).toBe(2);await expect(prompt).toHaveCount(0);
   for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]] as const){
     await page.setViewportSize({width,height});await page.getByTestId('feed-box-0').focus();await page.waitForTimeout(250);
-    await expect(prompt).toHaveCount(1);await expect(prompt).toHaveAccessibleDescription(/Detected in (Spell\/Trap|Main Monster) Zone/);
-    expect(await prompt.evaluate(node=>node.parentElement===document.body)).toBe(true);
+    await expect(prompt).toHaveCount(0);
     const checkBounds=async(locator:ReturnType<Page['locator']>)=>{
       const rect=await locator.boundingBox();expect(rect).not.toBeNull();expect(rect!.x).toBeGreaterThanOrEqual(0);expect(rect!.y).toBeGreaterThanOrEqual(0);
       expect(rect!.x+rect!.width).toBeLessThanOrEqual(width+1);expect(rect!.y+rect!.height).toBeLessThanOrEqual(height+1);
     };
-    await checkBounds(prompt);await checkBounds(prompt.getByRole('button',{name:'Dismiss',exact:true}));
     const overlap=await page.getByTestId('feed-box-0').evaluate(host=>{
       const toolbar=host.querySelector('[data-feed-toolbar]')!,chip=host.querySelector('[data-field-watcher-status-slot]')!,tag=chip.previousElementSibling!;
       const camera=Array.from(host.children).find(node=>node.className.includes('camsel'));
@@ -1141,8 +1189,8 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
       return {chipTag:intersects(chip,tag),toolbarCamera:camera?intersects(toolbar,camera):false};
     });
     expect(overlap).toEqual({chipTag:false,toolbarCamera:false});
-    await page.screenshot({path:`${directory}/${seatCount===2?'1v1':'4seat'}-${width}x${height}-prompt.png`});
-    const calibrate=page.getByRole('button',{name:'Calibrate zones',exact:true});await calibrate.focus();await page.keyboard.press('Enter');
+    await page.screenshot({path:`${directory}/${seatCount===2?'1v1':'4seat'}-${width}x${height}-best-match.png`});
+    const calibrate=page.getByRole('button',{name:'Recalibrate',exact:true});await calibrate.focus();await page.keyboard.press('Enter');
     const modal=page.getByRole('dialog',{name:'Calibrate field zones',exact:true});await expect(modal).toHaveAttribute('aria-modal','true');await expect(modal).toBeFocused();
     expect(await modal.evaluate(node=>node.parentElement?.parentElement===document.body)).toBe(true);
     await checkBounds(modal);await modal.getByRole('button',{name:'Cancel calibration'}).scrollIntoViewIfNeeded();await checkBounds(modal.getByRole('button',{name:'Cancel calibration'}));

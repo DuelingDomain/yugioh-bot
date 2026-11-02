@@ -185,3 +185,185 @@ shared-typecheck limitation are recorded in `packages/vision/REPORT.md`.
 Implementation and test commits pushed through `eae55a4bc`; report/plan follow in
 a final documentation commit. Isolated web/WS/LiveKit services are stopped, their
 ports are free, and protected services were untouched.
+
+## Review round 2 remediation
+
+The coordinator supplied the design and authorized these fixes on the existing
+branch. Keep identity untrusted until a read/explicit confirmation succeeds, but
+retain the reserved physical twin ref through prompts. Match a same-spot change
+back to its existing track even after skipped detection. Explicit prompt choices
+may update that slot's untracked twin; automatic copy binding may not steal a
+different slot's temporarily hidden track. Bound all table requests/refreshes at
+10 seconds and permit historical occupied-slot events only during trusted replay.
+
+- [x] NB1/B4: failing same-spot light-tick and restart probes in existing vision
+  tests; preserve bound refs and verify confirmation leaves one track/ref.
+- [x] NB1/NS2: existing web tests cover one-click face-down/replacement prompt
+  confirmation and two-copy ref safety; update the isolated apply path.
+- [x] NS1: prove a hung request and failed-action refresh time out, report errors
+  and let the shared action queue proceed; use AbortSignal.timeout(10_000).
+- [x] NS3: historical duplicate-slot replay probes; live writes remain rejected.
+- [x] Run relevant suites/typechecks, review the changes, record per-item numbers,
+  commit small and push without a PR or attribution trailers. Protected ports stay
+  untouched; use only the existing ignored fixture data for any browser check.
+
+Round 2 result: **401 passing cases**, with **21 new probes** in existing files
+(four watcher, eight component, three timeout, six replay). One explicit choice
+resolves restart/replacement prompts with one twin, including cards moved while
+the prompt waits. Two-copy probes produce zero moves of the hidden first copy.
+Timeout is 10 seconds per request, at most 20 seconds for a hung action followed
+by a hung recovery; subsequent actions continue. Six legacy conflict replays pass
+while new live conflicts remain rejected. Scoped code review has no outstanding
+findings. Vision/web/e2e typechecks, shared build and worker bundle pass.
+
+The full nine-case browser rerun passed in 2.0 minutes and regenerated all sixteen
+requested screenshots. Cached owner p50/p95 **16.60/34.21 ms**, observer
+**17.58/23.81 ms**; forty clicks, zero extra recognition/actions. Actual table
+move/removal samples **1,073.7/3,218.0 ms**. Full numbers and the 3,029 ms observer
+snapshot sample are retained in REPORT and ignored `field-watcher/round2.json`.
+No new placement/hand benchmark is claimed. Implementation pushed through
+`779767c36`; final report follows as documentation. Isolated services are stopped
+and their ports are free; protected services were untouched.
+
+## Owner camera feedback: type, prompt stability and fast movement
+
+The coordinator supplied the expected design: physical x chooses the column;
+identified type chooses the legal row. Keep the existing queue/ref/Undo contracts.
+Full catalog facts (including Spell subtype) must reach the adapter; unknown types
+abstain. Prompt choices show their legal destination and manual moves warn.
+
+- [x] Existing web probes reproduce Solemn Judgment in M4, nearest-free S/T,
+  Field Spell, monster/EMZ/Pendulum legality, prompt annotation and manual warnings.
+  Implement a small shared projection and metadata wiring, then adapter moves.
+- [x] Existing vision pipeline/client probes request a copied local embedding
+  without feedback/crops or extra inference. Never broadcast/upload the embedding.
+- [x] Existing watcher probes reproduce repeated prompts after choice/dismiss,
+  exposure/angle/hand jitter, sustained true swaps and fast same-ref moves.
+  Use multi-frame strong-change evidence, reference embedding hysteresis and a
+  five-second resolved-prompt cooldown; no prompts for identity-preserving changes.
+- [x] Sample tracked motion cheaply every 100 ms and settle verified moves over
+  two clean frames/~100 ms, preserving conservative identity and removal guards.
+- [x] Run existing suites/typechecks, real-worker browser e2e and ten-trial move
+  benchmark; retain p50/p95/outliers, review, commit small and push. No PR,
+  attribution lines, protected services or model/index rebuilds/downloads.
+
+Owner-feedback closeout: **164 vision, 192 targeted web, 139 shared integration
+tests pass**; vision/web/e2e typechecks, shared build and worker bundle pass.
+Coordinator requested immediate completion: final browser run stopped by PID
+with **7 passed, 1 interrupted (manual-read race), 2 not run (screenshots)**.
+The earlier full run passed those last three and produced sixteen requested
+screenshots; its rotation failure is now covered by a passing focused lifecycle
+and the final run. No final all-ten success is claimed.
+
+Final browser Solemn slides: **583.2 ms with deck / 740.0 ms without**, no illegal
+zones or repeated prompts in 24 seconds of jitter. Cached owner/viewer p95:
+**27.05/17.89 ms** over forty clicks, zero new reads/actions. Rotated EMZ move
+**1,177.8 ms**, clear departure **2,964.9 ms**, same ref and Undo. Earlier ten-trial
+move p50/p95 **770.3/960.5 ms** precedes the last burst/reconnect changes; no new
+benchmark started after the cutoff. Earlier hand-only/occlusion tests: zero false
+events/removals over 30 seconds each.
+
+Remaining limits are recorded rather than extended in this round: placement
+p95 **2.75 s with deck / 1.36 s without**, one fresh click **308 ms**, rotated
+move over one second, ambiguous-copy/occlusion prompts, conservative patterned-mat
+removal, and unmeasured physical webcam/WebGPU hardware. The updated ignored
+worker bundle must be generated when merging. All owned isolated services were
+stopped by PID; protected ports were untouched. Code pushed through `d4208d92a`;
+closing report is a separate documentation commit, no PR or attribution lines.
+
+## Plain black pad follow-up
+
+The owner's latest instructions replace the old deck-only/reopening policy:
+one prompt per physical track, permanent dismissal during the camera session,
+bound twin identity changed only explicitly, ordinary annotated Best matches for
+non-low reads, and one guided calibration per seat/camera.
+
+- [x] Consolidate obsolete prompt cases into one fast lifecycle feature probe;
+  cover bound jitter/rotation, silent restart/face transitions, low-match
+  dismissal, capacity reuse, and silent face-down return. Two reads and spread/
+  new-pile safety remain; no-deck Best matches now settle normally.
+- [x] Keep the Best match marker in queued twin actions and public card details;
+  clear it on explicit correction. One GY integration scenario checks one ref,
+  normal placement and a physical move into GY without a prompt.
+- [x] Replay the three owner screenshots through actual detection and manual
+  quads; Nibiru ranks first in all three (.8752/.8859/.8467). Do not claim to
+  reproduce the failed native read or tune recognition from missing evidence.
+- [x] Add capped owner-local crop/top-five/quads/priors/runtime logging: 24 pairs,
+  32 KiB/crop, three-second nonblocking timeout; deny public asset access. Verify
+  the real Next normalized-host origin case saves with 201 while foreign origins reject.
+- [x] Guide startup with an adjustable perspective grid; persist per seat/camera,
+  retain Recalibrate and gate detection until saved. All 17 displayed zone centers
+  match the existing owner-oriented mapper. Screen worker owns virtual layout.
+- [x] Verify 153 vision / 195 web / 139 shared tests, three typechecks, shared build and
+  worker bundle. Four new feature probes replace obsolete per-case tests; total
+  count decreases by eight. Focused real-browser case passes 1/1 in 43.0 s, with
+  four requested guided-grid screenshots and 24 s of jitter without repeat prompts.
+
+Final browser slide samples: 654.8/967.9 ms; GY samples: 960.8/1009.0 ms (deck/no
+deck). Earlier 2.90 s / 1.44 s slides remain recorded speed misses. No new distribution
+or hand benchmark. Failed live Nibiru frame remains unreproduced; local capture
+is available for the next miss. Keep the feed-video pointer interception with the
+screen worker, and generate the ignored pad-v5 worker bundle when merging.
+All owned isolated services were stopped by PID; their ports are free and
+protected ports were untouched. The normalized-origin diagnostic saves with 201;
+public diagnostic assets return 404 and foreign origins return 403.
+
+## Vision quick wins: duel gallery, one-read settlement and projective setup
+
+Coordinator supplied `vision-stack-recommendation.md` and authorized these five
+bounded changes. Keep the current local models/index, action queue and conservative
+clear-mat removal policy; no training or protected-service changes.
+
+- [x] Reuse confirmed/sure and dismissed identity embeddings through a duel-local,
+  seat-scoped gallery with .84/.68 hysteresis, independent of physical copy refs.
+  Retain open/dismissed track metadata rather than deleting it after three seconds.
+  Persist gallery answers in sessionStorage across camera restart/reload; explicit
+  public identity corrections replace their gallery answer.
+- [x] Reserve two deck suggestions at raw score >=.55 in the final top-five list.
+  Keep confidence evidence separate; use a conservative deck limit and preserve
+  loaded webcam calibration thresholds and clear off-deck winners.
+- [x] Start the single-card read at 300ms stability, publish on the next clean
+  frame, remove the independent second read and unconditional 1.5 s hold, and prefer
+  the upright view while keeping uncertain/reverse rescue.
+- [ ] Finish all clean slides, quarter turns and GY entries with the same tracker ref
+  and no new read. Prioritize strong outlines; weak observations may retain a track
+  but cannot create/place one. Lost translated tracks require a clear old footprint
+  so a second copy under a hand cannot steal the first card's ref.
+- [x] Replace inverse bilinear mapping with cached homographies. Fit two full card
+  quads in M1/M5 and review the inferred grid before Save; keep draggable corners
+  and Recalibrate. Equal horizontal/vertical physical gaps remain an explicit
+  assumption because two cards in one row cannot observe unknown row spacing.
+- [ ] Finish matched before/after timing, hand/rotation/GY benchmark, targeted
+  checks and the existing isolated black-pad browser scenario, stop owned PIDs,
+  record limits and push small commits without a PR or attribution trailers.
+
+One existing feature probe covers each requested behavior; older mandatory
+second-read/long-hold probes were consolidated. No new per-case CI tests or model
+inference were added to CI.
+
+Coordinator stop: no further implementation or tests. Final native transfer run
+passes4/10 same-ref/no-read slide/GY sequences; overlapping old-footprint/halo needs
+an incoming-card mask. Hand-only276samples and30s tracked occlusion have zero false
+removals. Browser scenario changes remain unrun. Route fixture failures remain
+unverified. Quick touched-package types, commit/push and recorded-PID cleanup only.
+Zone mapping is DONE; owner test stack must rebundle the ignored vision worker.
+
+
+## Branch 2 reliability follow-up
+
+Continue only on feat/remote-autodetect-2 from d9e66f427; never push the deployment
+branch. No new tests or services. Two independent tasks ran in parallel, with native
+CPU measurement separated from heavy checks.
+
+- [x] Reproduce route failures; measure setup and fix the existing stale fixture.
+  Migration took 4.13 s before cold imports and 5 s deadlines; seed-and-copy preserves
+  all 13 original cases and file-backed DB isolation. All 13 pass; no timeout changes.
+- [x] Exclude the incoming quad when checking exposed old mat; retain 50% minimum
+  exposed footprint/ring and keep full disappearance checks unchanged.
+- [x] Confirm fresh detector poses with two clean pixel samples, keeping face/overlap
+  guards, expiry and lifecycle reset. Existing 153 vision tests pass unchanged.
+- [x] Native reliability 4/10→10/10 with zero extra reads. Slide/GY p50=357/364 ms,
+  p95=672/966 ms. Median meets 0.3–0.5s; tail remains above 500 ms and is documented.
+  Thirty-second hand checks have zero false removals; 12 s jitter has no extra events.
+- [x] Final vision/web typechecks pass. Own native harnesses closed their processes;
+  no protected services started. Small commits and push only the new branch; no PR.

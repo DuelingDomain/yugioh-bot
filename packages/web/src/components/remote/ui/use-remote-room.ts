@@ -67,6 +67,15 @@ export function useRemoteRoom(slug: string) {
     } catch (e) { setError((e as Error).message); void mutate(); } finally { setBusy(false); }
   }, [slug, router, mutate]);
 
+  // Bypass an outstanding SWR revalidation: recovery has its own bounded request.
+  const refresh=useCallback(async()=>{
+    const refreshed=await remoteApi<RemoteRoom>(`/${slug}`);
+    if(tableKey.current!==slug||refreshed.slug!==slug)return;
+    if(!roomRef.current||refreshed.lastSeq>=roomRef.current.lastSeq)roomRef.current=refreshed;
+    lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);
+    await mutate(old=>old&&old.lastSeq>refreshed.lastSeq?old:refreshed,{revalidate:false});
+  },[slug,mutate]);
+
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
     const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
@@ -82,10 +91,10 @@ export function useRemoteRoom(slug: string) {
     } catch (e) {
       if(tableKey.current!==slug)return null;
       setError((e as Error).message);
-      try{const refreshed=await mutate();if(tableKey.current===slug&&refreshed?.slug===slug){roomRef.current=refreshed;lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);}}catch{/* Keep the failed action recoverable during a network outage. */}
+      try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
     }
-  }, [slug, mutate]);
+  }, [slug, mutate, refresh]);
 
   const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction),[postAction,slug]);
 

@@ -1,4 +1,4 @@
-import { boundsOf, warpQuad, type Quad } from './geometry';
+import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
@@ -60,9 +60,23 @@ export function createFieldAnalyzer() {
 
 /** Cheap pixel evidence for reconnecting a temporarily hidden card, never an identity decision. */
 export function sameFieldAppearance(a?:number[],b?:number[]):boolean {
-  if(!a?.length||a.length!==b?.length)return false;
-  const error=(reverse:boolean)=>a.reduce((s,v,i)=>{const j=reverse?(Math.floor((a.length-1-i)/3)*3+i%3):i;return s+(v-b![j])**2;},0)/a.length;
-  return Math.min(error(false),error(true))<.009;
+  return fieldAppearanceDistance(a,b)<.009;
+}
+
+/** Remove bounded exposure/white-balance drift, retaining structural changes. */
+export function fieldAppearanceDistance(a?:number[],b?:number[]):number {
+  if(!a?.length||a.length!==b?.length)return Infinity;
+  const shift=[0,1,2].map(c=>Math.max(-.18,Math.min(.18,a.reduce((sum,v,i)=>sum+(i%3===c?v-b[i]:0),0)/(a.length/3))));
+  const error=(reverse:boolean)=>a.reduce((sum,v,i)=>{const j=reverse?(Math.floor((a.length-1-i)/3)*3+i%3):i;return sum+(v-b[j]-shift[i%3])**2;},0)/a.length;
+  return Math.min(error(false),error(true));
+}
+
+/** Compare local identity references only within the same embedding space. */
+export function fieldEmbeddingSimilarity(a?:{values:number[];space:string},b?:{values:number[];space:string}):number|undefined {
+  if(!a?.values.length||a.space!==b?.space||a.values.length!==b.values.length)return;
+  let dot=0,aa=0,bb=0;
+  for(let i=0;i<a.values.length;i++){const x=a.values[i],y=b.values[i];if(!Number.isFinite(x)||!Number.isFinite(y))return;dot+=x*y;aa+=x*x;bb+=y*y;}
+  return aa>0&&bb>0?dot/Math.sqrt(aa*bb):undefined;
 }
 
 /** A detector miss is only absence when the old footprint looks like clear mat.
@@ -75,4 +89,46 @@ export function clearFieldBackground(inside?:number[],halo?:number[]):boolean {
   if(!Number.isFinite(spread)||spread>.055)return false;
   const tolerance=Math.max(.035,spread*1.5),patch=distances(inside);
   return patch.filter(d=>Number.isFinite(d)&&d<=tolerance).length/patch.length>=.95;
+}
+
+/** Quarter-turn comparison of the small8x12 RGB tracker patch; no model inference. */
+export function sameRotatedFieldAppearance(a?:number[],b?:number[]):boolean {
+  if(sameFieldAppearance(a,b))return true;
+  if(a?.length!==288||b?.length!==288)return false;
+  for(const clockwise of [false,true]){
+    const rotated=Array.from({length:288},(_,i)=>{
+      const pixel=Math.floor(i/3),x=pixel%8,y=Math.floor(pixel/8);
+      const sx=Math.round((clockwise?y/11:1-y/11)*7),sy=Math.round((clockwise?1-x/7:x/7)*11);
+      return a[(sy*8+sx)*3+i%3];
+    });
+    if(sameFieldAppearance(rotated,b))return true;
+  }
+  return false;
+}
+
+/** Clear old mat for a transfer, excluding only the observed incoming card.
+ * Never used for disappearance: removal still needs the entire original footprint.
+ */
+export function clearFieldTransfer(evidence:FieldAnalysis,old:DetectedQuad,incoming:DetectedQuad,reference?:number[]):boolean {
+  const patch=evidence.appearance?.(old),halo=evidence.halo?.(old);
+  if(!patch?.length||!halo?.length||halo.length!==reference?.length)return false;
+  // Production samples are8x12 RGB and a64-point RGB ring. Injected analyzers
+  // without that geometry keep the original conservative whole-footprint check.
+  if(patch.length!==288||halo.length!==192)return halo.filter((v,i)=>Math.abs(v-reference[i])>.06).length/halo.length<=.08&&clearFieldBackground(patch,reference);
+  const map=quadMap(old.quad as Quad);if(!map)return false;
+  const box=boundsOf(old.quad),next=boundsOf(incoming.quad),padX=box.w*.04,padY=box.h*.04;
+  const exposed=(x:number,y:number)=>x<next.x-padX||x>next.x+next.w+padX||y<next.y-padY||y>next.y+next.h+padY;
+  const inside:number[]=[],ring:number[]=[],saved:number[]=[];
+  for(let y=0;y<12;y++)for(let x=0;x<8;x++){
+    const point=map((x+.5)/8,(y+.5)/12),i=(y*8+x)*3;
+    if(exposed(point.x,point.y))inside.push(...patch.slice(i,i+3));
+  }
+  let i=0;
+  for(let y=0;y<10;y++)for(let x=0;x<10;x++){
+    if(x>1&&x<8&&y>1&&y<8)continue;
+    if(exposed(box.x+box.w*(-.3+1.6*x/9),box.y+box.h*(-.3+1.6*y/9))){ring.push(...halo.slice(i,i+3));saved.push(...reference.slice(i,i+3));}
+    i+=3;
+  }
+  // A hand or another card must not be hidden by an overwhelmingly large mask.
+  return inside.length>=patch.length*.5&&ring.length>=halo.length*.5&&ring.filter((v,i)=>Math.abs(v-saved[i])>.06).length/ring.length<=.08&&clearFieldBackground(inside,saved);
 }

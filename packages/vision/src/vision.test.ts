@@ -168,6 +168,28 @@ test('a deferred AI crop is encoded only when asked and keeps the large source c
     assert.deepEqual(messages,['init','aiCrop']);assert.equal(bodies[0].jpegBase64,'source-640-jpeg');
   }finally{reader.dispose();globalThis.Worker=originalWorker;globalThis.fetch=originalFetch;}
 });
+test('local identity embedding options and values survive the worker protocol without an upload',async()=>{
+  const originalWorker=globalThis.Worker,originalFetch=globalThis.fetch,messages:Record<string,unknown>[]=[];
+  const identityEmbedding={values:[.6,.8],space:'art-box' as const};let uploads=0;
+  class FakeWorker {
+    onmessage?: (event:{data:unknown})=>void;
+    postMessage(message:Record<string,unknown>){
+      messages.push(structuredClone(message));
+      queueMicrotask(()=>this.onmessage?.({data:structuredClone({id:message.id,result:message.type==='init'?null:{identityEmbedding,candidates:[],tier:'not sure'}})}));
+    }
+    terminate(){}
+  }
+  globalThis.Worker=FakeWorker as unknown as typeof Worker;
+  globalThis.fetch=async()=>{uploads++;throw Error('Unexpected identity upload');};
+  const reader=createRecognizer();
+  try {
+    const result=await reader.recognize([{width:20,height:30,data:new Uint8ClampedArray(2400)} as ImageData],{includeIdentityEmbedding:true});
+    assert.deepEqual(messages.map(message=>message.type),['init','recognize']);
+    assert.deepEqual(messages[1].opts,{includeIdentityEmbedding:true});assert.deepEqual(result.identityEmbedding,identityEmbedding);
+    assert.notEqual(result.identityEmbedding?.values,identityEmbedding.values);assert.equal(uploads,0);
+    await assert.rejects(reader.recordFeedback(result,'A','pick'),/eligible/);assert.equal(uploads,0);
+  }finally{reader.dispose();globalThis.Worker=originalWorker;globalThis.fetch=originalFetch;}
+});
 
 test('tiny outlines have a 24 CSS pixel target without taking direct polygon hits',()=>{
   const tiny={quad:[{x:.49,y:.49},{x:.51,y:.49},{x:.51,y:.51},{x:.49,y:.51}],kind:'face-up' as const,confidence:1,partial:false};
@@ -178,8 +200,8 @@ test('tiny outlines have a 24 CSS pixel target without taking direct polygon hit
 test('feedback client sends only eligible crop evidence and the confirmed source',async()=>{
   const reader=createRecognizer(),oldFetch=globalThis.fetch;let body:any;
   globalThis.fetch=(async(_url,init)=>{body=JSON.parse(init!.body as string);return Response.json({id:'sample'});}) as typeof fetch;
-  const result={tier:'not sure',cropJpeg:'jpeg',warpedCard:{data:'private pixels'},candidates:[{cardId:'A',score:.9}],feedback:{embedding:[1,0],gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:'v',layoutKey:'layout',space:'art-box',deltaVersion:'delta'},quality:{sharpness:42,frameClass:'Effect'}} as any;
+  const result={tier:'not sure',cropJpeg:'jpeg',warpedCard:{data:'private pixels'},identityEmbedding:{values:[.6,.8],space:'art-box'},candidates:[{cardId:'A',score:.9}],feedback:{embedding:[1,0],gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:'v',layoutKey:'layout',space:'art-box',deltaVersion:'delta'},quality:{sharpness:42,frameClass:'Effect'}} as any;
   try{await assert.rejects(reader.recordFeedback({...result,feedback:undefined},'B','voice'),/eligible/);assert.equal(body,undefined);
-    await reader.recordFeedback(result,'B','voice');const sent:any=body;assert.equal(sent.source,'voice');assert.equal(sent.chosenCardId,'B');assert.equal(sent.jpegBase64,'jpeg');assert.equal(sent.warpedCard,undefined);assert.equal(sent.deltaVersion,undefined);
+    await reader.recordFeedback(result,'B','voice');const sent:any=body;assert.equal(sent.source,'voice');assert.equal(sent.chosenCardId,'B');assert.equal(sent.jpegBase64,'jpeg');assert.equal(sent.warpedCard,undefined);assert.equal(sent.deltaVersion,undefined);assert.equal(sent.identityEmbedding,undefined);
   }finally{globalThis.fetch=oldFetch;reader.dispose();}
 });

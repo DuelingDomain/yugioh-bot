@@ -38,30 +38,19 @@ export function chooseKeep(group: TwinGroup, trackedRefs: ReadonlySet<string>): 
   return { keep, remove };
 }
 
-/**
- * The one place that knows how a merge reaches the server.
- * The table service merges two tracked instances of one card (`twin.merge` with instance ids). When the cards are not both
- * tracked as instances, the extra card is removed instead: same board result, one Undo, one log line.
- * When the server gets a merge by card ref, only this function changes.
- */
-export function mergeProposal(args: { room: RemoteRoom; seat: number; actorSeat: number; keep: TwinCard; remove: TwinCard; label: string }): RemoteActionProposal {
-  const { room, seat, actorSeat, keep, remove, label } = args;
-  const instances = room.state.deckChecks?.instances ?? [];
-  const find = (ref: string) => instances.find(item => item.seat === seat && item.refs.includes(ref));
-  const kept = find(keep.ref); const gone = find(remove.ref);
-  if (kept && gone && kept.id !== gone.id && kept.copyKey === gone.copyKey)
-    return { type: "twin.merge", actorSeat, seat, keepInstanceId: kept.id, removeInstanceId: gone.id, reason: `${MERGED} ${label}` };
-  return { type: "twin.remove", actorSeat, seat, cardRef: remove.ref };
+/** Merge by card ref (server `twin.merge`): the owner keeps one twin and the duplicate goes. One action, one Undo, one log line. */
+export function mergeProposal(args: { seat: number; actorSeat: number; keep: TwinCard; remove: TwinCard; label: string }): RemoteActionProposal {
+  const { seat, actorSeat, keep, remove, label } = args;
+  return { type: "twin.merge", actorSeat, seat, keepRef: keep.ref, removeRef: remove.ref, reason: `${MERGED} ${label}` };
 }
 /** Log lines of a merge start with this, so the log can name the card. */
 export const MERGED = "Merged duplicate";
 
 /**
- * The server's answer to a manual placement of a card that is already on the field ("another copy?").
- * Returns the ref of the card already there, or null when the placement went through.
+ * The table's soft flag after a manual placement of a card the seat already has on the field.
+ * The card is placed; the flag asks whether it is the same card (merge) or another copy (confirm with `anotherCopy`).
  */
-export function copyFlagOf(room: RemoteRoom | null): string | null {
-  const flag = (room?.state.identified as { alreadyOnField?: unknown } | null | undefined)?.alreadyOnField;
-  if (typeof flag === "string") return flag;
-  return flag && typeof (flag as { ref?: unknown }).ref === "string" ? (flag as { ref: string }).ref : null;
+export type CopyFlag = NonNullable<RemoteRoom["state"]["twinConfirmation"]>;
+export function copyFlagOf(room: RemoteRoom | null): CopyFlag | null {
+  return room?.state.twinConfirmation ?? null;
 }

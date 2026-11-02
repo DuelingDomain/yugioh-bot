@@ -4,6 +4,7 @@ import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
+import { guardTwinPlacement } from "../twin-placement.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
 
@@ -30,6 +31,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   const parsed = remoteActionSchema.safeParse(input);
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
+  let deckAction = action;
   const at = action.at ?? state.updatedAt;
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
@@ -42,6 +44,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...structuredClone(state), updatedAt: at };
   next.deckChecks ??= initialDeckChecks();
+  if (action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
   const seat = (n: number) => {
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
@@ -55,6 +58,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     remoteAssert(shape !== "row" || slot === undefined || physicalSlot !== undefined, "Invalid physical slot");
     // Legacy row twins without a slot do not identify a physical position.
     if (shape === "row" && physicalSlot === undefined) return;
+    if (context?.replay) return;
     remoteAssert(!s.twin.some(card => card.ref !== exceptRef && card.zone === zone &&
       (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot)),
     "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");
@@ -122,9 +126,16 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
-      remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === action.card.ref), "Duplicate card ref or field is full", 409);
-      freeSlot(s, action.zone, action.card.slot);
-      s.twin.push({ ...action.card, zone: action.zone }); break;
+      const reuse = !context?.replay || context.twinPlacementGuard === 1 ? guardTwinPlacement(next, action, context) : undefined;
+      const ref = reuse?.ref ?? action.card.ref;
+      remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
+      freeSlot(s, action.zone, action.card.slot, reuse?.ref);
+      const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
+      if (action.card.slot === undefined) delete card.slot;
+      if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
+      else s.twin.push(card);
+      deckAction = { ...action, card };
+      break;
     }
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
@@ -147,7 +158,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "log.note": return next;
   }
   applyRemoteEffectTracking(next, state, action, context);
-  next = applyLiveDeckChecks(next, action, context);
+  next = applyLiveDeckChecks(next, deckAction, context);
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
