@@ -64,11 +64,23 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref);
       setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;
     }
-    if(!existing&&entry){
-      const unbound=twins.filter(c=>publicField(c.zone)&&c.faceUp&&cardCode(c)===catalogCardId(entry)&&!tracks.current.some(t=>t.id===c.ref&&t.visible&&!t.removed));
-      if(unbound.length>1){offer({...event,type:'prompt',reason:'uncertain'});return;}
-      if(unbound.length===1){existing=unbound[0];track={...track,id:existing.ref};}
+    const sameSlot=(c:typeof twins[number])=>c.zone===location.zone&&c.slot===location.slot;
+    const owns=(t:FieldTrack,ref:string)=>(bindings.current.get(t.id)??t.id)===ref;
+    if(!existing&&event.type==='prompt'){
+      // Explicit confirmation may correct the old twin at this physical spot,
+      // including a reserved restart ref whose identity has not been trusted.
+      const bound=twins.find(c=>c.ref===event.bindRef);
+      if(bound&&tracks.current.some(t=>t.id!==event.track.id&&owns(t,bound.ref)&&t.visible&&!t.removed)){offer({...event,type:'prompt',reason:'uncertain'});return;}
+      // The physical card can move while its prompt waits; keep its reservation.
+      existing=bound??twins.find(c=>sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
+    if(!existing&&entry){
+      // A hidden track still owns its physical copy in another slot.
+      const unbound=twins.filter(c=>publicField(c.zone)&&c.faceUp&&cardCode(c)===catalogCardId(entry)&&(!tracks.current.some(t=>owns(t,c.ref))||sameSlot(c)));
+      if(unbound.length>1){offer({...event,type:'prompt',reason:'uncertain'});return;}
+      if(unbound.length===1)existing=unbound[0];
+    }
+    if(existing)track={...track,id:existing.ref};
     if(twins.some(c=>c.ref!==existing?.ref&&c.zone===location.zone&&c.slot===location.slot)) {offer({...event,type:'prompt',reason:'uncertain'});return;}
     setPending(true);
     try {

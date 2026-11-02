@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
 
 const state = vi.hoisted(() => ({
-  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(),
+  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(), fieldWatch:null as any, roomHook:null as any,
   createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(), recordFeedback:vi.fn(),
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
@@ -72,6 +72,7 @@ const deferred = <T,>() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.fieldWatch=null;state.roomHook=null;
   state.initialSource = "photo";
   snapshots.length = 0; clones.length = 0;
   state.createRecognizer.mockImplementation(() => ({ recognize: state.recognize, detectCards: state.detectCards, dispose: state.dispose, askAI: state.askAI,recordFeedback:state.recordFeedback }));
@@ -527,7 +528,81 @@ it('the watcher hook discards resource setup that resolves after unmount',async(
 });
 
 vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>state.feedHub}));
-vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>({...await importOriginal<typeof import('../src/components/remote/ui/recognizer')>(),attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[])}));
+vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>{
+ const original=await importOriginal<typeof import('../src/components/remote/ui/recognizer')>();
+ return {...original,attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[]),ownFieldResources:(...args:Parameters<typeof original.ownFieldResources>)=>state.fieldWatch?Promise.resolve({entries:cards,cpuBusy:()=>false}):original.ownFieldResources(...args)};
+});
+vi.mock('../src/lib/remote/use-field-watcher',async importOriginal=>{
+ const original=await importOriginal<typeof import('../src/lib/remote/use-field-watcher')>(),react=await import('react');
+ return {...original,useFieldWatcher:(options:Parameters<typeof original.useFieldWatcher>[0])=>{
+  if(!state.fieldWatch)return original.useFieldWatcher(options);
+  const fixture=state.fieldWatch;fixture.onEvent=options.onEvent;
+  react.useEffect(()=>{void options.create().then(()=>{fixture.ready=true;});},[]);
+  return fixture.watch;
+ }};
+});
+
+it.each(['face-down restart','face-down restart needs flip','different-card restart','face-down moved restart','different-card moved restart','unbound same-spot swap','second copy with hidden first track','automatic second copy with hidden first track'])('round 2 NB1/NS2: resolves %s without duplicating or stealing a twin',async scenario=>{
+ const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher');
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ const {ygoModule}=await import('@yugidraft/shared/remote');
+ const faceDown=scenario.startsWith('face-down'),secondCopy=scenario.includes('second copy'),automatic=scenario.startsWith('automatic'),unbound=scenario.startsWith('unbound'),moved=scenario.includes('moved');
+ const old={ref:'old-twin',zone:'monster',slot:2,faceUp:!faceDown||scenario==='face-down restart needs flip',cardId:46986414,name:'Dark Magician',position:'attack' as const};
+ let room:any={guildId:'g',slug:'round2',mySeat:0,lastSeq:0,status:'active',seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=[old];
+ const track:any={id:'candidate',zone:secondCopy?'M3':'M2',card:quads[0],faceDown,position:'attack',state:automatic?'identified':'prompt',...(automatic?{cardId:cards[0].cardId}:{}),visible:true,removed:false,firstSeen:0,lastSeen:1000};
+ const tracks=secondCopy||unbound?[{...track,id:old.ref,zone:'M2',state:'identified',visible:false,cardId:'46986414'},track]:[track];
+ const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>{const i=tracks.findIndex(t=>t.id===ref&&t.id!==id);if(i>=0)tracks.splice(i,1);Object.assign(track,{id:ref??id,cardId,state:'identified'});});
+ const fixture:any={ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks,metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>tracks.find(t=>t.id===id),confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
+ const source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ const post=vi.fn(async(proposal:any)=>{room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`r2-${room.lastSeq+1}`})};return room;});
+ const queue=createRoomMutationQueue(()=>room,post);
+ const host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+ try{
+  render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
+  const chosen=secondCopy?cards[0]:cards[1];
+  await act(async()=>fixture.onEvent({type:automatic?'placed':'prompt',track:{...track},...(!secondCopy&&!unbound?{bindRef:old.ref}:{}),source:'auto',reason:unbound?'changed':'restart',...(!faceDown?{result:{...result,candidates:[{cardId:chosen.cardId,score:.99}]}}:{})}));
+  if(moved)track.zone='M3';
+  if(!automatic)fireEvent.click(await screen.findByRole('button',{name:faceDown?'Confirm face-down card':chosen.name}));
+  await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
+  expect(room.state.seats[0].twin).toHaveLength(secondCopy?2:1);
+  const target=room.state.seats[0].twin.find((c:any)=>c.ref===(secondCopy?'candidate':old.ref));
+  expect(target.faceUp).toBe(!faceDown);if(!faceDown)expect(target.cardId).toBe(Number(chosen.cardId));
+  expect(confirm).toHaveBeenCalledWith('candidate',faceDown?undefined:chosen.cardId,secondCopy?undefined:old.ref);
+  expect(post.mock.calls.map(([p])=>p.type)).toEqual(secondCopy?['twin.place']:[...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(moved?['twin.move']:[])]);
+  if(moved)expect(target.slot).toBe(3);
+  if(secondCopy)expect(room.state.seats[0].twin.find((c:any)=>c.ref===old.ref).slot).toBe(2);
+ }finally{cleanup();host.remove();state.fieldWatch=null;}
+});
+
+vi.mock('next/navigation',()=>({useRouter:()=>({push:()=>{}})}));
+vi.mock('swr',async importOriginal=>{
+ const original=await importOriginal<typeof import('swr')>();
+ return {...original,default:(...args:Parameters<typeof original.default>)=>state.roomHook??original.default(...args)};
+});
+it.each(['hung action','hung recovery','hung action and recovery'])('round 2 NS1: %s times out, shows an error and releases the shared queue',async scenario=>{
+ const {useRemoteRoom}=await import('../src/components/remote/ui/use-remote-room');
+ vi.useFakeTimers();
+ const timeout=vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('The operation timed out','TimeoutError')),ms);return controller.signal;});
+ const room:any={slug:'timeout-room',lastSeq:0,status:'active'},signals:AbortSignal[]=[];
+ const mutate=vi.fn((update?:any)=>update?Promise.resolve(typeof update==='function'?update(room):update):new Promise(()=>{}));
+ state.roomHook={data:room,mutate};
+ fetcher.mockImplementation((url,init)=>{
+  const action=String(url).endsWith('/actions');
+  if(action&&JSON.parse(init.body).action.type==='phase.advance')return Promise.resolve(Response.json({...room,lastSeq:2}));
+  if((action&&scenario!=='hung recovery')||(!action&&scenario!=='hung action'))return new Promise((_resolve,reject)=>{const signal=init?.signal;if(signal){signals.push(signal);signal.addEventListener('abort',()=>reject(signal.reason),{once:true});}});
+  return Promise.resolve(action?Response.json({error:'Rejected action'},{status:409}):Response.json({...room,lastSeq:1}));
+ });
+ let done=false,first:any;const hook=renderHook(()=>useRemoteRoom(room.slug));
+ try{
+  await act(async()=>{void hook.result.current.action({type:'lp.change',actorSeat:0,seat:0,delta:-100,reason:'damage'}).then(value=>{done=true;first=value;});});
+  expect(done).toBe(false);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(scenario==='hung action and recovery'?20001:10001);});
+  expect(done).toBe(true);expect(first).toBeNull();expect(hook.result.current.error).toMatch(/timed out|Rejected action/i);
+  expect(signals.every(signal=>signal.aborted)).toBe(true);expect(timeout).toHaveBeenCalledWith(10000);expect(mutate.mock.calls.every(args=>args.length>0)).toBe(true);
+  let next:any;await act(async()=>{next=await hook.result.current.action({type:'phase.advance',actorSeat:0});});expect(next.lastSeq).toBe(2);expect(hook.result.current.error).toBe('');
+  expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).baseSeq).toBe(scenario==='hung action'?1:0);
+ }finally{hook.unmount();state.roomHook=null;vi.useRealTimers();}
+});
 it('owner and observer feed clicks select an identified physical ref without capturing or recognizing',async()=>{
   const {Feed}=await import('../src/components/remote/ui/feed');
   const card={ref:'physical-cached',cardId:46986414,name:'Dark Magician',quad:[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}]};

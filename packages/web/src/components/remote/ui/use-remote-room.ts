@@ -14,14 +14,20 @@ let clockSkew = 0;
 export const serverNow = () => Date.now() + clockSkew;
 
 export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/remote${path}`, { cache: "no-store", ...(body === undefined ? {} : {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-  }) });
-  const date = Date.parse(response.headers.get("date") ?? "");
-  if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? "Could not update the table");
-  return data;
+  const signal=AbortSignal.timeout(10_000);
+  try {
+    const response = await fetch(`/api/remote${path}`, { cache: "no-store", signal, ...(body === undefined ? {} : {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }) });
+    const date = Date.parse(response.headers.get("date") ?? "");
+    if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Could not update the table");
+    return data;
+  } catch(error) {
+    if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');
+    throw error;
+  }
 }
 
 export type RoomController = ReturnType<typeof useRemoteRoom>;
@@ -81,6 +87,15 @@ export function useRemoteRoom(slug: string) {
     } catch (e) { setError((e as Error).message); void mutate(); } finally { setBusy(false); }
   }, [slug, router, mutate]);
 
+  // Bypass an outstanding SWR revalidation: recovery has its own bounded request.
+  const refresh=useCallback(async()=>{
+    const refreshed=await remoteApi<RemoteRoom>(`/${slug}`);
+    if(tableKey.current!==slug||refreshed.slug!==slug)return;
+    if(!roomRef.current||refreshed.lastSeq>=roomRef.current.lastSeq)roomRef.current=refreshed;
+    lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);
+    await mutate(old=>old&&old.lastSeq>refreshed.lastSeq?old:refreshed,{revalidate:false});
+  },[slug,mutate]);
+
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal): Promise<RemoteRoom | null> => {
     const current = roomRef.current; if (!current||current.slug!==slug) return null;
@@ -94,10 +109,10 @@ export function useRemoteRoom(slug: string) {
       return updated;
     } catch (e) {
       setError((e as Error).message);
-      try{const refreshed=await mutate();if(refreshed?.slug===slug){roomRef.current=refreshed;lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);}}catch{/* Keep the failed action recoverable during a network outage. */}
+      try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
     }
-  }, [slug, mutate]);
+  }, [slug, mutate, refresh]);
 
   const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>roomRef.current,postAction),[postAction]);
 
