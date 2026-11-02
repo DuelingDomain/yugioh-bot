@@ -6,6 +6,8 @@ import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } fr
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
 import { guardTwinPlacement } from "../twin-placement.js";
 
+import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
+
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
   { id: "battle", name: "Battle" }, { id: "main2", name: "Main 2" }, { id: "end", name: "End" },
@@ -118,6 +120,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       break;
     }
+    case "effect.activated": case "effect.choose": case "effect.announce": case "effect.context.clear": case "effect.note.dismiss": break;
     case "deck.add": ownField(action.seat); break;
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
@@ -128,6 +131,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
+      if(!card.faceUp || ["deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (action.card.slot === undefined) delete card.slot;
       if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
@@ -145,14 +149,18 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.slot !== undefined) card.slot = action.slot;
         card.zone = action.zone;
         if (action.position !== undefined) card.position = action.position;
+        if(["deck","extra"].includes(card.zone)) delete card.publicIdentity;
       }
-      if (action.type === "twin.flip") card.faceUp = action.faceUp;
+      if (action.type === "twin.flip") { card.faceUp = action.faceUp; if(!action.faceUp) delete card.publicIdentity; }
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }
     case "log.note": return next;
   }
+  applyRemoteEffectTracking(next, state, deckAction, context);
   next = applyLiveDeckChecks(next, deckAction, context);
+  for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
+    origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
@@ -167,6 +175,6 @@ export const ygoModule: GameModule = {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
     return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
-      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), updatedAt: 0, undo: null };
+      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
 };

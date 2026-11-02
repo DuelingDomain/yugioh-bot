@@ -21,7 +21,7 @@ export function createRemoteAccessReader(databasePath = process.env.DATABASE_PAT
   }
   return {
     canRead: (claims: RemoteConnectionTokenClaims) => { try { return canReadRemote(connection(), claims); } catch { return false; } },
-    snapshot: (slug: string, guildId: string) => createRemoteDuelService(connection()).snapshot(slug, guildId),
+    snapshot: (slug: string, guildId: string, userId?: number) => createRemoteDuelService(connection()).snapshot(slug, guildId, userId),
     sweepIdle: (now?: number) => createRemoteDuelService(connection()).sweepIdle(now),
     close() { db?.close(); db = undefined; },
   };

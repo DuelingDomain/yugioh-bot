@@ -42,14 +42,15 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules"] };
+    const keys = { seat: ["seat"], leave: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules", "showCardsSetFromDeck"] };
     // Empty bodies are accepted for the two bodyless operations.
     const body = operation === "leave" || operation === "start" ? {} : await remoteBody(request, keys[operation]);
     let result;
     switch (operation) {
       case "format":
         remoteAssert(typeof body.format === "string", "Choose a format");
-        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, rules: body.rules }); break;
+        remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined }); break;
       case "deck":
         remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");
         remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");

@@ -5,6 +5,7 @@ import type { TypedServer, TypedSocket } from "./events.js";
 export function registerRemoteEventHandlers(io: TypedServer, opts: {
   secret: string;
   canRead: (claims: RemoteConnectionTokenClaims) => boolean;
+  readPrivateSnapshot?: (claims: RemoteConnectionTokenClaims) => RemoteSnapshot | null;
   readSnapshot: (slug: string, guildId: string) => RemoteSnapshot | null;
 }) {
   const members = new Map<string, Set<TypedSocket>>();
@@ -29,7 +30,16 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
     }
   }
   function snapshot(slug: string, guildId: string) {
-    prune(slug, guildId); return opts.readSnapshot(slug, guildId);
+    prune(slug, guildId);
+    const data=opts.readSnapshot(slug,guildId);
+    if(data && opts.readPrivateSnapshot) for(const socket of members.get(remoteSocketRoom(guildId,slug)) ?? []) {
+      const claims=socket.data.remote;
+      if(claims && authorized(claims)) {
+        const privateData=opts.readPrivateSnapshot(claims);
+        if(privateData) socket.emit("remote:private",privateData);
+      }
+    }
+    return data;
   }
   function publish(slug: string, guildId: string) {
     const data = snapshot(slug, guildId);

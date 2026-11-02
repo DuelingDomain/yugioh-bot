@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Drawers, popovers and the tray. One is open at a time. */
-export type LayerId = "log" | "insp" | "health" | "hist" | "tray" | "card" | "flag";
+export type LayerId = "log" | "insp" | "health" | "hist" | "tray" | "card" | "flag" | "effect";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 const FIRST = '[data-autofocus],li[role=option],input[type=text]';

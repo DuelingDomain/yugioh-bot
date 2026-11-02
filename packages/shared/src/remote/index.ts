@@ -15,3 +15,7 @@ export * from "./realtime.js";
 
 export * from "./deck-checks.js";
 export * from "./live-deck-checks.js";
+
+export * from "./effect-filters.js";
+export * from "./effect-tracking.js";
+export * from "./privacy.js";

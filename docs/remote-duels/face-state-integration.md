@@ -41,7 +41,7 @@ The requested **`twin.set` face-down** operation maps to existing wire actions o
 - Reverse flip: the block marks the track as a candidate and forces a new read. Only a fresh accepted face-up result may send `card.identified` and `twin.flip` with `faceUp:true` through the existing `apply` path. Do not reveal `privateCardId` just because pixels changed.
 - New Set: `placed` with `faceDown:true` and no `cardId` goes through `fieldPlacementProposals`, producing `twin.place` with `faceUp:false`, ref, slot and position only. Skip `offer`/the identity picker and all recognition/AI for that back. In the effect-context branch, let this same placement bind the active Set effect to the physical ref and populate its private `effectTracking.origins[].candidates`; these are possibilities, never a chosen identity. No active context means an unnamed back. A candidate choice must remain optional and private.
 
-The privacy/effect-origin projection is a separate integration prerequisite; this change does not add those server actions or projections to `origin/feat/remote-autodetect-2`. Do not broadcast the private Maps to compensate. Previously public knowledge cannot be erased from another player's memory, but the current face-down twin and hover UI must hide its identity.
+The watcher integration includes the privacy/effect-origin prerequisite from `origin/feat/remote-facedown`. The reducer passes the duplicate guard’s adopted placement ref into effect tracking, so candidates attach to the saved twin. Public projections also omit owner-only duplicate confirmations; hidden transitions clear inherited public-identity flags. Do not broadcast the private Maps to compensate. Previously public knowledge cannot be erased from another player's memory, but the current face-down twin and hover UI must hide its identity.
 
 ## Calibration and verification
 
@@ -80,4 +80,19 @@ Hot CPU-only Node 22 timings over 1,000 calls after warmup (144×210 and rotated
 
 The hot mean CPU and p95 meet the 3 ms budget. JavaScript scheduling/GC can exceed it on an individual call; these are measurements, not a hard realtime bound. Warping, detector and optional embedding inference are outside this module timing. No benchmark uses mocked detector probabilities.
 
-Validation: one module regression test passes; `npm run typecheck --workspace=@yugidraft/vision` passes. `field-watcher.ts` is unchanged from this worktree’s base.
+## Integrated watcher verification (2026-11-02)
+
+The analyzer lazily warps fresh native frames to portrait-ordered 96×140 crops using a reusable canvas. Gate/reference evidence stays on the private internal track, follows ref adoption, and is discarded with that track. Movement, misses, interrupted reads and hidden/busy pauses reset sustain. Settled backs bypass recognition and prompts while respecting Undo suppression. Reverse flips require a safe fresh read. The web adapter normalizes monster Sets to Defense Position and checks current face/revision before mutations.
+
+Node 22.23.3 local native replay used the real ONNX detector/embedder and production watcher, proposal builder, reducer, duplicate guard and privacy projector. Triple Tactics Talent was rendered in S3 on a 1280×720 synthetic mat, then replaced with plain sleeve pixels. These are synthetic camera measurements, not live-webcam or network latency claims.
+
+| Case | Result |
+|---|---|
+| Bound front → back, white / blue / red | Pass; 626 / 607 / 561 ms; owner retains identity, opponent/spectator identity fields removed |
+| Back → front | Pass; 713 / 824 / 766 ms; one fresh read each, same adopted ref |
+| New white back in M3 / S3 | Pass; 720 / 737 ms; monster DEF / Spell-Trap Set; zero reads or prompts; effect candidates owner-only |
+| Duplicate guard / Undo | Pass; returned server ref adopted; one twin throughout flips; Undo does not recreate Sets; duplicate confirmation stays private |
+
+`benchmark-field-watcher.ts` also passed a native-frame Chromium/WASM trial: placement, slide, rotation, graveyard return, removal, brightness stability, and 6-second hand-motion/occlusion runs; no false placements/removals, no extra follow reads, no browser errors. Calibration retained 153/156 bound backs with zero false flips among 252 front negatives.
+
+Shared build and vision, web and WS typechecks passed. No tests were authored or added to the existing suites for this integration; verification used local harness/benchmark scripts only. Local small reports: `data/vision/benchmark/field-watcher/face-integration-native.json`, `data/vision/benchmark/field-watcher/face-integration.json`, and `data/face-state/report.json`.

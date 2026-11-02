@@ -9,6 +9,11 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
   const a = event.action as RemoteAction | RemoteSystemAction;
   const who = event.actorSeat === null ? "Table" : name(event.actorSeat);
   switch (a.type) {
+    case "effect.activated": return {kind:"CD",text:`${who} activated ${a.source.name ?? card(a.source.cardId) ?? "a card effect"}`,undoable:true};
+    case "effect.choose": return {kind:"CD",text:event.messages?.join("; ") ?? "Updated a private card choice",undoable:true};
+    case "effect.announce": return {kind:"CD",text:`${who} announced a searched card`,undoable:true};
+    case "effect.note.dismiss": return {kind:"CD",text:"Effect note dismissed",undoable:true};
+    case "effect.context.clear": return {kind:"CD",text:"Effect context cleared",undoable:true};
     case "phase.set": return { kind: "PH", text: `${who} moved to ${PHASE_LONG[a.phase] ?? a.phase}`, undoable: true };
     case "phase.advance": return { kind: "PH", text: `${who} moved to the next phase`, undoable: true };
     case "turn.end": return { kind: "PH", text: `${who} passed the turn`, undoable: true };
