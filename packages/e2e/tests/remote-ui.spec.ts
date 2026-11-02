@@ -623,8 +623,10 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
-  test("webcam only hides the virtual field and is remembered; right click opens card actions and never the browser menu", async ({ page, context }) => {
+  test("webcam only hides the virtual field and is remembered; a camera card shows its name and opens its actions; right click never shows the browser menu", async ({ page, context }) => {
+    test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2); await seed(context, slug);
+    await fakeCamera(page, "16:9");
     await page.goto(`/duels/remote/${slug}`);
     const field = page.getByTestId("field-0");
     await expect(field.locator('[data-zone="m1"]')).toBeVisible();
@@ -634,9 +636,23 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await field.locator('[data-zone="m1"]').click({ button: "right" });
     await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
+    // The camera: confirm the mat grid, then use webcam only.
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
+    // The Graveyard and Banished counts sit in the seat header, one click from their pile.
+    await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
+    // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
+    const grid = page.locator('[data-testid="feed-0"] [data-testid="zone-grid"]'); const m1 = (await grid.locator('polygon[data-zone="M1"]').boundingBox())!;
+    const at = { x: m1.x + m1.width / 2, y: m1.y + m1.height / 2 };
+    await page.mouse.move(at.x, at.y); await expect(page.getByTestId("hover-tip")).toContainText("Dark Magician");
+    await page.mouse.click(at.x, at.y); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await page.keyboard.press("Escape"); await expect(page.getByTestId("inspector")).toBeHidden();
+    await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();

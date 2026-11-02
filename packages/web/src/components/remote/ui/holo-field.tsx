@@ -121,8 +121,10 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
       if (over) dnd.drop(card, over, dnd.judge(card, over));
     };
     const up = (e: PointerEvent) => finish(e, false); const cancel = (e: PointerEvent) => finish(e, true);
-    const cleanup = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); stop.current = null; };
-    window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", cancel);
+    // A long press opens the card menu. It wins over a drag that starts after the pause.
+    const menu = () => { cleanup(); if (started) setDragging(null); };
+    const cleanup = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); window.removeEventListener("contextmenu", menu); stop.current = null; };
+    window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", cancel); window.addEventListener("contextmenu", menu);
     stop.current = cleanup;
   }
   const carried = carry ? twin.find(card => card.ref === carry) : undefined;
