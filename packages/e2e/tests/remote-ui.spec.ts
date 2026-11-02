@@ -194,16 +194,44 @@ test.describe("remote duels screen, solo", () => {
           const slug = await soloTable(context.request, count);
           await fakeCamera(page, shape);
           await page.goto(`/duels/remote/${slug}`);
-          await page.getByTestId("camera-on-feed").click();
+          // Camera off: the empty feed fills the same box as a live one will.
+          await expect(page.getByTestId("feed-box-0")).toBeVisible();
+          const measure = () => page.evaluate(() => {
+            const r = (el: Element | null | undefined) => { const b = el?.getBoundingClientRect(); return b ? { x: b.left, y: b.top, w: b.width, h: b.height } : null; };
+            const field = document.querySelector('[data-testid="field-0"]');
+            const holo = field?.closest('[class*="holo"]');
+            return { seat: r(document.querySelector('[data-testid="seat-0"]')), box: r(document.querySelector('[data-testid="feed-box-0"]')), holo: r(holo), lp: r(document.querySelector('[data-testid="lp-0"]')),
+              lpFont: parseFloat(getComputedStyle(document.querySelector('[data-testid="lp-value-0"]')!).fontSize), win: { w: innerWidth, h: innerHeight } };
+          });
+          const off = await measure();
+          const share = (x: typeof off) => (x.box!.w * x.box!.h) / (x.seat!.w * x.seat!.h);
           const video = page.locator('[data-testid="feed-0"] video');
+          // The first click can land before the page is interactive on a cold start, so click again until the video shows.
+          await expect(async () => {
+            if (await page.getByTestId("camera-on-feed").count()) await page.getByTestId("camera-on-feed").click();
+            await expect(video).toBeVisible({ timeout: 4_000 });
+          }).toPass({ timeout: 40_000 });
           await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
           await page.waitForTimeout(500);
+          const on = await measure();
+          if (process.env.E2E_MEASURE) (await import("node:fs")).appendFileSync(process.env.E2E_MEASURE, JSON.stringify({ label, mode, shape, offShare: +share(off).toFixed(3), onShare: +share(on).toFixed(3), box: on.box && { w: Math.round(on.box.w), h: Math.round(on.box.h) }, offBox: off.box && { w: Math.round(off.box.w), h: Math.round(off.box.h) }, seat: { w: Math.round(on.seat!.w), h: Math.round(on.seat!.h) }, holo: on.holo && { w: Math.round(on.holo.w), h: Math.round(on.holo.h) }, lpH: Math.round(on.lp!.h), lpFont: on.lpFont }) + "\n");
           const m = await page.evaluate(() => {
             const rect = (id: string) => { const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; };
             const v = document.querySelector('[data-testid="feed-0"] video') as HTMLVideoElement;
             return { box: rect("feed-box-0"), row: rect("camera-row"), field: rect("field-0"), vw: v.videoWidth, vh: v.videoHeight };
           });
           expect(m.box && m.row).toBeTruthy();
+          // The empty feed filled the same box as the live one.
+          // (A 4:3 camera changes the box shape once it is on, so this is checked for 16:9.)
+          if (shape === "16:9") { expect(Math.abs(off.box!.w - on.box!.w)).toBeLessThanOrEqual(2); expect(Math.abs(off.box!.h - on.box!.h)).toBeLessThanOrEqual(2); }
+          if (width >= 1366 && shape === "16:9") {
+            // The camera comes first: a large share of the seat. The field frame hugs its zones and is a strip. LP is one small row.
+            expect(share(on)).toBeGreaterThan(mode === "3" ? 0.3 : 0.33);
+            expect(on.holo!.w).toBeLessThan(on.seat!.w * (mode === "3" ? 1.01 : 0.7));
+            if (mode !== "4") expect(on.holo!.h).toBeLessThan(on.seat!.h * (mode === "3" ? 0.5 : 0.36));
+            expect(on.lpFont).toBeLessThanOrEqual(42);
+            if (mode === "1v1") expect(on.lp!.h).toBeLessThanOrEqual(60);
+          }
           // No bars: the box has the video's shape (2% tolerance for rounding).
           expect(Math.abs(m.box!.w / m.box!.h - m.vw / m.vh) / (m.vw / m.vh)).toBeLessThan(0.02);
           // Controls: one row under the video, inside the window, not over the box.
