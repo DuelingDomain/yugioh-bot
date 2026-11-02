@@ -25,6 +25,8 @@
 
 /* ---------- the field: label, button, hidden native select ---------- */
 .field { position: relative; display: block; min-width: 0; font-family: var(--ts-font); }
+/* font="inherit": the button takes the font of the page around it (the popover gets the same family inline). */
+.field.inheritFont, .field.inheritFont .trigger { font-family: inherit; }
 .menu { display: inline-block; flex: 0 1 180px; width: 180px; max-width: 100%; vertical-align: middle; }
 .menuWide { flex-basis: 240px; width: 240px; }
 

@@ -50,7 +50,7 @@ export function SheetButton({
 
 /** Themed select (button + listbox, bottom sheet on phones) with the sheet's slim styling. A hidden native select keeps `testId` + `selectOption` working. */
 export function SheetSelect<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel, placeholder,
+  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel, placeholder, id,
 }: {
   label: string;
   value: T;
@@ -68,9 +68,11 @@ export function SheetSelect<T extends string | number | boolean>({
   ariaLabel?: string;
   /** Shown when `value` matches no choice. */
   placeholder?: string;
+  /** Id of the button, for a `<label htmlFor>` elsewhere. */
+  id?: string;
 }) {
   return (
-    <ThemedSelect label={label} value={value} choices={choices} onChange={onChange} disabled={disabled} compact={compact}
+    <ThemedSelect id={id} label={label} value={value} choices={choices} onChange={onChange} disabled={disabled} compact={compact}
       className={className} hideLabel={hideLabel} describedBy={describedBy} testId={testId} ariaLabel={ariaLabel} placeholder={placeholder} />
   );
 }

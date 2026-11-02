@@ -2,7 +2,7 @@
 
 import {
   useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
-  type KeyboardEvent as ReactKeyboardEvent, type ReactNode,
+  type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, X } from "lucide-react";
@@ -33,8 +33,12 @@ export type ThemedSelectProps<T extends string | number | boolean> = {
   describedBy?: string;
   /** Test id of the hidden native select. Its trigger button gets `<testId>-trigger`. */
   testId?: string;
-  /** Accessible name that replaces the visible label, such as when several selects share one label. */
+  /** Accessible name that replaces the visible label, such as when several selects share one label. Start it with the visible text. */
   ariaLabel?: string;
+  /** Id of the trigger button, so a `<label htmlFor>` elsewhere can name, focus and open it. */
+  id?: string;
+  /** `duel` (default) uses the duel UI font. `inherit` takes the font of the surrounding page, such as a sign-in form. */
+  font?: "duel" | "inherit";
   /** `sheet` is the Match Sheet field. `menu` is the small button for the table's toolbars. */
   variant?: "sheet" | "menu";
   /** Menu variant: a wider button (240 px). */
@@ -87,7 +91,7 @@ const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boo
  * A hidden native `<select>` mirrors the value, so `data-testid` + `selectOption` keep working.
  */
 export function ThemedSelect<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel,
+  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel, id, font = "duel",
   variant = "sheet", wide = false, prefix, placeholder = "", title,
 }: ThemedSelectProps<T>) {
   const uid = useId();
@@ -95,6 +99,7 @@ export function ThemedSelect<T extends string | number | boolean>({
   const listId = `${uid}-list`;
   const optionId = (index: number) => `${uid}-opt-${index}`;
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const typed = useRef({ text: "", timer: 0 as unknown as ReturnType<typeof setTimeout> });
@@ -102,6 +107,9 @@ export function ThemedSelect<T extends string | number | boolean>({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [place, setPlace] = useState<Place | null>(null);
+  // Where the list is drawn: inside the modal dialog that holds the button (so screen readers can reach it), else on the page.
+  const [host, setHost] = useState<Element | null>(null);
+  const [inheritedFont, setInheritedFont] = useState<string | undefined>(undefined);
 
   const selectedIndex = choices.findIndex((choice) => choice.value === value);
   const selected = selectedIndex >= 0 ? choices[selectedIndex] : null;
@@ -128,8 +136,10 @@ export function ThemedSelect<T extends string | number | boolean>({
     if (disabled || !choices.length) return;
     const start = at === "first" ? edge(1) : at === "last" ? edge(-1) : enabled(selectedIndex) ? selectedIndex : edge(1);
     setActive(start);
+    setHost(triggerRef.current?.closest('[role="dialog"], dialog') ?? document.body);
+    setInheritedFont(font === "inherit" && triggerRef.current ? getComputedStyle(triggerRef.current).fontFamily : undefined);
     setOpen(true);
-  }, [choices.length, disabled, edge, enabled, selectedIndex]);
+  }, [choices.length, disabled, edge, enabled, font, selectedIndex]);
   const commit = useCallback((index: number) => {
     if (!enabled(index)) return;
     const choice = choices[index];
@@ -163,10 +173,25 @@ export function ThemedSelect<T extends string | number | boolean>({
 
   useEffect(() => {
     if (!open) return;
+    // A press on the button or inside the list layer (list, sheet, backdrop) is not "outside": the backdrop closes on its own click.
+    // On touch the browser picks the click target after the finger lifts, so closing at pointerdown would let that click land on
+    // the control under the list. Touch and pen wait for the click instead (a drag or scroll cancels it).
+    let stopWaiting: (() => void) | null = null;
     const outside = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (!target || popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
-      close();
+      if (!target || layerRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      // A label of the button forwards its click to the button, which then closes the list.
+      if (Array.from(triggerRef.current?.labels ?? []).some((node) => node.contains(target))) return;
+      if (event.pointerType === "mouse" || !event.pointerType) { close(); return; }
+      stopWaiting?.();
+      const done = () => { stopWaiting?.(); stopWaiting = null; };
+      const onClick = () => { done(); close(); };
+      document.addEventListener("click", onClick, { once: true, capture: true });
+      document.addEventListener("pointercancel", done, { once: true, capture: true });
+      stopWaiting = () => {
+        document.removeEventListener("click", onClick, true);
+        document.removeEventListener("pointercancel", done, true);
+      };
     };
     // A scroll of the page or of a parent of the button closes the list (the button would move away from it). A phone sheet does not follow the page, so it stays.
     // A scroll elsewhere, such as a log that follows a live duel, leaves it open.
@@ -189,6 +214,7 @@ export function ThemedSelect<T extends string | number | boolean>({
       const at = openLists.indexOf(closeAndFocus);
       if (at >= 0) openLists.splice(at, 1);
       document.removeEventListener("pointerdown", outside, true);
+      stopWaiting?.();
       window.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", measure);
     };
@@ -247,10 +273,13 @@ export function ThemedSelect<T extends string | number | boolean>({
   };
 
   const triggerClass = cx(styles.trigger, compact && styles.compact, variant === "menu" && styles.menuTrigger);
-  const triggerId = `${uid}-trigger`;
+  const triggerId = id ?? `${uid}-trigger`;
   const popover = open && typeof document !== "undefined" ? createPortal(
-    <div className={cx(styles.scope, duelFontClasses)} data-layer-opener="" data-themed-select-layer="">
-      {sheet ? <div className={styles.backdrop} onPointerDown={close} aria-hidden="true" data-testid="themed-select-backdrop" /> : null}
+    <div ref={layerRef} className={cx(styles.scope, duelFontClasses)} data-layer-opener="" data-themed-select-layer=""
+      style={inheritedFont ? ({ "--ts-font": inheritedFont } as CSSProperties) : undefined}
+      onMouseDown={(event) => event.preventDefault()}>
+      {sheet ? <div className={styles.backdrop} aria-hidden="true" data-testid="themed-select-backdrop"
+        onClick={() => { close(); triggerRef.current?.focus({ preventScroll: true }); }} /> : null}
       <div ref={popRef} className={cx(sheet ? styles.sheet : styles.popover, !sheet && place?.up && styles.popoverUp)}
         data-themed-select-popover="" data-layer-opener=""
         style={sheet ? undefined : place ? { left: place.left, ...(place.up ? { bottom: place.edge } : { top: place.edge }), width: place.width, maxHeight: place.maxHeight } : { left: 0, top: 0, visibility: "hidden" }}
@@ -263,7 +292,7 @@ export function ThemedSelect<T extends string | number | boolean>({
               onClick={() => { close(); triggerRef.current?.focus({ preventScroll: true }); }}><X size={18} aria-hidden="true" /></button>
           </div>
         </> : null}
-        <div ref={listRef} id={listId} role="listbox" aria-labelledby={labelId} className={styles.list}>
+        <div ref={listRef} id={listId} role="listbox" aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : labelId} className={styles.list}>
           {sections.map((section, at) => {
             const options = section.items.map(({ choice, index }) => (
               <div key={String(choice.value)} id={optionId(index)} role="option" className={styles.option}
@@ -288,20 +317,25 @@ export function ThemedSelect<T extends string | number | boolean>({
         </div>
       </div>
     </div>,
-    document.body,
+    host ?? document.body,
   ) : null;
 
   return (
-    <div className={cx(styles.scope, styles.field, variant === "menu" && styles.menu, variant === "menu" && wide && styles.menuWide, className)}>
-      <span id={labelId} className={hideLabel || variant === "menu" ? styles.srOnly : styles.label}
-        onClick={() => triggerRef.current?.focus()}>{label}</span>
+    <div className={cx(styles.scope, styles.field, font === "inherit" && styles.inheritFont, variant === "menu" && styles.menu, variant === "menu" && wide && styles.menuWide, duelFontClasses, className)}>
+      <label id={labelId} htmlFor={triggerId} className={hideLabel || variant === "menu" ? styles.srOnly : styles.label}
+        onMouseDown={(event) => event.preventDefault()}>{label}</label>
       <button ref={triggerRef} id={triggerId} type="button" role="combobox" className={triggerClass}
         disabled={disabled} title={title}
         aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
         aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : labelId} aria-describedby={describedBy}
         data-testid={testId ? `${testId}-trigger` : undefined}
-        onClick={() => { if (open) close(); else openList(); }}
+        onClick={() => {
+          if (open) { close(); return; }
+          // Safari does not focus a button on a mouse click; the keys and the blur close need that focus.
+          triggerRef.current?.focus({ preventScroll: true });
+          openList();
+        }}
         onKeyDown={onKeyDown}
         onKeyUp={(event) => { if (event.key === " ") event.preventDefault(); }}
         onBlur={(event) => { if (!popRef.current?.contains(event.relatedTarget as Node | null)) close(); }}>
