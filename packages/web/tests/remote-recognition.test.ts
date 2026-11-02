@@ -253,10 +253,15 @@ it('Wrong card reacquires the same physical ref or rereads its bound frozen pixe
   expect(trackedRereadTarget('A',[replacement],{x:.3,y:.35,frame})).toEqual({x:.3,y:.35,frames:[frame]});
 });
 
-it('review S1/S3: piles never place either face; absent/private twins never broadcast after Undo',async()=>{
+it('GY and banished arrivals place either face; private piles and absent twins never broadcast after Undo',async()=>{
  const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
  const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
- for(const zone of ['GY','BANISHED','DECK','EXTRA'])for(const faceDown of [false,true])expect(fieldPlacementProposals({track:{id:'a',zone,faceDown,position:'attack'} as any,seat:0,cardId:1})).toEqual([]);
+ for(const zone of ['DECK','EXTRA'])for(const faceDown of [false,true])expect(fieldPlacementProposals({track:{id:'a',zone,faceDown,position:'attack'} as any,seat:0,cardId:1})).toEqual([]);
+ for(const [zone,destination] of [['GY','graveyard'],['BANISHED','banished']])for(const faceDown of [false,true]){
+   const proposals=fieldPlacementProposals({track:{id:'a',zone,faceDown,position:'attack'} as any,seat:0,cardId:1});
+   expect(proposals).toMatchObject([{type:'twin.place',source:'auto',zone:destination,card:{ref:'a',faceUp:!faceDown}}]);
+   expect((proposals[0] as any).card.cardId).toBe(faceDown?undefined:1);
+ }
  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
  const snapshot={status:'watching',tracks:[{id:'a',cardId:'1',state:'identified',visible:true,faceDown:false,zone:'M2',card:{kind:'face-up',quad}}]} as any;
  const entries=new Map([['1',{cardId:'1',passcode:1,name:'A'}]]);
@@ -312,10 +317,10 @@ it('queued evidence cannot apply or confirm an old name over replacement pixels'
 it('a replacement during the placement HTTP request rolls back the new twin and never confirms its name',async()=>{
  const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
  const event={type:'placed',track:{id:'a',cardId:'A',state:'identified',visible:true,revision:0}} as any;
- let current={...event.track};const actions:any[]=[];
- const act=async(proposal:any)=>{actions.push(proposal);if(proposal.type==='twin.place'){current={...current,revision:1,state:'candidate',cardId:undefined,visible:false};return {state:{undo:{actionId:'new-placement'}}} as any;}return {state:{undo:null}} as any;};
- const result=await applyVerifiedFieldMutation(event,()=>current,act,{type:'twin.place',actorSeat:0} as any);
- expect(result).toBeNull();expect(actions.map(a=>a.type)).toEqual(['twin.place','undo']);expect(actions[1].targetActionId).toBe('new-placement');
+ let current={...event.track},placementId:string|undefined;const actions:any[]=[];
+ const act=async(proposal:any,actionId?:string)=>{actions.push(proposal);if(proposal.type==='twin.place'){placementId=actionId;current={...current,revision:1,state:'candidate',cardId:undefined,visible:false};return {state:{undo:{actionId}}} as any;}return {state:{undo:null}} as any;};
+ const result=await applyVerifiedFieldMutation(event,()=>current,act,{type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref:'a',cardId:1,faceUp:true}} as any);
+ expect(result).toBeNull();expect(actions.map(a=>a.type)).toEqual(['twin.place','undo']);expect(placementId).toBeTruthy();expect(actions[1].targetActionId).toBe(placementId);
 });
 
 it('failed compensating Undo exposes a recoverable stale-placement error with the exact created ref',async()=>{

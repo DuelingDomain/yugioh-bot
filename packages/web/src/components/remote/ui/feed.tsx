@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
-import type {RemoteFieldCard} from '@yugidraft/shared/remote';
+import type {RemoteFieldCard,TwinCard} from '@yugidraft/shared/remote';
 import {hitTrackedCards} from '@/lib/remote/field-track-cache';
+import { sameObservedCard } from "./model";
 import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
 import { ZoneGridOverlay } from "./zone-grid";
-import { readGridPref, writeGridPref } from "@/lib/remote/zone-grid";
+import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
+import { readGridPref, writeGridPref, currentZoneGrid } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 
@@ -31,13 +33,14 @@ export type FeedHit = {
   /** True for a click on the live feed. The table then drops the result if the person closed the popup meanwhile. */
   live?: boolean;
   cached?:RemoteFieldCard;
+  copyWitnesses?:(matches:readonly TwinCard[])=>Promise<RemoteFieldCard[]>;capturedAt?:number;
   frozenFrame?:HTMLCanvasElement;
 };
 /** Where a click landed, before the card under it is known. */
 export type FeedStart = { x: number; y: number; anchor: Rect; feed: Rect };
 export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]; live?: boolean };
 type Box = { left: number; top: number; width: number; height: number };
-type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
+type Frozen = { capturedAt:number;pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
 const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
@@ -241,13 +244,33 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     return { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
   }, [feedRect]);
 
+  // Cached identity alone cannot prove a copy: verify the other outline in
+  // the exact captured frame. These local reads only run for explicit clicks.
+  const copyWitnesses=async(selected:FeedCard,cards:FeedCard[],cached:RemoteFieldCard[],frame:HTMLCanvasElement|undefined,matches:readonly TwinCard[])=>{
+    const result:RemoteFieldCard[]=[];if(!frame||!matches.length)return result;
+    const grid=currentZoneGrid(),calibration=hub.trackedCalibration?.(seat)??(grid.ownSeat===seat?grid.calibration:undefined);
+    const toRead=(card:FeedCard)=>({quad:card.quad,kind:card.kind,confidence:card.confidence,partial:!card.refined,covered:card.covered});
+    for(const card of cards){
+      if(card.id===selected.id||card.kind!=='face-up'||card.covered)continue;
+      const a=card.bounds,b=selected.bounds;
+      const overlap=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+      if(overlap/Math.min((a.right-a.left)*(a.bottom-a.top),(b.right-b.left)*(b.bottom-b.top))>=.04)continue;
+      const known=hitTrackedCards(cached,card.cx,card.cy);
+      const location=calibration?.orientation?fieldZoneLocation(mapFieldZone({...toRead(card)},calibration).zone):undefined;
+      const expected=matches.find(c=>location?c.zone===location.zone&&c.slot===location.slot:c.ref===known?.ref);
+      if(!expected)continue;
+      const answer=await hub.peek(seat,frame,toRead(card),cards.map(toRead),new AbortController().signal);
+      if(answer.status==='ready'&&answer.peek.tier==='sure'&&!answer.peek.faceDown&&!answer.peek.covered&&sameObservedCard(expected,answer.peek)&&answer.peek.cardId)result.push({ref:expected.ref,cardId:answer.peek.cardId,name:answer.peek.name??undefined,quad:card.quad});
+    }
+    return result;
+  };
   const choose = useCallback((card: FeedCard, count: number, index: number) => {
     setActive(index); setSelected(card.id); setFrozenState(f => f && { ...f, pinned: true });
     setSay(`Card ${index + 1} of ${count}, ${card.kind === "face-up" ? "face up" : "face down"}, selected.`);
     // The card quad belongs to the frozen frame, so the reader gets that same frame.
-    const canvas = frozenRef.current?.canvas;
+    const frozenFrame=frozenRef.current,canvas=frozenFrame?.canvas;
     const cached=card.kind==='face-up'&&!card.covered?hitTrackedCards(frozenRef.current?.cached??[],card.cx,card.cy):undefined;
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(cached?{cached,frozenFrame:canvas}:canvas ? { frames: [copyOf(canvas)] } : {}) });
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, copyWitnesses:matches=>copyWitnesses(card,frozenFrame?.cards??[],frozenFrame?.cached??[],canvas,matches),capturedAt:frozenRef.current?.capturedAt,anchor: anchorOf(card.quad), feed: feedRect(), ...(cached?{cached,frozenFrame:canvas}:canvas ? { frames: [copyOf(canvas)] } : {}) });
   }, [anchorOf, feedRect, onSelect, seat,hub]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {
@@ -258,7 +281,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     const context = canvas.getContext("2d"); if (!context) return;
     context.drawImage(element, 0, 0, canvas.width, canvas.height);
     const token = ++run.current;
-    const base: Frozen = { pinned, status: "detecting", cards: [],cached:hub.trackedCards(seat), note: "", ms: 0, canvas, pending };
+    const base: Frozen = { capturedAt:performance.now(),pinned, status: "detecting", cards: [],cached:hub.trackedCards(seat), note: "", ms: 0, canvas, pending };
     frozenRef.current = base; setFrozenState(base); setActive(-1); setHover(-1); setSelected(null); setSay("Frame frozen. Looking for cards.");
     const result = await createImageBitmap(canvas).then(detectCards, () => ({ status: "error" as const, cards: [] as [], note: "The frame could not be read." }));
     if (token !== run.current) return;
@@ -299,7 +322,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     const hit = hitTest(cards, p, { w: box.width, h: box.height });
     if (!hit) { onMiss(seat); showMiss(p); return; }
     flashQuad(hit.quad);
-    onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length, anchor: anchorOf(hit.quad), feed, frames, live: true });
+    onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length,copyWitnesses:matches=>copyWitnesses(hit,cards,hub.trackedCards(seat),frames[0],matches),capturedAt:performance.now(),anchor: anchorOf(hit.quad), feed, frames, live: true });
   }
   function click(event: React.MouseEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;

@@ -127,10 +127,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   // The ONNX sessions are never run concurrently. Failed requests do not poison the queue.
   queue = queue.then(async () => {
     try {
-      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null, detectorBackend:detectorSession!.backend }); }
       else {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
-        if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor,message.opts)});return;}
+        if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor,message.opts),detectorBackend:detectorSession.backend});return;}
         if(message.type==='aiCrop') {
           const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');
           const warp=source.create();if(!warp)throw new Error('Could not straighten the card image');
@@ -144,7 +144,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
             if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
             preparedOptions=message.opts;
           }
-          scope.postMessage({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'}});return;}
+          scope.postMessage({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'},detectorBackend:detectorSession.backend});return;}
         if(learningCache) {
           const learning=learningCache.current();
           pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});

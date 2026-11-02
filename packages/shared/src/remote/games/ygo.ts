@@ -5,7 +5,7 @@ import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
-import { guardTwinPlacement } from "../twin-placement.js";
+import { clearTwinConfirmation, guardTwinPlacement } from "../twin-placement.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
 import { battleEnteredThisTurn, ygoBattleAllowed, ygoPhases as phases } from "../phases.js";
@@ -40,7 +40,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...structuredClone(state), updatedAt: at };
   next.deckChecks ??= initialDeckChecks();
-  if (action.type !== "log.note") delete next.twinConfirmation;
+  if (context?.replay && context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
   const seat = (n: number) => {
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
@@ -126,11 +126,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
-      const reuse = !context?.replay || context.twinPlacementGuard === 1 ? guardTwinPlacement(next, action, context) : undefined;
+      const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
+      if (reuse && "pending" in reuse) return next;
+      if (!context?.replay || context.twinPlacementGuard === 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
       const ref = reuse?.ref ?? action.card.ref;
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
+      if (card.zone !== "hand") delete card.departedFrom;
       if(!card.faceUp || ["deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (action.card.slot === undefined) delete card.slot;
       if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
@@ -146,6 +149,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
+        if ((!context?.replay || context.twinPlacementGuard === 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
+          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
+        else if (action.zone !== "hand") delete card.departedFrom;
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.

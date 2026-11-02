@@ -180,3 +180,10 @@ export function battleMath(args: {
 /** The detector card handed to the reader, so it crops that exact card. */
 export const readCardOf = (hit: { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered?: boolean }) =>
   ({ quad: hit.quad, kind: hit.kind, confidence: hit.confidence, partial: !hit.refined, ...(hit.covered ? { covered: true } : {}) });
+
+/** Printed names also group alternate-art catalog entries before server facts arrive. */
+export function sameObservedCard(a:{cardId?:number;passcode?:number;name?:string|null},b:{cardId?:number;passcode?:number;name?:string|null}) {
+  const left=a.cardId??a.passcode,right=b.cardId??b.passcode;
+  const fold=(name?:string|null)=>name?.normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
+  return !!left&&left===right||!!fold(a.name)&&fold(a.name)===fold(b.name);
+}

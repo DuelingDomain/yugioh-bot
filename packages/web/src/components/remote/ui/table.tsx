@@ -17,9 +17,9 @@ import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceInten
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, cellsFor, hasExtraZones, isPile, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
-import { CopyAsk, DupBanner } from "./dup-ui";
-import { chooseKeep, copyFlagOf, findTwinGroups, mergeProposal, type CopyFlag, type TwinGroup } from "./twins";
+import { COLORS, battleMath, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { OriginAsk } from "./dup-ui";
+import { findTwinGroups, type CopyFlag } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
@@ -45,8 +45,9 @@ const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
-import {fieldZoneLocation,onMat,type FieldFormat} from '@yugidraft/vision';
-import { fieldGridCells, useZoneGrid } from "@/lib/remote/zone-grid";
+import {fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
+import {fieldGridCells,useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
+import {readFieldOrigin,distinctFieldQuads} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -57,7 +58,10 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
 
-type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; tier?: Tier; covered?: boolean; token?: number };
+type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number };
+const pendingOriginAt=(room:RemoteRoom,seat:number,card:{cardId?:number;name?:string|null},zone:string,slot?:number)=>
+  [room.state.twinConfirmation,...(room.state.twinConfirmationQueue??[])].find(flag=>flag?.seat===seat&&flag.placement?.zone===zone&&
+    flag.placement.card.slot===slot&&sameObservedCard(flag.placement.card,card));
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -259,11 +263,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setWebcamOnlyState(next);
     try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
   }, []);
-  // The table says a card just placed by hand is already on the field. One tap: move it here, or add another copy.
-  const [copyAsk, setCopyAsk] = useState<{ seat: number; flag: CopyFlag; cardId: number; name?: string; zone: string; slot?: number } | null>(null);
-  // "Two copies" answers (per viewer). The key is the set of refs, so a third copy asks again.
-  const [twoCopies, setTwoCopies] = useState<ReadonlySet<string>>(new Set());
-  const [merging, setMerging] = useState(false);
+  const [resolvingOrigin, setResolvingOrigin] = useState(false);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -290,33 +290,40 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const identify = useCallback(async (pick: Pick, source: "click" | "auto" | "voice" | "typed") => {
     const at = ctx.current; if (!at) return;
     const { seat } = at;
+    const zoneGrid = currentZoneGrid();
     // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
     // The table refused the card (for example it closed meanwhile). Say so: a popup that only vanishes looks like a bug.
     const bail = () => { layers.close("tray"); setTray(null); toast("The table did not accept this card. Nothing was placed.", 4200); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
+    const verifiedWitnesses=await at.copyWitnesses?.(R.current.state.seats[seat].twin.filter(c=>sameObservedCard(c,{cardId:pick.cardId,name:pick.name})&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)));
     const outcome=await ctl.transaction(async(current,apply)=>{
       const owns = current.solo || seat === current.mySeat;
       // Keep explicit private-origin targeting inside the shared mutation queue.
       const targetRef = at.ref ?? at.cardRef;
       const revealRef = owns ? remoteRecognitionRef(current.state, seat, pick.cardId, targetRef) : undefined;
-      const same = owns ? current.state.seats[seat].twin.find(card => card.ref === targetRef)
-        ?? current.state.seats[seat].twin.find(card => card.ref === revealRef)
-        ?? current.state.seats[seat].twin.find(card => cardCode(card) === pick.cardId && card.faceUp && !['hand', 'deck'].includes(card.zone)) : undefined;
-      const spot=owns?(same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current)):undefined;
+      let same = owns ? current.state.seats[seat].twin.find(card => card.ref === targetRef)
+        ?? current.state.seats[seat].twin.find(card => card.ref === revealRef) : undefined;
+      const physical=at.quad?.length===4&&zoneGrid.ownSeat===seat&&zoneGrid.calibration?.orientation?
+        mapFieldZone({quad:at.quad,kind:'face-up',confidence:1,partial:false},zoneGrid.calibration).zone:undefined;
+      if(owns&&!same&&physical){const location=fieldZoneLocation(physical);same=current.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot&&sameObservedCard(c,{cardId:pick.cardId,name:pick.name}));}
+      const projected=physical?projectFieldZone({zone:physical,facts:found,twins:current.state.seats[seat].twin,ref:same?.ref,format:current.state.deckChecks.format.id}):undefined;
+      const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
+      const spot=owns?(same?{row:same.zone,slot:same.slot,ref:same.ref}:mapped?{row:mapped.zone,slot:mapped.slot,ref:crypto.randomUUID()}:layoutFor(seat,pick.cardId,found,current)):undefined;
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
+      const pending=spot?pendingOriginAt(current,seat,{cardId:pick.cardId,name:pick.name},spot.row,spot.slot):undefined;
+      if(pending)return {updated:current,owns,ref:undefined,row:spot?.row,slot:spot?.slot,requestRef:pending.cardRef};
       let updated:RemoteRoom|null=null;
-      if(owns&&spot&&!same)updated=await apply({type:'twin.place',...(source==='auto'?{source}:{}),actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
+      const witnesses=verifiedWitnesses?.filter(w=>sameObservedCard(w,{cardId:pick.cardId,name:pick.name})&&current.state.seats[seat].twin.some(c=>c.ref===w.ref&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)))??[];
+      const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
+      if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
       const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
-      return {updated,owns,ref,row:spot?.row,slot:spot?.slot};
+      return {updated,owns,ref,row:spot?.row,slot:spot?.slot,requestRef:spot?.ref};
     });
     const {updated,owns,ref}=outcome;
     if (!updated) { bail(); return; }
-    // The table says this card is already on the field: ask once whether it moved or is another copy.
-    const flag = owns ? copyFlagOf(updated) : null;
-    const onField = flag && flag.seat === seat && flag.cardRef === ref ? flag : null;
-    if (onField) { layers.close("tray"); setTray(null); setCopyAsk({ seat, flag: onField, cardId: pick.cardId, name: pick.name, zone: outcome.row ?? "monster", slot: outcome.slot }); return; }
+    if ([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.placement&&flag.cardRef===outcome.requestRef)) { layers.close("tray"); setTray(null); return; }
     if(owns)setFresh(ref);
     saveSample(at.token, pick.cardId, pick.feedback);
     const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
@@ -340,7 +347,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const found=cardInfo(sub.cardId),spot=layoutFor(sub.seat,sub.cardId,found);
     if(!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return;}
     const {row,slot,ref}=spot;
-    const place = await act({ type: "twin.place", actorSeat: solo ? sub.seat : mySeat, seat: sub.seat, zone: row, card: { ref, cardId: sub.cardId, name: sub.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
+    const place = await act({ type: "twin.place", source: "auto", anotherCopy: true, actorSeat: solo ? sub.seat : mySeat, seat: sub.seat, zone: row, card: { ref, cardId: sub.cardId, name: sub.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
     if (!place) return;
     await act({ type: "card.identified", actorSeat: mySeat, seat: sub.seat, cardId: sub.cardId, name: sub.name, source: "click", cardRef: ref, zone: row, ...(slot ? { slot } : {}) });
     setFresh(ref); setSubject({ ...sub, ref }); setSelected({ seat: sub.seat, ref });
@@ -393,7 +400,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
     const at: PopAt = { anchor: extra?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
-    ctx.current = { seat, x, y, quad: hit?.quad, at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
+    ctx.current = { seat, x, y, quad: hit?.quad, copyWitnesses:hit?.copyWitnesses,capturedAt:hit?.capturedAt,at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
     if(cached){
       setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,bestMatch:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch,tier:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch?'not sure':'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
       setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
@@ -457,29 +464,48 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const sure = usable.filter(card => card.tier === "sure" && !card.covered);
     const unsure = mine.length - hidden - sure.length;
     await loadCards(sure.map(card => card.cardId!));
-    const onField = [...current.seats[seat].twin];
+    const onField = current.seats[seat].twin.filter(c => ["monster","spell-trap","extra-monster","field","pendulum"].includes(c.zone));
     const revealRefs=remoteRecognitionRefs(current,seat,sure.map(card=>card.cardId!));
     const reveals=sure.flatMap((card,index)=>{
       const ref=revealRefs[index];
       const twin=ref ? current.seats[seat].twin.find(c=>c.ref===ref) : undefined;
       return twin ? [{ref:twin.ref,card,zone:twin.zone,slot:twin.slot}] : [];
     });
-    const fresh = sure.filter(card => !reveals.some(item=>item.card===card)).filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
-      .sort((a, b) => a.quad.reduce((n, p) => n + p.x, 0) - b.quad.reduce((n, p) => n + p.x, 0));
+    const grid=currentZoneGrid(),calibration=grid.ownSeat===seat?grid.calibration:hub.trackedCalibration?.(seat);
+    const locationOf=(card:(typeof sure)[number])=>calibration?.orientation?fieldZoneLocation(mapFieldZone({quad:card.quad,kind:'face-up',confidence:1,partial:false},calibration,[],current.deckChecks.format.id).zone):undefined;
+    const fresh = sure.filter(card => !reveals.some(item=>item.card===card))
+      .filter(card=>{
+        if(calibration?.orientation||current.seats[seat].twin.some(c=>sameObservedCard(c,card)&&['graveyard','banished'].includes(c.zone)))return true;
+        const index=onField.findIndex(c=>sameObservedCard(c,card));
+        if(index<0)return true;onField.splice(index,1);return false;
+      }).sort((a,b)=>a.quad.reduce((n,p)=>n+p.x,0)-b.quad.reduce((n,p)=>n+p.x,0));
     const planned=[...current.seats[seat].twin];
-    const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number }[] = [];
+    const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number} }[] = [];
     for (const card of fresh) {
-      const projected=projectFieldZone({zone:'M1',facts:cardInfo(card.cardId),twins:planned,format:now.format?.id??current.deckChecks.format.id});
+      const observed=locationOf(card);
+      const existing=observed?current.seats[seat].twin.find(c=>c.zone===observed.zone&&c.slot===observed.slot&&sameObservedCard(c,card)):undefined;
+      const physical=calibration?.orientation?mapFieldZone({quad:card.quad,kind:'face-up',confidence:1,partial:false},calibration,[],current.deckChecks.format.id).zone:'M1';
+      const projected=projectFieldZone({zone:physical,facts:cardInfo(card.cardId),twins:planned,ref:existing?.ref,format:now.format?.id??current.deckChecks.format.id});
       if(!projected.zone)continue;
-      const {zone,slot}=fieldZoneLocation(projected.zone),ref=`b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`;
-      planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
-      placed.push({ref,card,zone,slot});
+      const {zone,slot}=fieldZoneLocation(projected.zone),ref=existing?.ref??`b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`;
+      const witnesses=sure.filter(other=>{
+        if(other===card||!sameObservedCard(other,card)||!distinctFieldQuads(other.quad,card.quad))return false;
+        const at=locationOf(other);
+        return !!at&&onField.some(c=>sameObservedCard(c,other)&&c.zone===at.zone&&c.slot===at.slot);
+      });
+      const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999)}:undefined;
+      if(!existing)planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
+      placed.push({ref,card,zone,slot,copyProof});
     }
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
-        const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
-        if (!ok) break;
+        if(pendingOriginAt(R.current.room,seat,item.card,item.zone,item.slot))break;
+        const acceptedWitnesses=done.filter(previous=>previous.card!==item.card&&sameObservedCard(previous.card,item.card)&&distinctFieldQuads(previous.card.quad,item.card.quad)&&['monster','spell-trap','extra-monster','field','pendulum'].includes(previous.zone));
+        const copies=Math.max(item.copyProof?.simultaneousQuads??1,acceptedWitnesses.length+1);
+        const copyProof=copies>=2?{simultaneousQuads:copies,at:Math.floor(serverNow()-999)}:undefined;
+        const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, ...(copyProof?{copyProof}:{}), card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
+        if (!ok || [ok.state.twinConfirmation,...(ok.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===seat&&flag.cardRef===item.ref)) break;
         const canonical=placedTwin(ok.state.seats[seat].twin,{ref:item.ref,zone:item.zone,slot:item.slot,cardId:item.card.cardId});
         if(!canonical)break;
         const previous=done.findIndex(value=>value.ref===canonical.ref);if(previous>=0)done.splice(previous,1);
@@ -498,7 +524,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (hidden) bits.push(`${hidden} face-down`);
     bits.push(`${(reading.ms / 1000).toFixed(1)} s`);
     return bits.join(" · ");
-  }, [act, name]);
+  }, [act, name, hub]);
 
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
@@ -814,63 +840,28 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
-  /** Same-identity twins per seat that nobody has called "two copies". */
-  const twinGroups = (seat: number): TwinGroup[] => findTwinGroups(state.seats[seat]?.twin ?? []).filter(group => !twoCopies.has(group.key));
-  const twinCounts = (seat: number) => new Map(twinGroups(seat).flatMap(group => group.cards.map(card => [card.ref, group.cards.length] as const)));
-  /** Merge keeps the card the camera tracks (else the one on the field, else the newer one) and removes the other. One action, one Undo, one log line. */
-  const mergeTwins = async (seat: number, group: TwinGroup) => {
-    if (!live || merging || !(solo || seat === mySeat)) return;
-    const { keep, remove } = chooseKeep(group, new Set(hub.trackedCards(seat).map(card => card.ref)));
-    const label = cardName(keep, info(cardCode(keep)));
-    setMerging(true);
+  const twinCounts = (seat: number) => new Map(findTwinGroups(state.seats[seat]?.twin ?? []).flatMap(group => group.cards.map(card => [card.ref, group.cards.length] as const)));
+  const resolveOrigin = async (flag: CopyFlag, option: {ref?:string;label:string}) => {
+    if (!live || resolvingOrigin || !flag.placement) return;
+    setResolvingOrigin(true);
     try {
-      const done = await act(mergeProposal({ seat, actorSeat: solo ? seat : mySeat, keep, remove, label }));
-      if (done) {
-        setSelected(old => old?.ref === remove.ref ? { seat, ref: keep.ref } : old);
-        toast(<>Merged <b>{label}</b> into one card. <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => void doUndo()} data-testid="merge-undo">Undo</button></>, 5000);
-      }
-    } finally { setMerging(false); }
-  };
-  /** "Move it here": the card just placed is the same card as the one already there. Merge keeps the new one. One Undo. */
-  const mergeCopyAsk = async (ask: NonNullable<typeof copyAsk>) => {
-    if (!live || merging) return;
-    const twin = R.current.room.state.seats[ask.seat]?.twin ?? [];
-    const keep = twin.find(card => card.ref === ask.flag.cardRef); const remove = twin.find(card => ask.flag.existingRefs.includes(card.ref));
-    setCopyAsk(null); if (!keep || !remove) return;
-    setMerging(true);
-    try {
-      const done = await act(mergeProposal({ seat: ask.seat, actorSeat: solo ? ask.seat : mySeat, keep, remove, label: cardName(keep, info(cardCode(keep))) }));
-      if (done) toast(<>Moved the card. <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => void doUndo()} data-testid="merge-undo">Undo</button></>, 5000);
-    } finally { setMerging(false); }
-  };
-  /** "Another copy": the table checks the registered decklist, so the same placement is sent again with `anotherCopy`. A refusal puts the card back. */
-  const confirmCopyAsk = async (ask: NonNullable<typeof copyAsk>) => {
-    setCopyAsk(null);
-    if (!live || merging || !ask.flag.anotherCopyAllowed) return; // no registered decklist copy to confirm: the card stays as placed
-    setMerging(true);
-    try {
-      const placed = await ctl.transaction(async (current, apply) => {
-        const card = current.state.seats[ask.seat]?.twin.find(item => item.ref === ask.flag.cardRef); if (!card) return null;
-        const actorSeat = current.solo ? ask.seat : current.mySeat;
-        const removed = await apply({ type: "twin.remove", actorSeat, seat: ask.seat, cardRef: card.ref }); if (!removed) return null;
-        const again = await apply({ type: "twin.place", actorSeat, seat: ask.seat, zone: card.zone, anotherCopy: true,
-          card: { ref: card.ref, cardId: ask.cardId, name: card.name, ...(card.slot ? { slot: card.slot } : {}), faceUp: card.faceUp, position: card.position ?? "attack" } });
-        if (!again && removed.state.undo) await apply({ type: "undo", actorSeat, targetActionId: removed.state.undo.actionId });
-        return again;
+      await ctl.transaction(async (current, apply) => {
+        const pending = [current.state.twinConfirmation,...(current.state.twinConfirmationQueue??[])].find(f=>f?.seat===flag.seat&&f.cardRef===flag.cardRef);
+        if (pending?.cardRef !== flag.cardRef || !pending.placement) return;
+        const {idempotencyKey: _id, at: _at, ...request} = pending.placement;
+        // A followed pile track can still own its old ref when New copy is chosen.
+        const ref = !option.ref && current.state.seats[flag.seat].twin.some(c => c.ref === request.card.ref) ? crypto.randomUUID() : request.card.ref;
+        const observed=readFieldOrigin(current.slug,flag.seat,flag.cardRef);
+        if(observed===null){toast('Show the card clearly to confirm its origin.',4000);return;}
+        await apply({...request, ...(observed?{zone:observed.zone}:{}), originRequestRef:flag.cardRef, card:{...request.card,ref,...(observed?{slot:observed.slot,faceUp:observed.faceUp,position:observed.position}:{})}, ...(option.ref ? {fromRef:option.ref} : {anotherCopy:true})});
       });
-      if (!placed) toast("The registered decklist does not allow another copy. The card stays as placed.", 4500);
-    } finally { setMerging(false); }
+    } finally { setResolvingOrigin(false); }
   };
   const fieldNotice = (seat: number): ReactNode => {
-    const mine = solo || seat === mySeat;
-    if (copyAsk?.seat === seat) {
-      const ask = copyAsk; const place = landingLabel({ zone: ask.zone, ...(ask.slot ? { slot: ask.slot } : {}) });
-      return <CopyAsk seat={seat} message={ask.flag.message} place={place} busy={!live || merging}
-        onCancel={() => setCopyAsk(null)} onMove={() => void mergeCopyAsk(ask)} onCopy={() => void confirmCopyAsk(ask)} />;
-    }
-    const [group, ...rest] = twinGroups(seat); if (!group) return null;
-    return <DupBanner seat={seat} name={cardName(group.cards[0], info(group.cardId))} count={group.cards.length} more={rest.length} busy={!live || merging} canAct={live && mine}
-      onMerge={() => void mergeTwins(seat, group)} onTwo={() => setTwoCopies(old => new Set([...old, group.key]))} />;
+    const flag = [state.twinConfirmation,...(state.twinConfirmationQueue??[])].find(f=>f?.seat===seat);
+    if (!(solo || seat === mySeat) || flag?.seat !== seat || !flag.placement || !flag.options) return null;
+    return <OriginAsk key={flag.cardRef} seat={seat} message={flag.message} options={flag.options}
+      busy={!live || resolvingOrigin} onChoose={option => void resolveOrigin(flag, option)} />;
   };
   const draftPhase = PHASES.length;
   void draftPhase;

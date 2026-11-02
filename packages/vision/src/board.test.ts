@@ -487,6 +487,28 @@ test('quiet empty-mat pixel checks skip inference but new motion starts detectio
  const r=fieldRig();r.outlines=[];await r.tick(100);const before=r.detects;await r.tick(100);assert.equal(r.detects,before);r.motion=.2;r.outlines=[card(.3,.3)];await r.tick(50);assert.equal(r.detects,before+1);assert.equal(r.watcher.getSnapshot().tracks.length,1);r.watcher.dispose();
 });
 
+test('scan budget follows the live detector backend and backs off when inference slows',async()=>{
+ const original=globalThis.Worker;let at=0,cost=20,backend:'webgpu'|'wasm'='wasm',busy=false;
+ class FakeWorker {
+  onmessage?: (e:{data:unknown})=>void;
+  postMessage(message:Record<string,unknown>){if(message.type==='init')assert.equal(message.backend,'auto');if(message.type==='detect')at+=cost;queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:message.type==='init'?null:[],detectorBackend:backend}}));}
+  terminate(){}
+ }
+ globalThis.Worker=FakeWorker as unknown as typeof Worker;
+ const reader=createRecognizer(),watcher=field.createFieldWatcher({recognizer:reader,profile:yugioh,buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,cpuBusy:()=>busy,analyze:()=>({motion:()=>1,sharpness:()=>1}),clone:async f=>f});
+ const tick=async()=>{at+=1000;await watcher.tick();return watcher.getSnapshot();};
+ try {
+  assert.equal((await tick()).metrics.intervalMs,250);
+  assert.equal(watcher.getSnapshot().metrics.dutyPercent,8);
+  backend='webgpu';assert.equal((await tick()).metrics.intervalMs,66);
+  assert.ok(Math.abs(watcher.getSnapshot().metrics.dutyPercent-100*20/66)<.01);
+  cost=50;for(let i=0;i<40;i++)await tick();assert.ok(Math.abs(watcher.getSnapshot().metrics.intervalMs-100)<.1);
+  cost=400;for(let i=0;i<20;i++)await tick();assert.equal(watcher.getSnapshot().status,'budget');assert.ok(watcher.getSnapshot().metrics.intervalMs>650);
+  const samples=watcher.getSnapshot().metrics.samples;busy=true;assert.equal((await tick()).status,'busy');assert.equal(watcher.getSnapshot().metrics.samples,samples);busy=false;
+  backend='wasm';assert.ok((await tick()).metrics.intervalMs>1500);
+ }finally{watcher.dispose();reader.dispose();globalThis.Worker=original;}
+});
+
 test('native camera ring refreshes within100ms while retaining at most six originals',async t=>{
  const original=globalThis.createImageBitmap;let captured=0,closed=0,at=0;t.mock.method(performance,'now',()=>at);
  globalThis.createImageBitmap=(async (source:any)=>({width:1280,height:720,n:source.n??++captured,close(){closed++;}})) as any;

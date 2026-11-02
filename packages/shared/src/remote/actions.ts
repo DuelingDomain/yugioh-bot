@@ -51,7 +51,10 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
     /** Same-identity physical cards visible together in one camera frame, in epoch milliseconds. */
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
-    /** Player explicitly chose Another copy; ignored for automatic placements. */
+    /** Explicit origin answer; independent of recognition source. */
+    fromRef: id.optional(),
+    originRequestRef: id.optional(),
+    /** Player explicitly chose New copy. */
     anotherCopy: z.boolean().optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean() }),
@@ -65,7 +68,7 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
-  zone: string; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  zone: string; departedFrom?: { zone: string; slot?: number }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored knowledge; independent of the physical face-up/down state. */
   publicIdentity?: boolean;
 };

@@ -59,9 +59,9 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   if (action.type === "twin.place") {
     const proof = action.copyProof, at = action.at ?? next.updatedAt;
-    const newCopy = (!context.replay || context.twinPlacementGuard === 1) && (action.source === "auto"
-      ? !!proof && proof.at <= at && at - proof.at <= 5000
-      : action.anotherCopy === true);
+    const currentRule = !context.replay || context.twinPlacementGuard === 2;
+    const newCopy = currentRule ? action.anotherCopy === true || !!proof && proof.at <= at && at - proof.at <= 5000
+      : context.twinPlacementGuard !== undefined && (action.source === "auto" ? !!proof && proof.at <= at && at - proof.at <= 5000 : action.anotherCopy === true);
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
     observe(action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
