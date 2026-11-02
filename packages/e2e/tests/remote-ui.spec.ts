@@ -458,6 +458,37 @@ const BASE_URL = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
 const remoteRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Remote Duel" }) });
 const onlineRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Online" }) });
 
+test.describe("remote lobby camera step", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
+
+  test("webcam preview plays, the card check runs, leaving the step releases the camera", async ({ page, context }) => {
+    await fakeCamera(page, "16:9");
+    // Remember every stream the page opens, to prove they are all stopped later.
+    await page.addInitScript(() => {
+      const open: MediaStream[] = []; (window as unknown as { __opened: MediaStream[] }).__opened = open;
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async constraints => { const stream = await original(constraints); open.push(stream); return stream; };
+    });
+    const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true } });
+    expect(created.status()).toBe(201);
+    await page.goto(`/duels/remote/${(await created.json()).slug}`);
+    const preview = page.getByTestId("lobby-camera-preview");
+    await expect(preview).toBeVisible();
+    const video = page.getByTestId("lobby-cam-video");
+    await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && !el.paused)).toBe(true);
+    await expect(page.getByTestId("lobby-cam-mic")).toBeVisible();
+    await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
+    // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
+    await expect(page.getByTestId("lobby-cam-check")).not.toHaveAttribute("data-state", "starting", { timeout: 60_000 });
+    await shot(page, "lobby-camera-webcam");
+    if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await shot(page, `lobby-camera-${w}`); }
+    await page.getByRole("radio", { name: "No camera" }).click({ force: true });
+    await expect(page.getByTestId("lobby-manual-note")).toBeVisible();
+    await expect(video).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: MediaStream[] }).__opened.every(s => s.getTracks().every(track => track.readyState === "ended")))).toBe(true);
+  });
+});
+
 test.describe("remote duels screen, moving cards by hand", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
   const seed = async (context: { request: APIRequestContext }, slug: string) => {
