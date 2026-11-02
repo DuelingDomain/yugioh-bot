@@ -1592,7 +1592,7 @@ it("targets an untouched card after LP changes, rejects dependencies, and preser
 
 it.each(['graveyard','banished'])('targeted undo restores %s pile order while preserving later edits to other cards',pile=>{
  let state=ygoModule.initialState({seatCount:2}),serial=0;
- const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at:1000,idempotencyKey:`pile-order-${++serial}`,...input}));
+ const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:1000,idempotencyKey:`pile-order-${++serial}`,...input}));
  act({type:'twin.place',zone:pile,card:{ref:'older',cardId:1,faceUp:true}});
  act({type:'twin.place',zone:pile,card:{ref:'newer',cardId:2,faceUp:true}});
  act({type:'twin.move',cardRef:'older',zone:pile==='graveyard'?'banished':'graveyard'});
