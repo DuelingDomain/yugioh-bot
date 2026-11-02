@@ -360,9 +360,10 @@ export function HeardFromSelect({ id = "f-heard", onChange }: { id?: string; onC
             <input type="hidden" name="heardFrom" value={value} />
             <ThemedSelect
               className={styles["themed-heard"]}
-              label="How did you hear about us?"
+              id={id}
+              font="inherit"
+              label="How did you hear about us? (optional)"
               hideLabel
-              ariaLabel="How did you hear about us?"
               value={value}
               describedBy={aria["aria-describedby"]}
               choices={[{ value: "", label: "Choose one" }, ...HEARD_FROM_CHOICES.map((choice) => ({ value: choice as string, label: HEARD_FROM_LABELS[choice] }))]}

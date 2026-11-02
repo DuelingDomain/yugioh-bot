@@ -131,8 +131,8 @@ export function ReplayTableTransport({
       </div>
       <div className={styles.view} role="group" aria-label="Replay view">
         <div className={styles.cameraField}>
-          <span aria-hidden="true">View from</span>
-          <ThemedSelect hideLabel compact className={styles.cameraSelect} label="View from seat" value={camera}
+          <label htmlFor="ts-view-from">View from</label>
+          <ThemedSelect id="ts-view-from" hideLabel compact className={styles.cameraSelect} label="View from seat" value={camera}
             choices={seats.map((seat) => ({ value: seat, label: playerName(seat) }))} onChange={onCamera} />
         </div>
         {canSwitchCards ? (

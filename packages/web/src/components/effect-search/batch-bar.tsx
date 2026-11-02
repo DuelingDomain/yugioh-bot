@@ -46,8 +46,8 @@ export function BatchBar({
             {n} selected
           </span>
           <div className={styles.barCopies}>
-            <span aria-hidden="true">Copies each</span>
-            <ThemedSelect
+            <label htmlFor="ts-copies-each">Copies each</label>
+            <ThemedSelect id="ts-copies-each"
               hideLabel
               compact
               className={styles.barSelect}

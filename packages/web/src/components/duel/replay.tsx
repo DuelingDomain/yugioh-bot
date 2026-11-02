@@ -479,8 +479,8 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
               </div>
               <div className={replayStyles.viewBar} role="group" aria-label="Replay view">
                 <div className={replayStyles.viewField}>
-                  <span aria-hidden="true">View from</span>
-                  <ThemedSelect hideLabel compact className={replayStyles.seatSelect} label="View from seat" value={camera}
+                  <label htmlFor="ts-view-from">View from</label>
+                  <ThemedSelect id="ts-view-from" hideLabel compact className={replayStyles.seatSelect} label="View from seat" value={camera}
                     choices={seats.map((seat) => ({ value: seat, label: playerName(seat) }))}
                     onChange={(seat) => {
                       setInspect(null);

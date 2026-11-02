@@ -36,7 +36,7 @@ export function PhoneCameraPage({slug}:{slug:string}){
         <p className={s.help}>{state.mode==="scan"?"No stand? Scan cards as you play. Everyone follows your board twin and log. Live video is off.":"Set your phone above the mat. Use landscape for a wider field. Keep this page open."}</p>
         <div className={s.meters}><label>LIGHT <meter min={0} max={100} low={25} value={state.light}/><b>{state.light}%</b></label><label>SHARPNESS <meter min={0} max={600} low={60} value={state.sharpness}/><b>{state.sharpness}</b></label></div>
         <p className={s.hint}>{state.stream?hint:"Move closer for scans. Keep the whole card visible and avoid glare."}</p>
-        <ThemedSelect label="Camera" ariaLabel="Rear camera picker" testId="rear-camera" disabled={!paired} value={state.deviceId}
+        <ThemedSelect label="Rear camera" testId="rear-camera" disabled={!paired} value={state.deviceId}
           choices={!state.devices.length?[{value:"",label:"Rear camera (automatic)"}]:state.devices.map((d,i)=>({value:d.deviceId,label:`${/ultra|0[.,]5/.test(d.label.toLowerCase())?"0.5× Ultra-wide · ":""}${d.label||`Camera ${i+1}`}`}))}
           onChange={id=>{setTorch(false);setLocked(false);void camera?.setCamera(id);}} />
         <div className={s.hardware}>
@@ -44,7 +44,7 @@ export function PhoneCameraPage({slug}:{slug:string}){
           {state.caps.focusMode?.includes("manual")||state.caps.exposureMode?.includes("manual")?<button aria-pressed={locked} onClick={()=>{setLocked(!locked);void camera?.lockCamera(!locked);}}>{locked?"Unlock":"Lock"} focus / exposure</button>:null}
           {state.caps.zoom && state.caps.zoom.min<1?<button onClick={()=>void camera?.constraint({zoom:state.caps.zoom!.min})}>0.5× / widest view</button>:null}
         </div>
-        <ThemedSelect label="Place this scan in" ariaLabel="Scan zone" testId="scan-zone" value={zone}
+        <ThemedSelect label="Scan zone" testId="scan-zone" value={zone}
           choices={PHONE_ZONES.map(z=>({value:z,label:z}))} onChange={z=>setZone(z as PhoneZone)} />
         <button className={s.scan} disabled={!paired||!state.ownerReady||state.busy} onPointerDown={event=>{if(event.button===0&&event.isPrimary)void camera?.scan(zone);}} onClick={event=>{if(event.detail===0)void camera?.scan(zone);}} data-testid="phone-scan"><span aria-hidden="true">⌖</span>{state.busy?"Reading card…":"Scan card"}<small>SHARPEST BUFFERED FRAME · READ ON YOUR DESKTOP</small></button>
         {state.busy&&paired?<button className={s.disconnect} onClick={()=>camera?.cancelScan()}>Cancel scan</button>:null}

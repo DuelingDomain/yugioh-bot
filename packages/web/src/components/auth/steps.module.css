@@ -12,6 +12,8 @@
 .field input::placeholder { color: #7F8AAB; opacity: 1; }
 /* Themed select at the height of the text inputs next to it. */
 .themed-heard button[role="combobox"] { height: 52px; border-radius: 10px; padding: 0 44px 0 14px; border-color: var(--border); background: var(--field); font-size: 17px; }
+.themed-heard button[role="combobox"]:hover:not(:disabled) { border-color: var(--border); background: var(--field); }
+.themed-heard button[role="combobox"]:focus-visible, .themed-heard button[role="combobox"][aria-expanded="true"] { border-color: rgba(167, 139, 250, .75); box-shadow: 0 0 0 4px rgba(124, 58, 237, .2); }
 .opt { font-weight: 400; color: var(--text-3); letter-spacing: 0; }
 .field input:focus { border-color: rgba(167, 139, 250, .75); box-shadow: 0 0 0 4px rgba(124, 58, 237, .2); }
 .input-wrap.has-btn input { padding-right: 76px; }
