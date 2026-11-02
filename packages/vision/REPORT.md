@@ -1,5 +1,131 @@
 # Remote vision measurements — 2026-11-01
 
+## Owner camera feedback: legal zones, quiet prompts and faster moves
+
+Read both supplied owner screenshots: Solemn Judgment was correctly recognized
+but put in M4, with repeated changed-card prompts. The fixes use full catalog
+facts; physical position chooses the column and card type chooses the legal row.
+
+| Owner item | Result |
+| --- | --- |
+| Zone legality | Spells/Traps project to the same or nearest free S/T column; Field Spells use Field. Monsters use Main Monster Zones, with EMZ restricted to Extra Deck monsters and enabled formats. Pendulum scales require physical S1/S5. Automatic trap-monster placement remains in S/T; explicit manual moves can use Main Monster Zones. Choices display their legal destination or disable when no legal destination is known/free. Manual moves warn while retaining queue order. |
+| Prompt spam | Confirmed/dismissed tracks retain an identity embedding locally. Exposure-adjusted pixel comparison, three strong clean observations, embedding hysteresis (retain ≥.84, change ≤.68) and a five-second resolved-prompt cooldown gate changed-card prompts. Ambiguous evidence hides the cache and abstains. Same-card reads restore identity without another prompt. One prompt is displayed at a time. Embeddings are opt-in worker results and are never broadcast/uploaded. |
+| Live moves | Motion wakes the detector from its idle budget; tracked pixels are sampled every 100 ms. Verified same-card moves settle over two clean frames/~100 ms, retain their ref, and use the same legal-row projection. Initial placement/flip guards remain conservative. Geometry and occupancy are checked after metadata and HTTP waits; actual movement during save follows the same ref. Stable placement remains one atomic action/Undo. |
+
+Projected physical zones are retained per room/seat/ref in session storage so
+camera/reload reservations use the actual camera row rather than the projected
+virtual row. Stored hints contain no quad, name, card ID or embedding, and never
+restore identity without a read. Probes cover replacement after reload, distinct
+physical M4/S4 cards, same-slot projection during moves, Undo pruning, pile hints,
+invalid/unavailable storage and room scope. A second copy also cannot adopt the
+ref of an unverified track reserving the first copy's physical zone. Newly awaited
+metadata has a **10-second fetch/body deadline**; timeout leaves the type unknown,
+prevents a guessed placement and releases the queue for later actions/retry.
+
+The first complete browser run exposed two additional failures, retained in
+`field-watcher/owner-e2e-before-fast-burst/` and its log: a **1,016.0 ms** rendered
+Solemn move, and correctly recognized Stardust never reaching the twin because
+metadata resolution silently applied the draft main-pool filter. The table now
+explicitly requests Extra Deck metadata; the route preserves default main-pool
+behavior and quantities for other callers. The first motion frame also now starts
+a bounded fast burst before a stable timestamp exists, and same-card movement
+requires two clean frames at least 100 ms apart. Both changes have failing-before,
+passing-after probes in the existing files; initial placement/flip safety stays
+at 400 ms and three clean frames.
+
+A subsequent real-browser DEF→ATK move exposed a rotation whose tiny pixel crop
+did not match its old track. A fresh sure read may now reconnect that acknowledged
+ref only with a matching reference embedding, a clear old footprint, one
+unambiguous new outline and a current public twin. Hand occlusion, second copies,
+unknown/different embeddings and non-public/pile refs cannot take this path.
+An automatically departed track can reconnect only after successful Undo restores
+its public twin; pending/failed Undo does not grant that permission. Ambiguous
+returns remain bound prompts. Thirteen additional existing-file watcher probes
+cover these reconnect and fast-burst cases; the focused real-browser lifecycle
+passes with the same ref through rotation, removal, Undo, return and retry.
+
+Fresh desktop Chromium measurements use four-thread SIMD WASM and the cached
+physical catalog (**14,652 int8 vectors / 14,488 card IDs**). Search p50/p95 is
+**2.865/3.330 ms** (120 samples), versus **6.875/7.945 ms** before the existing
+flat-search optimization; **zero ranking mismatches**. The worker fetched the
+index, metadata, detector and embedder **once each** across forty placements and
+forty fresh clicks.
+
+| Warm placement → local identification | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Registered deck, two-read automatic placement | 20 | **1,783.0 ms** | **2,750.0 ms** | 3,113.2 ms |
+| No deck, identification prompt requiring a choice | 20 | **1,102.2 ms** | **1,356.5 ms** | 1,363.9 ms |
+
+All **40/40** identifications and **40/40** fresh click reads were correct;
+no-deck automatic placements: **zero**. Fresh click p50/p95 was
+**185.7/248.4 ms with a deck**, **166.8/298.5 ms without**. One deck-backed fresh
+click reached **308 ms**. The latency benchmark exits **1**, correctly retaining
+the missed deck-backed two-second placement p95 gate; it is not a passing speed
+claim. The warm-ready time was **752 ms**. Headless native canvas-camera timings
+exclude remote action/rendering and do not establish real-webcam accuracy or
+WebGPU hardware latency.
+
+The earlier separate ten-trial confirmed-card follow benchmark exits **0**: move p50/p95
+**770.3/960.5 ms**, removal **2,942.0/4,287.1 ms**. Its placement p95 was
+**3,086.5 ms**, also retained. **Zero repeated prompts or extra placement/flip/
+removal events** occurred during twelve seconds of ±2.3° angle and .73–.97
+brightness jitter after confirmation. The real hand-only clip produced **zero
+events in 30 seconds / 124 samples**; the identified-card hand overlay produced
+**zero false removals in 30 seconds**, including eight frozen seconds. These
+measurements precede the final 100 ms burst/rotation-reconnection changes. At the
+coordinator's request to finish immediately, no additional benchmark is started.
+
+Raw local evidence: `data/vision/benchmark/latency/owner-feedback.{json,log}` and
+`data/vision/benchmark/field-watcher/owner-feedback.{json,log}`. The existing
+benchmark scripts reproduce these runs with `LATENCY_TRIALS=20` and
+`FIELD_TRIALS=10 FIELD_NEGATIVE_SECONDS=30 FIELD_STABILITY_SECONDS=12` respectively;
+set each script's label to `owner-feedback`. No model/index download or rebuild
+was needed; the worker was bundled and its cache URL advanced to identity v4.
+
+Final source verification: **164 vision + 192 targeted web + 139 shared remote
+integration = 495 passing tests**. Vision, web and e2e typechecks pass; shared
+source build and worker bundle pass. New probes extend existing test files.
+
+The final ten-case browser rerun was stopped by runner PID at the coordinator's
+explicit finish-now cutoff: **7 passed in 2.1 minutes, 1 interrupted, 2 not run**.
+No assertion failed before interruption. The interrupted case is the manual-read
+race; the two remaining cases are the responsive screenshot matrices. An earlier
+full run passed those three, but failed the subsequently fixed rotation case;
+that run is **9/10**, not a final-suite success. The final rotation lifecycle also
+passed independently before this seven-case run. Sixteen existing screenshots
+have the exact requested dimensions (four each at 1920×1080, 2560×1440, 1366×768,
+390×844); desktop prompt and mobile calibration were visually checked. The final
+screenshot cases were not rerun after the cutoff.
+
+| Final browser evidence | Result |
+| --- | --- |
+| Solemn Judgment, registered deck / no deck | Physical M4 maps to S4; slide to M2 maps to S2 using the same ref in **583.2 / 740.0 ms**. **Zero illegal placements**. |
+| Prompt stability | **Zero repeated prompts or extra actions** over **12 seconds per mode / 24 seconds total** of brightness/angle jitter. |
+| Cached owner popup, 20 clicks | p50/p95 **15.59/27.05 ms**, maximum **30.06 ms**. |
+| Cached observer popup, 20 clicks | p50/p95 **14.79/17.89 ms**, maximum **25.48 ms**. |
+| Cache safety | Forty clicks cause **zero new recognitions or table actions**. |
+| Rotated EMZ follow / removal to GY + Undo toast | **1,177.8 / 2,964.9 ms**; one ref through DEF/ATK, departure, Undo, return, retry and destination corrections. |
+| Physical appearance → real socket twin | **1,874 ms owner / 1,874 ms observer**, one sample each, not a distribution. |
+
+Final local browser evidence is retained in
+`data/vision/benchmark/field-watcher/owner-final-e2e.log`, `owner-final.json`,
+`solemn-follow.json`, `table-follow.json`, the `e2e/` interruption trace and
+`owner-shots/`. The isolated Next, WebSocket and LiveKit processes were stopped
+by their verified owned PIDs; **3449, 3349, 4349, 7889 and 7890 are free**. No
+protected service/port was touched. Code was pushed through `d4208d92a`; this
+closing report follows as a separate documentation commit. No PR was opened.
+
+Remaining limits: deck-backed placement p95 is **2.75 s**, above the two-second
+target; one fresh click took **308 ms**. A full-browser rotated EMZ move still
+requires a fresh read and took **1.18 s**, above the one-second move target.
+Ambiguous second-copy/occlusion/return evidence deliberately requires a prompt;
+unknown card types cannot be placed automatically. Patterned mats can abstain
+from removal. The timing evidence uses desktop Chromium/WASM and native canvas
+camera fixtures; WebGPU hardware and the owner's physical webcam remain unmeasured.
+The coordinator must bundle the updated vision worker when merging this branch
+into the running application; its generated bundle is ignored, not committed.
+
+
 ## Round 2 review fixes and verification
 
 Read the appended review of `2d1e67f7d` in full. B1–B3 remain closed; the

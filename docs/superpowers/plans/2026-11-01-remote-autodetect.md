@@ -224,3 +224,49 @@ snapshot sample are retained in REPORT and ignored `field-watcher/round2.json`.
 No new placement/hand benchmark is claimed. Implementation pushed through
 `779767c36`; final report follows as documentation. Isolated services are stopped
 and their ports are free; protected services were untouched.
+
+## Owner camera feedback: type, prompt stability and fast movement
+
+The coordinator supplied the expected design: physical x chooses the column;
+identified type chooses the legal row. Keep the existing queue/ref/Undo contracts.
+Full catalog facts (including Spell subtype) must reach the adapter; unknown types
+abstain. Prompt choices show their legal destination and manual moves warn.
+
+- [x] Existing web probes reproduce Solemn Judgment in M4, nearest-free S/T,
+  Field Spell, monster/EMZ/Pendulum legality, prompt annotation and manual warnings.
+  Implement a small shared projection and metadata wiring, then adapter moves.
+- [x] Existing vision pipeline/client probes request a copied local embedding
+  without feedback/crops or extra inference. Never broadcast/upload the embedding.
+- [x] Existing watcher probes reproduce repeated prompts after choice/dismiss,
+  exposure/angle/hand jitter, sustained true swaps and fast same-ref moves.
+  Use multi-frame strong-change evidence, reference embedding hysteresis and a
+  five-second resolved-prompt cooldown; no prompts for identity-preserving changes.
+- [x] Sample tracked motion cheaply every 100 ms and settle verified moves over
+  two clean frames/~100 ms, preserving conservative identity and removal guards.
+- [x] Run existing suites/typechecks, real-worker browser e2e and ten-trial move
+  benchmark; retain p50/p95/outliers, review, commit small and push. No PR,
+  attribution lines, protected services or model/index rebuilds/downloads.
+
+Owner-feedback closeout: **164 vision, 192 targeted web, 139 shared integration
+tests pass**; vision/web/e2e typechecks, shared build and worker bundle pass.
+Coordinator requested immediate completion: final browser run stopped by PID
+with **7 passed, 1 interrupted (manual-read race), 2 not run (screenshots)**.
+The earlier full run passed those last three and produced sixteen requested
+screenshots; its rotation failure is now covered by a passing focused lifecycle
+and the final run. No final all-ten success is claimed.
+
+Final browser Solemn slides: **583.2 ms with deck / 740.0 ms without**, no illegal
+zones or repeated prompts in 24 seconds of jitter. Cached owner/viewer p95:
+**27.05/17.89 ms** over forty clicks, zero new reads/actions. Rotated EMZ move
+**1,177.8 ms**, clear departure **2,964.9 ms**, same ref and Undo. Earlier ten-trial
+move p50/p95 **770.3/960.5 ms** precedes the last burst/reconnect changes; no new
+benchmark started after the cutoff. Earlier hand-only/occlusion tests: zero false
+events/removals over 30 seconds each.
+
+Remaining limits are recorded rather than extended in this round: placement
+p95 **2.75 s with deck / 1.36 s without**, one fresh click **308 ms**, rotated
+move over one second, ambiguous-copy/occlusion prompts, conservative patterned-mat
+removal, and unmeasured physical webcam/WebGPU hardware. The updated ignored
+worker bundle must be generated when merging. All owned isolated services were
+stopped by PID; protected ports were untouched. Code pushed through `d4208d92a`;
+closing report is a separate documentation commit, no PR or attribution lines.
