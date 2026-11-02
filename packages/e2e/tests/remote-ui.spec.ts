@@ -201,6 +201,100 @@ test.describe("remote duels screen, solo", () => {
     expect(refused.status()).toBe(409);
   });
 
+  // Camera / field swap: per viewer and per seat, animated, remembered, keyboard reachable, and cards keep their own click.
+  for (const [count, mode] of [[2, "1v1"], [3, "3"]] as const) {
+    test(`the field and the camera swap places, per seat, and the choice is remembered: ${mode}`, async ({ page, context }) => {
+      test.setTimeout(120_000);
+      const slug = await soloTable(context.request, count);
+      const path = `/api/remote/${slug}`;
+      const room = await (await context.request.get(path)).json();
+      const placed = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", idempotencyKey: crypto.randomUUID(),
+        card: { ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1, faceUp: true, position: "attack" } } } });
+      expect(placed.status(), await placed.text()).toBe(200);
+      await page.route("**/api/cards/*/image**", route => route.fulfill({ status: 204 }));
+      await page.goto(`/duels/remote/${slug}`);
+      const seat0 = page.getByTestId("seat-0"); const seat1 = page.getByTestId("seat-1");
+      const area = (id: string) => page.getByTestId(id).evaluate(el => { const r = el.getBoundingClientRect(); return r.width * r.height; });
+      await expect(seat0).toHaveAttribute("data-view", "camera");
+      const camBefore = await area("feed-box-0"); const fieldBefore = await area("fwrap-0");
+      await shot(page, `swap-${mode}-camera`);
+      // A click on a card keeps its own meaning: the card inspector opens and the view does not change.
+      await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
+      await expect(page.getByTestId("inspector-body")).toBeVisible();
+      await expect(seat0).toHaveAttribute("data-view", "camera");
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("inspector-body")).toBeHidden();
+      // A click on the empty frame enlarges the field and shrinks the camera.
+      await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+      await expect(seat0).toHaveAttribute("data-view", "field");
+      await expect(seat1).toHaveAttribute("data-view", "camera");
+      await expect.poll(() => area("feed-box-0"), { timeout: 3_000 }).toBeLessThan(camBefore * 0.7);
+      await expect.poll(() => area("fwrap-0"), { timeout: 3_000 }).toBeGreaterThanOrEqual(fieldBefore - 1);
+      if (mode === "3") await expect.poll(() => area("fwrap-0"), { timeout: 3_000 }).toBeGreaterThan(fieldBefore * 1.15);
+      await shot(page, `swap-${mode}-field`);
+      // Cards still answer clicks in the field view.
+      await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
+      await expect(page.getByTestId("inspector-body")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(seat0).toHaveAttribute("data-view", "field");
+      // The choice is remembered for this viewer and seat only.
+      await page.reload();
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+      await expect(page.getByTestId("seat-1")).toHaveAttribute("data-view", "camera");
+      // The small camera brings the camera view back.
+      await page.getByTestId("swap-cam-0").click();
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+      await expect.poll(() => area("feed-box-0"), { timeout: 3_000 }).toBeGreaterThan(camBefore * 0.93);
+      // The toggle works with the keyboard.
+      const toggle = page.getByTestId("view-toggle-0");
+      await expect(toggle).toHaveText("Enlarge field");
+      await toggle.focus(); await page.keyboard.press("Enter");
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+      await expect(toggle).toHaveText("Camera view");
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+    });
+  }
+
+  test("with reduced motion the swap is instant", async ({ page, context }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    const before = await page.getByTestId("feed-box-0").evaluate(el => el.getBoundingClientRect().width);
+    await page.getByTestId("view-toggle-0").click();
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+    await page.waitForTimeout(60);
+    expect(await page.getByTestId("feed-box-0").evaluate(el => el.getBoundingClientRect().width)).toBeLessThan(before * 0.8);
+  });
+
+  for (const [width, height, label] of [[1920, 1080, "1080p"], [2560, 1440, "1440p"], [1366, 768, "1366"], [390, 844, "390"]] as const) {
+    for (const [count, mode] of [[2, "1v1"], [3, "3"], [4, "4"]] as const) {
+      test(`enlarged field fits the window and keeps the camera reachable: ${label} ${mode}`, async ({ page, context }) => {
+        test.setTimeout(120_000);
+        await page.setViewportSize({ width, height });
+        const slug = await soloTable(context.request, count);
+        await page.goto(`/duels/remote/${slug}`);
+        await expect(page.getByTestId("feed-box-0")).toBeVisible();
+        const box = (id: string) => page.getByTestId(id).evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+        const camBefore = await box("feed-box-0"); const fieldBefore = await box("fwrap-0");
+        await page.getByTestId("view-toggle-0").click();
+        await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+        await page.waitForTimeout(600);
+        const cam = await box("feed-box-0"); const field = await box("fwrap-0");
+        if (process.env.E2E_MEASURE) console.log(`SWAP ${label} ${mode} field ${Math.round(fieldBefore.w)}x${Math.round(fieldBefore.h)} -> ${Math.round(field.w)}x${Math.round(field.h)}, camera ${Math.round(camBefore.w)}x${Math.round(camBefore.h)} -> ${Math.round(cam.w)}x${Math.round(cam.h)}`);
+        expect(cam.w * cam.h).toBeLessThan(camBefore.w * camBefore.h * 0.8);
+        expect(field.w * field.h).toBeGreaterThanOrEqual(fieldBefore.w * fieldBefore.h - 1);
+        expect(field.x).toBeGreaterThanOrEqual(-1); expect(field.x + field.w).toBeLessThanOrEqual(width + 1);
+        // The field stays inside its seat: no spill over the LP row or the next seat.
+        const seat = await box("seat-0");
+        expect(field.y + field.h).toBeLessThanOrEqual(seat.y + seat.h + 1);
+        await shot(page, `swap-${label}-${mode}`);
+        await page.getByTestId("swap-cam-0").click();
+        await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+      });
+    }
+  }
+
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
