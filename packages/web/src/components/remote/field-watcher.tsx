@@ -9,6 +9,7 @@ import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEv
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone} from '@/lib/remote/field-legality';
+import {bindFieldTiming,markFieldTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {RecognitionBadge} from './ui/recognition-setting';
@@ -95,10 +96,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     else manual.current.delete(move.ref);
   }),[seat]);
   useEffect(()=>{manual.current.clear();},[room.slug,seat]);
-  function queue(work:(act:RoomMutation)=>Promise<void>) {
+  function queue(work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent) {
+    markFieldTiming(event?.timing,'queued');
     return transaction(async(latest,act)=>{
-      current.current.room=latest;
-      const apply:RoomMutation=async (proposal,idempotencyKey)=>{const updated=await act(proposal,idempotencyKey);if(updated){current.current.room=updated;prunePhysical();}return updated;};
+      current.current.room=latest;markFieldTiming(event?.timing,'dequeued');
+      const apply:RoomMutation=async (proposal,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();bindFieldTiming(actionId,current.current.room.slug,event?.timing);
+        markFieldTiming(event?.timing,'mutation',{actionId});const updated=await act(proposal,actionId);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);
     }).catch(error=>{if(error instanceof StaleFieldPlacementError)setRecovery(error);else setNotice('Could not update the field. Try a card prompt.');});
   }
@@ -257,6 +260,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     return true;
   }
   function handle(event:FieldEvent) {
+    markFieldTiming(event.timing,'watcher',{type:event.type});
     if(event.track.faceDown){
       const ref=bindings.current.get(event.track.id)??event.track.id;
       const message={...lastMessage.current,cards:lastMessage.current.cards.filter(c=>c.ref!==ref)};
@@ -264,7 +268,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     }
     if(diagnosticsAllowed&&(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch)))void saveLocalFieldDiagnostic(event,entries.current);
     if(event.type==='prompt'){
-      if(event.reason==='pile'&&event.result?.tier==='sure'&&['GY','BANISHED'].includes(event.track.zone))void queue(act=>apply(event,act));
+      if(event.reason==='pile'&&event.result?.tier==='sure'&&['GY','BANISHED'].includes(event.track.zone))void queue(act=>apply(event,act),event);
       else offer(event);
       return;
     }
@@ -307,7 +311,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         const target=projectObserved(after!,twins,persisted,cardInfo(code));
         if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&persisted.position===fieldTwinPosition({...after!,zone:target.zone}))rememberPhysical(card.ref,after!.zone);}
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
-    });
+    },event);
   }
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);

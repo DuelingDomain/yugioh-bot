@@ -81,7 +81,7 @@ export interface RecognitionResult {
   identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
   quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
-  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; pixels?:number; encode?:number; worker?:number; roundTrip?:number };
+  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */
   runtime?: { crossOriginIsolated: boolean; wasmThreads: number; simd: boolean };

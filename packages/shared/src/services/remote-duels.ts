@@ -248,7 +248,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         return room(load(slug, guildId), userId);
       });
     },
-    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction }, now = Date.now()): RemoteRoom {
+    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
@@ -305,7 +305,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
             effects.registration = candidate;
           }
         }
+        const reduceAt=performance.now();
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
+        input.onTiming?.('reducer',performance.now()-reduceAt);
         const messages = state.deckChecks.flags.filter(f => !before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
         if(command.type==="effect.choose" && effects.publicEffectChoice) {

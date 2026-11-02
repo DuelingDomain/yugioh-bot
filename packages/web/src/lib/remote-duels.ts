@@ -39,6 +39,7 @@ export async function notifyRemoteChange(slug: string, guildId: string) {
 }
 export type RemoteRouteContext = { params: Promise<{ slug: string }> };
 export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format" | "activity") {
+  const started=performance.now(),timings:string[]=[];
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
@@ -67,15 +68,18 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
       case "actions": {
         const action = remoteActionSchema.safeParse(body.action); remoteAssert(action.success, "Invalid action");
         remoteAssert(typeof body.baseSeq === "number" && Number.isSafeInteger(body.baseSeq) && body.baseSeq >= 0, "Invalid base sequence");
-        result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data }); break;
+        const commitAt=performance.now();
+        result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
+        timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;
       }
     }
     // SQLite phone triggers revoke capabilities in the same transaction as leave/end.
     // Retry durable SFU cleanup here; failures do not roll back an accepted game action.
     const { cleanupPhones } = await import("./remote/phone-server");
     await cleanupPhones(slug).catch(() => log("warn", "Phone participant cleanup pending", { slug }));
-    await notifyRemoteChange(slug, actor.guildId);
-    return remoteJson(result);
+    const publishAt=performance.now();await notifyRemoteChange(slug, actor.guildId);
+    timings.push(`remote-publish;dur=${(performance.now()-publishAt).toFixed(2)}`,`remote-route;dur=${(performance.now()-started).toFixed(2)}`);
+    const response=remoteJson(result);response.headers.set('server-timing',timings.join(', '));return response;
   } catch (error) { return remoteError(error); }
 }
 export function remoteSeatCount(value: unknown): SeatCount {
