@@ -46,7 +46,7 @@ test("phone latency: prewarm, native crop, video coordinates and pointerdown at 
   const {slug}=await(await context.request.post("/api/remote",{data:{gameId:"ygo",seatCount:2,solo:true}})).json();
   await page.goto(`/duels/remote/${slug}`);
   await expect.poll(()=>preloads.length,{timeout:15_000}).toBeGreaterThan(0);
-  await page.getByTestId("pair-phone").click();const url=await page.getByTestId("phone-pair-url").getAttribute("href");
+  await page.getByRole("radio",{name:"Phone"}).click({force:true});await page.getByTestId("pair-phone").click();const url=await page.getByTestId("phone-pair-url").getAttribute("href");
   const phone=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,permissions:["camera"]});
   const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
   try{
@@ -176,6 +176,7 @@ test("no-camera desktop pairs an unsigned-in mobile, scans a real still and conf
   const {slug}=await(await context.request.post("/api/remote",{data:{gameId:"ygo",seatCount:2,solo:true}})).json();
   await page.addInitScript(()=>{const reads:unknown[]=[],warmups:unknown[]=[];Object.assign(window,{phoneReads:reads,recognizerWarmups:warmups});window.addEventListener("remote-phone-read",e=>reads.push((e as CustomEvent).detail));window.addEventListener("remote-recognizer-warmup",e=>warmups.push((e as CustomEvent).detail));});
   await page.goto(`/duels/remote/${slug}`);
+  await page.getByRole("radio",{name:"Phone"}).click({force:true});await page.evaluate(()=>{(window as unknown as {desktopCameraCalls:number}).desktopCameraCalls=0;}); // the webcam default may probe once before the Phone choice
   await page.getByTestId("pair-phone").click();await expect(page.getByTestId("phone-qr")).toBeVisible();
   const url=await page.getByTestId("phone-pair-url").getAttribute("href");expect(url).toContain("/cam?pair=");
   await page.screenshot({path:`${shots}/desktop-pairing.png`});
@@ -189,7 +190,7 @@ test("no-camera desktop pairs an unsigned-in mobile, scans a real still and conf
     await mobile.goto(url!);await expect(mobile.getByTestId("phone-camera-page")).toBeVisible();expect(mobile.url()).not.toContain("sign-in");
     await mobile.getByTestId("phone-connect").click();
     await expect(mobile.getByTestId("phone-connection")).toContainText(/^connected\b/,{timeout:60_000});
-    await expect(page.getByTestId("phone-pair-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("lobby-phone-qr-box")).toHaveCount(0);
     await expect(page.getByRole("status").filter({hasText:"Phone camera · connected"})).toBeVisible();
     expect((await phone.cookies()).some(c=>c.name.includes("session"))).toBe(false);
     await mobile.screenshot({path:`${shots}/phone-field-portrait.png`,fullPage:true});
@@ -291,7 +292,7 @@ test("another player clicks the phone feed and receives recognition from its own
     await noHmr(peer);
     await authenticatePlayer(peer.request,{userId:102},process.env.E2E_AUTH_SECRET!,base);
     await peer.request.post(`/api/remote/${slug}/seat`,{data:{seat:1}});
-    await page.goto(`/duels/remote/${slug}`);await page.getByTestId("pair-phone").click();
+    await page.goto(`/duels/remote/${slug}`);await page.getByRole("radio",{name:"Phone"}).click({force:true});await page.getByTestId("pair-phone").click();
     const url=await page.getByTestId("phone-pair-url").getAttribute("href");
     const mobile=await phone.newPage();await installPhoneFrame(mobile,bytes);await mobile.goto(url!);await mobile.getByTestId("phone-connect").click();
     await expect(page.getByTestId("lobby-phone-feed-0")).toBeVisible();

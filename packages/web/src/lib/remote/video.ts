@@ -10,6 +10,7 @@ import {
 } from "./video-protocol";
 import {FieldTrackCache,FIELD_TRACKS_TOPIC} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
+import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -124,7 +125,7 @@ export class RemoteVideo {
       if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
       if (capture) {
       const camera = await createLocalVideoTrack({ deviceId: deviceId ? { exact: deviceId } : undefined,
-        facingMode: "environment", resolution: { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } });
+        facingMode: "environment", resolution: FIELD_CAMERA });
       if (this.closed || epoch !== this.epoch) { camera.stop(); await this.room.disconnect(); return; }
       this.camera = camera; camera.mediaStreamTrack.contentHint = "detail";
       await this.room.localParticipant.publishTrack(camera, { name: "field-cam", source: Track.Source.Camera,
