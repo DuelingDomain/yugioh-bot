@@ -888,13 +888,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         <div className={`${s.amath} ${arrow && battle ? s.show : ""}`} aria-hidden="true" style={arrow ? { left: arrow.mx, top: arrow.my } : undefined} data-testid="battle-math">{battle ? <><em>{battle.attackerAtk ?? "?"}</em> vs <em>{battle.direct ? "direct" : battle.targetValue ?? "?"}</em> → <s>{battle.result}</s></> : null}</div>
         {seatIds.map(seat => {
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
+          const deck=room.seats.find(item=>item.seat===seat)?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
-            twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            twin={twin} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}

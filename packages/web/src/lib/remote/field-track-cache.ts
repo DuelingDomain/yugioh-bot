@@ -2,6 +2,7 @@ import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
 import {catalogCardId,createFieldCalibration} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
+export type FieldBack=NonNullable<RemoteFieldTracks['backs']>[number];
 const contains=(quad:RemoteFieldCard['quad'],x:number,y:number)=>{
   let sign=0;
   for(let i=0;i<4;i++){const a=quad[i],b=quad[(i+1)%4],cross=(b.x-a.x)*(y-a.y)-(b.y-a.y)*(x-a.x);if(Math.abs(cross)<1e-9)continue;if(sign&&Math.sign(cross)!==sign)return false;sign=Math.sign(cross);}
@@ -21,24 +22,35 @@ export function trackedRereadTarget(ref:string,cards:readonly RemoteFieldCard[],
 }
 /** Full replacement snapshots, read synchronously without React renders or any inference. */
 export class FieldTrackCache {
-  private seats=new Map<number,{at:number;cards:RemoteFieldCard[];calibration?:FieldCalibration}>();
+  private seats=new Map<number,{at:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration}>();
   constructor(private now=()=>performance.now()){}
   receive(seat:number,input:unknown){
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
     try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation);}catch{return false;}
-    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,calibration});return true;
+    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs:parsed.data.backs??[],calibration});return true;
   }
   hit(seat:number,x:number,y:number):RemoteFieldCard|undefined {
     return hitTrackedCards(this.snapshot(seat),x,y);
   }
   snapshot(seat:number):RemoteFieldCard[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.cards:[];}
+  backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.backs:[];}
   calibration(seat:number):FieldCalibration|undefined {const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.calibration:undefined;}
   clear(seat?:number){if(seat===undefined)this.seats.clear();else this.seats.delete(seat);}
   retain(seats:Set<number>){for(const seat of this.seats.keys())if(!seats.has(seat))this.seats.delete(seat);}
 }
 export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<string,{cardId:string;passcode:number;name:string}>,knownCards:KnownFieldCard[]=[],calibration?:FieldCalibration):RemoteFieldTracks {
   const cards:RemoteFieldCard[]=[];
+  const backs:FieldBack[]=[];
+  const quad=(card:{quad:{x:number;y:number}[]})=>card.quad.map(p=>({x:Math.round(p.x*10000)/10000,y:Math.round(p.y*10000)/10000}));
+  if(snapshot.status==='watching'||snapshot.status==='budget'||snapshot.status==='busy'){
+    for(const pile of snapshot.piles??[])backs.push({ref:`pile-${pile.zone}`,zone:pile.zone,quad:quad(pile.card)});
+    for(const track of snapshot.tracks){
+      if(track.state!=='identified'||!track.visible||track.removed||!track.faceDown||track.card.covered||track.card.partial||!/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(track.zone))continue;
+      if(!knownCards.some(k=>k.id===track.id&&k.faceDown))continue;
+      backs.push({ref:track.id,zone:track.zone as FieldBack['zone'],quad:quad(track.card)});
+    }
+  }
   if(snapshot.status==='watching'||snapshot.status==='budget'||snapshot.status==='busy')for(const track of snapshot.tracks){
     if(track.state!=='identified'||!track.visible||track.removed||track.faceDown||track.zone==='DECK'||track.card.kind!=='face-up'||track.card.covered||track.card.partial)continue;
     const known=knownCards.find(k=>k.id===track.id);if(!known||known.faceDown||!known.cardId||known.zone==='DECK')continue;
@@ -46,7 +58,7 @@ export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<str
     const cardId=catalogCardId(entry);if(!cardId)continue;
     cards.push({ref:track.id,cardId,name:entry.name,quad:track.card.quad.map(p=>({x:Math.round(p.x*10000)/10000,y:Math.round(p.y*10000)/10000}))});
   }
-  const message=remoteFieldTracksSchema.safeParse({type:'field.tracks',cards:cards.slice(0,20),...(calibration?.orientation?{calibration}:{})});
+  const message=remoteFieldTracksSchema.safeParse({type:'field.tracks',cards:cards.slice(0,20),...(backs.length?{backs:backs.slice(0,22)}:{}),...(calibration?.orientation?{calibration}:{})});
   return message.success?message.data:{type:'field.tracks',cards:[]};
 }
 

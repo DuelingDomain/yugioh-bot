@@ -4,7 +4,7 @@
 
 ## Watcher worker: 20 lines
 
-Split the following additions between the imports, `createFieldWatcher` locals (the two Maps), and the matched-track loop **after `publicIdentity` reconciliation and before `changedKind`/`changedLook`**. `crop` is a fresh, same-frame, native-source card warp, preferably 96×140 or larger; do not use the existing 8×12 appearance patch or art-only thumbnails. Expose this warp from the analyzer, or draw an ImageBitmap once to a shared native-resolution canvas and reuse `warpQuad`. `faceClean` must require confidence ≥ .7, no motion/partial/covered/overlap, and consistent quad geometry. Do not classify an old crop while recognition is in flight.
+Split the following additions between the imports, `createFieldWatcher` locals (the two Maps), and the matched-track loop **after `publicIdentity` reconciliation and before `changedKind`/`changedLook`**. `crop` is a fresh, same-frame, native-source card warp, preferably 96×140 or larger; do not use the existing 8×12 appearance patch or art-only thumbnails. Expose this warp from the analyzer, or draw an ImageBitmap once to a shared native-resolution canvas and reuse `warpQuad`. `faceClean` requires confidence ≥ .7 for fronts, or ≥ .4 for detector-marked backs, with no motion/partial/covered/overlap and consistent quad geometry. The back classifier must still pass the 300 ms hysteresis gate. Do not classify an old crop while recognition is in flight.
 
 ```ts
 import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions} from './face-state';
@@ -96,3 +96,10 @@ Node 22.23.3 local native replay used the real ONNX detector/embedder and produc
 `benchmark-field-watcher.ts` also passed a native-frame Chromium/WASM trial: placement, slide, rotation, graveyard return, removal, brightness stability, and 6-second hand-motion/occlusion runs; no false placements/removals, no extra follow reads, no browser errors. Calibration retained 153/156 bound backs with zero false flips among 252 front negatives.
 
 Shared build and vision, web and WS typechecks passed. No tests were authored or added to the existing suites for this integration; verification used local harness/benchmark scripts only. Local small reports: `data/vision/benchmark/field-watcher/face-integration-native.json`, `data/vision/benchmark/field-watcher/face-integration.json`, and `data/face-state/report.json`.
+
+
+The watcher accepts detector-marked backs at the detector's .4 confidence floor; the former .7 field-track floor discarded plain sleeves before classification. Fronts retain the .7 floor. Backs do not enter the three-card search-spread guard. A confirmed Deck/Extra stack is kept separately in `snapshot.piles`, outside field association, recognition and placement. Fresh clean back evidence with stable geometry retains a confirmed pile across idle scan gaps.
+
+The optional `field.tracks.backs` snapshot carries only refs, zones and quads for Sets and piles. It has no identity fields and is separate from cached public recognition. The feed labels Sets; the virtual Deck and Extra Deck reuse card-back styling. Registered deck sizes are labeled “listed”; an observed pile without a known count has no number. A fresh face-up read still uses the original Set ref and slot.
+
+One fake-camera remote e2e using the real browser detector passed with the camera facing the owner: sideways blue Set in M3, both stacks without extra twins/prompts, and a fresh Stardust Dragon reveal on the original M3 ref. Local browser/API timings were 1,038 ms for Set display and 2,083 ms for reveal. These are synthetic-frame measurements, not live-webcam measurements. Local replays also covered S3, three simultaneous Sets, a bare card back and 700 ms idle pile scans, with no identity reads for backs.

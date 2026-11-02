@@ -283,6 +283,7 @@
 @keyframes landring{0%{opacity:.95;transform:scale(.88)}100%{opacity:0;transform:scale(1.35)}}
 @container (max-width:58px){.cd .nm{display:none}.cd .st{font-size:13cqw}}
 .cd.back{background:#120e0c url("/duel/card-back-main-hd.webp") center/cover no-repeat;padding:0;border:1px solid #b08a3e}
+.cd.deckPile{inset:4px 3px 2px 5px;box-shadow:-2px -2px 0 #403123,-3px -3px 0 #b08a3e,-5px -5px 0 #403123,-6px -6px 0 #b08a3e}
 .cd.back.backEx{background-image:url("/duel/card-back-extra-hd.webp");border-color:#8a6bb0}
 .cd.unk{background:repeating-linear-gradient(135deg,rgb(232 185 79/.10) 0 6px,rgb(232 185 79/.03) 6px 12px);box-shadow:none;border:1.5px dashed var(--gold);display:grid;place-items:center;color:var(--gold-ink);padding:0;animation:unkp 2s ease-in-out infinite}
 .cd.unk span{font:700 34cqw/1 var(--font-duel-display),Oxanium,sans-serif}
