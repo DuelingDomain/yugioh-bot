@@ -23,6 +23,8 @@ const zones = [
 export function ygoBattleAllowed(state: RemotePosition): boolean {
   return state.seatCount === 2 ? state.turn > 1 : state.seats.every(s => s.eliminated || state.startedSeats.includes(s.seat));
 }
+/** Graveyard and banished piles are ordered by the twin list: oldest first, newest last. Undo restores the list as it was. */
+const enteringPile = (from: string, to: string) => from !== to && (to === "graveyard" || to === "banished");
 function position(state: RemoteState): RemotePosition {
   const { updatedAt: _at, undo: _undo, ...board } = state;
   return structuredClone(board);
@@ -132,7 +134,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
       if (action.card.slot === undefined) delete card.slot;
-      if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
+      if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
+      else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
       deckAction = { ...action, card };
       break;
@@ -146,6 +149,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         freeSlot(s, action.zone, slot, card.ref);
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
+        // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
+        if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
         if(["deck","extra"].includes(card.zone)) delete card.publicIdentity;
         if (action.position !== undefined) card.position = action.position;
