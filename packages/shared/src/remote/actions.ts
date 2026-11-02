@@ -37,7 +37,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.merge"), seat: remoteSeatSchema, keepInstanceId: z.string().min(1).max(250),
     removeInstanceId: z.string().min(1).max(250), reason: z.string().trim().min(1).max(200) }),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema }),
-  z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional() }),
+  z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean() }),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),

@@ -843,3 +843,15 @@ it('moves a physical twin to defense under the same ref, with Undo and owner che
   s.act({type:'undo',targetActionId:event});expect(s.room.state.seats[0].twin[0].position).toBe('attack');
   expect(()=>s.act({type:'twin.move',actorSeat:1,seat:0,cardRef:'rotation',zone:'monster',position:'defense'})).toThrow(/owner/);
 });
+
+it('persists one named automatic departure with destination correction and normal owner/Undo rules',()=>{
+  const s=deckSession();s.start();s.place('leaving');const before=s.room.state.seats[0].twin[0];
+  const departure={type:'twin.move',seat:0,cardRef:'leaving',zone:'graveyard',source:'auto',name:'Varudras'} as const;
+  s.act(departure);expect(s.room.state.seats[0].twin).toEqual([{...before,zone:'graveyard',slot:undefined}]);
+  expect(s.room.events.at(-1)?.action).toMatchObject(departure);expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+  const left=s.room.state.undo!.actionId;s.act({type:'undo',targetActionId:left});expect(s.room.state.seats[0].twin[0]).toEqual(before);
+  s.act(departure);s.act({...departure,zone:'banished'});const corrected=s.room.state.undo!.actionId;
+  s.act({type:'undo',targetActionId:corrected});expect(s.room.state.seats[0].twin[0].zone).toBe('graveyard');
+  expect(()=>s.act({...departure,actorSeat:1})).toThrow(/owner/);
+  expect(remoteActionSchema.safeParse({...departure,idempotencyKey:'bounded',actorSeat:0,name:'x'.repeat(201)}).success).toBe(false);
+});
