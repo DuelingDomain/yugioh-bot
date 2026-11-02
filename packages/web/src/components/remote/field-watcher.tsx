@@ -5,7 +5,7 @@ import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,t
 import type {RemoteRoom} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
-import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches} from '@/lib/remote/field-proposals';
+import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {ownFieldResources} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
@@ -73,11 +73,11 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     try {
       let updated:RemoteRoom|null=null;
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
-        updated=await act(proposal);if(!updated){offer({...event,type:'prompt',reason:'recognition-error'});return;}
+        updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
       }
-      if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
+      if(existing&&!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position)){updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});if(!updated){offer({...event,type:'prompt',reason:'recognition-error'});return;}}
-      if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id))){if(!existing&&updated?.state.undo)await act({type:'undo',actorSeat:seat,targetActionId:updated.state.undo.actionId});return;}
+      if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
       watch.confirm(event.track.id,track.cardId,existing?.ref);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');

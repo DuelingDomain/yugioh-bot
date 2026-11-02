@@ -1,3 +1,4 @@
+import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 /** A new placement records the sighting atomically, so one Undo removes both. */
@@ -18,4 +19,16 @@ export function fieldDepartureProposal(card:TwinCard,seat:number):Extract<Remote
 export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined) {
   return !!current&&!current.removed&&!!current.visible&&(current.revision??0)===(event.track.revision??0)&&
     (event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
+}
+
+/** A card may change during HTTP, after the preflight evidence check. */
+export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:RemoteActionProposal) {
+  if(!fieldEvidenceMatches(event,current()))return null;
+  const updated=await act(proposal);
+  if(!updated)return null;
+  if(!fieldEvidenceMatches(event,current())){
+    if(proposal.type==='twin.place'&&updated.state.undo)await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});
+    return null;
+  }
+  return updated;
 }

@@ -258,3 +258,12 @@ it('queued evidence cannot apply or confirm an old name over replacement pixels'
  expect(fieldEvidenceMatches(event,{...event.track,zone:'M4'})).toBe(true);
  expect(fieldEvidenceMatches({...event,type:'prompt'},{...event.track,state:'prompt'})).toBe(true);
 });
+
+it('a replacement during the placement HTTP request rolls back the new twin and never confirms its name',async()=>{
+ const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
+ const event={type:'placed',track:{id:'a',cardId:'A',state:'identified',visible:true,revision:0}} as any;
+ let current={...event.track};const actions:any[]=[];
+ const act=async(proposal:any)=>{actions.push(proposal);if(proposal.type==='twin.place'){current={...current,revision:1,state:'candidate',cardId:undefined,visible:false};return {state:{undo:{actionId:'new-placement'}}} as any;}return {state:{undo:null}} as any;};
+ const result=await applyVerifiedFieldMutation(event,()=>current,act,{type:'twin.place',actorSeat:0} as any);
+ expect(result).toBeNull();expect(actions.map(a=>a.type)).toEqual(['twin.place','undo']);expect(actions[1].targetActionId).toBe('new-placement');
+});
