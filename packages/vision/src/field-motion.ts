@@ -3,14 +3,14 @@ import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; appearance?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
 }
 /** Only motion/sharpness are downsampled; inference and retained best frames stay native. */
 export function createFieldAnalyzer() {
-  let previous:RGBAImage|undefined;
+  let previous:RGBAImage|undefined,nativeCanvas:OffscreenCanvas|undefined;
   return (frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=frame;
@@ -20,8 +20,23 @@ export function createFieldAnalyzer() {
       context.drawImage(frame,0,0,width,height);image=context.getImageData(0,0,width,height);
     }
     const before=previous;previous=image;
+    let native:RGBAImage|undefined;
+    const nativeImage=()=>{
+      if(native)return native;
+      if(!('close' in frame))return native=frame;
+      nativeCanvas??=new OffscreenCanvas(frame.width,frame.height);
+      if(nativeCanvas.width!==frame.width)nativeCanvas.width=frame.width;
+      if(nativeCanvas.height!==frame.height)nativeCanvas.height=frame.height;
+      const context=nativeCanvas.getContext('2d',{willReadFrequently:true})!;
+      context.drawImage(frame,0,0);return native=context.getImageData(0,0,frame.width,frame.height);
+    };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     return {
+      crop(card) {
+        // Detector corners are portrait ordered even for a card in Defense Position.
+        const source=nativeImage();
+        return warpQuad(source,card.quad.map(p=>({x:p.x*source.width,y:p.y*source.height})) as Quad,96,140)??undefined;
+      },
       appearance(card) {
         const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
         if(!patch)return [];
