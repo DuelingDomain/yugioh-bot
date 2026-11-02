@@ -23,6 +23,9 @@ export function fieldGridCells(format: FieldFormat = "normal"): GridCell[] {
 export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
 let defaultGrid: FieldCalibration | undefined;
 export const defaultGridCalibration = () => defaultGrid ??= createFieldCalibration(DEFAULT_GRID_CORNERS);
+/** True when the player placed the grid on the mat: a saved side alone leaves the corners at the first guess. */
+export const isPlacedCalibration = (calibration?: FieldCalibration) => !!calibration?.orientation
+  && calibration.corners.some((corner, i) => Math.abs(corner.x - DEFAULT_GRID_CORNERS[i].x) > .002 || Math.abs(corner.y - DEFAULT_GRID_CORNERS[i].y) > .002);
 /** Webcams usually face the player across the table (flipped); a phone is held from the player's own side. */
 export const defaultSideFor = (kind: "webcam" | "phone"): PlayerSide => kind === "phone" ? "bottom" : "top";
 const guessed = new Map<PlayerSide, FieldCalibration>(); const guessedFrom = new WeakMap<FieldCalibration, Map<PlayerSide, FieldCalibration>>();
