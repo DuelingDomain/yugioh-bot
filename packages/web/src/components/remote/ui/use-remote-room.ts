@@ -92,7 +92,11 @@ export function useRemoteRoom(slug: string) {
       roomRef.current = updated;
       await mutate(old => old && old.lastSeq > updated.lastSeq ? old : updated, { revalidate: false });
       return updated;
-    } catch (e) { setError((e as Error).message); void mutate(); return null; }
+    } catch (e) {
+      setError((e as Error).message);
+      try{const refreshed=await mutate();if(refreshed?.slug===slug){roomRef.current=refreshed;lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);}}catch{/* Keep the failed action recoverable during a network outage. */}
+      return null;
+    }
   }, [slug, mutate]);
 
   const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>roomRef.current,postAction),[postAction]);

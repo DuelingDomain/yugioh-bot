@@ -5,7 +5,7 @@ import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,t
 import type {RemoteRoom} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
-import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation} from '@/lib/remote/field-proposals';
+import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation,StaleFieldPlacementError} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {ownFieldResources} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
@@ -30,7 +30,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
   calibrationBusy.current=calibrating;
-  const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false);
+  const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
@@ -42,7 +42,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       current.current.room=latest;
       const apply:RoomMutation=async proposal=>{const updated=await act(proposal);if(updated)current.current.room=updated;return updated;};
       await work(apply);
-    }).catch(()=>setNotice('Could not update the field. Try a card prompt.'));
+    }).catch(error=>{if(error instanceof StaleFieldPlacementError)setRecovery(error);else setNotice('Could not update the field. Try a card prompt.');});
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string) {
     const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;
@@ -121,6 +121,15 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     if(!card||(value.zone==='pending'&&!watch.isRemoved(value.ref))||(!destinations.some(([zone])=>zone===card.zone)&&value.zone!=='pending')){setDeparture(null);setNotice('');}
     else if(destinations.some(([zone])=>zone===card.zone)&&card.zone!==value.zone)setDeparture({...value,zone:card.zone});
   },[room.state,seat,watch.snapshot]);
+  function recover() {
+    if(!recovery)return;const placement=recovery.placement;
+    void queue(async act=>{
+      const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===placement.card.ref);
+      if(card&&(card.cardId!==placement.card.cardId||card.zone!==placement.zone||card.slot!==placement.card.slot||card.faceUp!==placement.card.faceUp)){setRecovery(null);setNotice('The placement changed. Check its card popup.');return;}
+      if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:card.ref}))return;
+      watch.forget(placement.card.ref);setPrompts(list=>list.filter(p=>p.track.id!==placement.card.ref));setRecovery(null);setNotice('Stale placement removed');
+    });
+  }
   function redirect(zone:string) {
     void queue(async act=>{
       const value=departureRef.current;if(!value||!live())return;
@@ -145,7 +154,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       onChoose={(id,cardId)=>{const event=prompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId));}}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));}}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+      notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}

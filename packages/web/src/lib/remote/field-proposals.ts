@@ -21,13 +21,19 @@ export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefin
     (event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
 }
 
+export class StaleFieldPlacementError extends Error {
+  constructor(readonly placement:Extract<RemoteActionProposal,{type:'twin.place'}>){super('The card changed during save. Remove the stale placement to continue.');}
+}
 /** A card may change during HTTP, after the preflight evidence check. */
 export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:RemoteActionProposal) {
   if(!fieldEvidenceMatches(event,current()))return null;
   const updated=await act(proposal);
   if(!updated)return null;
   if(!fieldEvidenceMatches(event,current())){
-    if(proposal.type==='twin.place'&&updated.state.undo)await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});
+    if(proposal.type==='twin.place'){
+      let undone=false;try{if(updated.state.undo)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
+      if(!undone)throw new StaleFieldPlacementError(proposal);
+    }
     return null;
   }
   return updated;
