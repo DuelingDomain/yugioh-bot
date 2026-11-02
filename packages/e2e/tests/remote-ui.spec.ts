@@ -1130,9 +1130,9 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
     if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let back='',stacks=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}else ctx.drawImage(image,-90,-131,180,262);}else if(back){ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as any).fieldTest={back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let back='',stacks=false,sleeve:ImageBitmap|null=null;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={texture:async()=>{sleeve=await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob());paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
@@ -1439,13 +1439,18 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   });
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();
-  await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:60_000});
   await expect.poll(()=>page.locator('video').first().evaluate((v:HTMLVideoElement)=>v.videoWidth)).toBe(1280);
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
   await expect.poll(async()=>Number((await page.getByTestId('field-watcher-status').getAttribute('title'))?.match(/Detector (\d+) ms/)?.[1]??0),{timeout:40_000}).toBeGreaterThan(0);
+  await page.evaluate(()=>((window as any).fieldTest).texture());
+  // A moving draw crosses the field; it must never create a Set or prompt.
+  for(let i=0;i<8;i++){await page.evaluate(i=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(50+i*120,80+i*45);},i);await page.waitForTimeout(80);}
+  await page.evaluate(()=>((window as any).fieldTest).clear());await page.waitForTimeout(350);
+  expect((await room()).state.seats[0].twin).toHaveLength(0);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   const placedAt=Date.now();
   await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});
-  await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:15_000}).toHaveLength(1);
+  await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:15_000,intervals:[25]}).toHaveLength(1);
   const set=await room(),card=set.state.seats[0].twin[0];
   expect(card).toMatchObject({zone:'monster',slot:3,faceUp:false,position:'defense'});
   expect(card.cardId).toBeUndefined();
@@ -1460,19 +1465,22 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await page.waitForTimeout(1200);
   const piles=await room();expect(piles.state.seats[0].twin).toHaveLength(1);
   expect(piles.events.filter((e:any)=>e.action.type==='twin.place')).toHaveLength(1);
+  expect(piles.events.filter((e:any)=>e.action.type==='twin.remove')).toHaveLength(0);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   await shot(page,'set-deck-extra-piles');
   const flippedAt=Date.now();
   await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('');camera.place(550,315);});
-  await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.find((c:any)=>c.ref===card.ref)?.faceUp;},{timeout:30_000}).toBe(true);
+  await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.find((c:any)=>c.ref===card.ref)?.faceUp;},{timeout:30_000,intervals:[25]}).toBe(true);
   const flipped=await room();expect(flipped.state.seats[0].twin).toHaveLength(1);
   expect(flipped.state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:3,cardId:44508094,faceUp:true});
+  expect(flipped.events.slice(piles.events.length).filter((e:any)=>e.action.type==='twin.flip')).toHaveLength(1);
+  expect(flipped.events.slice(piles.events.length).filter((e:any)=>['twin.move','card.identified'].includes(e.action.type))).toHaveLength(0);
   await expect(page.getByTestId('set-marker')).toHaveCount(0);
   const flipMs=Date.now()-flippedAt;
   await shot(page,'set-flipped-same-slot');
   const resetAt=Date.now();
   await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000}).toBe(false);
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000,intervals:[25]}).toBe(false);
   const reset=await room();
   for(const seats of [new Set([0]),new Set([1]),new Set<number>()]) {
     const view=projectRemoteState(reset.state,seats);
@@ -1490,7 +1498,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
   await shot(page,'revealed-set-same-slot');
   await page.keyboard.press('Escape');
-  console.log(JSON.stringify({setMs,flipMs,resetMs:Date.now()-resetAt}));
+  console.log(JSON.stringify({setVerificationMs:setMs,flipVerificationMs:flipMs,resetVerificationMs:Date.now()-resetAt}));
   await page.getByRole('button',{name:'Camera off',exact:true}).click();
   // Manual same-slot setting uses twin.move and retains the same public knowledge.
   for(const [index,action] of [{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {

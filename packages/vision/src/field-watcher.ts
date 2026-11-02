@@ -184,9 +184,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           evidence.motion(c)>.025||!sameFieldAppearance(t.appearance,pixels)||evidence.sharpness(c)<12)continue;
         const crop=evidence.crop?.(c);if(!crop)continue;
         const observation=classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined});
-        if(observation.state==='unknown')continue;
+        if(observation.state!=='up')continue;
         if(!t.placeholder&&!t.binding&&!['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)){
-          t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=observation.state==='down';t.halo=evidence.halo?.(c);
+          t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.halo=evidence.halo?.(c);
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
         if(!busy&&observation.state==='up'){t.halo=evidence.halo?.(c);await startRead(t,current,c,crop,sample.at,generation);}
@@ -226,13 +226,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         (t.read.result.candidates[0]?.score??0)>=.84&&sample.at-t.view.lastSeen<=1500&&evidence.motion(t.view.card)<=.025&&
         sameFieldAppearance(t.read.appearance,evidence.appearance?.(t.view.card)));
       const faceSamples=tracks.some(t=>t.face?.pendingAt!==undefined||t.read?.result)&&now()-lastDetectionAt<450&&
-        tracks.every(t=>t.view.removed||sample.at-t.view.lastSeen<450&&!t.view.card.partial&&!t.view.card.covered&&evidence.motion(t.view.card)<=.025&&
+        tracks.every(t=>t.view.removed||sample.at-t.view.lastSeen<450&&!evidence.occluded?.(t.view.card)&&!t.view.card.partial&&!t.view.card.covered&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card)))&&evidence.motion(mat)<=.004;
       let detected:DetectedQuad[],region:FractionalBox|undefined;
       if(readyRead||faceSamples){
         // Retain only outlines whose current pixels still agree. A new outline
         // or changed/occluded pixels must go through detection as usual.
-        detected=tracks.filter(t=>!t.view.removed&&(t.view.visible||t.read||t.face?.pendingAt!==undefined)&&!evidence.occluded?.(t.view.card)&&evidence.motion(t.view.card)<=.025&&
+        detected=tracks.filter(t=>!t.view.removed&&(t.view.visible||t.read||t.face?.pendingAt!==undefined)&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
       }else{
       detectFrame=await clone(current);
@@ -255,6 +255,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       metrics.detectorMs=now()-detectStart;lastDetectionAt=sample.at;
       }
       if(generation!==epoch||disposed)return;
+      const cardAspect=(c:DetectedQuad)=>{
+        const q=c.quad.map(p=>({x:p.x*current!.width,y:p.y*current!.height})),edge=(a:number,b:number)=>Math.hypot(q[a].x-q[b].x,q[a].y-q[b].y);
+        const w=(edge(0,1)+edge(2,3))/2,h=(edge(1,2)+edge(3,0))/2,ratio=Math.min(w,h)/Math.max(w,h);
+        return ratio>=59/86*.88&&ratio<=59/86*1.12;
+      };
       const outlines=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       const cards=outlines.filter(c=>!deckZone(mapFieldZone(c,calibration,[],options.format).zone));
       const seenPiles=new Set<FieldZone>();
@@ -263,16 +268,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!deckZone(zone)||seenPiles.has(zone))continue;
         seenPiles.add(zone);
         const pile=piles.get(zone)??{gate:createFaceStateHysteresis({sustainMs:120,minSamples:3}),card:c,at:sample.at,firstSeen:sample.at,down:false};
-        const clean=c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,outlines)&&evidence.motion(c)<=.025;
+        const clean=c.confidence>=.4&&(c.confidence>=.7||cardAspect(c))&&!c.partial&&!c.covered&&!isCovered(c,outlines)&&evidence.motion(c)<=.025;
         const crop=clean?evidence.crop?.(c):undefined;
         const observation=crop?classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
         // A verified stack can stay present across idle scans; every scan still
         // requires a clean back at the same location. Never infer its count.
-        pile.down=pile.gate.update(observation,sample.at).state==='down'||pile.down&&observation.state==='down'&&observation.confidence>=.8&&quadIou(pile.card,c)>=.84;
+        pile.down=pile.gate.update(observation,sample.at).state==='down'||pile.down&&!(observation.state==='up'&&observation.confidence>=.8);
         pile.card=c;pile.at=sample.at;piles.set(zone,pile);
       }
       // Cached field outlines cannot prove deck absence.
-      if(!readyRead&&!faceSamples)for(const [zone,pile] of piles)if(!seenPiles.has(zone)&&(!region||sample.at-pile.at>3000))piles.delete(zone);
+      if(!readyRead&&!faceSamples)for(const [zone,pile] of piles)if(!seenPiles.has(zone)&&sample.at-pile.at>3000)piles.delete(zone);
       metrics.samples++;status='watching';error=undefined;
       // Expire departures before matching, including after a long hidden pause.
       for(let i=tracks.length-1;i>=0;i--)if(tracks[i].view.removed&&tracks[i].view.state==='identified'&&sample.at-tracks[i].view.lastSeen>30000)tracks.splice(i,1);
@@ -315,6 +320,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       const pileRead=(c:DetectedQuad)=>c.confidence>=.4&&['GY','BANISHED'].includes(mapFieldZone(c,calibration,cards,options.format).zone)&&tracks.some(t=>bound(t)&&!matched.has(t));
       for(const c of cards)if((c.confidence>=.7||backOutline(c)||pileRead(c))&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
+        if(backOutline(c)&&c.confidence<.7&&!cardAspect(c))continue;
         if(calibration&&c.quad.map(p=>onMat(p,calibration)).some(p=>p.x<0||p.x>1||p.y<0||p.y>1))continue;
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:!['GY','BANISHED'].includes(zone)&&k.zone===zone));
@@ -362,16 +368,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
 
         // A fresh full-card warp, never the tiny appearance patch or a retained read.
         const faceState=t.face??={gate:createFaceStateHysteresis({sustainMs:120,minSamples:3})};
-        const faceClean=(c.confidence>=.7||backOutline(c))&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
+        const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c))&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
           !cards.some(other=>other!==c&&quadIou(c,other)>0)&&evidence.motion(c)<=.025&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
         const crop=faceClean?evidence.crop?.(c):undefined;
         const observation=crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
         if(t.prompted&&observation.state==='down'&&!t.view.faceDown&&t.view.state==='prompt'){t.view.state='dismissed';t.view.revision=(t.view.revision??0)+1;t.read=undefined;t.needsRead=false;}
         // Publish geometry before identity inference; never invent an identity
         // or a public front while face-state evidence is still ambiguous.
-        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&faceClean&&observation.state!=='unknown'&&evidence.sharpness(c)>=12&&
+        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&faceClean&&observation.state==='up'&&evidence.sharpness(c)>=12&&
           !['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)) {
-          t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=observation.state==='down';t.view.visible=true;t.halo=evidence.halo?.(c);
+          t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.view.visible=true;t.halo=evidence.halo?.(c);
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
         // Speculate on the first sharp front while the face gate settles. Any
@@ -429,7 +435,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
-        const confident=c.confidence>=.7||backOutline(c)||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
+        const confident=c.confidence>=.7||backOutline(c)&&cardAspect(c)||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
         const clean=!appearanceChanged&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
         if(t.identityCheck){if(!clean)t.identityCheck.strongSamples=0;else if(fieldAppearanceDistance(t.identityAppearance,pixels)>=.025)t.identityCheck.strongSamples++;}
         t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||matchesLook(t,pixels))&&evidence.motion(c)<=.025&&(t.view.state==='identified'||t.view.state==='prompt')&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards);
@@ -461,7 +467,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           let winner=safe?result!.candidates[0].cardId:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
-          if(t.binding?.faceDown&&!safe){t.needsRead=false;t.view.visible=false;t.best=undefined;t.view.state='prompt';emit('prompt',t,{result,reason:'uncertain'});continue;}
+          if(t.binding?.faceDown&&!safe){t.needsRead=false;t.view.visible=false;t.best=undefined;if(t.prompted||t.resolvedAt!==undefined){t.view.state='dismissed';t.prompted=true;}else{t.view.state='prompt';emit('prompt',t,{result,reason:'uncertain'});}continue;}
           if(t.identityCheck){
             const similarity=fieldEmbeddingSimilarity(t.identityEmbedding,result?.identityEmbedding),saved=t.identityCheck;
             const unchanged=similarity!==undefined?similarity>=.84:!t.identityEmbedding&&winner&&winner===saved.cardId;

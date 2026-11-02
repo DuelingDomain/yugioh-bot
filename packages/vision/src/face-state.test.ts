@@ -62,9 +62,9 @@ import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
 test('fresh Set settles from independent pixels and a reveal reads its front once with a new timing origin',async()=>{
- let at=0,down=true,reads=0;
+ let at=0,down=true,reads=0,phone=true;
  const back=image(()=>[15,15,15]);
- const outline=():DetectedQuad=>({kind:down?'face-down':'face-up',confidence:down?.55:.99,partial:false,quad:[{x:.3,y:.3},{x:.42,y:.3},{x:.42,y:.5},{x:.3,y:.5}]});
+ const outline=():DetectedQuad=>({kind:down?'face-down':'face-up',confidence:down?.55:.99,partial:false,quad:[{x:.3,y:.3},{x:phone?.42:.5,y:.3},{x:phone?.42:.5,y:.5},{x:.3,y:.5}]});
  const events:FieldEvent[]=[];
  const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,
   buffer:{sample:async()=>({frame:{width:120,height:176,data:front.data} as ImageData,at})},clone:async f=>f,
@@ -73,9 +73,10 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
  watcher.subscribe(e=>events.push(e));
  const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
  try{
+  for(let i=0;i<4;i++)await tick();assert.equal(events.length,0,'a low-score phone shape never becomes a card');phone=false;at+=1000;
   for(let i=0;i<3;i++)await tick();
   const set=events.find(e=>e.type==='placed'&&e.track.faceDown);
-  assert.ok(set,'clean back commits within 400ms without model identity');assert.equal(reads,0);
+  assert.ok(set,'clean back commits within 400ms without model identity');assert.equal(reads,0);assert.equal(events.some(e=>e.type==='reading'),false,'backs need no speculative identity placeholder');
   at+=1000;down=false;const revealedAt=at;
   for(let i=0;i<8&&!events.some(e=>e.type==='placed'&&!e.track.faceDown);i++)await tick();
   const reveal=events.find(e=>e.type==='placed'&&!e.track.faceDown);
