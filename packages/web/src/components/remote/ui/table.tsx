@@ -11,7 +11,7 @@ import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
-import type { PopAt, Tier } from "./popup";
+import type { PopAt, Rect, Tier } from "./popup";
 import { interpret, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
@@ -19,6 +19,7 @@ import { announceManualMove } from "@/lib/remote/manual-moves";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { CopyAsk, DupBanner } from "./dup-ui";
 import { chooseKeep, copyFlagOf, findTwinGroups, mergeProposal, type CopyFlag, type TwinGroup } from "./twins";
+import { PileViewer, type PileZone } from "./pile-viewer";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
@@ -562,10 +563,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     void moveCard(seat, card, land, extra);
     return { done: true, text: `${who} to ${landingLabel(land)}` };
   };
+  /** A drop target is a grid cell, or the hand chip of the pile viewer (the hand has no cell). */
+  const landOf = (card: TwinCard, key: ZoneKey | "hand"): Landing => key === "hand" ? { zone: "hand" } : landingForCell(key, cardInfo(cardCode(card)), extraZones);
   const fieldDrag = (seat: number): FieldDrag | undefined => !live || !(solo || seat === mySeat) ? undefined : {
-    can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum"].includes(card.zone),
-    judge: (card, key) => judgeFor(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)),
-    drop: (card, key) => { tryMove(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)); },
+    can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum", "graveyard", "banished"].includes(card.zone),
+    judge: (card, key) => judgeFor(seat, card, landOf(card, key)),
+    drop: (card, key) => { tryMove(seat, card, landOf(card, key)); },
   };
   /** The card this seat placed or moved last, if it is still on the field. */
   const recentCard = (seat: number): TwinCard | undefined => {
@@ -740,14 +743,24 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
     } } : {}),
   };
-  const openSubject = (card: TwinCard, fromField = true) => {
+  const openSubject = (card: TwinCard, fromField = true, anchor?: Rect) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card); if (!id) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : "This card is not identified yet. Click it on the camera feed."); return; }
     setSubject({ cardId: id, seat, ref: card.ref, name: card.name, bestMatch: card.bestMatch, notInDecklist: flagFor(seat, id), addErrors: [], via: "field" });
-    setSelected({ seat, ref: card.ref }); if (fromField) layers.open("insp");
+    setSelected({ seat, ref: card.ref });
+    // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
+    if (anchor) { setPopAt({ anchor, feed: null }); layers.open("card"); } else if (fromField) layers.open("insp");
   };
+  // ---- Graveyard and Banished piles ----
+  const [pile, setPile] = useState<{ seat: number; zone: PileZone } | null>(null);
+  const openPile = (seat: number, zone: PileZone, opener: HTMLElement | null) => {
+    if (pile && pile.seat === seat && pile.zone === zone && layers.layer === "pile") { layers.close("pile"); return; }
+    setPile({ seat, zone }); layers.open("pile", opener);
+  };
+  // The viewer stays while its card popup is open. Any other layer, Esc or a press outside closes it.
+  useEffect(() => { if (pile && layers.layer !== "pile" && layers.layer !== "card") setPile(null); }, [pile, layers.layer]);
 
   // ---- health ----
   const healthRows = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], health: hub.health(seat) }));
@@ -854,7 +867,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
-            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
+            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
@@ -885,6 +898,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       onClose={() => layers.close("flag")} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} canUndo={canUndo} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={() => { void doUndo(); layers.close("hist"); }} />
+    {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
+      onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} at={popAt} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}

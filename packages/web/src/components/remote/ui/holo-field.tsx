@@ -67,14 +67,14 @@ function useLanded(twin: readonly TwinCard[]): ReadonlySet<string> {
 /** Drag and drop of the owner's own cards. The table decides what a verdict means (move, ask, or say why not). */
 export type FieldDrag = {
   can: (card: TwinCard) => boolean;
-  judge: (card: TwinCard, key: ZoneKey) => Verdict;
-  drop: (card: TwinCard, key: ZoneKey, verdict: Verdict) => void;
+  judge: (card: TwinCard, key: ZoneKey | "hand") => Verdict;
+  drop: (card: TwinCard, key: ZoneKey | "hand", verdict: Verdict) => void;
 };
-const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? "", same: "", confirm: s.dropAsk ?? "", refuse: s.dropNo ?? "" };
+export const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? "", same: "", confirm: s.dropAsk ?? "", refuse: s.dropNo ?? "" };
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, drag: dnd, rotated, twinCounts }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, drag: dnd, rotated, twinCounts }: {
   /** Cards that share an identity with another public card of this seat (copies seen). They get a "2×" badge. */
   twinCounts?: ReadonlyMap<string, number>;
   /** Another player's field: turned 180 degrees as on the online board, so it reads from across the table. */
@@ -86,6 +86,8 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   facing?: { name: string; twin: readonly TwinCard[] } | null;
   rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean; selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
+  /** Opens the Graveyard or Banished pile viewer. The opener gets focus back when the viewer closes. */
+  onPile?: (zone: "graveyard" | "banished", opener: HTMLElement | null) => void;
   drag?: FieldDrag;
 }) {
   const cells = cellsFor(twin, !!extraZones);
@@ -124,6 +126,10 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
     stop.current = cleanup;
   }
   const carried = carry ? twin.find(card => card.ref === carry) : undefined;
+  /** A click or Enter on a cell. The Graveyard cell opens the pile viewer (it has no card of its own). */
+  function activate(key: ZoneKey, card: TwinCard | undefined, opener: HTMLElement | null) {
+    if (key === "gy" && onPile) onPile("graveyard", opener); else onActivate(key, card);
+  }
   function dropCarried(key: ZoneKey) {
     const card = carried; setCarry(null);
     if (card && dnd) dnd.drop(card, key, dnd.judge(card, key));
@@ -155,7 +161,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
     if (carried && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCarry(null); return; }
     if (carried && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); dropCarried(key); return; }
     if ((event.key === "m" || event.key === "M") && !event.ctrlKey && !event.metaKey && !event.altKey && card && dnd?.can(card) && !isPile(key)) { event.preventDefault(); setCarry(card.ref); return; }
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(key, card); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(key, card, event.currentTarget); }
     else if ((event.key === "a" || event.key === "A") && !event.ctrlKey && !event.metaKey && card) { event.preventDefault(); onAttack(key, card); }
     else if ((event.key === "i" || event.key === "I") && card) { event.preventDefault(); onInspect(card); }
   }
@@ -179,7 +185,11 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef ? s.scanin : "", card && landed.has(card.ref) ? s.land : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : "empty";
         let inner: React.ReactNode = <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
-        if (pile && cell.count) { desc = `${cell.count} cards`; inner = <><div className={`${s.cd} ${s.back} ${key === "ex" ? s.backEx : ""}`} /><span className={s.cnt}>{cell.count}</span><span className={s.pl}>{key === "ex" ? "EXTRA DECK" : zoneLabel(key)}</span></>; }
+        if (pile && cell.count) {
+          const top = key === "gy" ? [...twin].reverse().find(item => item.zone === "graveyard") : undefined;
+          const topInfo = top && top.faceUp && cardCode(top) ? info(cardCode(top)) : undefined;
+          desc = key === "gy" && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : `${cell.count} cards`;
+          inner = <>{top && top.faceUp && cardCode(top) ? <CardFace card={top} info={topInfo} /> : <div className={`${s.cd} ${s.back} ${key === "ex" ? s.backEx : ""}`} />}<span className={s.cnt}>{cell.count}</span><span className={s.pl}>{key === "ex" ? "EXTRA DECK" : zoneLabel(key)}</span></>; }
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
         else if (down) {
           const origin=card.publicIdentity && card.setBy && cardCode(card) ? `Set from Deck by ${card.setBy.name}: ${cardName(card,cardInfo)}` : card.setBy ? `Set by ${card.setBy.name}` : "";
@@ -189,8 +199,8 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         }
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
         return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
-          aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={() => { if (carried) dropCarried(key); else onActivate(key, card); }} onPointerDown={card ? event => begin(event, card) : undefined}>
-          {inner}{key === "gy" && cells.gy.count && twinCounts && twin.some(card => card.zone === "graveyard" && twinCounts.has(card.ref)) ? <span className={s.dupb} data-testid="dup-badge" title="A card here has a copy on the field">{Math.max(...twin.filter(card => card.zone === "graveyard").map(card => twinCounts.get(card.ref) ?? 0))}×</span> : null}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished`}>BAN {banished}</span> : null}{card && twinCounts?.has(card.ref) ? <span className={s.dupb} data-testid="dup-badge" title={`${twinCounts.get(card.ref)} cards with this name`}>{twinCounts.get(card.ref)}×</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
+          aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
+          {inner}{key === "gy" && cells.gy.count && twinCounts && twin.some(card => card.zone === "graveyard" && twinCounts.has(card.ref)) ? <span className={s.dupb} data-testid="dup-badge" title="A card here has a copy on the field">{Math.max(...twin.filter(card => card.zone === "graveyard").map(card => twinCounts.get(card.ref) ?? 0))}×</span> : null}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished. Click to open`} onClick={onPile ? event => { event.stopPropagation(); onPile("banished", event.currentTarget.closest<HTMLElement>("[data-zone]")); } : undefined}>BAN {banished}</span> : null}{card && twinCounts?.has(card.ref) ? <span className={s.dupb} data-testid="dup-badge" title={`${twinCounts.get(card.ref)} cards with this name`}>{twinCounts.get(card.ref)}×</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
         </div>;
       })}
     </div>
@@ -198,13 +208,15 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
       {dnd && cells[rv] ? <b>{(() => { const v = dnd.judge(carried, rv); return v.kind === "refuse" || v.kind === "confirm" ? v.message : ""; })()}</b> : null}</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}
     {extras.length ? <div className={s.xstrip} aria-label={`${name}'s other zones`}>
-      {extras.map(zone => <span key={zone.id}>{zone.label}: {zone.cards.map(card => <button type="button" key={card.ref} onClick={() => onInspect(card)}>{cardName(card, info(cardCode(card)))}</button>)}</span>)}
+      {extras.map(zone => <span key={zone.id}>{zone.label}: {zone.id === "banished" && onPile
+        ? <button type="button" data-testid="banished-open" onClick={event => onPile("banished", event.currentTarget)}>{zone.cards.length} banished · open</button>
+        : zone.cards.map(card => <button type="button" key={card.ref} onClick={() => onInspect(card)}>{cardName(card, info(cardCode(card)))}</button>)}</span>)}
     </div> : null}
   </>;
 }
 
 /** The card that follows the pointer while it is dragged. */
-function DragGhost({ card, info, x, y, verdict }: { card: TwinCard | undefined; info: (id: number | undefined) => CardInfo | undefined; x: number; y: number; verdict: Verdict["kind"] | null }) {
+export function DragGhost({ card, info, x, y, verdict }: { card: TwinCard | undefined; info: (id: number | undefined) => CardInfo | undefined; x: number; y: number; verdict: Verdict["kind"] | null }) {
   if (!card) return null;
   const code = cardCode(card);
   return <div className={`${s.ghost} ${verdict ? VERDICT_CLASS[verdict] : ""}`} data-testid="drag-ghost" style={{ left: x, top: y }} aria-hidden="true">

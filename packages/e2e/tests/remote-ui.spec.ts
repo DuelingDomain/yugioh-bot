@@ -560,6 +560,44 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
+  test("piles: the Graveyard and Banished keep their order, the viewer lists them newest first, a drag brings a card back, Undo restores the order", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+    const move = async (ref: string, zone: string) => {
+      const current = await (await context.request.get(`/api/remote/${slug}`)).json();
+      const response = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: current.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.move", actorSeat: 0, seat: 0, zone, cardRef: ref } } });
+      expect(response.status(), await response.text()).toBe(200);
+    };
+    // Blue-Eyes enters the Graveyard before Dark Magician although it sits after it in the twin list.
+    await move("bl", "graveyard"); await move("dm", "graveyard"); await move("mst", "banished");
+    const pile = async (zone: string) => (await room()).state.seats[0].twin.filter(card => card.zone === zone).map(card => card.ref);
+    expect(await pile("graveyard")).toEqual(["bl", "dm"]);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0"); const gy = field.locator('[data-zone="gy"]');
+    await expect(gy).toBeVisible();
+    const refs = () => page.getByTestId("pile-card").evaluateAll(tiles => tiles.map(tile => tile.getAttribute("data-ref")));
+    await expect(async () => { await gy.click(); await expect(page.getByTestId("pile-viewer")).toBeVisible({ timeout: 1500 }); }).toPass({ timeout: 30_000 });
+    await expect(page.getByTestId("pile-tab-graveyard")).toContainText("2"); await expect(page.getByTestId("pile-tab-banished")).toContainText("1");
+    expect(await refs()).toEqual(["dm", "bl"]);
+    await page.keyboard.press("ArrowRight"); await expect(page.getByTestId("pile-card").nth(1)).toBeFocused();
+    await page.getByTestId("pile-tab-banished").click(); expect(await refs()).toEqual(["mst"]);
+    await page.getByTestId("pile-tab-graveyard").click();
+    // Drag Blue-Eyes from the pile to Monster Zone 3: same move, same rules, one log line, one Undo.
+    const tile = page.locator('[data-testid="pile-card"][data-ref="bl"]'); const target = field.locator('[data-zone="m3"]');
+    const a = (await tile.boundingBox())!; const b = (await target.boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 12, a.y + a.height / 2 - 12, { steps: 3 });
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+    await expect(page.getByTestId("drag-ghost")).toBeVisible(); await page.mouse.up();
+    await expect.poll(async () => find(await room(), "bl").slot).toBe(3);
+    expect(find(await room(), "bl").zone).toBe("monster"); expect(await pile("graveyard")).toEqual(["dm"]);
+    await page.getByTestId("log-button").click(); await expect(page.getByTestId("log-drawer")).toContainText("Monster Zone 3"); await page.keyboard.press("Escape");
+    await page.getByTestId("undo").click(); await expect.poll(pile.bind(null, "graveyard")).toEqual(["bl", "dm"]);
+    await gy.click(); await expect(page.getByTestId("pile-viewer")).toBeVisible();
+    expect(await refs()).toEqual(["dm", "bl"]);
+    await shot(page, "pile-viewer");
+    await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
+  });
+
   test("one card seen twice: 2x badges and a banner; Two copies hides them, Merge keeps one card with a log line and Undo", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
     // A second Mystical Space Typhoon in another Spell/Trap Zone: the same public card twice on one field.
