@@ -45,7 +45,7 @@ export interface PeekResult {
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
 export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
-export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; /** Keep AI source pixels in the worker; warp/encode only for an explicit askAI call. */ deferAICrop?:boolean; includeFeedback?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean }
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; /** Keep AI source pixels in the worker; warp/encode only for an explicit askAI call. */ deferAICrop?:boolean; includeFeedback?: boolean; /** Reuse clean visual evidence for local identity tracking without retaining pixels. */ includeIdentityEmbedding?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];
@@ -63,6 +63,8 @@ export interface RecognitionResult {
   /** Core-only pixels; worker converts to JPEG and removes these. */
   warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
   feedback?: { embedding:number[];gameId:string;modelId:string;modelSha256:string;indexVersion:string;layoutKey:string;space:'art-box'|'whole-card';deltaVersion:string };
+  /** Opt-in clean visual reference for local tracking; never uploaded or broadcast automatically. */
+  identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
   quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };

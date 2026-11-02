@@ -56,6 +56,40 @@ test('feedback evidence is opt-in, bound to a detected warp and carries its vect
   const clipped=await fixture(false).recognize([frame],{card:{...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},includeFeedback:true});
   assert.equal(clipped.feedback,undefined);
 });
+test('identity embedding is opt-in and reuses the clean art vector without feedback or crop capture',async()=>{
+  const plainCount={calls:0},identityCount={calls:0};
+  const plain=await fixture(false,plainCount).recognize([frame],{card:selected});
+  const result=await fixture(false,identityCount).recognize([frame],{card:selected,includeIdentityEmbedding:true});
+  const feedback=await fixture(false).recognize([frame],{card:selected,includeFeedback:true});
+  assert.equal('identityEmbedding' in plain,false);
+  assert.deepEqual(result.identityEmbedding,{values:feedback.feedback!.embedding,space:'art-box'});
+  assert.ok(result.identityEmbedding!.values.every(Number.isFinite));assert.equal(identityCount.calls,plainCount.calls);
+  assert.deepEqual(result.candidates,plain.candidates);assert.deepEqual(result.quality,plain.quality);
+  for(const key of ['feedback','warpedCard','aiWarpedCard','deferredAICrop','cropJpeg','aiCropJpeg','aiCropToken'] as const) assert.equal(result[key as keyof typeof result],undefined);
+  const disabled=await fixture(false).recognize([frame],{card:selected,includeIdentityEmbedding:false});
+  assert.equal('identityEmbedding' in disabled,false);assert.equal('identityEmbedding' in feedback,false);
+});
+test('identity embedding copies the winning whole-card feedback hypothesis with its matching space',async()=>{
+  const baseline={calls:0},requested={calls:0};
+  await fixture(true,baseline).recognize([frame],{card:selected,includeFeedback:true});
+  const result=await fixture(true,requested).recognize([frame],{card:selected,includeFeedback:true,includeIdentityEmbedding:true});
+  assert.equal(result.candidates[0].cardId,'C');assert.equal(result.identityEmbedding?.space,'whole-card');
+  assert.deepEqual(result.identityEmbedding?.values,result.feedback!.embedding);assert.equal(requested.calls,baseline.calls);
+  assert.notEqual(result.identityEmbedding!.values,result.feedback!.embedding);
+  const cleanValue=result.feedback!.embedding[0];result.identityEmbedding!.values[0]=-123;
+  assert.equal(result.feedback!.embedding[0],cleanValue);
+});
+test('identity embeddings exclude covered, clipped, explicitly partial, face-down and fallback evidence',async()=>{
+  for(const card of [
+    {...selected,covered:true}, {...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},
+    {...selected,partial:true}, {...selected,kind:'face-down' as const},
+  ]) {
+    const result=await fixture(false).recognize([frame],{card,includeIdentityEmbedding:true});
+    assert.equal('identityEmbedding' in result,false);
+  }
+  const f=clickFixture(()=>[]),result=await f.pipeline.recognize([f.image],{clickPoint:{x:.5,y:.5},includeIdentityEmbedding:true});
+  assert.equal(result.quality.fallback,true);assert.equal('identityEmbedding' in result,false);
+});
 test('learned references compete with the main index without manufacturing sure',async()=>{
   const p=fixture(false);
   p.setLearning({version:'v',references:[{cardId:'B',embedding:[.9,Math.sqrt(1-.9*.9)],space:'art-box'}],confusions:[]});
