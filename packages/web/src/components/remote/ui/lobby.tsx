@@ -13,8 +13,7 @@ import { COLORS } from "./model";
 import { remoteApi } from "./api";
 import type { RoomController } from "./use-remote-room";
 import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
-import { PhoneLobbyPreview } from "../phone/lobby-preview";
-import { PhonePairing } from "../phone/pairing";
+import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
 import l from "./remote-lobby.module.css";
 import r from "./lobby-room.module.css";
@@ -97,7 +96,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   const decks = saved.data?.decks ?? [];
   const blocked = !me?.ready && ((!room.solo && !me?.deck) || !!me?.deck?.validation.issues.length);
   const alert = error ?? (deckNote ? `Your deck was not seated: ${deckNote} Pick a deck below.` : saved.error?.message ?? null);
-  const feed = hub.health(room.mySeat);
+  const [cameraMode, setCameraMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
   const open = room.seatCount - room.seats.length;
   const seatNames = ["Seat 1", "Seat 2", "Seat 3", "Seat 4"];
   return <div className={sheetPage} data-testid="remote-lobby-room">
@@ -156,12 +155,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
 
         <section className={cx(room_.panel, r.cameraPanel)} aria-label="Camera setup">
           <div className={r.camHead}><h2 className={ui.sectionTitle}>Field camera</h2><p className={ui.hint}>Use a phone, a webcam, or play with the board twin and log.</p></div>
-          <PhonePairing room={room} variant="lobby" />
-          {/* Slot for the live camera preview of the lobby (lobby-camera-preview.tsx). Until it exists the feed status shows here. */}
-          <div className={r.slot} data-testid="lobby-camera-slot">
-            <p className={r.feed} role="status" data-on={feed.q === "good"}><i aria-hidden />{feed.label}</p>
-            <PhoneLobbyPreview room={room} />
-          </div>
+          <LobbyCameraPreview room={room} mode={cameraMode} onModeChange={setCameraMode} />
         </section>
 
         <div className={cx(room_.footer, r.actions)}>
