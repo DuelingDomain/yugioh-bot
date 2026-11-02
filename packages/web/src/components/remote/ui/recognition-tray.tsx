@@ -13,6 +13,8 @@ export type TrayState = {
   guesses: Guess[]; note: string; reader: string; at: PopAt;
   /** How sure the local reader was, and the kept crop for an optional AI second opinion (own camera reads only). */
   tier?: Tier; aiToken?: number; covered?: boolean; faceDown?: boolean;
+  /** The top guess is shown alone as "Best match". "Wrong card?" opens the top 5 and the search. */
+  best?: boolean;
 };
 import type { FeedbackSource } from "./recognizer";
 /** `feedback` names how a person chose this card; set only for an explicit choice, so it can be saved as a training sample. */
@@ -27,7 +29,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
   tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const hub = useVideoHub();
   const [ai, setAi] = useState<{ status: "idle" | "asking" | "done" | "none" | "off" | "error"; guess?: Guess; note?: string }>({ status: "idle" });
@@ -40,7 +42,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
     else setAi({ status: answer.status, note: answer.note });
   }
   const guessKey = tray.guesses.map(g => g.cardId).join(",");
-  useEffect(() => { void loadCards(tray.guesses.map(g => g.cardId)).then(() => tick(n => n + 1)); setCursor(0); }, [guessKey, tray.guesses]);
+  useEffect(() => { void loadCards(tray.guesses.map(g => g.cardId)).then(() => tick(n => n + 1)); setCursor(0); setWrong(false); }, [guessKey, tray.guesses]);
   useEffect(() => {
     const text = query.trim(); if (text.length < 2) { setFound(null); return; }
     let live = true; const timer = setTimeout(() => {
@@ -56,13 +58,15 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
   const reading = tray.status === "reading";
   const placing = tray.status === "sure";
   const current = list[Math.min(cursor, list.length - 1)];
-  const strip = !reading && !placing && (found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
+  const alone = !!tray.best && !wrong && found === null;
+  const strip = !reading && !placing && !alone && (found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.target === input.current || event.ctrlKey || event.metaKey || event.altKey || reading || placing) return;
       const target = event.target as HTMLElement | null;
       const n = Number(event.key);
-      if (n >= 1 && n <= 5 && list[n - 1]) { event.preventDefault(); choose(list[n - 1], found ? "typed" : "click"); }
+      if (n >= 1 && n <= 5 && strip && list[n - 1]) { event.preventDefault(); choose(list[n - 1], found ? "typed" : "click"); }
+      else if (!strip) return;
       else if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); setCursor(c => Math.min(list.length - 1, c + 1)); }
       else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); setCursor(c => Math.max(0, c - 1)); }
       else if (event.key === "Enter" && current && !target?.closest("li,button")) { event.preventDefault(); choose(current, found ? "typed" : "click"); }
@@ -84,7 +88,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
       </div> : current ? <>
         <CardText id={current.cardId} info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
           <div className={s.bchips}>
-            {found ? <span className={s.tier}>Search result</span> : placing || current === list[0] ? <TierChip tier={tray.tier} /> : null}
+            {found ? <span className={s.tier}>Search result</span> : alone ? <span className={s.tier} data-testid="best-match">Best match</span> : placing || current === list[0] ? <TierChip tier={tray.tier} /> : null}
             {tray.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
             {current.source === "ai" ? <span className={s.tier}>AI second opinion</span> : null}
             {inDeck(current.cardId) === false ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span> : null}
@@ -106,9 +110,10 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
       {ai.note ? <p className={s.bnote} role="status" data-testid="ask-ai-note">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</p> : null}
     </div>
     <div className={s.bbar}>
-      <span className={s.bhint}>{reading ? <>Press <kbd>Esc</kbd> to cancel</> : placing ? "Placing on the field…" : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
+      <span className={s.bhint}>{reading ? <>Press <kbd>Esc</kbd> to cancel</> : placing ? "Placing on the field…" : alone ? <><kbd>Enter</kbd> confirm · <kbd>Esc</kbd></> : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
       <span className={s.sp} />
       {canAsk ? <span data-testid="ask-ai-row"><button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button></span> : null}
+      {alone && !reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setWrong(true)} data-testid="wrong-card">Wrong card?</button> : null}
       {!reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button> : null}
       {!reading && !placing && current ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={() => choose(current, found ? "typed" : "click")} data-testid="confirm-card"><Icon name="check" />This is it</button> : null}
     </div>

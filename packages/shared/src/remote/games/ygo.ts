@@ -138,6 +138,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         card.zone = action.zone;
         if(["deck","extra"].includes(card.zone)) delete card.publicIdentity;
         if (action.position !== undefined) card.position = action.position;
+        if (action.faceUp !== undefined) card.faceUp = action.faceUp;
       }
       if (action.type === "twin.flip") card.faceUp = action.faceUp;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);

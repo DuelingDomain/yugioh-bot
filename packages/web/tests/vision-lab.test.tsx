@@ -563,7 +563,7 @@ it('owner and observer feed clicks select an identified physical ref without cap
     capture.mockClear();capture.mockImplementation(()=>{throw Error('cached click must not capture');});state.feedDetect.mockClear();
     const select=vi.fn(),begin=vi.fn(),point=vi.fn();
     state.feedHub={sourceFor:()=>source,setFrozen:()=>{},trackedAt:vi.fn(()=>card),trackedCards:()=>[card]};
-    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onPoint={point} onSelect={select} onAdd={()=>{}} onReset={()=>{}} holdSelection={false} emptyText=""/>);
+    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onMiss={()=>{}} onSearch={()=>{}} onPoint={point} onSelect={select} onAdd={()=>{}} onReset={()=>{}} holdSelection={false} emptyText=""/>);
     fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
     expect(select).toHaveBeenCalledWith(0,expect.objectContaining({cached:card,quad:card.quad}));
     expect(begin).not.toHaveBeenCalled();expect(point).not.toHaveBeenCalled();expect(state.feedDetect).not.toHaveBeenCalled();expect(capture).not.toHaveBeenCalled();
