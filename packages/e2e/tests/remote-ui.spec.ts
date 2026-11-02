@@ -567,6 +567,29 @@ test.describe("remote lobby camera step", () => {
     await expect(video).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: MediaStream[] }).__opened.every(s => s.getTracks().every(track => track.readyState === "ended")))).toBe(true);
   });
+
+  test("zones calibrated in the lobby are the ones the table reads, so it does not ask again", async ({ page, context }) => {
+    const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true } });
+    const slug = (await created.json()).slug as string;
+    await page.goto(`/duels/remote/${slug}`);
+    const zones = page.getByTestId("lobby-cam-zones");
+    await expect(zones).toHaveAttribute("data-state", "first");
+    await expect.poll(() => page.getByTestId("lobby-cam-video").evaluate((el: HTMLVideoElement) => el.videoWidth > 0)).toBe(true);
+    await shot(page, "lobby-zones-first");
+    await page.getByTestId("lobby-cam-calibrate").click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones" });
+    await dialog.getByTestId("camera-faces-me").click();
+    await dialog.getByRole("button", { name: "Top-left grid corner" }).focus();
+    for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight");
+    await dialog.getByRole("button", { name: "Save calibration" }).click();
+    await expect(zones).toHaveAttribute("data-state", "done");
+    await shot(page, "lobby-zones-done");
+    expect((await context.request.post(`/api/remote/${slug}/ready`, { data: { ready: true } })).ok()).toBe(true);
+    expect((await context.request.post(`/api/remote/${slug}/start`, { data: {} })).ok()).toBe(true);
+    await expect(page.getByTestId("remote-table")).toBeVisible();
+    await expect(page.getByTestId("field-watcher-status")).toBeVisible();
+    await expect(page.getByTestId("field-watcher-status")).not.toContainText("Choose your side");
+  });
 });
 
 test.describe("remote duels screen, moving cards by hand", () => {

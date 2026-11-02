@@ -24,7 +24,7 @@ export function LobbyZonesStep({ live, calibrated, skipped, calibration, onCalib
       {state === "first" && live ? <span className={s.badge}>Recommended · one time</span> : null}
     </div>
     {calibrated ? <div className={s.zonesDone}>
-      <p className={s.zonesOk} role="status"><Check size={15} strokeWidth={2} aria-hidden /> Calibrated <span aria-hidden>·</span> saved for this camera</p>
+      <p className={s.zonesOk} role="status"><Check size={15} strokeWidth={2} aria-hidden /> Calibrated</p>
       <SheetButton size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Redo</SheetButton>
     </div> : <>
       <p className={s.zonesWarn} role="status">Not calibrated</p>
