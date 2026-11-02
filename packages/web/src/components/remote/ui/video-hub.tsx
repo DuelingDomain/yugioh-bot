@@ -8,6 +8,7 @@ import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/
 import {FieldTrackCache} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
+import { readSavedCamera, savedCameraIfPresent } from "./camera-choice";
 import { deckIdsOf, seenCardIds } from "./model";
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
@@ -134,8 +135,9 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     stopLocal();
     const any = { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } };
     // A remembered camera can be gone (unplugged, or the id changed). Fall back to the default camera instead of failing.
-    const media = deviceId
-      ? await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, ...any }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: any, audio: false }))
+    const wanted = deviceId || readSavedCamera();
+    const media = wanted
+      ? await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: wanted }, ...any }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: any, audio: false }))
       : await navigator.mediaDevices.getUserMedia({ video: any, audio: false });
     localRef.current = media; setLocal(media); setLocalCamera(media.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId);
     setLocalDevices((await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput"));
@@ -153,7 +155,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const response=await fetch(`/api/remote/${roomRef.current.slug}/phone`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mode:"webcam"})});
     if(!response.ok)throw new Error("Could not select webcam mode");
     await roster.mutate();
-    if(localOnly)await startLocal(localCamera);else await controller?.connect();
+    if(localOnly)await startLocal(localCamera);else await controller?.connect(await savedCameraIfPresent());
   }), [guard, localOnly, phoneWanted, startLocal, localCamera, controller,roster.mutate]);
   const useWebcam = useCallback(() => guard(async () => {
     const slug = roomRef.current.slug;
@@ -162,7 +164,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const response = await fetch(`/api/remote/${slug}/phone`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "webcam" }) });
     if (!response.ok) throw new Error("Could not select webcam mode");
     await roster.mutate();
-    if (solo) await startLocal(localCamera); else await controller?.connect();
+    if (solo) await startLocal(localCamera); else await controller?.connect(await savedCameraIfPresent());
   }), [guard, phones, solo, startLocal, localCamera, controller, roster.mutate]);
   const disableCamera = useCallback(() => guard(async () => { if (localOnly) stopLocal(); else await controller?.stop(); }), [guard, localOnly, stopLocal, controller]);
   const selectCamera = useCallback((id: string) => guard(() => localOnly ? startLocal(id) : controller ? controller.selectCamera(id) : Promise.resolve()), [guard, localOnly, startLocal, controller]);
