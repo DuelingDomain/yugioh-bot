@@ -45,7 +45,7 @@ export interface PeekResult {
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
 export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
-export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; includeFeedback?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean }
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; includeFeedback?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean; /** Default true (lab behaviour): with no detected card, read a region guessed around the click. Feed clicks pass false: no detected card means no read. */ regionFallback?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];

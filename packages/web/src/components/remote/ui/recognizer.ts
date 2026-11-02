@@ -12,6 +12,8 @@ export type ReadResult = {
   aiToken?: number;
   visionTimingsMs?: Record<string,number>;
   backend?: string;
+  /** Laplacian variance near the click on the frame that was read. Absent for reads made elsewhere (a phone, a peer). */
+  sharpness?: number;
 };
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
 export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
@@ -19,7 +21,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: string };
+type RawResult = { quality?: { sharpness?: number }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: string };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
@@ -36,6 +38,20 @@ type VisionRecognizer = {
 };
 
 export type FeedbackSource = "pick" | "search" | "voice" | "ai";
+/** A frame is sharp enough when the Laplacian variance near the click is at least this. Measured on 1280-wide frames: a 2 px blur scores about 12 to 22, a clean frame 40 and up. */
+export const SHARP_FLOOR = 30;
+/** Top guess must lead the second by this much to be shown alone. */
+export const BEST_MARGIN = 0.06;
+/**
+ * A read that is "not sure" but clear enough to show its top guess as the answer (popup = that card, "Wrong card?" for the rest).
+ * "Sure" reads are handled apart (placed at once); "low match" and blurry frames show the guess strip first.
+ */
+export function isBestMatch(read: ReadResult): boolean {
+  if (read.reader !== "vision" || read.tier !== "not sure" || read.faceDown || read.covered || !read.guesses.length) return false;
+  const [first, second] = read.guesses;
+  if (first.score === null || (read.sharpness !== undefined && read.sharpness < SHARP_FLOOR)) return false;
+  return second?.score == null || first.score - second.score >= BEST_MARGIN;
+}
 const READ_TIMEOUT_MS = 10_000;
 const RING_MS = 1000;
 const FRAME_GAP_MS = 200;
@@ -221,7 +237,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5, regionFallback: false, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
     const wire = toRemoteRecognitionResult(result, byId, "local");
@@ -229,7 +245,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
+    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");

@@ -106,6 +106,8 @@ export class RecognitionPipeline {
         covered ||= isCovered(quad(card),scene.map(c=>quad(c)));
       }
       timings.detect += performance.now() - t;
+      // No detected card and no explicit outline: a region guessed around the click is only read when the caller allows it.
+      if (!selected && !card && opts.regionFallback === false) { frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:false,eligible:false}); continue; }
       t = performance.now();
       const corners = selected ? selected.quad.map(p=>({x:p.x*frame.width,y:p.y*frame.height})) : card ? refinedCorners(card, frame) : [];
       const found = corners.length === 4;
