@@ -1,0 +1,9 @@
+{
+  "trainingDir": "/mnt/d/VisionData/training",
+  "outputDir": "/mnt/d/VisionData/bakeoff-run-01",
+  "candidates": ["dinov2-small", "dinov3-small", "dinov3-small-plus", "dinov2-base", "mobileclip2-s0", "mobileclip2-s2"],
+  "recipe": {"steps": 12000, "workers": 2, "bs": 16, "real-bs": 8},
+  "initialCheckpoints": {},
+  "sessions": [],
+  "crops": []
+}
