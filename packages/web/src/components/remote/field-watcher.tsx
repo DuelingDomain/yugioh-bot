@@ -76,8 +76,8 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       existing=bound??twins.find(c=>sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(!existing&&entry){
-      // A hidden track still owns its physical copy in another slot.
-      const unbound=twins.filter(c=>publicField(c.zone)&&c.faceUp&&cardCode(c)===catalogCardId(entry)&&(!tracks.current.some(t=>owns(t,c.ref))||sameSlot(c)));
+      // An unread restart track may reserve the physical spot before adopting its ref.
+      const unbound=twins.filter(c=>publicField(c.zone)&&c.faceUp&&cardCode(c)===catalogCardId(entry)&&(!tracks.current.some(t=>owns(t,c.ref)||(t.id!==event.track.id&&!t.removed&&t.zone===knownZone(c)))||sameSlot(c)));
       if(unbound.length>1){return {existing,blocked:true};}
       if(unbound.length===1)existing=unbound[0];
     }
