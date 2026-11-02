@@ -270,8 +270,10 @@ it('a replacement during the placement HTTP request rolls back the new twin and 
 
 it('failed compensating Undo exposes a recoverable stale-placement error with the exact created ref',async()=>{
  const {applyVerifiedFieldMutation,StaleFieldPlacementError}=await import('../src/lib/remote/field-proposals');
+ for(const networkFailure of [false,true]){
  const event={type:'placed',track:{id:'a',cardId:'A',state:'identified',visible:true,revision:0}} as any;let current={...event.track};
  const proposal={type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref:'a',cardId:1,faceUp:true}} as any;
- const result=applyVerifiedFieldMutation(event,()=>current,async action=>{if(action.type==='undo')return null;current={...current,visible:false,revision:1};return {state:{undo:{actionId:'superseded'}}} as any;},proposal);
+ const result=applyVerifiedFieldMutation(event,()=>current,async action=>{if(action.type==='undo'){if(networkFailure)throw Error('offline');return null;}current={...current,visible:false,revision:1};return {state:{undo:{actionId:'superseded'}}} as any;},proposal);
  const error=await result.catch(error=>error);expect(error).toBeInstanceOf(StaleFieldPlacementError);expect(error.placement.card.ref).toBe('a');expect(error.message).toContain('Remove the stale placement');
+ }
 });

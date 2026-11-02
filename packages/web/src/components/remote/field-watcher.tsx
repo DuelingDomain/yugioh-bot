@@ -32,6 +32,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
+  useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=toZone(c.zone,c.slot);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
@@ -72,6 +73,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     setPending(true);
     try {
       let updated:RemoteRoom|null=null;
+      if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
       }
@@ -113,6 +115,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
   useEffect(()=>{
+    setPrompts(list=>{const next=list.filter(p=>watch.getTrack(p.track.id));return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
     for(const ref of previousRefs.current)if(!refs.has(ref))watch.forget(ref);
     previousRefs.current=refs;
@@ -149,9 +152,9 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   const video=host?.querySelector('video')??null;
   const label=watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   return <>
-    <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%${!watch.calibration?' · Calibrate zones for exact columns':''}`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
-      prompts={prompts.map(event=>({id:event.track.id,zone:event.track.zone,title:event.reason==='changed'?'Card changed?':'New card?',quad:event.track.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,candidates:event.reason==='pile'?[]:event.result?.candidates.slice(0,5).map(c=>({id:c.cardId,label:entries.current.get(c.cardId)?.name??c.cardId}))??[]}))}
-      onChoose={(id,cardId)=>{const event=prompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId));}}
+    <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+      prompts={prompts.map(event=>({id:event.track.id,zone:event.track.zone,title:event.reason==='changed'?'Card changed?':'New card?',quad:event.track.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,candidates:event.reason==='pile'?[]:event.track.faceDown?[{id:'face-down',label:'Confirm face-down card'}]:event.result?.candidates.slice(0,5).map(c=>({id:c.cardId,label:entries.current.get(c.cardId)?.name??c.cardId}))??[]}))}
+      onChoose={(id,cardId)=>{const event=prompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId==='face-down'?undefined:cardId));}}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));}}
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
