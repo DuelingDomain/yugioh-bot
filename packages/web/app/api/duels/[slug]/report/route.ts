@@ -9,9 +9,9 @@ export const runtime = "nodejs";
 const MAX_NOTE = 4000;
 const MAX_ATTACHMENTS = 1_500_000;
 
-/** Tells the room whether to show the Report button. 404 when DUEL_SCENARIOS is off. No engine call. */
+/** Tells the room whether to show the Report button without an engine call. */
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  if (!scenariosEnabled()) return scenariosOffResponse();
+  if (!scenariosEnabled()) return NextResponse.json({ enabled: false }, { headers: { "cache-control": "private, no-store" } });
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;

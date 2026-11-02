@@ -2,12 +2,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acceptDuelInvite, archiveDuel, cancelDuel, chooseOpeningOrder, DeckValidationSkippedError,
   duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, pickOpeningMove,
-  sendDuelAction, setChainResponseMode, startDuel, surrenderDuel, takeDuelSeat, validateDuelDeck,
+  reportEnabled, sendDuelAction, setChainResponseMode, startDuel, surrenderDuel, takeDuelSeat, validateDuelDeck,
 } from "../src/components/duel/api";
 import { duelFxClock } from "../src/components/duel/fx-clock";
 import { makeSeriesRoom } from "./helpers/duel-series";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe("report capability", () => {
+  it.each([true, false])("uses the enabled flag from a successful response: %s", async (enabled) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ enabled })));
+    await expect(reportEnabled("table")).resolves.toBe(enabled);
+  });
+
+  it("keeps reports disabled when the capability request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "unavailable" }, { status: 503 })));
+    await expect(reportEnabled("table")).resolves.toBe(false);
+  });
+});
 
 describe("POST room receive time", () => {
   const requests = [

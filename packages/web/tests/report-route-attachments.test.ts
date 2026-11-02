@@ -44,6 +44,17 @@ describe("report route client-attachments.json", () => {
     expect(JSON.parse(readFileSync(join(dir, "client-attachments.json"), "utf8"))).toEqual(attachments);
   });
 
+  it("reports disabled capability without a 404 while keeping report submission gated", async () => {
+    vi.stubEnv("DUEL_SCENARIOS", "0");
+    const { GET, POST } = await import("../app/api/duels/[slug]/report/route");
+    const capability = await GET(new Request("http://x"), ctx);
+    expect(capability.status).toBe(200);
+    expect(await capability.json()).toEqual({ enabled: false });
+    expect(capability.headers.get("cache-control")).toBe("private, no-store");
+    expect((await POST(post({ note: "n" }), ctx)).status).toBe(404);
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
   it("writes no file without attachments", async () => {
     const { POST } = await import("../app/api/duels/[slug]/report/route");
     const a = await POST(post({ note: "n" }), ctx);

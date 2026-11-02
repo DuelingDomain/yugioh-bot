@@ -734,7 +734,7 @@ export async function reportDuel(slug: string, note: string): Promise<{ path: st
 export async function reportEnabled(slug: string): Promise<boolean> {
   try {
     const res = await fetch(`/api/duels/${encodeURIComponent(slug)}/report`, { cache: "no-store" });
-    return res.ok;
+    return res.ok && (await res.json()).enabled === true;
   } catch {
     return false;
   }
