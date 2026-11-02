@@ -145,7 +145,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         sample.at-t.view.lastSeen<=removalMs));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
-        if(ratio>.5&&ratio<2&&clearOldSpot(lost[0])&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
+        if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){
+          if(clearOldSpot(lost[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
+          // Do not turn the first motion frame into a new birth. Reserve this
+          // ambiguous outline until the old spot clears or both copies reappear.
+          else if(bound(lost[0]))taken.add(incoming[0]);
+        }
       }
       for(const c of cards)if(c.confidence>=.7&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         if(calibration&&c.quad.map(p=>onMat(p,calibration)).some(p=>p.x<0||p.x>1||p.y<0||p.y>1))continue;

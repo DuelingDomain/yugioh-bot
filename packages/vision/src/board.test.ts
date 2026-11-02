@@ -576,7 +576,7 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  assert.equal(gallery.resolve({values:[.75,Math.sqrt(1-.75**2)],space:'art-box'}).kind,'hold');
  assert.equal(gallery.resolve({values:[0,1],space:'art-box'}).kind,'new');
  const restored=createFieldIdentityGallery(JSON.parse(JSON.stringify(gallery.entries())));
- const a=fieldRig('low match',20,restored);a.embedding=[1,0];a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
+ const a=fieldRig('low match',20,restored);a.embedding=[1,0];a.identity='B';a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
  const placements=a.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.ok(placements.every(e=>e.track.cardId==='A'));assert.notEqual(placements[0].track.id,placements[1].track.id);assert.equal(a.events.some(e=>e.type==='prompt'),false);a.watcher.dispose();
  restored.remember(vector,undefined);const b=fieldRig('low match',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
@@ -593,7 +593,7 @@ test('tracker follows slides, quarter turns and GY entry without another identit
  assert.ok(r.events.some(e=>e.type==='moved'&&e.track.position==='defense'));assert.equal(r.reads,before);
  // Non-overlapping transfer: the old footprint is empty, exactly one incoming card.
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?turn:Array(288).fill(.2);r.outlines=[card(.84,.3,.14,.2)];
- const from=r.at;for(let i=0;i<5&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
+ const from=r.at;r.motion=.2;await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks.length,1,'motion frame reserves the incoming outline rather than birthing a second copy');r.motion=0;for(let i=0;i<4&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
  const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.ok(r.at-from<=500);assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
  for(const destination of [card(.84,.3,.14,.2),card(.38,.3)]){const covered=fieldRig();covered.appearance=pixels;for(let i=0;i<8;i++)await covered.tick();const id=covered.events[0].track.id;covered.watcher.confirm(id,'A');
  covered.outlines=[];covered.appearance=Array(288).fill(.8);covered.motion=.2;await covered.tick(100);covered.motion=0;covered.appearanceAt=c=>c.quad[0].x===destination.quad[0].x?pixels:Array(288).fill(.8);covered.outlines=[destination];for(let i=0;i<8;i++)await covered.tick(100);
