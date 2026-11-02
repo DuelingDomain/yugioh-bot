@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
+import type { RemoteAction, RemoteState, RemoteSystemAction, RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { PHASE_LONG } from "./model";
 
 type AnyAction = RemoteAction | RemoteSystemAction;
@@ -37,7 +37,7 @@ export function actionCardRefs(action: AnyAction): string[] {
  * The short label on the field Undo button. Returns null when the action has no short form,
  * so the caller falls back to the longer log line.
  */
-export function shortUndoLabel(event: RemoteEvent, cardName: (seat: number, ref: string) => string | undefined, name: (seat: number) => string): string | null {
+export function shortUndoLabel(event: { action: unknown }, cardName: (seat: number, ref: string) => string | undefined, name: (seat: number) => string): string | null {
   const a = event.action as AnyAction;
   switch (a.type) {
     case "twin.move": return `${a.name ?? cardName(a.seat, a.cardRef) ?? "Card"} → ${zoneShort(a.zone, a.slot)}`;
@@ -56,4 +56,12 @@ export function shortUndoLabel(event: RemoteEvent, cardName: (seat: number, ref:
  */
 export function phaseBackAction(actorSeat: number, phase: string): RemoteAction {
   return { type: "phase.set", actorSeat, phase } as RemoteAction;
+}
+
+/**
+ * My own recent actions, newest first, from the server's undo history (it already holds the rejection reason
+ * for an action that cannot be undone now). A solo table plays every seat, so it shows all of them.
+ */
+export function ownUndoEntries(state: RemoteState, solo: boolean, mySeat: number): RemoteUndoEntry[] {
+  return [...(state.undoHistory ?? [])].filter(entry => !entry.undone && (solo || entry.actorSeat === mySeat)).sort((a, b) => b.order - a.order);
 }

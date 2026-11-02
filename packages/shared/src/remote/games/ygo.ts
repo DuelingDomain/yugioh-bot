@@ -1,5 +1,6 @@
+import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
-import type { GameModule, RemotePosition, RemoteSeatState, RemoteState } from "../types.js";
+import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } from "../deck-checks.js";
@@ -20,10 +21,6 @@ const zones = [
 ] as const;
 /** Graveyard and banished piles are ordered by the twin list: oldest first, newest last. Undo restores the list as it was. */
 const enteringPile = (from: string, to: string) => from !== to && (to === "graveyard" || to === "banished");
-function position(state: RemoteState): RemotePosition {
-  const { updatedAt: _at, undo: _undo, ...board } = state;
-  return structuredClone(board);
-}
 function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReductionContext): RemoteState {
   const parsed = remoteActionSchema.safeParse(input);
   remoteAssert(parsed.success, "Invalid remote action");
@@ -33,6 +30,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
   if (action.type === "undo") {
+    if (!context?.replay || context.undoVersion === 1) return undoRemoteAction(state, action);
+    // Preserve the semantics of already accepted legacy events, including cross-seat undo.
     const undo = state.undo;
     remoteAssert(undo && undo.actionId === action.targetActionId && at - undo.at <= 5000, "Undo expired or action is no longer the latest reversible action", 409, "UNDO_UNAVAILABLE");
     return { ...structuredClone(undo.before), updatedAt: at, undo: null };
@@ -170,7 +169,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) { next.ended = true; next.winnerSeat = living[0]?.seat ?? null; next.attack = null; }
-  next.undo = { actionId: action.idempotencyKey, at, before: position(state) };
+  rememberRemoteAction(state, next, action);
   return next;
 }
 export const ygoModule: GameModule = {

@@ -79,14 +79,16 @@ export function HealthPopover({ open, rows, onClose }: { open: boolean; rows: He
   </div>;
 }
 
-export type HistoryItem = { id: string; label: string };
-/** The last five actions. The foundation can undo only the newest one, inside its 5 s window. */
-export function HistoryPopover({ open, items, canUndo, style, onUndo }: { open: boolean; items: HistoryItem[]; canUndo: boolean; style: CSSProperties; onUndo: () => void }) {
+export type HistoryItem = { id: string; label: string; reason?: string };
+/** My last actions, newest first. Click any entry to undo it. An entry the server would refuse shows why. */
+export function HistoryPopover({ open, items, style, onUndo }: { open: boolean; items: HistoryItem[]; style: CSSProperties; onUndo: (id: string) => void }) {
   return <div className={`${s.pop} ${s.hist} ${open ? s.show : ""}`} data-layer="hist" role="dialog" aria-label="Recent actions" style={style} data-testid="history-popover" inert={!open}>
-    <h2 className={s.cap}>Last {items.length || 5} actions</h2>
+    <h2 className={s.cap}>Your last {items.length} {items.length === 1 ? "action" : "actions"}</h2>
     {items.length ? <ol>{items.map((item, index) => <li key={item.id}>
-      <span><b>{item.label}</b><small>{index === 0 ? (canUndo ? "Newest. Same as the Undo button" : "Newest. The undo window has closed") : "Older. Only the newest action can be undone"}</small></span>
-      {index === 0 ? <button type="button" className={`${s.btn} ${s.sm}`} disabled={!canUndo} onClick={onUndo}>Undo</button> : <span />}
+      <button type="button" className={`${s.hrow} ${item.reason ? s.cblocked : ""}`} aria-disabled={!!item.reason} onClick={() => onUndo(item.id)} data-testid="history-entry">
+        <span><b>{item.label}</b><small>{item.reason ?? (index === 0 ? "Newest. Same as the Undo button" : "Click to undo this one")}</small></span>
+        <em>Undo</em>
+      </button>
     </li>)}</ol> : <p className={s.empty}>Nothing to undo yet.</p>}
   </div>;
 }

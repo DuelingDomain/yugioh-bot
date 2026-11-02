@@ -45,6 +45,8 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  /** Versioned undo semantics for already accepted event replay. */
+  undoVersion?: 1;
   /** Event-time rule; absent on events recorded before Deck publicity existed. */
   showCardsSetFromDeck?: boolean;
   effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
@@ -66,6 +68,7 @@ export function applyRemoteFormat(input: RemoteState, format: RemoteFormat): Rem
   state.deckChecks.format = structuredClone(format);
   for (const seat of state.seats) seat.resources.lp = format.settings.startingLP;
   state.undo = null;
+  delete state.undoHistory;
   return state;
 }
 /** Full-validator callback must be deterministic for the supplied catalog/points snapshot. */

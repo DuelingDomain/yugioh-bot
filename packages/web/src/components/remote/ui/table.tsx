@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
-import { actionCardRefs, phaseBackAction, shortUndoLabel } from "./undo-ui";
+import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
 import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
@@ -45,7 +45,6 @@ import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legali
 import {fieldZoneLocation} from '@yugidraft/vision';
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
-const UNDO_MS = 5000;
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -193,9 +192,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
 
   // ---- undo ----
-  const undo = state.undo; const [clock, setClock] = useState(0); const [flash, setFlash] = useState(0);
+  const [clock, setClock] = useState(0); const [flash, setFlash] = useState(0);
   const idleOn = room.idleWarningAt !== null;
-  useEffect(() => { if (!undo && !idleOn) return; const timer = setInterval(() => setClock(n => n + 1), 250); return () => clearInterval(timer); }, [undo, idleOn]);
+  useEffect(() => { if (!idleOn) return; const timer = setInterval(() => setClock(n => n + 1), 250); return () => clearInterval(timer); }, [idleOn]);
   void clock;
   // The server closes a table after 10 minutes without activity. Playing with the camera on makes no table actions,
   // so tell the server once a minute that a seated player is still here: camera or phone video on, or recent input.
@@ -214,23 +213,25 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const timer = setInterval(ping, 60_000);
     return () => { clearInterval(timer); window.removeEventListener("pointerdown", mark, true); window.removeEventListener("keydown", mark, true); };
   }, [live, mySeat, slugOfTable]);
-  // The server decides the window from its own clock (undo.at + 5 s), so count down from that time, not from first sight.
-  const left = undo ? Math.ceil((undo.at + UNDO_MS - serverNow()) / 1000) : 0;
-  const canUndo = !!undo && left > 0 && (room.status === "active" || room.status === "ended");
-  const undoEvent = undo ? room.events.find(event => event.id === undo.actionId) : undefined;
-  const undoText = undoEvent ? undoLabel(describeEvent(undoEvent, name, nameOfCard)?.text ?? "last action") : "last action";
+  // The server keeps the player's own last 20 actions (this turn and the one before) with a rejection reason when one cannot be undone now.
+  const ownUndo = ownUndoEntries(state, solo, mySeat);
+  const newestUndo = ownUndo[0];
+  const canUndo = !!newestUndo && (room.status === "active" || room.status === "ended");
+  const cardLabel = (seat: number, ref: string) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; };
+  const entryText = (entry: RemoteUndoEntry) => { const event = room.events.find(item => item.id === entry.actionId); return undoLabel(describeEvent(event ?? { id: entry.actionId, seq: 0, actorSeat: entry.actorSeat, action: entry.action, messages: [] } as unknown as RemoteEvent, name, nameOfCard)?.text ?? "last action"); };
   // Short label for the field Undo button ("Dark Magician → M3"). The dock keeps the longer log line.
-  const undoShort = undoEvent
-    ? undoLabel(shortUndoLabel(undoEvent, (seat, ref) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; }, name) ?? undoText)
-    : "last action";
-  const history = [...room.events].sort((a, b) => b.seq - a.seq).flatMap(event => { const line = describeEvent(event, name, nameOfCard); return line?.undoable ? [{ id: event.id, label: undoLabel(line.text) }] : []; }).slice(0, 5);
-  const doUndo = useCallback(async () => {
-    const { state: current, room: now } = R.current; const u = current.undo; if (!u) return;
-    const event = now.events.find(item => item.id === u.actionId);
-    // Any seated player may undo, but the server accepts only the session seat (a solo table may act for its bots).
-    const done = await act({ type: "undo", actorSeat: now.solo ? (event?.actorSeat ?? now.mySeat) : now.mySeat, targetActionId: u.actionId });
-    if (done) { setFlash(n => n + 1); toast(<>Undid <b>{undoText}</b></>); }
-  }, [act, toast, undoText]);
+  const entryShort = (entry: RemoteUndoEntry) => undoLabel(shortUndoLabel(entry, cardLabel, name) ?? entryText(entry));
+  const undoText = newestUndo ? entryText(newestUndo) : "last action";
+  const undoShort = newestUndo ? entryShort(newestUndo) : "last action";
+  const history = ownUndo.slice(0, 20).map(entry => ({ id: entry.actionId, label: entryShort(entry), reason: entry.reason }));
+  /** Undo one of my own actions. No entry means the newest. A rejected undo shows the server's reason. */
+  const doUndo = useCallback(async (entry?: RemoteUndoEntry) => {
+    const { state: current, room: now } = R.current;
+    const target = entry ?? ownUndoEntries(current, now.solo, now.mySeat)[0]; if (!target) return;
+    if (target.reason) { toast(target.reason, 4200); return; }
+    const done = await act({ type: "undo", actorSeat: now.solo ? target.actorSeat : now.mySeat, targetActionId: target.actionId });
+    if (done) { setFlash(n => n + 1); toast(<>Undid <b>{shortUndoLabel(target, (seat, ref) => { const card = current.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; }, name) ?? "last action"}</b></>); }
+  }, [act, toast, name, info]);
 
   // ---- feed marks, recognition ----
   const [marks, setMarks] = useState<Record<number, FeedMark[]>>({});
@@ -737,13 +738,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const block = subject ? attackBlock(subject.seat, subjectCard) : "";
   const flagOf = (seat: number) => deckFlag(room, seat);
   const flagActor = solo ? (seatIds.find(seat => !state.seats[seat]?.eliminated) ?? mySeat) : mySeat;
-  // "Undo last change to this card": the foundation undoes only the newest action, so this works when that action touched this card.
-  const touches = (event: { action: unknown }) => !!subject?.ref && actionCardRefs(event.action as Parameters<typeof actionCardRefs>[0]).includes(subject.ref);
-  const cardUndo: CardActions["undo"] = subject?.ref && live
-    ? undoEvent && canUndo && touches(undoEvent) ? { latest: true, label: undoShort, onUndo: () => { void doUndo(); layers.close(); } }
-    : [...room.events].sort((a, b) => b.seq - a.seq).filter(event => describeEvent(event, name, nameOfCard)?.undoable).slice(0, 5).some(touches)
-      ? { latest: false, label: "", onUndo: () => undefined, onHistory: (el: HTMLElement) => layers.toggle("hist", el) } : undefined
-    : undefined;
+  // "Undo last change to this card": a targeted undo of the newest own action that touched this card.
+  const cardEntry = subject?.ref ? ownUndo.find(entry => entry.cards.includes(`${subject.seat}:${subject.ref}`)) : undefined;
+  const cardUndo: CardActions["undo"] = cardEntry && live
+    ? { label: entryShort(cardEntry), reason: cardEntry.reason, onUndo: () => { void doUndo(cardEntry); if (!cardEntry.reason) layers.close(); } } : undefined;
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
@@ -899,7 +897,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
-            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, secondsLeft: left, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
+            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
@@ -909,12 +907,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
         <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false }) : trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
-        <UndoSection label={undoText} enabled={canUndo} secondsLeft={left} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
+        <UndoSection label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
       </footer>
     </div>
 
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void act({ type: "log.note", actorSeat: mySeat, text: "Still playing" })} />
-    <LogDrawer open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo window: 5 seconds, newest action only"]}
+    <LogDrawer open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
       onConcede={!solo && mySeat >= 0 ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
@@ -927,7 +925,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       onMerge={(flag, keep, remove) => { void act({ type: "twin.merge", actorSeat: solo ? flag.seat : mySeat, seat: flag.seat, keepInstanceId: keep, removeInstanceId: remove, reason: "Same physical card; system split the instance" }); layers.close("flag"); }}
       onClose={() => layers.close("flag")} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
-    <HistoryPopover open={layers.layer === "hist"} items={history} canUndo={canUndo} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={() => { void doUndo(); layers.close("hist"); }} />
+    <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} at={popAt} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
