@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { duelFontClasses } from "./fonts";
 import ui from "./sheet-ui.module.css";
 
@@ -14,7 +15,7 @@ export function cx(...names: (string | false | null | undefined)[]): string {
 export const sheetRoot = cx(ui.root, duelFontClasses);
 export const sheetPage = cx(sheetRoot, ui.page);
 
-export type Choice<T> = { value: T; label: string; icon?: ReactNode; disabled?: boolean };
+export type Choice<T> = { value: T; label: string; icon?: ReactNode; disabled?: boolean; description?: string; group?: string };
 
 type ButtonKind = "primary" | "secondary" | "quiet" | "danger";
 const KIND: Record<ButtonKind, string> = {
@@ -47,7 +48,7 @@ export function SheetButton({
   );
 }
 
-/** Native select (keeps keyboard and screen-reader behaviour) with the sheet's slim styling. */
+/** Themed select (button + listbox, bottom sheet on phones) with the sheet's slim styling. A hidden native select keeps `testId` + `selectOption` working. */
 export function SheetSelect<T extends string | number | boolean>({
   label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel,
 }: {
@@ -61,24 +62,14 @@ export function SheetSelect<T extends string | number | boolean>({
   hideLabel?: boolean;
   /** The id of text that explains the select, such as a hint under it. */
   describedBy?: string;
-  /** Test id of the native select element. */
+  /** Test id of the hidden native select element. */
   testId?: string;
   /** Accessible name that replaces the visible label for screen readers, such as when several selects share one label. */
   ariaLabel?: string;
 }) {
   return (
-    <label className={className} style={{ display: "block", minWidth: 0 }}>
-      <span className={hideLabel ? ui.srOnly : ui.label}>{label}</span>
-      <span className={cx(ui.selectWrap, compact && ui.selectSm)}>
-        <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} aria-label={ariaLabel} aria-describedby={describedBy} data-testid={testId} onChange={(event) => {
-          const selected = choices.find((choice) => String(choice.value) === event.target.value);
-          if (selected && !selected.disabled) onChange?.(selected.value);
-        }}>
-          {choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)} disabled={choice.disabled}>{choice.label}</option>)}
-        </select>
-        <ChevronDown size={16} strokeWidth={1.6} aria-hidden />
-      </span>
-    </label>
+    <ThemedSelect label={label} value={value} choices={choices} onChange={onChange} disabled={disabled} compact={compact}
+      className={className} hideLabel={hideLabel} describedBy={describedBy} testId={testId} ariaLabel={ariaLabel} />
   );
 }
 
