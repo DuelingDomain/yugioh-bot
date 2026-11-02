@@ -53,3 +53,26 @@ the other worker. Only the lab tab selector needs a small existing-file edit.
   fixtures/reports under ignored data. Syntax-check and tiny generator run.
 - Typecheck affected packages; request independent code review; fix material
   findings; commit in small units and push branch, no PR or attribution trailers.
+
+## Review clarifications
+
+Scoring is unassisted: no label-derived confirm/dismiss/getKnownCards calls.
+The browser owns the same native camera buffer and watcher scheduling as the
+app, at video playbackRate=1 and monotonic wall time. Model warm-up precedes
+playback. Startup and actual backend/runtime configuration are retained.
+Placement/move/removal p95 bounds are 2000/1000/4500 ms. Event matching tolerates
+100 ms early and at most 5000/3000/7000 ms late (flip/DEF 3000 ms), requires
+box IoU >= .2 when a box exists, and never matches on predicted identity or zone.
+Visible event boxes are mandatory for gate eligibility; detector recall uses
+IoU >= .5 within 1500 ms. Recall/identity/zone denominators include misses;
+precision includes every unmatched/duplicate event. Missing/nonfinite timing,
+backend fallback, runtime errors, inadequate coverage and unreviewed labels
+fail the gate. Suggested labels cannot pass without exhaustive human review.
+
+Files: bench/{session,score,replay,tracker,efficient,tracked-watcher}.ts;
+scripts/vision/{benchmark-sessions,check-session-lab}.ts and session/* training,
+fixture and server helpers; web/app/dev/vision-lab/session/* new UI/hooks/style.
+Existing-file edit: vision-lab.tsx tab selector/import only. Reports retain git
+commit, SHA256 hashes for model/index/worker/video/labels, actual backend and
+thread settings, raw events/detections, per-event decisions, excluded warm-up and
+CPU methodology. No existing worker artifacts are overwritten during replay.
