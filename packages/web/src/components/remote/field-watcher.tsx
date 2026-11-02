@@ -49,7 +49,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
-  const prompted=useRef(new Set<string>());
+  const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>());
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
@@ -57,6 +57,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
+  useEffect(()=>{placeholders.current.clear();},[room.slug,seat]);
   const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
   const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
   const prunePhysical=()=>{const refs=new Set(current.current.room.state.seats[seat].twin.map(c=>c.ref));let changed=false;for(const ref of physical.current!.zones.keys())if(!refs.has(ref)){physical.current!.zones.delete(ref);changed=true;}if(changed)savePhysical();};
@@ -68,7 +69,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const saved=card&&(track.faceDown||!card.faceUp||wasHidden)&&knownZone(card)===track.zone?toZone(card.zone,card.slot):undefined;
     return saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
   };
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>!event.track.faceDown&&setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
@@ -124,6 +125,26 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     if(watch.getTrack(event.track.id)?.state==='prompt')offer({...event,type:'prompt',reason:'uncertain'});
     setNotice(message);
   }
+  async function removePlaceholder(id:string,act:RoomMutation) {
+    const ref=placeholders.current.get(id);if(!ref)return true;
+    const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+    // A manual identification owns the twin now; never delete that correction.
+    if(card&&cardCode(card)){placeholders.current.delete(id);bindings.current.set(id,ref);return true;}
+    if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref}))return false;
+    placeholders.current.delete(id);bindings.current.delete(id);return true;
+  }
+  async function showPlaceholder(event:FieldEvent,act:RoomMutation) {
+    const observed=watch.getTrack(event.track.id);
+    if(!live()||!fieldEvidenceMatches(event,observed)||placeholders.current.has(event.track.id))return;
+    const location=fieldZoneLocation(observed!.zone),twins=current.current.room.state.seats[seat].twin;
+    if(piles.has(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
+    const proposal=fieldPlacementProposals({track:{...observed!,cardId:undefined},seat})[0];if(!proposal||proposal.type!=='twin.place')return;
+    const updated=await act(proposal);if(!updated)return;
+    const saved=updated.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot);if(!saved)return;
+    placeholders.current.set(event.track.id,saved.ref);bindings.current.set(event.track.id,saved.ref);
+    const after=watch.getTrack(event.track.id);
+    if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
+  }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string) {
     const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;
     let track={...observed!,id:bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
@@ -146,6 +167,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,event.type==='prompt');
       setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;
     }
+    const placeholderRef=placeholders.current.get(event.track.id),manual=twins.find(c=>c.ref===placeholderRef&&cardCode(c));
+    if(manual){
+      placeholders.current.delete(event.track.id);bindings.current.set(event.track.id,manual.ref);
+      if(!chosen){watch.confirm(event.track.id,String(cardCode(manual)),manual.ref);return;}
+    }
+    // Reserve the visual cue until catalog loading and duplicate checks finish.
+    twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
+    track={...track,id:bindings.current.get(event.track.id)??event.track.id};
     const resolved=resolveExisting(event,track,entry,twins);
     if(resolved.blocked){offer({...event,type:'prompt',reason:'uncertain'});return;}
     existing=resolved.existing;
@@ -155,7 +184,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const latest=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,latest))return;
     // Keep the reserved physical ref while refreshing geometry and occupancy after I/O.
     track={...latest!,id:existing?.ref??bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
-    twins=current.current.room.state.seats[seat].twin;
+    twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
     const freshBinding=resolveExisting(event,track,entry,twins);
     if(freshBinding.blocked){abstain(event,'Another physical card owns this ref. Check the field.');return;}
     existing=freshBinding.existing;if(existing)track={...track,id:existing.ref};
@@ -166,6 +195,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     if(twins.some(c=>c.ref!==existing?.ref&&c.zone===location.zone&&c.slot===location.slot)) {offer({...event,type:'prompt',reason:'uncertain'});return;}
     setPending(true);
     try {
+      if(!await removePlaceholder(event.track.id,act))return;
       let updated:RemoteRoom|null=null;
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
       // The resolver has just required a distinct, same-frame witness for every
@@ -220,12 +250,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       return;
     }
     void queue(async act=>{
+      if(event.previousId&&!await removePlaceholder(event.previousId,act))return;
+      if(event.type==='reading'){await showPlaceholder(event,act);return;}
+      if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
       if(event.type==='placed'){await apply(event,act);return;}
       const ref=bindings.current.get(event.track.id)??event.track.id;
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!live()||!card)return;
       if(event.type==='removed') {
-        if(!watch.isRemoved(card.ref))return;
+        if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
         const proposal=fieldDepartureProposal(card,seat);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         const updated=await act({...proposal,...(card.faceUp?{name}:{})});
@@ -261,6 +294,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     }));
   },[watch.setCalibration,watch.getTrack]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded;tracks.current=watch.snapshot.tracks;
+  useEffect(()=>{
+    const abandoned=[...placeholders.current.keys()].filter(id=>{const track=watch.getTrack(id);return !track||track.state==='dismissed'||track.removed;});
+    if(abandoned.length)void queue(async act=>{for(const id of abandoned)await removePlaceholder(id,act);});
+  },[watch.snapshot,watch.enabled,source]);
   useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
   useEffect(()=>{
     const timer=setInterval(()=>{
@@ -350,14 +387,22 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       })};
   });
   const label=watch.calibrationNeeded?'Choose your side · auto-placement paused':!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
+    if(!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
+    const zone=card.zone==='monster'?`m${card.slot??1}`:card.zone==='spell-trap'?`s${card.slot??1}`:card.zone==='extra-monster'?`emz${card.slot??1}`:'f';
+    const selector=`[data-testid="field-${index}"] [data-zone="${zone}"]`;
+    const prompt=index===seat&&activePrompts.some(p=>(bindings.current.get(p.track.id)??p.track.id)===card.ref);
+    return [`${selector}>div:first-child{background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%);background-size:240% 100%;${prompt?'':'animation:field-reading 1.2s linear infinite;'}}${selector}>div:first-child>span{font-size:0}${selector}>div:first-child>span::after{content:"${prompt?'Identify card':'Reading…'}";font-size:10px;color:#e5f5ef}`];
+  })).join('');
   return <>
+    <style>{`@keyframes field-reading{to{background-position:-240% 0}}${readingStyles}@media(prefers-reduced-motion:reduce){[data-testid^="field-"] [data-zone]>div{animation:none!important}}`}</style>
     <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={promptViews}
       onChoose={(id,cardId)=>{const event=activePrompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId==='face-down'?undefined:cardId));}}
-      onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));}}
+      onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
-        {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
+        {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
   </>;

@@ -3,7 +3,7 @@ import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; appearance?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -42,6 +42,19 @@ export function createFieldAnalyzer() {
         if(!patch)return [];
         return Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255);
       },
+      background(card) {
+        // A detector quad may extend beyond the camera while a card slides out.
+        // Warp padding is black, not mat evidence: inspect only visible pixels.
+        if(card.quad.every(p=>p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1))return undefined;
+        const b=crop(card,0),values:number[]=[];
+        if(b.right<=b.left||b.bottom<=b.top)return [];
+        for(let y=0;y<12;y++)for(let x=0;x<8;x++){
+          const px=Math.min(b.right-1,Math.floor(b.left+(x+.5)*(b.right-b.left)/8));
+          const py=Math.min(b.bottom-1,Math.floor(b.top+(y+.5)*(b.bottom-b.top)/12)),i=(py*image.width+px)*4;
+          values.push(image.data[i]/255,image.data[i+1]/255,image.data[i+2]/255);
+        }
+        return values;
+      },
       halo(card) {
         const b=boundsOf(card.quad),values:number[]=[];
         // Sparse RGB ring outside the card: a stationary hand/arm must clear it
@@ -62,6 +75,28 @@ export function createFieldAnalyzer() {
           sum+=d;if(d>.08)changed++;n++;
         }
         return n?Math.max(sum/n,changed/n*.2):1;
+      },
+      motionOutside(card) {
+        if(!before||before.width!==image.width||before.height!==image.height)return 1;
+        const b=crop(card,.18);let sum=0,n=0,changed=0;
+        for(let y=1;y<image.height-1;y+=2)for(let x=1;x<image.width-1;x+=2){
+          if(x>=b.left&&x<b.right&&y>=b.top&&y<b.bottom)continue;
+          const i=(y*image.width+x)*4,d=(Math.abs(image.data[i]-before.data[i])+Math.abs(image.data[i+1]-before.data[i+1])+Math.abs(image.data[i+2]-before.data[i+2]))/(3*255);
+          sum+=d;if(d>.08)changed++;n++;
+        }
+        return n?Math.max(sum/n,changed/n*.2):1;
+      },
+      occluded(card) {
+        // Conservative skin/arm mask, independent of motion so a resting hand
+        // still blocks removal. Clear-mat/halo agreement is also required.
+        const b=crop(card,.08);let skin=0,total=0;
+        for(let y=b.top;y<b.bottom;y+=2)for(let x=b.left;x<b.right;x+=2){
+          const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
+          const cb=128-.168736*r-.331264*g+.5*blue,cr=128+.5*r-.418688*g-.081312*blue;
+          if(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173)skin++;
+          total++;
+        }
+        return total>0&&skin/total>.12;
       },
       sharpness(card) {
         const b=crop(card,0),w=b.right-b.left,h=b.bottom-b.top;
