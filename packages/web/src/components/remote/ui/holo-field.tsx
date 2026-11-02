@@ -200,7 +200,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
         else if (down) {
           const origin=card.publicIdentity && card.setBy && cardCode(card) ? `Set from Deck by ${card.setBy.name}: ${cardName(card,cardInfo)}` : card.setBy ? `Set by ${card.setBy.name}` : "";
-          desc = `Face-down${origin ? " · "+origin : ""}${cardCode(card) && !card.publicIdentity ? " · "+cardName(card,cardInfo) : ""}`;
+          desc = `Face-down${card.publicIdentity && cardCode(card) ? " · Revealed" : ""}${origin ? " · "+origin : ""}${cardCode(card) && (!card.publicIdentity || !card.setBy) ? " · "+cardName(card,cardInfo) : ""}`;
           inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
             <span className={s.originLabel}>{desc}</span></>;
         }

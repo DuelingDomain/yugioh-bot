@@ -295,10 +295,10 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.ended).toBe(false);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
-  it("reuses instances through unlocated recognition, flips and removals", () => {
+  it("reuses instances through unlocated recognition, hidden returns and removals", () => {
     const s = deckSession(); s.start(); s.place("one");
     for (let i=0;i<3;i++) s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "auto" });
-    s.act({ type: "twin.flip", seat: 0, cardRef: "one", faceUp: false }); s.place("two", "monster", 2);
+    s.act({ type: "twin.move", seat: 0, cardRef: "one", zone: "hand", faceUp: false }); s.place("two", "monster", 2);
     s.act({ type: "twin.remove", seat: 0, cardRef: "two" }); s.place("three", "monster", 3);
     expect(s.room.state.deckChecks.flags).toEqual([]);
     expect(s.room.state.deckChecks.instances).toHaveLength(1);

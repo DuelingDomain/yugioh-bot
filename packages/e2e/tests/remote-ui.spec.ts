@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { projectRemoteState } from "@yugidraft/shared/remote";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
 import { pickSelect } from "../helpers/themed-select";
@@ -1352,7 +1353,7 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
   }
 });
 
-test('field watcher automatic: Set backs and deck stacks use face state without identity',async({page,context})=>{
+test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep face state',async({page,context})=>{
   test.setTimeout(120_000);
   const origin=process.env.E2E_REMOTE_UI_URL??process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
@@ -1400,6 +1401,34 @@ test('field watcher automatic: Set backs and deck stacks use face state without 
   await expect(page.getByTestId('set-marker')).toHaveCount(0);
   const flipMs=Date.now()-flippedAt;
   await shot(page,'set-flipped-same-slot');
-  console.log(JSON.stringify({setMs,flipMs}));
-  await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();
+  const resetAt=Date.now();
+  await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000}).toBe(false);
+  const reset=await room();
+  for(const seats of [new Set([0]),new Set([1]),new Set<number>()]) {
+    const view=projectRemoteState(reset.state,seats);
+    expect(view.seats[0].twin).toHaveLength(1);
+    expect(view.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:3,cardId:44508094,name:'Stardust Dragon',faceUp:false,position:'defense',publicIdentity:true});
+  }
+  expect(reset.events.filter((e:any)=>e.action.type==='twin.place')).toHaveLength(1);
+  expect(reset.events.filter((e:any)=>e.action.type==='card.identified')).toHaveLength(flipped.events.filter((e:any)=>e.action.type==='card.identified').length);
+  const cell=page.getByTestId('field-0').locator('[data-zone="m3"]');
+  await expect(cell).toHaveAttribute('aria-label',/Face-down.*Revealed.*Stardust Dragon/);
+  await expect(cell.locator('img')).toBeVisible();
+  await expect(page.getByTestId('set-marker')).toHaveText('Set');
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  await cell.click();
+  await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
+  await shot(page,'revealed-set-same-slot');
+  await page.keyboard.press('Escape');
+  console.log(JSON.stringify({setMs,flipMs,resetMs:Date.now()-resetAt}));
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  // Manual same-slot setting uses twin.move and retains the same public knowledge.
+  for(const [index,action] of [{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
+    const latest=await room();
+    const response=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:latest.lastSeq,action:{...action,actorSeat:0,seat:0,cardRef:card.ref,idempotencyKey:`revealed-set-${index}`}}});
+    expect(response.ok(),await response.text()).toBe(true);
+    if(action.zone==='deck')expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
+  }
+  expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0]).toMatchObject({ref:card.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
 });

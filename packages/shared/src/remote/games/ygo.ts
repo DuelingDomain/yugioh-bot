@@ -3,9 +3,9 @@ import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
-import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } from "../deck-checks.js";
+import { initialDeckChecks, remotePhysicalSlot, remotePublicCard, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
-import { guardTwinPlacement } from "../twin-placement.js";
+import { guardTwinPlacement, remoteFieldZone } from "../twin-placement.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
 import { battleEnteredThisTurn, ygoBattleAllowed, ygoPhases as phases } from "../phases.js";
@@ -142,6 +142,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      // Turning over the same field card does not erase its publicly shown identity.
+      const settingInPlace = action.type === "twin.flip" ? !action.faceUp : action.type === "twin.move" &&
+        action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot;
+      if (settingInPlace && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
       if (action.type === "twin.move") {
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
@@ -155,7 +159,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.position !== undefined) card.position = action.position;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
       }
-      if (action.type === "twin.flip") { card.faceUp = action.faceUp; if(!action.faceUp) delete card.publicIdentity; }
+      if (action.type === "twin.flip") card.faceUp = action.faceUp;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }
