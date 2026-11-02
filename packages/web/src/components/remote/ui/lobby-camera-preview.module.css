@@ -73,3 +73,19 @@
 .fieldGrid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .fieldGrid polygon{fill:transparent;stroke:#f3ca7577;stroke-width:1;vector-effect:non-scaling-stroke}
 .fieldGrid text{text-anchor:middle;dominant-baseline:middle;fill:#ffebbc;font:600 18px system-ui,sans-serif;paint-order:stroke;stroke:#100a1a;stroke-width:2px}
+.fieldGrid[data-guess] polygon{stroke-dasharray:5 4;stroke:#f3ca7566}
+.fieldGrid[data-guess] text{opacity:.7}
+
+.zoneChip{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:99px;background:rgb(7 11 21/.72);border:1px solid var(--duel-rule-lo);font-size:12px;letter-spacing:.04em;color:var(--duel-chain-ink)}
+.zoneChipOn{color:var(--duel-ok);border-color:var(--duel-ok)}
+
+/* The calibrate-zones step: plain row once done, highlighted card the first time. */
+.zones{display:grid;gap:8px;padding:12px;border:1px solid var(--duel-rule-lo);border-radius:6px;background:var(--duel-panel)}
+.zones[data-recommended]{border-color:var(--duel-chain);background:var(--duel-chain-soft);box-shadow:0 0 0 1px rgb(228 182 79/.18)}
+.zones p{margin:0}
+.zonesHead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.badge{padding:2px 9px;border-radius:99px;border:1px solid var(--duel-chain);color:var(--duel-chain-ink);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase}
+.zonesWarn{font-size:14px;font-weight:500;color:var(--duel-chain-ink)}
+.zonesDone{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.zonesOk{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--duel-ok)}
+.zonesActions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
