@@ -18,7 +18,10 @@ export const remoteFieldTracksSchema=z.strictObject({type:z.literal('field.track
     const cross=q.map((a,i)=>{const b=q[(i+1)%4],c=q[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
     return cross.every(v=>v>1e-7)||cross.every(v=>v< -1e-7);
   }),
-})).max(20)});
+})).max(20),calibration:z.strictObject({
+  version:z.literal(1),corners:z.array(normalizedPoint).length(4),
+  orientation:z.strictObject({playerSide:z.enum(['bottom','left','top','right']),mirrored:z.boolean()}),
+}).optional()});
 export type RemoteFieldTracks=z.infer<typeof remoteFieldTracksSchema>;
 export type RemoteFieldCard=RemoteFieldTracks['cards'][number];
 export type RemoteDataPayload = { slug: string; fromSeat: number; message: RemoteDataMessage };

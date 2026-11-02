@@ -851,3 +851,5 @@
   .pileHand{bottom:auto;top:calc(var(--hdr) + 10px)}
 }
 @media (prefers-reduced-motion:reduce){.pile{animation:none}.pileArt{transition:none}}
+
+.zgcontrols{position:absolute;z-index:4;pointer-events:auto;max-height:calc(100% - 48px);overflow:auto}

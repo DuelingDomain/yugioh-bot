@@ -180,6 +180,7 @@ export class RemoteVideo {
     this.patch({ microphone: enabled });
   }
   trackedAt(seat:number,x:number,y:number) {return this.room.state===ConnectionState.Connected?this.fieldTracks.hit(seat,x,y):undefined;}
+  trackedCalibration(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.calibration(seat):undefined;}
   trackedCards(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.snapshot(seat):[];}
   async publishFieldTracks(message:RemoteFieldTracks) {
     if(this.room.state!==ConnectionState.Connected)return;

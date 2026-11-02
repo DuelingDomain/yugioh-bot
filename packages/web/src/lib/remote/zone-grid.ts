@@ -56,6 +56,7 @@ export interface ZoneGridState {
   tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];
   /** Opens the calibration dialog. Missing when the watcher is not running. */
   calibrate?: () => void;
+  setCalibration?: (value:FieldCalibration) => void;
 }
 const empty: ZoneGridState = { ownSeat: null, format: "normal", tracks: [] };
 let current = empty; const listeners = new Set<() => void>();

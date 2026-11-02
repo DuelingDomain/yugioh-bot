@@ -9,3 +9,5 @@
 .handle:active{cursor:grabbing}
 .move{width:42px;height:32px;border-radius:8px;background:#1b1204;color:var(--gold);font-size:24px}
 @media(max-width:600px){.handle{width:44px;height:44px}.move{height:36px}}
+
+.cardChoice{position:absolute;transform:translate(-50%,-50%);min-height:44px;padding:8px;border:2px solid #fff0c9;border-radius:6px;background:#21152f;color:#fff0c9;z-index:2;cursor:pointer}
