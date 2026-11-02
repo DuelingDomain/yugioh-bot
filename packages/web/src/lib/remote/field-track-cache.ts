@@ -13,6 +13,12 @@ export function hitTrackedCards(cards:readonly RemoteFieldCard[],x:number,y:numb
   for(const card of cards)if(contains(card.quad,x,y)){if(hit)return;hit=card;}
   return hit;
 }
+/** A correction must inspect the displayed pixels or reacquire its physical ref. */
+export function trackedRereadTarget(ref:string,cards:readonly RemoteFieldCard[],frozen?:{x:number;y:number;frame:HTMLCanvasElement}) {
+  if(frozen)return {x:frozen.x,y:frozen.y,frames:[frozen.frame]};
+  const card=cards.find(c=>c.ref===ref);if(!card)return;
+  return {x:card.quad.reduce((sum,p)=>sum+p.x,0)/4,y:card.quad.reduce((sum,p)=>sum+p.y,0)/4};
+}
 /** Full replacement snapshots, read synchronously without React renders or any inference. */
 export class FieldTrackCache {
   private seats=new Map<number,{at:number;cards:RemoteFieldCard[]}>();

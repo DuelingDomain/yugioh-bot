@@ -192,3 +192,12 @@ it('track snapshots use the canonical catalog ID for Tokens and alternate image 
     expect(fieldTrackMessage(snapshot,new Map([['100000001',{cardId:'100000001',passcode,name:'Token'}]])).cards[0].cardId).toBe(100000001);
   }
 });
+it('Wrong card reacquires the same physical ref or rereads its bound frozen pixels',async()=>{
+  const {trackedRereadTarget}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  const replacement={ref:'B',cardId:2,quad},moved={ref:'A',cardId:1,quad:quad.map(p=>({...p,x:p.x+.4}))};
+  expect(trackedRereadTarget('A',[replacement,moved])?.x).toBeCloseTo(.7);expect(trackedRereadTarget('A',[replacement,moved])?.y).toBeCloseTo(.35);
+  expect(trackedRereadTarget('A',[replacement])).toBeUndefined();
+  const frame={} as HTMLCanvasElement;
+  expect(trackedRereadTarget('A',[replacement],{x:.3,y:.35,frame})).toEqual({x:.3,y:.35,frames:[frame]});
+});

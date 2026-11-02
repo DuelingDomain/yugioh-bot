@@ -470,6 +470,7 @@ it('owner and observer feed clicks select an identified physical ref without cap
     state.feedHub.trackedAt.mockReturnValue(newer);state.feedHub.trackedCards=()=>[newer];
     fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
     expect(select.mock.calls.at(-1)?.[1].cached).toEqual(card);
+    expect(select.mock.calls.at(-1)?.[1].frozenFrame).toBe(view.getByTestId('frozen-frame').querySelector('canvas'));
     view.unmount();
   }}finally{width.mockRestore();height.mockRestore();rect.mockRestore();capture.mockRestore();}
 });

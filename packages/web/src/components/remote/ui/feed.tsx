@@ -28,6 +28,7 @@ export type FeedHit = {
   /** True for a click on the live feed. The table then drops the result if the person closed the popup meanwhile. */
   live?: boolean;
   cached?:RemoteFieldCard;
+  frozenFrame?:HTMLCanvasElement;
 };
 /** Where a click landed, before the card under it is known. */
 export type FeedStart = { x: number; y: number; anchor: Rect; feed: Rect };
@@ -211,7 +212,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     // The card quad belongs to the frozen frame, so the reader gets that same frame.
     const canvas = frozenRef.current?.canvas;
     const cached=card.kind==='face-up'&&!card.covered?hitTrackedCards(frozenRef.current?.cached??[],card.cx,card.cy):undefined;
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(cached?{cached}:canvas ? { frames: [copyOf(canvas)] } : {}) });
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(cached?{cached,frozenFrame:canvas}:canvas ? { frames: [copyOf(canvas)] } : {}) });
   }, [anchorOf, feedRect, onSelect, seat,hub]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {
