@@ -1,4 +1,4 @@
-import { boundsOf, warpQuad, type Quad } from './geometry';
+import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
@@ -104,4 +104,31 @@ export function sameRotatedFieldAppearance(a?:number[],b?:number[]):boolean {
     if(sameFieldAppearance(rotated,b))return true;
   }
   return false;
+}
+
+/** Clear old mat for a transfer, excluding only the observed incoming card.
+ * Never used for disappearance: removal still needs the entire original footprint.
+ */
+export function clearFieldTransfer(evidence:FieldAnalysis,old:DetectedQuad,incoming:DetectedQuad,reference?:number[]):boolean {
+  const patch=evidence.appearance?.(old),halo=evidence.halo?.(old);
+  if(!patch?.length||!halo?.length||halo.length!==reference?.length)return false;
+  // Production samples are8x12 RGB and a64-point RGB ring. Injected analyzers
+  // without that geometry keep the original conservative whole-footprint check.
+  if(patch.length!==288||halo.length!==192)return halo.filter((v,i)=>Math.abs(v-reference[i])>.06).length/halo.length<=.08&&clearFieldBackground(patch,reference);
+  const map=quadMap(old.quad as Quad);if(!map)return false;
+  const box=boundsOf(old.quad),next=boundsOf(incoming.quad),padX=box.w*.04,padY=box.h*.04;
+  const exposed=(x:number,y:number)=>x<next.x-padX||x>next.x+next.w+padX||y<next.y-padY||y>next.y+next.h+padY;
+  const inside:number[]=[],ring:number[]=[],saved:number[]=[];
+  for(let y=0;y<12;y++)for(let x=0;x<8;x++){
+    const point=map((x+.5)/8,(y+.5)/12),i=(y*8+x)*3;
+    if(exposed(point.x,point.y))inside.push(...patch.slice(i,i+3));
+  }
+  let i=0;
+  for(let y=0;y<10;y++)for(let x=0;x<10;x++){
+    if(x>1&&x<8&&y>1&&y<8)continue;
+    if(exposed(box.x+box.w*(-.3+1.6*x/9),box.y+box.h*(-.3+1.6*y/9))){ring.push(...halo.slice(i,i+3));saved.push(...reference.slice(i,i+3));}
+    i+=3;
+  }
+  // A hand or another card must not be hidden by an overwhelmingly large mask.
+  return inside.length>=patch.length*.5&&ring.length>=halo.length*.5&&ring.filter((v,i)=>Math.abs(v-saved[i])>.06).length/ring.length<=.08&&clearFieldBackground(inside,saved);
 }

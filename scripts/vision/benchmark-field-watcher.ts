@@ -108,6 +108,7 @@ try {
           const beforeGY=events.length;x=1040;paint();const toGY=performance.now();
           while(!events.slice(beforeGY).some(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone==='GY')&&performance.now()-toGY<6000)await new Promise(r=>setTimeout(r,10));
           const gy=events.slice(beforeGY).find(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone==='GY');graveyard={wallLatencyMs:gy?gy.wallAt-toGY:null,event:gy};followReads=reads-readBefore;
+          console.info('follow trial',n,JSON.stringify({slideMs:move.wallLatencyMs,rotationMs:rotation.wallLatencyMs,gyMs:graveyard.wallLatencyMs,extraReads:followReads}));
           show=false;paint();const gone=performance.now(),removeDeadline=gone+12000;
           while(!events.some(e=>e.type==='removed'&&e.track.id===result.track.id&&e.wallAt>=gone)&&performance.now()<removeDeadline)await new Promise(r=>setTimeout(r,20));
           const removed=events.find(e=>e.type==='removed'&&e.track.id===result.track.id&&e.wallAt>=gone);removal={wallLatencyMs:removed?removed.wallAt-gone:null,event:removed};
