@@ -554,6 +554,28 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.getByTestId("undo").click(); await expect.poll(async () => find(await room(), "mst").zone).toBe("spell-trap");
   });
 
+  for (const [width, height] of [[1366, 768], [1100, 700], [390, 844]] as const) {
+    test(`open "Try saying" list does not block the field at ${width}x${height}`, async ({ page, context }) => {
+      await page.setViewportSize({ width, height });
+      const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+      await page.goto(`/duels/remote/${slug}`);
+      const field = page.getByTestId("field-0"); const from = field.locator('[data-zone="m1"]'); const to = field.locator('[data-zone="m5"]');
+      await expect(from).toBeVisible(); await from.scrollIntoViewIfNeeded();
+      const button = page.getByRole("button", { name: "Try saying…", exact: true });
+      const opened = await button.isVisible(); if (opened) {
+        await button.click(); await shot(page, `try-saying-${width}x${height}`);
+        // The list stays in the dock: it is visible and sits below the whole field.
+        const chip = (await page.getByRole("button", { name: "graveyard", exact: true }).boundingBox())!; const fieldBox = (await field.boundingBox())!;
+        expect(chip.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
+      }
+      const a = (await from.boundingBox())!; const b = (await to.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+      await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 3 });
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 }); await page.mouse.up();
+      await expect.poll(async () => find(await room(), "dm").slot).toBe(5);
+    });
+  }
+
   for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
     test(`drag works at ${width}x${height}`, async ({ page, context }) => {
       await page.setViewportSize({ width, height });

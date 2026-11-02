@@ -381,8 +381,10 @@
 @media (max-height:850px){
   .micb{width:40px;height:40px}.mlab{font-size:14px}.msub{font-size:12px}.mctl .btn{height:24px}.dk{padding:6px 10px}
   .ubtn .ul{font-size:18px}.ubtn .usub{display:none}
-  .samples{display:none;position:absolute;left:0;bottom:calc(100% + 8px);z-index:46;flex-wrap:wrap;padding:10px;border:1px solid var(--line2);border-radius:10px;background:linear-gradient(180deg,#1a1030,#0d0819);box-shadow:0 20px 50px rgb(0 0 0/.6);width:min(520px,92vw);overflow:visible}
+  /* In the dock only: the open list replaces the transcript line and scrolls sideways. It never floats over the field. */
+  .samples{display:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;min-height:0}
   .samples.open{display:flex}
+  .vox.sopen .tr{display:none}
   .trybtn{display:inline-flex}
   .tr{min-height:26px;padding:3px 10px}.prop{padding:3px 6px 3px 10px}.prop .btn{height:28px}.prop .ps{display:none}
 }
