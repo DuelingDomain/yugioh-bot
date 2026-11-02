@@ -16,7 +16,7 @@ export function createFieldCalibration(points: Point[]): FieldCalibration {
   return {version:1,corners:corners.map(p=>({...p}))};
 }
 /** Inverse bilinear mat coordinates; handles skew without a dependency or stored pixels. */
-function onMat(p:Point, calibration?:FieldCalibration):Point {
+export function onMat(p:Point, calibration?:FieldCalibration):Point {
   if(!calibration)return p;
   const [a,b,c,d]=calibration.corners;let u=.5,v=.5;
   for(let i=0;i<12;i++) {
@@ -36,10 +36,7 @@ export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, p
   else if(x>.82)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
   else {
     const row=y<.56?'M':'S';
-    // Without calibration use left-to-right ordering when several cards share a row.
-    const same=peers.filter(p=>{const c=fieldCenter(p);return c.x>=.18&&c.x<=.82&&!inExtraMonsterRow(c,format)&&(c.y<.56)===(y<.56);}).sort((a,b)=>fieldCenter(a).x-fieldCenter(b).x);
-    const rank=same.findIndex(p=>Math.hypot(fieldCenter(p).x-x,fieldCenter(p).y-y)<.015);
-    const col=!calibration&&same.length>1&&rank>=0?rank+1:Math.max(1,Math.min(5,Math.floor((x-.18)/.128)+1));
+    const col=Math.max(1,Math.min(5,Math.floor((x-.18)/.128)+1));
     zone=`${row}${col}` as FieldZone;
   }
   return {zone,calibrated:!!calibration};
