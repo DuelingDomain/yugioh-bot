@@ -829,6 +829,8 @@
 .pileName{display:block;font-size:11.5px;font-weight:600;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
 .pilePrev{flex:none;width:230px;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto;--aw:200px}
 .pilePrev:empty{display:none}
+.pilePrev>*{flex:none}
+@media (max-height:820px){.pilePrev{--aw:140px;width:180px}}
 .pilePrev .bname{font-size:17px;padding-right:0}
 .pilePrev .btext{font-size:12px;line-height:1.4}
 .pileEmpty{margin:auto;padding:28px 12px;color:var(--ink3);font-size:14px}

@@ -583,6 +583,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.getByTestId("pile-tab-graveyard").click();
     // Drag Blue-Eyes from the pile to Monster Zone 3: same move, same rules, one log line, one Undo.
     const tile = page.locator('[data-testid="pile-card"][data-ref="bl"]'); const target = field.locator('[data-zone="m3"]');
+    await tile.hover(); await expect(page.getByTestId("pile-preview")).toContainText("ATK"); // the card data is loaded, so the drop has a known type
     const a = (await tile.boundingBox())!; const b = (await target.boundingBox())!;
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
     await page.mouse.move(a.x + a.width / 2 + 12, a.y + a.height / 2 - 12, { steps: 3 });
@@ -590,11 +591,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("drag-ghost")).toBeVisible(); await page.mouse.up();
     await expect.poll(async () => find(await room(), "bl").slot).toBe(3);
     expect(find(await room(), "bl").zone).toBe("monster"); expect(await pile("graveyard")).toEqual(["dm"]);
+    await page.getByTestId("undo").click(); await expect.poll(pile.bind(null, "graveyard")).toEqual(["bl", "dm"]); // the Undo window is 5 s, so Undo comes first
     await page.getByTestId("log-button").click(); await expect(page.getByTestId("log-drawer")).toContainText("Monster Zone 3"); await page.keyboard.press("Escape");
-    await page.getByTestId("undo").click(); await expect.poll(pile.bind(null, "graveyard")).toEqual(["bl", "dm"]);
     await gy.click(); await expect(page.getByTestId("pile-viewer")).toBeVisible();
     expect(await refs()).toEqual(["dm", "bl"]);
+    await page.waitForTimeout(500);
     await shot(page, "pile-viewer");
+    for (const [w, h] of SHOTS ? [[1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `pile-viewer-${w}`); }
     await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
   });
 
