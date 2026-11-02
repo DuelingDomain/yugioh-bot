@@ -22,13 +22,15 @@ export type WebOrt = Pick<typeof ortWasm, 'env' | 'InferenceSession' | 'Tensor'>
 
 /** The part of navigator.gpu we use: is there an adapter at all. */
 export interface GpuLike {
-  requestAdapter(): Promise<{ info?: { vendor?: string; architecture?: string } } | null>;
+  requestAdapter(): Promise<{ isFallbackAdapter?:boolean; features?:{has(name:string):boolean}; info?: { vendor?: string; architecture?: string; isFallbackAdapter?:boolean } } | null>;
 }
 
 /** Injected for tests; defaults are the real browser APIs. */
 export interface WebRuntimeDeps {
   /** Off: WASM only, WebGPU is not tried. Default on. */
   webgpu?: boolean;
+  /** Checked fp16 graph; the WASM graph is fetched only on fallback. */
+  gpuModelPath?:string;
   /** How long each WebGPU step may take before WASM is used instead (WEBGPU_TIMEOUTS; tests shorten them). */
   webgpuTimeouts?: Partial<WebGpuTimeouts>;
   ort?: WebOrt;
@@ -151,6 +153,8 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
   try {
     const adapter = await within(gpu.requestAdapter(), limits.adapterMs, 'the WebGPU adapter');
     if (!adapter) return { ort: null, why: 'no WebGPU adapter' };
+    if(adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter || /swiftshader|llvmpipe|software/i.test(JSON.stringify(adapter.info??{})))return {ort:null,why:'software WebGPU adapter'};
+    if(deps.gpuModelPath && !adapter.features?.has('shader-f16'))return {ort:null,why:'WebGPU adapter has no shader-f16'};
     const load = deps.ortWebGpu ?? (async () => (await import('onnxruntime-web/webgpu')) as WebOrt);
     const ort = await within(load(), limits.importMs, "ONNX Runtime's WebGPU build");
     if (stuckGpu.has(ort)) return { ort: null, why: 'WebGPU got stuck earlier' };
@@ -214,7 +218,7 @@ function isFinite32(t: TensorLike | undefined): boolean {
 export async function openModelSession(path: string, what: string, deps: WebRuntimeDeps = {}): Promise<{ session: RuntimeSession; Tensor: TensorCtor }> {
   const wasm = webRuntime(deps);
   const limits = { ...WEBGPU_TIMEOUTS, ...deps.webgpuTimeouts };
-  let model: Uint8Array | null = await wasm.bytes(path, what);
+  let model: Uint8Array | null = null;
   const create = async (ort: WebOrt, bytes: Uint8Array, options: typeof WASM_SESSION_OPTIONS | typeof WEBGPU_SESSION_OPTIONS): Promise<Opened> => ({
     ort,
     session: (await ort.InferenceSession.create(bytes, options)) as unknown as Opened['session'],
@@ -237,8 +241,11 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
       return null;
     }
     const ready = performance.now();
-    const creating = createOnGpu(gpu.ort, model!);
+    let creating:Promise<Opened>|undefined;
     try {
+      const bytes=await wasm.bytes(deps.gpuModelPath??path,what);
+      if(!deps.gpuModelPath)model=bytes;
+      creating=createOnGpu(gpu.ort,bytes);
       const got = await within(creating, limits.createMs, `creating the WebGPU session for ${what}`);
       const ms = (t: number) => Math.round(t);
       console.debug(`[DuelLens] ${what} runs on WebGPU (${gpu.adapter}; adapter and build ${ms(ready - start)} ms, session ${ms(performance.now() - ready)} ms)`);
@@ -246,7 +253,7 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     } catch (e) {
       if (e instanceof WebGpuTimeout) {
         stuckGpu.add(gpu.ort);
-        creating.then((o) => o.session.release?.()).catch(() => {});
+        creating?.then((o) => o.session.release?.()).catch(() => {});
       }
       console.warn(`[DuelLens] the WebGPU session for ${what} could not be created (${gpu.adapter}: ${errorText(e)}); it runs on WASM`, e);
       return null;

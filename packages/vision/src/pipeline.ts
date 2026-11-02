@@ -13,7 +13,7 @@ import type { DetectedQuad } from './types';
 import { validateOptions } from './options';
 import { embedImages, type TensorCtor } from './embed';
 import type { ModelSession } from './runtime';
-import { rotate180, type RGBAImage } from './pixels';
+import { cropRGBA, rotate180, type RGBAImage } from './pixels';
 import { clipToConvex, polygonArea, type Quad } from './geometry';
 import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
@@ -102,10 +102,15 @@ export class RecognitionPipeline {
     for (const { frame, index:frameIndex } of ranked) {
       // An explicit quad belongs only to a single frozen frame. Temporal reads redetect.
       const selected=frames.length===1?opts.card:undefined;
-      const clickPoint=opts.clickPoint ?? (opts.card?{x:opts.card.quad.reduce((sum,p)=>sum+p.x,0)/4,y:opts.card.quad.reduce((sum,p)=>sum+p.y,0)/4}:undefined);
+      const clickPoint=opts.clickPoint ?? (opts.card?{x:opts.card.quad.reduce((sum,p)=>sum+p.x,0)/4,y:opts.card.quad.reduce((sum,p)=>sum+p.y,0)/4}:opts.region?{x:opts.region.x+opts.region.w/2,y:opts.region.y+opts.region.h/2}:undefined);
       let t = performance.now();
-      const fastClick=frames.length===1 && !selected && Boolean(opts.clickPoint) && Math.min(this.profile.detector.longSide,Math.max(frame.width,frame.height))>640;
-      let scene=selected?[]:await detect(this.detector,this.Tensor,frame,fastClick?640:this.profile.detector.longSide,CARD_DETECTOR.minScore);
+      const region=opts.region;
+      const roiX=region?Math.floor(region.x*frame.width):0,roiY=region?Math.floor(region.y*frame.height):0;
+      const roi=region && !selected?cropRGBA(frame,roiX,roiY,Math.max(3,Math.ceil(region.w*frame.width)),Math.max(3,Math.ceil(region.h*frame.height))):undefined;
+      const fastClick=!roi && frames.length===1 && !selected && Boolean(opts.clickPoint) && Math.min(this.profile.detector.longSide,Math.max(frame.width,frame.height))>640;
+      let scene=selected?[]:roi
+        ? (await detect(this.detector,this.Tensor,roi,448,CARD_DETECTOR.minScore,true)).map(c=>({...c,cx:c.cx+roiX,cy:c.cy+roiY,pts:c.pts.map(([x,y])=>[x+roiX,y+roiY] as [number,number])}))
+        : await detect(this.detector,this.Tensor,frame,fastClick?640:this.profile.detector.longSide,CARD_DETECTOR.minScore);
       let card = selected ? undefined : chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence), frame, clickPoint);
       if(fastClick) {
         const quad=card?.pts.map(([x,y])=>({x,y}))??[];
@@ -121,7 +126,7 @@ export class RecognitionPipeline {
         }
       }
       // Upstream's crop-scale detection catches large close-ups outside its trained size range.
-      if (!card && !selected && this.profile.detector.longSide > 448) {
+      if (!card && !selected && !roi && this.profile.detector.longSide > 448) {
         scene=await detect(this.detector,this.Tensor,frame,448,CARD_DETECTOR.minScore);
         card=chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence),frame,clickPoint);
       }
@@ -133,10 +138,11 @@ export class RecognitionPipeline {
       t = performance.now();
       const corners = selected ? selected.quad.map(p=>({x:p.x*frame.width,y:p.y*frame.height})) : card ? refinedCorners(card, frame) : [];
       const found = corners.length === 4;
-      const mask = warpQuadMasked(frame, found ? corners as Quad : fallbackQuad(frame, this.profile, clickPoint), this.profile.card.warpWidth, this.profile.card.warpHeight);
+      const fallback=roi?fallbackQuad(roi,this.profile,clickPoint?{x:(clickPoint.x*frame.width-roiX)/roi.width,y:(clickPoint.y*frame.height-roiY)/roi.height}:undefined).map(p=>({x:p.x+roiX,y:p.y+roiY})) as Quad:fallbackQuad(frame,this.profile,clickPoint);
+      const mask = warpQuadMasked(frame, found ? corners as Quad : fallback, this.profile.card.warpWidth, this.profile.card.warpHeight);
       if (!mask) {frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:(selected?.kind??card?.kind)==='face-down',eligible:false});continue;}
       const warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
-      const partial = found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
+      const partial = Boolean(selected?.partial) || Boolean(roi && card && card.pts.some(([x,y])=>x<=roiX+2 || y<=roiY+2 || x>=roiX+roi.width-2 || y>=roiY+roi.height-2)) || found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
       const fullArt = detectFullArtLayout(warped, this.profile);
       const frameClass = !fullArt && found && (selected?.kind ?? card?.kind) === 'face-up' ? classifyBorder(warped, this.profile) : undefined;
       const hypotheses = [this.profile.artWindow, ...(this.profile.alternateArtWindows ?? [])].flatMap(artWindow =>
@@ -192,7 +198,7 @@ export class RecognitionPipeline {
       if(!views.length&&found)detectedCard=selected??{quad:corners.map(p=>({x:p.x/frame.width,y:p.y/frame.height})),kind:card!.kind,confidence:card!.conf,partial,covered};
       const clean=mergeCandidates(cleanLists,10);
       if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds,clean);
-      const eligible=found && !partial && !covered && (!fullArt || Boolean(this.fullArtIndex?.meta.count)) && independentlyClear && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId);
+      const eligible=found && !partial && !selected?.partial && !covered && (!fullArt || Boolean(this.fullArtIndex?.meta.count)) && independentlyClear && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId);
       const deck=opts.priors?.decklist?.length?topK(winningVector,winningIndex,10,undefined,undefined,new Set(opts.priors.decklist)):[];
       frameEvidence.push({frameIndex,hypotheses:cleanLists,clean,ranked:merged,deck,faceDown,eligible});
       usedIndices.push(frameIndex);
@@ -200,7 +206,7 @@ export class RecognitionPipeline {
       let aiCrop:RGBAImage|undefined;
       let deferredAICrop:DeferredAICrop|undefined;
       if(opts.includeCrop && !views.length) {
-        const quad=found?corners as Quad:fallbackQuad(frame,this.profile,clickPoint);
+        const quad=found?corners as Quad:fallback;
         const create=()=>{
           const large=warpQuadMasked(frame,quad,640,Math.round(640*this.profile.card.height/this.profile.card.width));
           if(!large)return;

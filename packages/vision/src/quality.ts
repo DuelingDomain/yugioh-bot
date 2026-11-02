@@ -3,12 +3,15 @@ import type { GameProfile, Point } from './types';
 /** Population variance of the 4-neighbour Laplacian of luma (0..255). */
 export function sharpness(img: RGBAImage, click?: Point): number {
   // Score near the clicked card: desk texture should not win the frame vote.
-  const region = click ? cropRGBA(img, (click.x - 0.16) * img.width, (click.y - 0.2) * img.height, img.width * 0.32, img.height * 0.4) : img;
-  if (region.width < 3 || region.height < 3) return 0;
-  const { width: w, height: h, data } = region;
+  const {width:w,height:h,data}=img;
+  const x0=click?Math.max(0,Math.floor((click.x-.16)*w)):0;
+  const y0=click?Math.max(0,Math.floor((click.y-.2)*h)):0;
+  const x1=click?Math.min(w,Math.floor((click.x-.16)*w+w*.32)):w;
+  const y1=click?Math.min(h,Math.floor((click.y-.2)*h+h*.4)):h;
+  if(x1-x0<3 || y1-y0<3)return 0;
   const gray = (i: number) => .299 * data[i * 4] + .587 * data[i * 4 + 1] + .114 * data[i * 4 + 2];
   let sum = 0, sq = 0, n = 0;
-  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+  for (let y = y0+1; y < y1-1; y++) for (let x = x0+1; x < x1-1; x++) {
     const i = y * w + x, l = gray(i - 1) + gray(i + 1) + gray(i - w) + gray(i + w) - 4 * gray(i);
     sum += l; sq += l * l; n++;
   }
