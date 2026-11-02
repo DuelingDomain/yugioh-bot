@@ -6,11 +6,9 @@ import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } fr
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
+import { battleEnteredThisTurn, ygoBattleAllowed, ygoPhases as phases } from "../phases.js";
+export { ygoBattleAllowed } from "../phases.js";
 
-const phases = [
-  { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
-  { id: "battle", name: "Battle" }, { id: "main2", name: "Main 2" }, { id: "end", name: "End" },
-] as const;
 const zones = [
   { id: "monster", name: "Monster", shape: "row" }, { id: "spell-trap", name: "Spell / Trap", shape: "row" },
   { id: "extra-monster", name: "Extra Monster", shape: "row" }, { id: "field", name: "Field", shape: "single" },
@@ -19,9 +17,6 @@ const zones = [
   { id: "extra", name: "Extra Deck", shape: "pile" }, { id: "pendulum", name: "Pendulum", shape: "row" },
   { id: "hand-reveal", name: "Hand reveal", shape: "pile" },
 ] as const;
-export function ygoBattleAllowed(state: RemotePosition): boolean {
-  return state.seatCount === 2 ? state.turn > 1 : state.seats.every(s => s.eliminated || state.startedSeats.includes(s.seat));
-}
 function position(state: RemoteState): RemotePosition {
   const { updatedAt: _at, undo: _undo, ...board } = state;
   return structuredClone(board);
@@ -64,13 +59,17 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
     let n = state.turnSeat;
     do { n = (n + 1) % state.seatCount; } while (next.seats[n].eliminated);
-    next.turnSeat = n; next.turn++; next.phase = "draw";
+    next.turnSeat = n; next.turn++; next.phase = "draw"; next.battleEntered = false;
     if (!next.startedSeats.includes(n)) next.startedSeats.push(n);
   };
   const setPhase = (phase: string) => {
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
     remoteAssert(phases.some(p => p.id === phase), "Unknown phase");
+    // Backward phase.set is a same-turn correction with the normal Undo snapshot.
+    if (!context?.replay && phases.findIndex(p => p.id === phase) < phases.findIndex(p => p.id === state.phase))
+      remoteAssert(action.actorSeat === state.turnSeat, "Only the turn player can go back a phase", 403);
     remoteAssert(phase !== "battle" || ygoBattleAllowed(state), "Battle Phase is unavailable in the opening turns", 409);
+    next.battleEntered = battleEnteredThisTurn(state) || phase === "battle";
     next.phase = phase;
   };
   switch (action.type) {
@@ -163,7 +162,7 @@ export const ygoModule: GameModule = {
   resources: [{ id: "lp", name: "LP", start: 8000, min: 0, loseAtZero: true }], zones,
   initialState({ seatCount, firstSeat = 0 }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
-    return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
+    return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
