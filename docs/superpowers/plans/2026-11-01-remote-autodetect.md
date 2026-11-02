@@ -44,3 +44,43 @@ Final 60-card/no-deck trial (20 per condition): placement p50/p95
 265 checks passing. Large AI source warping/encoding runs only on explicit
 Ask AI, with six-source/64 MiB retention. Earlier outliers and synthetic timing
 limits are recorded in `packages/vision/REPORT.md`.
+
+## Coordinator follow-up: instant tracked-card popup
+
+Approved behavior: owner and other viewers hit-test identified tracks before any
+frame capture or inference; the owner broadcasts normalized quads over the existing
+reliable LiveKit data channel. Explicit Wrong card bypasses the cache. Keep ordinary
+untracked reads, physical refs, hidden-card privacy and existing action/Undo flows.
+
+Architecture: a small typed cache outside `remote/ui` owns validation, convex-quad
+hit testing, replacement snapshots and a three-second transport expiry. Only safe,
+visible face-up tracks outside Deck are exported. `RemoteVideo` binds snapshots to
+the signed sender seat; `VideoHub` exposes stable synchronous lookup/publish methods.
+Feed adds one early cache branch and passes a cached hit through its existing
+onSelect callback; Table opens the existing card popup without awaiting catalog,
+network, placement or recognition. Wrong card explicitly requests a new read.
+
+- [x] Add failing cases in existing recognition/video/vision tests for normalized
+  quads, owner-bound broadcast, local hits, move/removal/hidden/expiry/disconnect,
+  explicit reread and correct zone/slot/DEF proposals. Implement isolated cache and
+  transport, then run focused tests and commit.
+- [x] Wire watcher snapshot publication and feed/table synchronous cached popup;
+  test no recognition/capture/action on owner and observer clicks, including wrong
+  card bypass and duplicate physical copies. Commit after focused checks.
+- [x] Extend existing browser checks for cached owner and other-view clicks and
+  physical EMZ/DEF auto placement. Measure cache click-to-popup and rerun balanced
+  placement p50/p95; typecheck, review, update report, small commits and push.
+
+Validation uses existing test files, Node22, cached models/index and an isolated
+server on port3449 or ephemeral listeners. No protected services or port3000.
+
+Final result: owner/viewer cached click p50/p95 **15.8/21.4 ms** and
+**15.1/20.5 ms**, 20 clicks per view with zero additional recognition/actions.
+Fresh placement p50/p95 **1,176.3/1,560.3 ms** with a 60-card decklist and
+**1,182.3/1,496.5 ms** without, 20 trials each; all placements under two seconds.
+Full-catalog search p50/p95 **2.875/3.305 ms**. One untracked click took 333 ms;
+untracked click p95 was 288.4/260.3 ms. All 279 checks passed, including actual
+EMZ1 DEF (−90°)→EMZ2 ATK with one physical ref. Repeated popup clicks exposed a
+3.83-second publication gap; pixel-only refreshes now retain valid visible cards
+during CPU pauses without inference and invalidate changed pixels safely.
+Full numbers, scope and reproduction are in `packages/vision/REPORT.md`.

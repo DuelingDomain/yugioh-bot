@@ -1,5 +1,88 @@
 # Remote vision measurements — 2026-11-01
 
+## Cached feed popup follow-up
+
+Owner and other-player clicks now hit-test the identified physical tracks' convex
+quads locally and open the existing popup from cached card ID/name/ref. This path
+does not capture frames, invoke recognition, request owner recognition or write a
+table action. The owner publishes normalized replacement snapshots on a separate
+reliable LiveKit topic; authenticated sender metadata binds them to that seat.
+Invalid/ambiguous geometry is rejected. Missing, covered, face-down and Deck cards
+are excluded; disconnects clear the cache and unrefreshed snapshots expire in
+three seconds. Frozen views retain the snapshot belonging to their frozen pixels.
+
+Repeated popup clicks exposed a real expiry bug: CPU pressure deferred owner
+publications for **3.83 seconds**. Already identified tracks now receive pixel-only
+checks scheduled up to **750 ms** apart, including during CPU pauses, while full
+detection retains its CPU budget. Motion or changed appearance invalidates the
+outline; only a detector match with appearance continuity restores it. Regression
+tests cover busy periods beyond the transport TTL, stationary card replacement,
+and same-ref movement settlement between slow detector samples.
+
+The final two-player browser test uses actual Chromium **153** pages and a local
+LiveKit **1.13.11** server, with a synthetic 1280×720 camera fixture. Twenty clicks
+per view alternate across the owner and observer pages. Timing starts immediately
+before dispatching the feed click and ends when the popup DOM contains the known
+card name; remote image download/decode/paint is outside this measurement.
+
+| Cached click → popup | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Owner feed | 20 | **15.8 ms** | **21.4 ms** | 23.6 ms |
+| Other player's view | 20 | **15.1 ms** | **20.5 ms** | 27.5 ms |
+
+All **40/40 cached clicks** opened the correct popup, with **zero additional
+recognition calls and zero additional table actions**. A separate explicit
+**Wrong card?** click invoked recognition and retained one physical twin. Corrections
+use the displayed frozen pixels or reacquire that physical ref's current quad;
+public corrections override the watcher's previous cached identity. Unit/component
+checks also cover owner-bound broadcast, force-reread routing, duplicate copies,
+canonical Token IDs, frozen snapshots, privacy, removal and reconnect expiry.
+
+Fresh final-code placement trials alternate a **60-card decklist** with no decklist
+in the offline Chromium harness, reusing the existing catalog/model/fixture. These
+are warm desktop synthetic timings on the Ryzen 7 9800X3D, actual SIMD **WASM / four
+threads**, eight exposed logical CPUs, and GPU disabled. Placement ends at the local
+identified event; table/network rendering is covered separately by the browser test.
+Percentiles use nearest rank.
+
+| Final-code workload | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Placement → identified, 60-card decklist | 20 | **1,176.3 ms** | **1,560.3 ms** | 1,803.0 ms |
+| Placement → identified, no decklist | 20 | **1,182.3 ms** | **1,496.5 ms** | 1,860.5 ms |
+| Untracked desktop click, 60-card decklist | 20 | 201.1 ms | 288.4 ms | 333.0 ms |
+| Untracked desktop click, no decklist | 20 | 197.5 ms | 260.3 ms | 277.5 ms |
+| Resident full-catalog top-10 search | 120 | **2.875 ms** | **3.305 ms** | 6.095 ms |
+
+**40/40 placements and 40/40 untracked clicks were correct sure results.** All
+placements were under two seconds. Untracked click p95 met 300 ms in both conditions;
+**one of 40 clicks took 333 ms**, exceeding that target. Cached clicks above all
+remained under 28 ms. Catalog results matched the original scan in **150/150**
+comparisons. Reader preparation took **755.9 ms**; index, metadata, detector and
+embedder were fetched **once each**, with **zero browser errors**. No real AI provider
+call occurred. These measurements do not establish physical webcam accuracy or
+WebGPU/mobile latency.
+
+The final real-worker browser suite passed **6/6** cases. It verifies actual
+automatic placement into **EMZ1 in DEF** (computed virtual rotation **−90°**), then
+movement to **EMZ2 in ATK**, retaining the same ref and one twin; main/spell/EMZ
+slot proposals and all four table formats also pass. Overall verification is
+**86 vision + 94 targeted web + 93 shared remote + 6 browser = 279 passing cases**;
+vision/web/e2e typechecks and worker bundling pass. Final review has no remaining
+actionable findings. Temporary local camera/table/LiveKit services were stopped.
+
+Raw cache evidence: `data/vision/benchmark/cache/clicks.json` and
+`e2e-final-all.log`; fresh placement/search evidence:
+`data/vision/benchmark/latency/cache-followup.json` and its matching log.
+Earlier intermittent failure logs and packet traces are
+retained locally. Reproduce with the isolated table/LiveKit test stack configured:
+
+```bash
+E2E_AUTH_SECRET="$E2E_AUTH_SECRET" VISION_LAB_ORIGIN=http://127.0.0.1:3449 \
+  npx playwright test -c packages/e2e/playwright.vision.config.ts
+LATENCY_LABEL=cache-followup LATENCY_TRIALS=20 \
+  npx tsx scripts/vision/benchmark-latency.ts
+```
+
 ## Format and latency follow-up
 
 Implemented on `feat/remote-autodetect` in `.worktrees/remote-autodetect`.

@@ -796,8 +796,21 @@ Browser integration is isolated in
 `ui/recognizer.ts` supplies a short shared-buffer/reader-queue bridge, and the log
 labels automatic identification. The virtual field renders two interactive EMZ
 above M2/M4 only when the table format supports them, including keyboard and
-attack targeting. `feed.tsx` and video sizing are unchanged. Manual reads take
-priority over detector polling.
+attack targeting. Feed video sizing is preserved. Manual reads take priority over
+detector polling.
+
+Identified visible tracks also supply instant feed popups. The owner publishes a
+small replacement snapshot of public card IDs, physical refs and normalized quads
+over the reliable video data channel. Every viewer hit-tests these locally before
+capturing frames or recognizing; the popup opens synchronously from the cache.
+Missing/covered/face-down/Deck tracks are excluded, disconnects clear entries, and
+unrefreshed transport snapshots expire after three seconds. Frozen views keep the
+cache snapshot captured with that frame. **Wrong card?** explicitly starts a fresh
+read; corrections retain the same physical ref and supersede the cached identity.
+During CPU pauses or long detector intervals, pixel-only checks refresh known
+outlines on a 750 ms schedule. Motion or changed appearance invalidates an outline;
+full detection must establish continuity before it can be cached again.
+No frames, embeddings or hidden identities enter these snapshots.
 
 ### Try and measure
 
