@@ -24,7 +24,7 @@ export interface FieldWatcherOptions {
 }
 interface PendingRead { at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number }
-interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; verification?:string; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; verification?:string; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
@@ -155,7 +155,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const clear=!cards.some(c=>quadIou(c,q.card)>.04)&&evidence.motion(q.card)<=.01&&halo?.length&&halo.length===q.halo?.length&&halo.filter((v,j)=>Math.abs(v-q.halo![j])>.06).length/halo.length<=.08&&clearFieldBackground(evidence.appearance?.(q.card),q.halo);
         if(!clear){q.clearAt=undefined;q.samples=0;}else{q.clearAt??=sample.at;q.samples++;if(q.samples>=5&&sample.at-q.clearAt>=removalMs)suppressed.splice(i,1);}
       }
-      for(const t of tracks) {
+      const reconnected=new Set<InternalTrack>();
+      for(const t of [...tracks]) {
+        if(reconnected.has(t))continue;
         const c=matched.get(t);
         if(!c) {
           t.view.visible=false;
@@ -170,7 +172,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.clearWindowAt??=sample.at;
           if(t.missingSamples)t.clearMissing+=elapsed;
           t.missingAt=sample.at;t.missingSamples++;
-          if(t.view.state==='identified'&&!t.view.removed&&t.clearMissing>=removalMs&&t.missingSamples>=5){t.view.removed=true;emit('removed',t);}
+          if(t.view.state==='identified'&&!t.view.removed&&t.clearMissing>=removalMs&&t.missingSamples>=5){t.view.removed=true;t.restoredAt=undefined;emit('removed',t);}
           continue;
         }
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);t.view.lastSeen=sample.at;t.view.card=c;
@@ -237,6 +239,42 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const deck=options.getPriors?.()?.decklist;
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
+          // A rotated crop can lose its cheap pixel match. A fresh read may
+          // follow only an acknowledged live ref, or an explicitly undone removal.
+          const known=options.getKnownCards?.();
+          const publicRef=(old:InternalTrack)=>known?.find(card=>card.id===old.view.id&&!card.faceDown&&card.cardId===old.view.cardId&&!['GY','BANISHED','DECK','EXTRA'].includes(card.zone));
+          const restored=(old:InternalTrack)=>old.restoredAt!==undefined&&sample.at-old.restoredAt<10000;
+          if(t.newOutline&&!t.binding&&!t.promptOnly){
+            const sameRestoredSpot=tracks.filter(old=>old!==t&&old.view.removed&&restored(old)&&publicRef(old)?.zone===t.view.zone&&!tracks.some(other=>other!==t&&other.binding?.id===old.view.id));
+            if(sameRestoredSpot.length===1){const old=sameRestoredSpot[0];t.binding={id:old.view.id,zone:old.view.zone,cardId:old.view.cardId};t.promptOnly='reappeared';}
+          }
+          if(winner&&t.newOutline&&!pile&&!t.binding&&!t.promptOnly){
+            const clearSpots=new Map<InternalTrack,boolean>();
+            const displaced=tracks.filter(old=>{
+              const halo=evidence.halo?.(old.view.card),publicTwin=publicRef(old);
+              const clear=old.missingSamples>=2&&evidence.motion(old.view.card)<=.01&&!cards.some(other=>quadIou(old.view.card,other)>.04)&&
+                halo?.length===old.halo?.length&&!!halo?.length&&halo.filter((v,i)=>Math.abs(v-old.halo![i])>.06).length/halo.length<=.08&&clearFieldBackground(evidence.appearance?.(old.view.card),halo);
+              clearSpots.set(old,clear);
+              return old!==t&&old.view.state==='identified'&&old.missed&&old.resolvedAt!==undefined&&old.view.cardId===winner&&old.kind==='face-up'&&
+                (old.view.removed?!!publicTwin&&sample.at-old.view.lastSeen<30000:clear&&sample.at-old.view.lastSeen<removalMs)&&
+                (!known||!!publicTwin)&&(fieldEmbeddingSimilarity(old.identityEmbedding,result?.identityEmbedding)??-1)>=.84;
+            });
+            if(displaced.length){
+              const unverified=tracks.filter(other=>matched.has(other)&&(other.view.state!=='identified'||!other.view.visible));
+              const old=displaced[0],reserved=tracks.some(other=>other!==t&&other.binding?.id===old.view.id);
+              const canFollow=!old.view.removed||(restored(old)&&clearSpots.get(old));
+              if(displaced.length===1&&unverified.length===1&&!reserved&&canFollow){
+                const {id,revision,firstSeen}=old.view;
+                old.view={...copy(t.view),id,revision,firstSeen,state:'identified',cardId:winner,visible:true};
+                old.anchor=c;old.kind=c.kind;old.position=position;old.appearance=pixels;old.identityAppearance=pixels;old.identityEmbedding=result?.identityEmbedding;old.latestEmbedding=result?.identityEmbedding;old.lastResult=result;
+                old.halo=evidence.halo?.(c);old.read=undefined;old.best=undefined;old.needsRead=false;old.reappeared=false;old.missed=false;old.restoredAt=undefined;old.stableSince=t.stableSince;old.observations=t.observations;resetAbsence(old);
+                old.announced=c;old.announcedZone=old.view.zone;old.announcedPosition=position;old.moveAt=undefined;
+                tracks.splice(tracks.indexOf(t),1);reconnected.add(old);emit('moved',old);continue;
+              }
+              t.promptOnly='reappeared';
+              if(displaced.length===1&&!reserved)t.binding={id:old.view.id,zone:old.view.zone,cardId:winner};
+            }
+          }
           if(t.binding){
             if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.binding=undefined;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
             else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
@@ -304,7 +342,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     getSnapshot():FieldSnapshot{return {status,tracks:tracks.map(t=>copy(t.view)),metrics:{...metrics},error};},
     setCalibration(value?:FieldCalibration){calibration=value;interruptWindow();},
     confirm(id:string,cardId?:string,ref?:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);t.view.cardId=cardId;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.verification=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
-    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
+    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;if(t.view.removed)t.restoredAt=now();t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0){suppressed.push({card:tracks[i].view.card,appearance:tracks[i].identityAppearance??tracks[i].appearance,halo:tracks[i].halo,samples:0});if(suppressed.length>maxTracks)suppressed.shift();tracks.splice(i,1);}pruneFrames();notify();},
   };
 }
