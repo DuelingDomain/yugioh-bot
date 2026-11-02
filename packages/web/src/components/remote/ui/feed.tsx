@@ -9,6 +9,8 @@ import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
+import { ZoneGridOverlay } from "./zone-grid";
+import { readGridPref, writeGridPref } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
@@ -118,6 +120,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const setFrozenHealth = hub.setFrozen;
 
   useEffect(() => { setAuto(readAuto()); }, []);
+  // "Show zone grid": on by default for my own feed, off for opponents, remembered on this device.
+  const [gridOn, setGridOn] = useState(you); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
+  const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
     const detach = source.attach(element);
@@ -429,6 +434,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
+      {source && gridOn && !frozen ? <ZoneGridOverlay seat={seat} box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
       {frozen && frozen.status === "ready" ? <svg className={s.quads} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="quads">
@@ -475,6 +481,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
+        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn} onClick={toggleGrid} data-testid="zone-grid-toggle" title={you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />

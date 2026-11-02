@@ -326,6 +326,54 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("reticle")).toHaveCount(0);
   });
 
+  test("zone grid on my camera: on by default with a Calibrate link, follows the video through a swap, the toggle is remembered", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    await fakeCamera(page);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    const video = page.locator('[data-testid="feed-0"] video');
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    // A first camera opens the calibration, which draws the same zones to drag into place.
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones" });
+    await expect(dialog).toBeVisible();
+    for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
+    await dialog.getByRole("button", { name: "Cancel calibration" }).click();
+    await expect(dialog).toBeHidden();
+    const grid = page.locator('[data-testid="feed-0"] [data-testid="zone-grid"]');
+    // The Master Rule zones, with the two Extra Monster Zones for a normal table, outlined and labelled.
+    await expect(grid).toBeVisible();
+    await expect(grid).toHaveAttribute("data-calibrated", "false");
+    for (const zone of ["FIELD", "M1", "M5", "GY", "EXTRA", "S3", "DECK", "EMZ1", "EMZ2"]) await expect(grid.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
+    await expect(page.getByTestId("zone-grid-calibrate")).toBeVisible();
+    // The grid sits exactly on the video, before and after the camera and the field swap places.
+    const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
+    expect(await gap()).toBeLessThan(6); await shot(page, "zone-grid-default");
+    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+    await expect(grid).toBeVisible();
+    await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
+    await page.getByTestId("swap-cam-0").click();
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+    await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
+    // The Calibrate link opens the calibration again.
+    await page.getByTestId("zone-grid-calibrate").click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel calibration" }).click();
+    await expect(dialog).toBeHidden();
+    // Off stays off on this device; the opponent feed starts without a grid.
+    const toggle = page.getByTestId("zone-grid-toggle").first();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await toggle.click();
+    await expect(grid).toHaveCount(0);
+    await page.reload();
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "false");
+    await expect(grid).toHaveCount(0);
+    await expect(page.locator('[data-testid="feed-1"] [data-testid="zone-grid"]')).toHaveCount(0);
+  });
+
   // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat. Genesys has none.
   test("virtual field shows Extra Monster Zones and Pendulum labels, and hides them for Genesys", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);

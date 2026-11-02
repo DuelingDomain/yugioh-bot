@@ -14,6 +14,7 @@ import {ownFieldResources,detectCards} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
+import {publishZoneGrid,clearZoneGrid} from '@/lib/remote/zone-grid';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
@@ -248,6 +249,16 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     const message=fieldTrackMessage(watch.snapshot,entries.current,known()),key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
   },[watch.snapshot,hub.publishFieldTracks,room.state]);
+  // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
+  const gridFormat=room.format?.id??room.state.deckChecks.format.id;
+  const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
+  useEffect(()=>{
+    publishZoneGrid({ownSeat:seat,format:gridFormat,calibration:watch.calibration,calibrate:()=>{if(host?.querySelector('video')?.videoWidth)setCalibrating(true);},
+      tracks:watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>({id:t.id,zone:t.zone,quad:t.card.quad}))});
+    // The key stands for the visible cards without republishing on every sample.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[seat,gridFormat,watch.calibration,gridKey,host,watch.snapshot.tracks.length]);
+  useEffect(()=>clearZoneGrid,[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
