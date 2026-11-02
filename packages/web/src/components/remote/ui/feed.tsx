@@ -9,7 +9,7 @@ import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
-import { useVideoHub, type Health } from "./video-hub";
+import { useVideoHub, useFieldBacks, type Health } from "./video-hub";
 import { ZoneGridOverlay } from "./zone-grid";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { readGridPref, writeGridPref, currentZoneGrid } from "@/lib/remote/zone-grid";
@@ -106,6 +106,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
 }) {
   const hub = useVideoHub();
+  const backs = useFieldBacks(seat);
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null); const wrap = useRef<HTMLDivElement>(null); const cam = useRef<HTMLDivElement>(null); const holder = useRef<HTMLDivElement>(null);
   const maskId = useId().replace(/:/g, "");
@@ -395,7 +396,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const frame = frozen?.canvas; const frameCards = frozen?.cards; const shownId = shownCard?.id; const shownKind = shownCard?.kind; const shownCovered = shownCard?.covered;
   useEffect(() => {
     if (!shownId || !frame || !frameCards) { setPeekLabel(null); return; }
-    if (shownKind === "face-down") { setPeekLabel({ id: shownId, state: "ready", text: "Face-down card" }); return; }
+    if (shownKind === "face-down") { setPeekLabel({ id: shownId, state: "ready", text: "Set" }); return; }
     const tracked=shownCard&&!shownCovered?hitTrackedCards(frozen?.cached??[],shownCard.cx,shownCard.cy):undefined;
     if(tracked){setPeekLabel({id:shownId,state:'ready',text:tracked.name??`Card ${tracked.cardId}`,tier:'sure'});return;}
     const cached = peekCache.current.get(shownId); if (cached) { setPeekLabel(cached); return; }
@@ -498,6 +499,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       {board ? <div className={`${s.boardbar} ${board.state === "reading" ? s.boardbarWait : ""} ${board.state === "fail" ? s.boardbarFail : ""}`} role="status" data-testid="board-status" data-state={board.state}>
         <span>{board.text}</span>{board.state === "reading" ? <i aria-hidden="true" /> : <button type="button" onClick={() => setBoard(null)} aria-label="Dismiss"><Icon name="x" /></button>}
       </div> : null}
+      {source && !frozen ? backs.filter(back => back.zone !== 'DECK' && back.zone !== 'EXTRA').map(back => <div key={back.ref} className={`${s.lk} ${s.show}`} style={rect(0,0,back.quad)}>
+        <span className={s.lb} data-testid="set-marker">Set</span>
+      </div>) : null}
       {source && !frozen ? marks.map(mark => {
         const r = rect(mark.x, mark.y, mark.quad); const rh = typeof r.height === "number" ? r.height : 0; const rt = typeof r.top === "number" ? r.top : 0;
         const flip = box ? rt + rh + (mark.notInDecklist ? 62 : 30) > (wrap.current?.clientHeight ?? 0) : false;

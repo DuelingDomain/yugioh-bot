@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { cardArt, isMonsterInfo, type CardInfo } from "./catalog";
 import { cardCode, cardName, cellsFor, EK, EXTRA_ZONES, frameOf, hueOf, isMonsterZone, isPendulumCell, isPile, mirrorEmz, ZK, ZN, zoneLabel, type FrameKind, type TwinCard, type ZoneKey } from "./model";
 import type { Verdict } from "./placement";
+import {useFieldBacks} from './video-hub';
 import s from "./remote-ui.module.css";
 
 const SHAPE = "polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)";
@@ -74,7 +75,8 @@ export const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? 
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, drag: dnd, rotated, twinCounts }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, drag: dnd, rotated, twinCounts, deckListSizes }: {
+  deckListSizes?:{deck:number;extra:number};
   /** Cards that share an identity with another public card of this seat (copies seen). They get a "2×" badge. */
   twinCounts?: ReadonlyMap<string, number>;
   /** Another player's field: turned 180 degrees as on the online board, so it reads from across the table. */
@@ -91,6 +93,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   drag?: FieldDrag;
 }) {
   const cells = cellsFor(twin, !!extraZones);
+  const backs=useFieldBacks(seat);
   const landed = useLanded(twin);
   const [dragging, setDragging] = useState<{ ref: string; x: number; y: number; over: ZoneKey | null; verdict: Verdict["kind"] | null } | null>(null);
   const [carry, setCarry] = useState<string | null>(null);
@@ -185,15 +188,19 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef ? s.scanin : "", card && landed.has(card.ref) ? s.land : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : "empty";
         let inner: React.ReactNode = <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
-        if (pile && cell.count) {
+        const deckPile=key==='deck'||key==='ex';
+        const listed=deckPile?deckListSizes?.[key==='deck'?'deck':'extra']:undefined;
+        const observedPile=deckPile&&backs.some(back=>back.zone===(key==='deck'?'DECK':'EXTRA'));
+        if (pile && (cell.count||observedPile||(listed??0)>0)) {
           const top = key === "gy" ? [...twin].reverse().find(item => item.zone === "graveyard") : undefined;
           const topInfo = top && top.faceUp && cardCode(top) ? info(cardCode(top)) : undefined;
-          desc = key === "gy" && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : `${cell.count} cards`;
-          inner = <>{top && top.faceUp && cardCode(top) ? <CardFace card={top} info={topInfo} /> : <div className={`${s.cd} ${s.back} ${key === "ex" ? s.backEx : ""}`} />}<span className={s.cnt}>{cell.count}</span><span className={s.pl}>{key === "ex" ? "EXTRA DECK" : zoneLabel(key)}</span></>; }
+          const count=listed??(cell.count||undefined);
+          desc = key === "gy" && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : count===undefined?'Face-down pile':`${count} cards${listed!==undefined?' in registered deck':''}`;
+          inner = <>{top && top.faceUp && cardCode(top) ? <CardFace card={top} info={topInfo} /> : <div data-testid={deckPile?'deck-pile':undefined} className={`${s.cd} ${s.back} ${deckPile?s.deckPile:''} ${key === "ex" ? s.backEx : ""}`} />}{count!==undefined?<span className={s.cnt}>{count}{listed!==undefined?' listed':''}</span>:null}<span className={s.pl}>{key === "ex" ? "EXTRA DECK" : zoneLabel(key)}</span></>; }
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
         else if (down) {
           const origin=card.publicIdentity && card.setBy && cardCode(card) ? `Set from Deck by ${card.setBy.name}: ${cardName(card,cardInfo)}` : card.setBy ? `Set by ${card.setBy.name}` : "";
-          desc = `Face-down${origin ? " · "+origin : ""}${cardCode(card) && !card.publicIdentity ? " · "+cardName(card,cardInfo) : ""}`;
+          desc = `Face-down${card.publicIdentity && cardCode(card) ? " · Revealed" : ""}${origin ? " · "+origin : ""}${cardCode(card) && (!card.publicIdentity || !card.setBy) ? " · "+cardName(card,cardInfo) : ""}`;
           inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
             <span className={s.originLabel}>{desc}</span></>;
         }

@@ -32,7 +32,7 @@ export type SeatPanelProps = {
   onPile?: (zone: "graveyard" | "banished", opener: HTMLElement | null) => void;
   drag?: FieldDrag;
   /** Cards with a same-identity twin on this field (ref to count), and the line above the field that asks about them. */
-  twinCounts?: ReadonlyMap<string, number>; fieldNotice?: ReactNode;
+  twinCounts?: ReadonlyMap<string, number>; fieldNotice?: ReactNode; deckListSizes?:{deck:number;extra:number};
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
@@ -113,7 +113,7 @@ export function SeatPanel(p: SeatPanelProps) {
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
             <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} extraZones={p.extraZones} facing={p.facing} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
-              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} />
+              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} />
           </div>
           <div className={s.projector} />
         </div>

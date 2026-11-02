@@ -11,14 +11,17 @@ export const remoteDataMessageSchema = z.discriminatedUnion("type", [
 ]);
 export type RemoteDataMessage = z.infer<typeof remoteDataMessageSchema>;
 const normalizedPoint=z.strictObject({x:z.number().min(0).max(1),y:z.number().min(0).max(1)});
-/** Ephemeral LiveKit snapshot. Its authenticated sender is the feed owner. No hidden cards or pixels. */
+/** Ephemeral LiveKit snapshot. Its authenticated sender is the feed owner. Backs carry geometry only. */
 export const remoteFieldTracksSchema=z.strictObject({type:z.literal('field.tracks'),cards:z.array(z.strictObject({
   ref:z.string().min(1).max(100),cardId:z.number().int().positive().max(0xffffffff),name:z.string().min(1).max(200).optional(),
   quad:z.array(normalizedPoint).length(4).refine(q=>{
     const cross=q.map((a,i)=>{const b=q[(i+1)%4],c=q[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
     return cross.every(v=>v>1e-7)||cross.every(v=>v< -1e-7);
   }),
-})).max(20),calibration:z.strictObject({
+})).max(20),backs:z.array(z.strictObject({
+  ref:z.string().min(1).max(100),zone:z.enum(['M1','M2','M3','M4','M5','S1','S2','S3','S4','S5','EMZ1','EMZ2','FIELD','DECK','EXTRA']),
+  quad:z.array(normalizedPoint).length(4),
+})).max(22).optional(),calibration:z.strictObject({
   version:z.literal(1),corners:z.array(normalizedPoint).length(4),
   orientation:z.strictObject({playerSide:z.enum(['bottom','left','top','right']),mirrored:z.boolean()}),
 }).optional()});
