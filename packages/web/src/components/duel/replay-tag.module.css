@@ -35,18 +35,20 @@
 .icon:hover:not(:disabled):not([aria-disabled="true"]) { border-color: #d1ad6e; background: #2a2438; }
 .icon:disabled, .icon[aria-disabled="true"] { color: #6d7a8a; cursor: default; }
 .play { background: #352052; border-color: #b48bea; }
-.icon:focus-visible, .slider:focus-visible, .select:focus-visible, .linkIcon:focus-visible, .segmented button:focus-visible {
+.icon:focus-visible, .slider:focus-visible, .linkIcon:focus-visible, .segmented button:focus-visible {
   outline: 2px solid #c4a35a;
   outline-offset: 2px;
 }
 .scrub { flex: 2 1 260px; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .slider { flex: 1 1 auto; min-width: 60px; height: 28px; accent-color: #9b72d9; cursor: pointer; }
 .count { color: #b6c7d9; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.select { border: 1px solid #61738b; padding: 4px 6px; height: 32px; max-width: 100%; background: #142130; color: #e7edf6; font-size: 13px; }
+/* The speed and seat choices are themed selects (ui/themed-select); only their width is set here. */
+.speedSelect { width: 86px; }
+.seatSelect { width: 190px; max-width: 100%; }
 
 .tools { display: flex; align-items: center; gap: 6px 8px; min-width: 0; }
 .field { display: flex; align-items: center; gap: 6px; min-width: 0; color: #b6c7d9; font-size: 12px; }
-.field .select { max-width: 168px; text-overflow: ellipsis; }
+.field .seatSelect { max-width: 168px; }
 .segmented { display: inline-flex; flex: none; border: 1px solid #3a3348; }
 .segmented button { min-height: 32px; padding: 0 9px; background: #121822; color: #c5d0de; font-size: 12px; white-space: nowrap; }
 .segmented button + button { border-left: 1px solid #3a3348; }
@@ -64,7 +66,6 @@
 .panel[data-narrow="true"] .scrub { flex: 1 1 140px; }
 .panel[data-narrow="true"] .tools { flex: 1 0 100%; flex-wrap: wrap; }
 .panel[data-narrow="true"] .icon { width: 40px; height: 40px; }
-.panel[data-narrow="true"] .select { height: 36px; }
 .panel[data-narrow="true"] .segmented button { min-height: 36px; }
 .panel[data-narrow="true"] .linkIcon { width: 36px; height: 36px; }
 

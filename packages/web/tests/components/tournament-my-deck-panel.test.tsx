@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MyDeckPanel } from "../../src/components/tournament/my-deck-panel";
 import type { TournamentDetail } from "../../src/components/tournament/types";
+import { chooseThemed } from "../helpers/themed-select";
 
 const tournament: TournamentDetail = {
   id: 1, name: "Cup", format: "single_elim", status: "active", createdByUserId: fixtureUserId("host"),
@@ -58,7 +59,7 @@ describe("MyDeckPanel", () => {
     expect(await screen.findByText(/no deck yet/i)).toBeTruthy();
     const register = screen.getByRole("button", { name: /register/i });
     expect(register).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/saved deck/i), { target: { value: "5" } });
+    chooseThemed("Saved deck", "5");
     fireEvent.click(register);
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
@@ -77,7 +78,7 @@ describe("MyDeckPanel", () => {
     );
     renderPanel();
     expect(await screen.findByText(/Goat, 40 main, 15 extra, 0 side/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/saved deck/i), { target: { value: "5" } });
+    chooseThemed("Saved deck", "5");
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Deck is not legal. Too few cards.");
   });

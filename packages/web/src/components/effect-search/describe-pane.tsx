@@ -3,6 +3,7 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import type { CardSummary } from "@/lib/card-types";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { EraNote } from "./era-note";
 import { IntentHeading, RelaxHints } from "./search-intent";
@@ -46,6 +47,11 @@ interface Answer {
   error: EffectApiError | null;
 }
 
+const SORT_OPTIONS = [
+  { value: "match" as const, label: "Best match" },
+  { value: "newest" as const, label: "Newest first" },
+];
+
 /**
  * "Describe" search: the player writes what a card does, sees how it was read (chips they can switch off),
  * and ticks results into a batch. The batch lives in the caller so it survives a change of mode or search.
@@ -78,7 +84,6 @@ export function DescribePane({
   active?: boolean;
 }) {
   const inputId = React.useId();
-  const sortId = React.useId();
   const [sort, setSort] = React.useState<"match" | "newest">("match");
   const [text, setText] = React.useState("");
   const [exact, setExact] = React.useState(false);
@@ -262,13 +267,11 @@ export function DescribePane({
           />
           Exact text
         </label>
-        <label className={styles.sort} htmlFor={sortId}>
-          Sort by
-          <select id={sortId} value={sort} onChange={(event) => setSort(event.target.value === "newest" ? "newest" : "match")} data-testid="describe-sort">
-            <option value="match">Best match</option>
-            <option value="newest">Newest first</option>
-          </select>
-        </label>
+        <div className={styles.sort}>
+          <span aria-hidden="true">Sort by</span>
+          <ThemedSelect hideLabel compact className={styles.sortSelect} label="Sort by" value={sort} choices={SORT_OPTIONS}
+            onChange={setSort} testId="describe-sort" />
+        </div>
       </div>
       {drill ? (
         <HookDrill archetype={drill.archetype} title={drill.name} members={drill.members} onBack={closeHook}

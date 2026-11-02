@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { DUEL_BANLIST_OPTIONS, type DuelBestOf, type DuelMode } from "@yugidraft/shared/duels";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { MAX_GENESYS_POINT_CAP } from "../duel/genesys";
 import { duelRulesProblem, turnSecondsChoices, withGenesys, withGenesysCapText, withMode, type DuelRulesValue } from "./duel-rules";
 import styles from "./duel-rules-fields.module.css";
@@ -9,6 +10,15 @@ import styles from "./duel-rules-fields.module.css";
 const BEST_OF_CHOICES: ReadonlyArray<{ value: DuelBestOf; label: string }> = [
   { value: 3, label: "Best of 3" },
   { value: 1, label: "Best of 1" },
+];
+
+const MODE_CHOICES: ReadonlyArray<{ value: DuelMode; label: string }> = [
+  { value: "normal", label: "Normal" },
+  { value: "domain", label: "Domain" },
+];
+const GENESYS_CHOICES: ReadonlyArray<{ value: "off" | "on"; label: string }> = [
+  { value: "off", label: "Off" },
+  { value: "on", label: "On, with a point cap" },
 ];
 
 /**
@@ -62,34 +72,24 @@ export function DuelRulesFields({
       ) : (
         <>
           <div>
-            <label htmlFor={`${idPrefix}-mode`} className="label">
-              Duel mode
-            </label>
-            <select
-              id={`${idPrefix}-mode`}
+            <ThemedSelect
+              label="Duel mode"
+              testId={`${idPrefix}-mode`}
               value={value.mode}
               disabled={disabled}
-              onChange={(e) => onChange(withMode(value, e.target.value as DuelMode))}
-              className={`input select ${styles.select}`}
-            >
-              <option value="normal">Normal</option>
-              <option value="domain">Domain</option>
-            </select>
+              onChange={(mode) => onChange(withMode(value, mode))}
+              choices={MODE_CHOICES}
+            />
           </div>
           <div>
-            <label htmlFor={`${idPrefix}-genesys`} className="label">
-              Genesys format
-            </label>
-            <select
-              id={`${idPrefix}-genesys`}
+            <ThemedSelect
+              label="Genesys format"
+              testId={`${idPrefix}-genesys`}
               value={value.genesys ? "on" : "off"}
               disabled={disabled}
-              onChange={(e) => onChange(withGenesys(value, e.target.value === "on"))}
-              className={`input select ${styles.select}`}
-            >
-              <option value="off">Off</option>
-              <option value="on">On, with a point cap</option>
-            </select>
+              onChange={(next) => onChange(withGenesys(value, next === "on"))}
+              choices={GENESYS_CHOICES}
+            />
           </div>
           {value.genesys ? (
             <div>
@@ -116,40 +116,24 @@ export function DuelRulesFields({
             </div>
           ) : null}
           <div>
-            <label htmlFor={`${idPrefix}-banlist`} className="label">
-              Banlist
-            </label>
-            <select
-              id={`${idPrefix}-banlist`}
+            <ThemedSelect
+              label="Banlist"
+              testId={`${idPrefix}-banlist`}
               value={value.banlist}
               disabled={disabled || value.genesys != null}
-              onChange={(e) => onChange({ ...value, banlist: e.target.value })}
-              className={`input select ${styles.select}`}
-            >
-              {DUEL_BANLIST_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              onChange={(banlist) => onChange({ ...value, banlist })}
+              choices={DUEL_BANLIST_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+            />
           </div>
           <div>
-            <label htmlFor={`${idPrefix}-turn`} className="label">
-              Turn time
-            </label>
-            <select
-              id={`${idPrefix}-turn`}
+            <ThemedSelect
+              label="Turn time"
+              testId={`${idPrefix}-turn`}
               value={value.turnSeconds}
               disabled={disabled}
-              onChange={(e) => onChange({ ...value, turnSeconds: Number(e.target.value) })}
-              className={`input select ${styles.select}`}
-            >
-              {turnSecondsChoices(value.turnSeconds).map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
+              onChange={(turnSeconds) => onChange({ ...value, turnSeconds })}
+              choices={turnSecondsChoices(value.turnSeconds)}
+            />
           </div>
         </>
       )}

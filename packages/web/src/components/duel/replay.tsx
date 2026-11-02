@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward, TriangleAlert } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelCard, type DuelMasterRule, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
@@ -18,7 +19,7 @@ import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspecto
 import { DuelLogLine, useLogCategories } from "./log-line";
 import { useDuelPreferences } from "./preferences";
 import {
-  SPEEDS,
+  SPEED_CHOICES,
   createReadOnlyTableController,
   NO_FINAL_BOARD_COPY,
   UNCHECKED_PARAM,
@@ -472,27 +473,21 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                   onChange={(event) => controller.seek(Number(event.target.value))} />
                 <div className={replayStyles.meta}>
                   <span>Move {index} / {last}</span>
-                  <label className="flex items-center gap-2">
-                    <span className="sr-only">Playback speed</span>
-                    <select className={replayStyles.select} value={speed} aria-label="Playback speed"
-                      onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-                      {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-                    </select>
-                  </label>
+                  <ThemedSelect hideLabel compact className={replayStyles.speedSelect} label="Playback speed" value={speed}
+                    choices={SPEED_CHOICES} onChange={controller.setSpeed} />
                 </div>
               </div>
               <div className={replayStyles.viewBar} role="group" aria-label="Replay view">
-                <label className={replayStyles.viewField}>
-                  <span>View from</span>
-                  <select className={replayStyles.select} value={camera} aria-label="View from seat"
-                    onChange={(event) => {
+                <div className={replayStyles.viewField}>
+                  <span aria-hidden="true">View from</span>
+                  <ThemedSelect hideLabel compact className={replayStyles.seatSelect} label="View from seat" value={camera}
+                    choices={seats.map((seat) => ({ value: seat, label: playerName(seat) }))}
+                    onChange={(seat) => {
                       setInspect(null);
                       setHover(null);
-                      controller.setCamera(Number(event.target.value));
-                    }}>
-                    {seats.map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
-                  </select>
-                </label>
+                      controller.setCamera(seat);
+                    }} />
+                </div>
                 {canSwitchCards ? (
                   <div className={replayStyles.segmented} role="group" aria-label="Card visibility">
                     {(["mine", "public"] as const).map((value) => (

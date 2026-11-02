@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { getDuelRoom, listDuelPresets, reportEnabled, type DuelPreset } from "./api";
 import {
   addMark, errorSignature, installReportCapture, isTypingTarget, marks, snapshotBuffers,
@@ -197,20 +198,11 @@ export function ReportButton({ slug }: { slug: string }) {
           </div>
         ) : (
           <div className="grid gap-3">
-            <label className="grid gap-1 text-sm text-text-secondary">
-              Category
-              <select value={category} onChange={(e) => setCategory(e.target.value as ReportCategory)} className={field}>
-                {REPORT_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </label>
+            <ThemedSelect label="Category" value={category} onChange={setCategory} compact
+              choices={REPORT_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))} />
             {checklist.length > 0 ? (
-              <label className="grid gap-1 text-sm text-text-secondary">
-                Checklist item
-                <select value={checklistItem} onChange={(e) => setChecklistItem(e.target.value)} className={field}>
-                  <option value="">(none)</option>
-                  {checklist.map((item, i) => <option key={i} value={item}>{`${i + 1}. ${item}`}</option>)}
-                </select>
-              </label>
+              <ThemedSelect label="Checklist item" value={checklistItem} onChange={setChecklistItem} compact
+                choices={[{ value: "", label: "(none)" }, ...checklist.map((item, i) => ({ value: item, label: `${i + 1}. ${item}` }))]} />
             ) : null}
             <label className="grid gap-1 text-sm text-text-secondary">
               Expected

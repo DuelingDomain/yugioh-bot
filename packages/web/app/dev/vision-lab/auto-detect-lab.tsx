@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { createOwnFeedBuffer, createRecognizer, yugioh, type FieldEvent, type FieldTrack, type FieldFormat, type IndexEntry, type Recognizer } from '@yugidraft/vision';
 import { useFieldWatcher } from '@/lib/remote/use-field-watcher';
 import { FieldCalibrationControl } from '@/components/remote/field-calibration';
+import { ThemedSelect } from '@/components/ui/themed-select';
 import styles from './vision-lab.module.css';
+
+const BACKEND_CHOICES: { value: 'auto'|'wasm'; label: string }[]=[{value:'auto',label:'Auto · prefer WebGPU'},{value:'wasm',label:'WASM · CPU benchmark'}];
+const FORMAT_CHOICES: { value: FieldFormat; label: string }[]=[{value:'normal',label:'Advanced'},{value:'domain',label:'Domain'},{value:'genesys',label:'Genesys'},{value:'genesys-domain',label:'Genesys Domain'}];
 
 /** Live camera harness for exactly the same engine/hook used on the remote table. */
 export function AutoDetectLab() {
@@ -46,8 +50,8 @@ export function AutoDetectLab() {
   return <section className={styles.capture} aria-label="Auto-detect lab">
     <div className={styles.controls}><button type="button" className={styles.primary} disabled={starting} onClick={()=>void start()}>{starting?'Starting…':'Start camera'}</button><button type="button" onClick={stop} disabled={!source&&!starting}>Stop</button>
       <label><input type="checkbox" checked={watch.enabled} onChange={e=>watch.setEnabled(e.target.checked)}/> Auto-detect cards</label>
-      <label>Compute <select aria-label="Auto-detect compute" disabled={!!source} value={backend} onChange={e=>setBackend(e.target.value as 'auto'|'wasm')}><option value="auto">Auto · prefer WebGPU</option><option value="wasm">WASM · CPU benchmark</option></select></label>
-      <label>Format <select aria-label="Auto-detect format" disabled={!!source} value={format} onChange={e=>setFormat(e.target.value as FieldFormat)}><option value="normal">Advanced</option><option value="domain">Domain</option><option value="genesys">Genesys</option><option value="genesys-domain">Genesys Domain</option></select></label>
+      <div className={styles.inlineSelect}><span aria-hidden="true">Compute</span><ThemedSelect hideLabel compact className={styles.computeSelect} label="Auto-detect compute" disabled={!!source} value={backend} choices={BACKEND_CHOICES} onChange={setBackend}/></div>
+      <div className={styles.inlineSelect}><span aria-hidden="true">Format</span><ThemedSelect hideLabel compact className={styles.formatSelect} label="Auto-detect format" disabled={!!source} value={format} choices={FORMAT_CHOICES} onChange={setFormat}/></div>
       <button type="button" disabled={!source} onClick={()=>setCalibrating(true)}>{watch.calibration?'Recalibrate':'Calibrate zones'}</button>
     </div>
     <p role="status" data-testid="auto-detect-status">{watch.snapshot.status==='starting'?'Preparing card reader…':source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>

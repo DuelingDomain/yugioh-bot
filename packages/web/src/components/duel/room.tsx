@@ -15,6 +15,7 @@ import { Ban, Circle, Diamond, ExternalLink, Eye, Flag, Radio, Volume2, VolumeX 
 import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelEvent, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { SurrenderModal } from "./surrender-modal";
 import { HostOpeningKick, KickPlayerDialog, type KickRequest } from "./player-kick";
 import { useTestDuelQuit } from "./test-duel-quit";
@@ -106,7 +107,7 @@ import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
-import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DUEL_MOTION_CHOICES, DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
 import { DuelCardHoverInfoControl } from "./card-hover-info-control";
@@ -1624,14 +1625,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
-      <label className="flex flex-col gap-2">Motion
-        <select value={preferences.motion}
-          onChange={(event) => preferences.setMotion(event.target.value as typeof preferences.motion)}>
-          <option value="system">Use device setting</option>
-          <option value="reduced">Reduced motion</option>
-          <option value="full">Full motion</option>
-        </select>
-      </label>
+      <ThemedSelect label="Motion" value={preferences.motion} onChange={preferences.setMotion}
+        choices={DUEL_MOTION_CHOICES} />
       <div className={`${fxStyles.shakeRow} ${duelFontClasses}`}>
         <span>Screen shake</span>
         <div className={fxStyles.segment} role="group" aria-label="Screen shake">

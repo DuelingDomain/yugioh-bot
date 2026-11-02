@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { DeckMark, StatusLine, SvButton } from "@/components/sheet";
 import { deckSummaryText, parseMyDeckState, registerErrorText, type MyDeckState } from "./my-deck-model";
 import type { TournamentDetail } from "./types";
@@ -183,24 +184,19 @@ export function MyDeckPanel({
           ) : (
             <div className={styles.pick}>
               <div className={styles.field}>
-                <label htmlFor="my-deck-select" className={styles.label}>
-                  Saved deck
-                </label>
-                <select
-                  id="my-deck-select"
+                <ThemedSelect
+                  label="Saved deck"
+                  testId="my-deck-select"
                   value={selectValue}
-                  onChange={(e) => setSelected(e.target.value)}
-                  className={styles.select}
-                >
-                  <option value="" disabled>
-                    Choose a deck
-                  </option>
-                  {savedDeckOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.mainCount !== null ? `${option.name} (${option.mainCount} main)` : option.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelected}
+                  choices={[
+                    { value: "", label: "Choose a deck", disabled: true },
+                    ...savedDeckOptions.map((option) => ({
+                      value: String(option.id),
+                      label: option.mainCount !== null ? `${option.name} (${option.mainCount} main)` : option.name,
+                    })),
+                  ]}
+                />
               </div>
               <SvButton variant="primary" disabled={saving || !canSubmit} aria-busy={saving} onClick={() => handleRegister(Number(selected))}>
                 {savedNote ? "Saved" : registration ? "Change" : "Register"}

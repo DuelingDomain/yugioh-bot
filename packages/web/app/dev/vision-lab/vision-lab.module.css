@@ -16,8 +16,8 @@
 .sectionHead h2 { font-size: 14px; font-weight: 700; }
 .sectionHead > span { color: var(--color-text-secondary); font-size: 12px; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.lab button:not(.preview), .runControls select { min-height: 38px; border: 1px solid var(--color-border); border-radius: 4px; padding: 7px 13px; background: var(--color-bg-surface); color: var(--color-text-primary); font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; }
-.lab button:not(.preview):hover:not(:disabled) { border-color: var(--color-accent-secondary); }
+.lab button:not(.preview):not([role="combobox"]) { min-height: 38px; border: 1px solid var(--color-border); border-radius: 4px; padding: 7px 13px; background: var(--color-bg-surface); color: var(--color-text-primary); font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; }
+.lab button:not(.preview):not([role="combobox"]):hover:not(:disabled) { border-color: var(--color-accent-secondary); }
 .lab button.primary { border-color: var(--color-accent-primary); background: var(--color-accent-primary); color: white; font-weight: 600; }
 .lab button:disabled { cursor: default; opacity: .5; }
 .fileInput { display: none; }
@@ -36,8 +36,12 @@
 .working { position: absolute; left: 12px; bottom: 12px; padding: 5px 10px; background: var(--color-bg-deep); border-left: 2px solid var(--color-accent-gold); color: var(--color-text-primary); font-size: 12px; }
 .sourceInfo { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0; color: var(--color-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .runControls { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 8px; }
-.runControls label { display: flex; flex-direction: column; gap: 5px; color: var(--color-text-secondary); font-size: 11px; }
-.runControls select { padding-right: 26px; color-scheme: dark; }
+/* The Compute and run-button selects are themed selects (ui/themed-select); only their size is set here. */
+.computeSelect { width: 220px; max-width: 100%; }
+.inlineSelect { display: flex; align-items: center; gap: 6px; color: var(--color-text-secondary); font-size: 13px; }
+.sideSelect { width: 110px; }
+.seatSelect { width: 120px; }
+.formatSelect { width: 170px; }
 .hint { margin-top: 12px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .error { margin-top: 12px; padding: 10px 12px; border-left: 2px solid #fb7185; background: var(--color-bg-surface); color: #fda4af; overflow-wrap: anywhere; font-size: 13px; }
 .warning { margin: 0 0 12px; color: var(--color-accent-gold); font-size: 12px; line-height: 1.5; }
@@ -82,7 +86,7 @@
   .quality > div:last-child { grid-column: 1 / -1; }
   .timings { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .runControls { align-items: stretch; }
-  .runControls label { flex: 1; }
+  .runControls .computeSelect { flex: 1; width: auto; }
   .runControls > button { align-self: end; }
   .emptyMatches { min-height: 160px; }
 }

@@ -3,11 +3,12 @@
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { seatCountFor, type DuelEngineView, type DuelSession, type ReplayFrameV2, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { isEliminated } from "./multi-seat";
 import type { DuelPreferences } from "./preferences";
 import {
-  SPEEDS,
+  SPEED_CHOICES,
   stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
@@ -118,13 +119,8 @@ export function ReplayTableTransport({
           <button type="button" className={icon} aria-label="Last move"
             {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
         </div>
-        <label className={styles.speedField}>
-          <span className="sr-only">Playback speed</span>
-          <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
-            onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </label>
+        <ThemedSelect hideLabel compact className={styles.speedSelect} label="Playback speed" value={speed}
+          choices={SPEED_CHOICES} onChange={controller.setSpeed} />
       </div>
       <div className={styles.scrub}>
         <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
@@ -134,13 +130,11 @@ export function ReplayTableTransport({
         <span className={styles.count}>Move {index} / {last}</span>
       </div>
       <div className={styles.view} role="group" aria-label="Replay view">
-        <label>
-          <span>View from</span>
-          <select className={`${replayStyles.select} ${styles.camera}`} value={camera} aria-label="View from seat"
-            onChange={(event) => onCamera(Number(event.target.value))}>
-            {seats.map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
-          </select>
-        </label>
+        <div className={styles.cameraField}>
+          <span aria-hidden="true">View from</span>
+          <ThemedSelect hideLabel compact className={styles.cameraSelect} label="View from seat" value={camera}
+            choices={seats.map((seat) => ({ value: seat, label: playerName(seat) }))} onChange={onCamera} />
+        </div>
         {canSwitchCards ? (
           <div className={`${replayStyles.segmented} ${styles.cards}`} role="group" aria-label="Card visibility">
             {(["mine", "public"] as const).map((value) => (

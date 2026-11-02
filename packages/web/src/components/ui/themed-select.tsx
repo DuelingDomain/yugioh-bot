@@ -66,6 +66,19 @@ function useSheetMode(): boolean {
   return sheet;
 }
 
+/**
+ * Open lists, newest last. One window listener, installed when this module loads (before any board or drawer mounts its own),
+ * so Escape closes the list first and stops there: it never also backs out of a prompt, a pin or a drawer behind it.
+ */
+const openLists: (() => void)[] = [];
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.isComposing || openLists.length === 0) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    openLists[openLists.length - 1]();
+  }, true);
+}
+
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
 
 /**
@@ -155,26 +168,26 @@ export function ThemedSelect<T extends string | number | boolean>({
       if (!target || popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       close();
     };
-    // Any scroll outside the list closes it (the button would move away from it). A phone sheet does not follow the page, so it stays.
+    // A scroll of the page or of a parent of the button closes the list (the button would move away from it). A phone sheet does not follow the page, so it stays.
+    // A scroll elsewhere, such as a log that follows a live duel, leaves it open.
     const scrolled = (event: Event) => {
-      if (sheet || popRef.current?.contains(event.target as Node)) return;
+      const target = event.target as Node | null;
+      if (sheet || (target && popRef.current?.contains(target))) return;
+      if (target && target !== document && !target.contains(triggerRef.current)) return;
       close();
     };
-    // Escape closes only the list. It runs before the table's own layers, which would also close.
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault(); event.stopPropagation();
-      close(); triggerRef.current?.focus({ preventScroll: true });
-    };
+    // Escape closes only the list (see `openLists`).
+    const closeAndFocus = () => { close(); triggerRef.current?.focus({ preventScroll: true }); };
+    openLists.push(closeAndFocus);
     document.addEventListener("pointerdown", outside, true);
     window.addEventListener("scroll", scrolled, true);
     window.addEventListener("resize", measure);
-    window.addEventListener("keydown", escape, true);
     return () => {
+      const at = openLists.indexOf(closeAndFocus);
+      if (at >= 0) openLists.splice(at, 1);
       document.removeEventListener("pointerdown", outside, true);
       window.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", measure);
-      window.removeEventListener("keydown", escape, true);
     };
   }, [open, sheet, close, measure]);
 
@@ -233,7 +246,7 @@ export function ThemedSelect<T extends string | number | boolean>({
   const triggerClass = cx(styles.trigger, compact && styles.compact, variant === "menu" && styles.menuTrigger);
   const triggerId = `${uid}-trigger`;
   const popover = open && typeof document !== "undefined" ? createPortal(
-    <div className={cx(styles.scope, duelFontClasses)} data-layer-opener="">
+    <div className={cx(styles.scope, duelFontClasses)} data-layer-opener="" data-themed-select-layer="">
       {sheet ? <div className={styles.backdrop} onPointerDown={close} aria-hidden="true" data-testid="themed-select-backdrop" /> : null}
       <div ref={popRef} className={cx(sheet ? styles.sheet : styles.popover, !sheet && place?.up && styles.popoverUp)}
         data-themed-select-popover="" data-layer-opener=""

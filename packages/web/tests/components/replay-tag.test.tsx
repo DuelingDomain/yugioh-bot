@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { DuelCard, DuelReplayV2, ReplayFrameV2, ReplayVisibility } from "@yugidraft/shared/duels";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV2 } from "./replay-fixtures";
+import { chooseThemed } from "../helpers/themed-select";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -106,7 +107,8 @@ async function open(container?: { narrow?: boolean }) {
   await screen.findByRole("group", { name: "Replay controls" });
   return view;
 }
-const camera = (seat: number) => act(() => void fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: String(seat) } }));
+const camera = (seat: number) => chooseThemed("View from seat", String(seat));
+const cameraSeat = () => screen.getByRole("combobox", { name: "View from seat" }).parentElement!.querySelector("select")!.value;
 const click = (name: string) => act(() => void fireEvent.click(screen.getByRole("button", { name })));
 const plates = () => [...document.querySelectorAll<HTMLElement>("[data-team-plate]")];
 const handSeat = (selector: string) => document.querySelector<HTMLElement>(selector)?.getAttribute("data-hand-seat");
@@ -158,7 +160,7 @@ describe("Tag replay page", () => {
     // The camera seat is not "you": the replay viewer is not a player at that seat.
     expect(document.querySelector("[data-team-plate]")!.textContent).not.toContain("YOU");
     expect(document.querySelector("[data-partner-caption]")!.textContent).not.toMatch(/only your team/);
-    expect(screen.getByRole("combobox", { name: "View from seat" })).toHaveProperty("value", String(seat));
+    expect(cameraSeat()).toBe(String(seat));
     // The camera never asked the server for anything.
     expect(requests).toHaveLength(1);
   });
@@ -217,7 +219,7 @@ describe("Tag replay card visibility", () => {
     await waitFor(() => expect(document.querySelector("[data-replay-visibility='public']")).not.toBeNull());
     expect(requests.map((url) => url.searchParams.get("visibility"))).toEqual(["mine", "public"]);
     expect(screen.getByText("Di acted")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "View from seat" })).toHaveProperty("value", "1");
+    expect(cameraSeat()).toBe("1");
     expect(html()).not.toMatch(/Card \d{3,}/);
     expect(screen.getByText(/Public view/)).toBeTruthy();
     // Back to the viewer's cards: the partner's hand is there again for a camera on seat 0.
@@ -287,7 +289,7 @@ describe("Tag replay on a narrow screen", () => {
     expect(screen.getByRole("group", { name: "Card visibility" })).toBeTruthy();
     expect(plates().length).toBeGreaterThan(0);
     camera(2);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "View from seat" })).toHaveProperty("value", "2"));
+    await waitFor(() => expect(cameraSeat()).toBe("2"));
     click("Last move");
     expect(container.querySelectorAll("[data-replay-result]")).toHaveLength(1);
   });

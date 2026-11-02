@@ -11,6 +11,13 @@ export const DUEL_SHAKE_LEVELS: readonly DuelShakePreference[] = ["off", "low", 
 
 export const DUEL_SHAKE_LABEL: Readonly<Record<DuelShakePreference, string>> = { off: "Off", low: "Low", medium: "Medium", high: "High" };
 
+/** The Motion choices of the duel settings, in list order. */
+export const DUEL_MOTION_CHOICES: readonly { value: DuelMotionPreference; label: string }[] = [
+  { value: "system", label: "Use device setting" },
+  { value: "reduced", label: "Reduced motion" },
+  { value: "full", label: "Full motion" },
+];
+
 export type DuelPreferences = {
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;

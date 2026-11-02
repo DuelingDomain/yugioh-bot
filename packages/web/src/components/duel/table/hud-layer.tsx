@@ -265,7 +265,7 @@ export function useDrawerPin(
       // A right button belongs to the card drawer (grid-preview.tsx): it closes the pin on the contextmenu and claims that press from the prompt.
       if ((event as PointerEvent).button === 2) return;
       const target = event.target as Element | null;
-      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-zones], button, a, input, select, textarea, [role='button'], [role='menu'], [role='dialog']")) return;
+      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-themed-select-layer], [data-zones], button, a, input, select, textarea, [role='button'], [role='menu'], [role='dialog']")) return;
       set.current(null);
     };
     window.addEventListener("keydown", onKey, true);

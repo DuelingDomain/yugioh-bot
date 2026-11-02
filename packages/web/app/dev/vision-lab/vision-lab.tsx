@@ -7,6 +7,7 @@ import { useVisionSource } from "./use-vision-source";
 import { useOutlineReads } from "./use-outline-reads";
 import {RealsetCapture} from "./realset-capture";
 import { VisionResult } from "./vision-result";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import styles from "./vision-lab.module.css";
 import {GPUCheck} from "./gpu-check";
 import { AutoDetectLab } from "./auto-detect-lab";
@@ -16,6 +17,9 @@ import { AutoDetectLab } from "./auto-detect-lab";
 // Licence: packages/vision/src/licenses/duel-lens.LICENSE.
 interface Correction { at: string; guessed?: string; chosen: string; tier: RecognitionResult['tier']; sharpness: number; }
 type Backend = "auto" | "wasm";
+const BACKEND_CHOICES: { value: Backend; label: string }[] = [{ value: "auto", label: "Auto · prefer WebGPU" }, { value: "wasm", label: "WASM · CPU benchmark" }];
+const SIDE_CHOICES: { value: "near" | "far"; label: string }[] = [{ value: "near", label: "Near" }, { value: "far", label: "Far" }];
+const SEAT_CHOICES = [0, 1, 2, 3].map(seat => ({ value: String(seat), label: `Seat ${seat + 1}` }));
 type Recognizer = ReturnType<typeof createRecognizer>;
 type CardEntry = IndexMeta["entries"][number];
 interface Selection { card?:DetectedQuad; point: { x: number; y: number }; left: number; top: number }
@@ -303,8 +307,8 @@ function ManualVisionLab() {
 
           {frozenUrl ? <><p className={styles.hint}>{quads.length} detected card{quads.length===1?'':'s'} · gold outlines · Hover or focus to peek · Enter to read</p>
             <div className={styles.controls}>
-              <label>Camera side <select aria-label="Board side" value={outlineReads.side} disabled={busy} onChange={e=>outlineReads.setSide(e.target.value as 'near'|'far')}><option value="near">Near</option><option value="far">Far</option></select></label>
-              <label>Fill seat <select aria-label="Board twin seat" value={outlineReads.seat} disabled={busy} onChange={e=>outlineReads.setSeat(e.target.value)}>{[0,1,2,3].map(seat=><option key={seat} value={seat}>Seat {seat+1}</option>)}</select></label>
+              <div className={styles.inlineSelect}><span aria-hidden="true">Camera side</span><ThemedSelect hideLabel compact className={styles.sideSelect} label="Board side" value={outlineReads.side} disabled={busy} choices={SIDE_CHOICES} onChange={outlineReads.setSide} /></div>
+              <div className={styles.inlineSelect}><span aria-hidden="true">Fill seat</span><ThemedSelect hideLabel compact className={styles.seatSelect} label="Board twin seat" value={outlineReads.seat} disabled={busy} choices={SEAT_CHOICES} onChange={outlineReads.setSeat} /></div>
               <button type="button" disabled={busy || !quads.length} onClick={()=>{setPopover(false);setError(null);void outlineReads.readAll(quads);}}>Read all cards</button>
               {outlineReads.reading ? <button type="button" onClick={outlineReads.cancelBoard}>Cancel board read</button> : null}
             </div></> : null}
@@ -315,15 +319,11 @@ function ManualVisionLab() {
 
           <GPUCheck />
           <div className={styles.runControls}>
-            <label htmlFor="vision-backend">Compute
-              <select id="vision-backend" value={backend} disabled={busy} onChange={event => {
+            <ThemedSelect compact className={styles.computeSelect} label="Compute" testId="vision-backend" value={backend} disabled={busy} choices={BACKEND_CHOICES}
+              onChange={next => {
                 disposeRecognizer();
-                setBackend(event.target.value as Backend);
-              }}>
-                <option value="auto">Auto · prefer WebGPU</option>
-                <option value="wasm">WASM · CPU benchmark</option>
-              </select>
-            </label>
+                setBackend(next);
+              }} />
             <button type="button" className={styles.primary} disabled={!ready || busy} onClick={() => { void recognize(); }}>
               {busy ? "Recognizing…" : selection ? "Recognize selected card" : "Recognize center card"}
             </button>

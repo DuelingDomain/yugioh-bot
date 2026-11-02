@@ -5,6 +5,7 @@ import { Eraser } from "lucide-react";
 import type { SandboxBotMode, SandboxDuelistId, SandboxCardEntry } from "@yugidraft/shared/duels";
 import { SANDBOX_LIMITS } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   DEFAULT_LP,
   PILE_ZONES,
@@ -141,16 +142,12 @@ export function SeatBoard({
         <h3>{seat.toUpperCase()}{index === 0 ? <span> You</span> : null}</h3>
         <LpField state={state} seat={seat} act={actions.act} />
         {index > 0 ? (
-          <label className={styles.botField}>
-            <span>Bot</span>
-            <select
-              className="input select"
-              value={state.run.bots[String(index) as "1" | "2" | "3"]}
-              onChange={(event) => actions.act({ type: "setBotMode", seat: index as 1 | 2 | 3, mode: event.target.value as SandboxBotMode })}
-            >
-              {BOT_CHOICES.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-            </select>
-          </label>
+          <div className={styles.botField}>
+            <span aria-hidden="true">Bot</span>
+            <ThemedSelect hideLabel compact className={styles.botSelect} label={`Bot for ${seat.toUpperCase()}`}
+              value={state.run.bots[String(index) as "1" | "2" | "3"]} choices={BOT_CHOICES}
+              onChange={(mode) => actions.act({ type: "setBotMode", seat: index as 1 | 2 | 3, mode })} />
+          </div>
         ) : <span className={styles.botFixed}>Manual (you)</span>}
         <button type="button" className={cn("btn btn-quiet btn-sm", styles.clearSeat)} onClick={() => actions.act({ type: "clearSeat", seat })}>
           <Eraser size={14} aria-hidden /> Clear seat
