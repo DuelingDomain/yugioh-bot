@@ -1,3 +1,4 @@
+import { remoteUndoHistory } from "./undo.js";
 import { remoteActionSchema, type RemoteActionProposal } from "./actions.js";
 import type { GameModule } from "./types.js";
 import { parsePhaseCommand } from "./phases.js";
@@ -12,7 +13,10 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   const raw = text.trim().replace(/[.!?]+$/, ""); const words = fold(raw);
   let proposal: RemoteActionProposal | null = null;
   const phase = parsePhaseCommand(text, state);
-  if (phase?.kind === "undo" && state.undo) proposal = { type: "undo", actorSeat, targetActionId: state.undo.actionId };
+  if (phase?.kind === "undo") {
+    const entry = remoteUndoHistory(state, actorSeat)[0];
+    if (entry && !entry.reason) proposal = { type: "undo", actorSeat, targetActionId: entry.actionId };
+  }
   if (phase?.kind === "phase") proposal = { type: "phase.set", actorSeat, phase: phase.phase };
   if (phase?.kind === "turn") proposal = { type: "turn.end", actorSeat };
   // A recognized table command must not fall through into the card-edit grammar.

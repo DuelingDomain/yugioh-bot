@@ -70,15 +70,15 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
   </section>;
 }
 
-export function UndoSection({ label, enabled, secondsLeft, flash, histOpen, onUndo, onHist }: {
-  label: string; enabled: boolean; secondsLeft: number; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
+export function UndoSection({ label, enabled, reason, flash, histOpen, onUndo, onHist }: {
+  label: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
 }) {
   return <section className={`${s.dk} ${s.undo}`} aria-label="Undo">
     <button type="button" className={`${s.ubtn} ${flash ? s.flash : ""}`} key={flash} disabled={!enabled} onClick={onUndo} data-testid="undo">
       <Icon name="undo" /><span className={s.ut}><span className={s.ul} data-testid="undo-label">{enabled ? `Undo: ${label}` : "Nothing to undo"}</span>
-        <span className={s.usub}>{enabled ? `${Math.max(1, secondsLeft)} s left · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd> · or say “undo”</span></span>
+        <span className={s.usub}>{reason ? `${reason} · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd> · or say “undo”</span></span>
     </button>
-    <button type="button" className={s.hbtn} aria-haspopup="dialog" aria-expanded={histOpen} aria-label="Show last 5 actions" data-layer-opener data-testid="history-button"
+    <button type="button" className={s.hbtn} aria-haspopup="dialog" aria-expanded={histOpen} aria-label="Show recent actions" data-layer-opener data-testid="history-button"
       onClick={event => onHist(event.currentTarget)}><Icon name="hist" /></button>
   </section>;
 }
