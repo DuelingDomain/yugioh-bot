@@ -20,15 +20,16 @@ export function createOwnFeedBuffer(video:HTMLVideoElement,onFrame?:(count:numbe
   async function capture() {
     try {await serial(captureFrame);}catch {/* A temporarily unavailable camera frame does not destroy the ring. */}
     // Manual reads keep the modest background ring; active watcher samples can
-    // request a fresh native frame at 100 ms without constant extra capture load.
+    // request fresh native frames during a bounded confirmation burst.
     if(!stopped)timer=setTimeout(()=>{void capture();},200);
   }
   void capture();
   return {
-    sample:()=>serial(async()=>{
+    sample:(options?:{maxAgeMs?:number})=>serial(async()=>{
       if(stopped)throw new Error('Frame buffer is stopped');
       evict(performance.now());
-      if(performance.now()-(frames.at(-1)?.at??-Infinity)>=90)await captureFrame();
+      const maxAge=Math.max(30,Math.min(200,options?.maxAgeMs??90));
+      if(performance.now()-(frames.at(-1)?.at??-Infinity)>=maxAge)await captureFrame();
       const latest=frames.at(-1);
       if(!latest)throw new Error('Waiting for a camera frame');
       return {frame:await createImageBitmap(latest.bitmap),at:latest.at};

@@ -524,7 +524,7 @@ test('native camera ring refreshes within100ms while retaining at most six origi
  globalThis.createImageBitmap=(async (source:any)=>({width:1280,height:720,n:source.n??++captured,close(){closed++;}})) as any;
  t.mock.timers.enable({apis:['setTimeout']});const {createOwnFeedBuffer}=await import('./frame-buffer');const buffer=createOwnFeedBuffer({readyState:2,videoWidth:1280,videoHeight:720} as HTMLVideoElement);
  const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
- try{await flush();at+=100;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);for(let i=0;i<8;i++){at+=100;t.mock.timers.tick(100);await flush();((await buffer.sample()).frame as ImageBitmap).close();}assert.equal((await buffer.snapshot()).length,6);assert.ok(closed>=4);}
+ try{await flush();at+=100;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);at+=50;assert.equal(((await buffer.sample({maxAgeMs:40})).frame as any).n,3,'bounded confirmation can request the next decoded frame within 50ms');for(let i=0;i<8;i++){at+=100;t.mock.timers.tick(100);await flush();((await buffer.sample()).frame as ImageBitmap).close();}assert.equal((await buffer.snapshot()).length,6);assert.ok(closed>=4);}
  finally{buffer.stop();await flush();t.mock.timers.reset();globalThis.createImageBitmap=original;}
 });
 
