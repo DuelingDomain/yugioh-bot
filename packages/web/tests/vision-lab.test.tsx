@@ -605,13 +605,13 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
   if(moved)track.zone='M3';
   if(!automatic)fireEvent.click(await screen.findByRole('button',{name:new RegExp(faceDown?'Confirm face-down card':chosen.name)}));
   await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
-  expect(room.state.seats[0].twin).toHaveLength(secondCopy?2:1);
-  const target=room.state.seats[0].twin.find((c:any)=>c.ref===(secondCopy?'candidate':old.ref));
+  expect(room.state.seats[0].twin).toHaveLength(1);
+  const target=room.state.seats[0].twin.find((c:any)=>c.ref===old.ref);
   expect(target.faceUp).toBe(!faceDown);if(!faceDown)expect(target.cardId).toBe(Number(chosen.cardId));
-  expect(confirm).toHaveBeenCalledWith('candidate',faceDown?undefined:chosen.cardId,secondCopy?undefined:old.ref,!automatic);
-  expect(post.mock.calls.map(([p])=>p.type)).toEqual(secondCopy?['twin.place']:[...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(moved?['twin.move']:[])]);
+  expect(confirm).toHaveBeenCalledWith('candidate',faceDown?undefined:chosen.cardId,old.ref,!automatic);
+  expect(post.mock.calls.map(([p])=>p.type)).toEqual([...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(moved||secondCopy?['twin.move']:[])]);
   if(moved)expect(target.slot).toBe(3);
-  if(secondCopy)expect(room.state.seats[0].twin.find((c:any)=>c.ref===old.ref).slot).toBe(2);
+  if(secondCopy)expect(target.slot).toBe(3);
  }finally{cleanup();host.remove();state.fieldWatch=null;}
 });
 
@@ -786,12 +786,12 @@ describe('typed watcher zone projection',()=>{
    fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn.*Spell\/Trap Zone 3/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,slot:4}),expect.objectContaining({ref:'new-s4',cardId:83764718,slot:3})]);
   }finally{fixture.dispose();}
  });
- it.each(['prompt','automatic'] as const)('keeps an unread restart reservation when a same-card second copy arrives via %s',async mode=>{
+ it.each(['prompt','automatic'] as const)('reuses an unread restart reservation without simultaneous second-copy proof via %s',async mode=>{
   const old={ref:'reserved-unread',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   sessionStorage.setItem(physicalHintsKey,JSON.stringify({[old.ref]:'M4'}));const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],mode==='prompt'?'prompt':'placed');try{
    const first={...fixture.track,id:'fw-unread-first',zone:'M4',state:'candidate',cardId:undefined,visible:false,removed:false};state.fieldWatch.watch.snapshot.tracks.unshift(first);fixture.refresh();
    await fixture.emit();if(mode==='prompt')fireEvent.click(await screen.findByRole('button',{name:/Solemn Judgment/}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
-   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining(old),expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:3})]);expect(first).toMatchObject({id:'fw-unread-first',state:'candidate',cardId:undefined});expect(fixture.confirm).toHaveBeenCalledWith('physical-typed','41420027',undefined,mode==='prompt');
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['card.identified']);expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining(old)]);expect(first).toMatchObject({id:'fw-unread-first',state:'candidate',cardId:undefined});expect(fixture.confirm).toHaveBeenCalledWith('physical-typed','41420027',old.ref,mode==='prompt');
   }finally{fixture.dispose();}
  });
  it('updates physical hints when a real move projects to the same virtual slot',async()=>{

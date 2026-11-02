@@ -1,5 +1,39 @@
 # Remote vision measurements — 2026-11-01
 
+## Branch 2: strict physical copies and GY round trips — 2026-11-02
+
+The same identity reuses its existing physical ref when that track is lost,
+including returns from GY, banish or hand. Another automatic twin requires two
+distinct face-up, identified quads in the same detector frame. Cached bound
+visibility now checks pixels rather than treating every old outline as visible.
+
+A fresh matching read in a pile used to be discarded because pile sightings
+cannot create cards. It now moves the existing ref, including when cheap pixel
+tracking failed. A clear matching incoming card can follow its existing ref while
+a hand still covers the old spot; it does not create a speculative second copy.
+
+Recovery waits five seconds with one verified live copy and another absent ref.
+Covered live tracks are exempt. It uses the mutation queue and the existing merge
+action (or removes an unregistered ghost), offers Undo, and respects that Undo as
+an owner override rather than immediately merging again.
+
+Existing native Chromium/WASM harness, **10/10 GY → S/T round trips**: one placement,
+one surviving ref and one visible track in every trial; **zero duplicate births,
+zero extra recognition reads**. Physical returns land in S2, not the monster row.
+GY entry p50/p95 **518.6/640.8 ms**; return p50/p95 **395.8/542.3 ms**. These measure
+tracker events, excluding table HTTP/rendering; p95 still exceeds 500 ms.
+Hand-only **30 s / 281 samples / zero events**; tracked hand occlusion **30 s /
+zero false removals**. Browser errors: zero.
+
+An isolated full-table browser replay also kept one ref through GY (**460 ms**)
+and S4 return (**453 ms**), repaired an injected legacy duplicate in **5504 ms**,
+and retained both refs for **6500 ms after Undo** without reapplying the repair.
+Existing **153 vision + 137 web checks pass**; vision/web typechecks pass. Only
+stale expectations were updated; no test cases were added. Evidence is in
+`copy-return-10.json` under the ignored benchmark directory and
+`/tmp/remote-copy-{native,browser,vision,web}.*`. No worker change is required for
+this copy/GY fix. The separate plain-sleeve work remains saved for the next commit.
+
 ## Branch 2: audit of the two reported table browser failures
 
 Checked the unchanged tests on `feat/remote-autodetect-2` at `63126fd2b`, after

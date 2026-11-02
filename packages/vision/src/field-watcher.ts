@@ -46,7 +46,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const notify=()=>{for(const listener of updates)listener();};
   // Once attached to a twin, only an explicit owner correction changes identity.
   const bound=(t:InternalTrack)=>t.view.state==='identified'&&t.resolvedAt!==undefined;
-  const matchesLook=(t:InternalTrack,pixels?:number[])=>bound(t)||sameFieldAppearance(t.identityAppearance,pixels);
+  const matchesLook=(t:InternalTrack,pixels?:number[])=>bound(t)?sameRotatedFieldAppearance(t.identityAppearance,pixels):sameFieldAppearance(t.identityAppearance,pixels);
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{if(type==='prompt'){if(t.resolvedAt!==undefined){t.view.state='identified';return;}if(t.prompted)return;const answer=gallery.resolve(extra.result?.identityEmbedding);if(answer.kind!=='new'){t.prompted=true;t.view.state='dismissed';return;}t.prompted=true;t.identityEmbedding=extra.result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;}const event:FieldEvent={type,track:copy(t.view),...(type==='prompt'&&t.binding?{bindRef:t.binding.id}:{}),source:'auto',...extra};for(const listener of listeners)listener(event);};
   function pruneFrames() {
     const used=new Set(tracks.flatMap(t=>t.best?[t.best.frame]:[]));
@@ -172,12 +172,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){
           if(clearOldSpot(lost[0],incoming[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
-          // Do not turn the first motion frame into a new birth. Reserve this
-          // ambiguous outline until the old spot clears or both copies reappear.
-          else if(bound(lost[0])){taken.add(incoming[0]);proposePose(lost[0],incoming[0],cards,evidence,sample.at,current.width,current.height);}
+          // Matching identity pixels and no simultaneous second copy follow the
+          // existing ref even if the player's hand still covers its old spot.
+          else if(bound(lost[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
         }
       }
-      for(const c of cards)if(c.confidence>=.7&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
+      const pileRead=(c:DetectedQuad)=>c.confidence>=.4&&['GY','BANISHED'].includes(mapFieldZone(c,calibration,cards,options.format).zone)&&tracks.some(t=>bound(t)&&!matched.has(t));
+      for(const c of cards)if((c.confidence>=.7||pileRead(c))&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         if(calibration&&c.quad.map(p=>onMat(p,calibration)).some(p=>p.x<0||p.x>1||p.y<0||p.y>1))continue;
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));
@@ -239,9 +240,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
-        const clean=!appearanceChanged&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
+        const confident=c.confidence>=.7||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
+        const clean=!appearanceChanged&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
         if(t.identityCheck){if(!clean)t.identityCheck.strongSamples=0;else if(fieldAppearanceDistance(t.identityAppearance,pixels)>=.025)t.identityCheck.strongSamples++;}
-        t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||matchesLook(t,pixels))&&evidence.motion(c)<=.025&&(t.view.state==='identified'||t.view.state==='prompt')&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards);
+        t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||matchesLook(t,pixels))&&evidence.motion(c)<=.025&&(t.view.state==='identified'||t.view.state==='prompt')&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards);
         if(clean&&!t.appearance?.length)t.appearance=pixels;
         const still=quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012&&t.kind===c.kind&&t.position===position;
         if(!clean||!still||!Number.isFinite(t.stableSince)) {
@@ -295,41 +297,32 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const deck=options.getPriors?.()?.decklist;
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
-          // A rotated crop can lose its cheap pixel match. A fresh read may
-          // follow only an acknowledged live ref, or an explicitly undone removal.
+          // An identity can gain a new twin only after simultaneous physical
+          // copies are seen. A lost copy, including one in a pile, owns a return.
           const known=options.getKnownCards?.();
-          const publicRef=(old:InternalTrack)=>known?.find(card=>card.id===old.view.id&&!card.faceDown&&card.cardId===old.view.cardId&&!['GY','BANISHED','DECK','EXTRA'].includes(card.zone));
-          const restored=(old:InternalTrack)=>old.restoredAt!==undefined&&sample.at-old.restoredAt<10000;
           if(t.newOutline&&!t.binding&&!t.promptOnly){
-            const sameRestoredSpot=tracks.filter(old=>old!==t&&old.view.removed&&restored(old)&&publicRef(old)?.zone===t.view.zone&&!tracks.some(other=>other!==t&&other.binding?.id===old.view.id));
-            if(sameRestoredSpot.length===1){const old=sameRestoredSpot[0];t.binding={id:old.view.id,zone:old.view.zone,cardId:old.view.cardId};t.promptOnly='reappeared';}
+            const restored=tracks.find(old=>old!==t&&old.view.removed&&old.restoredAt!==undefined&&sample.at-old.restoredAt<10000&&old.view.cardId!==winner&&known?.some(card=>card.id===old.view.id&&card.zone===t.view.zone&&!card.faceDown));
+            if(restored){t.binding={id:restored.view.id,zone:restored.view.zone,cardId:restored.view.cardId};t.promptOnly='reappeared';}
           }
-          if(winner&&t.newOutline&&!pile&&!t.binding&&!t.promptOnly){
-            const clearSpots=new Map<InternalTrack,boolean>();
-            const displaced=tracks.filter(old=>{
-              const halo=evidence.halo?.(old.view.card),publicTwin=publicRef(old);
-              const clear=old.missingSamples>=2&&evidence.motion(old.view.card)<=.01&&!cards.some(other=>quadIou(old.view.card,other)>.04)&&
-                halo?.length===old.halo?.length&&!!halo?.length&&halo.filter((v,i)=>Math.abs(v-old.halo![i])>.06).length/halo.length<=.08&&clearFieldBackground(evidence.appearance?.(old.view.card),halo);
-              clearSpots.set(old,clear);
-              return old!==t&&old.view.state==='identified'&&old.missed&&old.resolvedAt!==undefined&&old.view.cardId===winner&&old.kind==='face-up'&&
-                (old.view.removed?!!publicTwin&&sample.at-old.view.lastSeen<30000:clear&&sample.at-old.view.lastSeen<removalMs)&&
-                (!known||!!publicTwin)&&(fieldEmbeddingSimilarity(old.identityEmbedding,result?.identityEmbedding)??-1)>=.84;
-            });
-            if(displaced.length){
-              const unverified=tracks.filter(other=>matched.has(other)&&(other.view.state!=='identified'||!other.view.visible));
-              const old=displaced[0],reserved=tracks.some(other=>other!==t&&other.binding?.id===old.view.id);
-              const canFollow=!old.view.removed||(restored(old)&&clearSpots.get(old));
-              if(displaced.length===1&&unverified.length===1&&!reserved&&canFollow){
-                const {id,revision,firstSeen}=old.view;
-                old.view={...copy(t.view),id,revision,firstSeen,state:'identified',cardId:winner,visible:true};
-                old.anchor=c;old.kind=c.kind;old.position=position;old.appearance=pixels;old.identityAppearance=pixels;old.identityEmbedding=result?.identityEmbedding;old.latestEmbedding=result?.identityEmbedding;old.lastResult=result;
-                old.halo=evidence.halo?.(c);old.read=undefined;old.best=undefined;old.needsRead=false;old.reappeared=false;old.missed=false;old.restoredAt=undefined;old.stableSince=t.stableSince;old.observations=t.observations;resetAbsence(old);
-                old.announced=c;old.announcedZone=old.view.zone;old.announcedPosition=position;old.moveAt=undefined;
-                tracks.splice(tracks.indexOf(t),1);reconnected.add(old);emit('moved',old);continue;
-              }
-              t.promptOnly='reappeared';
-              if(displaced.length===1&&!reserved)t.binding={id:old.view.id,zone:old.view.zone,cardId:winner};
+          if(winner&&t.newOutline&&!t.binding&&!t.promptOnly){
+            const displaced=tracks.filter(old=>old!==t&&bound(old)&&old.view.cardId===winner&&
+              (!known||known.some(card=>card.id===old.view.id&&card.cardId===winner))&&
+              (!matched.has(old)||!old.view.visible||old.view.removed||
+                !sameRotatedFieldAppearance(old.identityAppearance,appearance(matched.get(old)!))))
+              .sort((a,b)=>b.view.lastSeen-a.view.lastSeen);
+            const old=displaced.find(old=>!tracks.some(other=>other!==t&&other.binding?.id===old.view.id));
+            if(old){
+              const {id,revision,firstSeen}=old.view;
+              old.view={...copy(t.view),id,revision,firstSeen,state:'identified',cardId:winner,visible:true};
+              old.anchor=c;old.kind=c.kind;old.position=position;old.appearance=pixels;old.identityAppearance=pixels;old.identityEmbedding=result?.identityEmbedding;old.latestEmbedding=result?.identityEmbedding;old.lastResult=result;
+              old.halo=evidence.halo?.(c);old.read=undefined;old.best=undefined;old.needsRead=false;old.reappeared=false;old.missed=false;old.restoredAt=undefined;old.stableSince=t.stableSince;old.observations=t.observations;resetAbsence(old);
+              old.announced=c;old.announcedZone=old.view.zone;old.announcedPosition=position;old.moveAt=undefined;
+              tracks.splice(tracks.indexOf(t),1);reconnected.add(old);emit('moved',old);continue;
             }
+            // No local tombstone after restart: reserve the existing pile ref
+            // after the read instead of silently dismissing a recognized GY card.
+            const reserved=known?.find(card=>card.cardId===winner&&!tracks.some(other=>other!==t&&(other.view.id===card.id||other.binding?.id===card.id)));
+            if(reserved)t.binding=reserved;
           }
           if(t.binding){
             if(!winner&&!t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=undefined;t.view.state='identified';t.view.visible=true;t.resolvedAt=sample.at;t.binding=undefined;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.needsRead=false;if(t.view.faceDown===false)emit('flipped',t);emit('moved',t);continue;}

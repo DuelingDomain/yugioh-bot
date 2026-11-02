@@ -1,6 +1,13 @@
 import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+/** Copy evidence must come from distinct, identified quads in the same frame. */
+export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack):boolean {
+  if(a.id===b.id||!a.cardId||a.cardId!==b.cardId||!['identified','prompt'].includes(a.state)||b.state!=='identified'||!a.visible||!b.visible||a.removed||b.removed||a.faceDown||b.faceDown||a.card.kind!=='face-up'||b.card.kind!=='face-up'||a.lastSeen!==b.lastSeen)return false;
+  const box=(t:FieldTrack)=>({left:Math.min(...t.card.quad.map(p=>p.x)),right:Math.max(...t.card.quad.map(p=>p.x)),top:Math.min(...t.card.quad.map(p=>p.y)),bottom:Math.max(...t.card.quad.map(p=>p.y))});
+  const x=box(a),y=box(b),area=Math.max(0,Math.min(x.right,y.right)-Math.max(x.left,y.left))*Math.max(0,Math.min(x.bottom,y.bottom)-Math.max(x.top,y.top));
+  return area/Math.min((x.right-x.left)*(x.bottom-x.top),(y.right-y.left)*(y.bottom-y.top))<.04;
+}
 /** A new placement records the sighting atomically, so one Undo removes both. */
 export function fieldPlacementProposals({track,seat,cardId,name,existing=false}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
