@@ -14,6 +14,7 @@ import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera 
 import { detectCards, prewarmRecognizer } from "./recognizer";
 import { readableCards, toFeedCards } from "./quads";
 import { useVideoHub } from "./video-hub";
+import { RecognitionSetting } from "./recognition-setting";
 import s from "./lobby-camera-preview.module.css";
 
 export type CameraMode = "webcam" | "phone" | "manual";
@@ -317,6 +318,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         <span className={cx(ui.label, s.rowLabel)}><ScanLine size={13} strokeWidth={1.6} aria-hidden /> Card check</span>
         <p className={cx(s.check, check === "found" && s.checkOn)} role="status" data-testid="lobby-cam-check" data-state={check}>{checkLine}</p>
       </div>
+      <div className={s.row}><RecognitionSetting /></div>
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Crosshair size={13} strokeWidth={1.6} aria-hidden /> Field zones</span>
         <p className={ui.hint}>{zonesLine}</p>
