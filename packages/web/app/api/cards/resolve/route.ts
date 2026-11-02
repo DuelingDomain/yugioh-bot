@@ -28,6 +28,7 @@ function toCardSummary(c: {
   name: string;
   type: string;
   frameType: string;
+  race?: string;
   attribute?: string;
   level?: number;
   effectText: string;
@@ -42,6 +43,7 @@ function toCardSummary(c: {
     name: c.name,
     type: c.type,
     frameType: c.frameType,
+    race: c.race,
     attribute: c.attribute,
     level: c.level,
     effectText: c.effectText,
@@ -243,10 +245,13 @@ async function handlePOST(request: Request) {
     }
   }
 
-  const resolvedIds = createDraftService(db).resolvePoolCardIds({
+  const drafts=createDraftService(db);
+  const resolvedIds = drafts.resolvePoolCardIds({
     setNames,
     customCardIds,
   });
+  // Display callers may request explicit Extra Deck facts without widening the cube's main pool.
+  if(body.includeExtra===true)resolvedIds.push(...drafts.resolveExtraCardIds({customExtraCardIds:customCardIds},env.discordGuildId??''));
   // resolvedIds is the materialized-cube multiset (baseline + additive custom).
   // Collapse to one entry per distinct card but keep the copy count as qty so
   // the preview shows the true number of copies the draft will use.
@@ -258,6 +263,7 @@ async function handlePOST(request: Request) {
     name: c.name,
     type: c.type,
     frameType: c.frameType,
+    race: c.race,
     attribute: c.attribute,
     level: c.level,
     effectText: c.effectText,

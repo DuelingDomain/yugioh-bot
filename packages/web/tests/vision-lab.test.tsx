@@ -13,7 +13,7 @@ vi.mock("socket.io-client",()=>({io:()=>{
 }}));
 
 const state = vi.hoisted(() => ({
-  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(),
+  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(), fieldWatch:null as any, roomHook:null as any,
   createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(), recordFeedback:vi.fn(),
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
@@ -57,6 +57,18 @@ const cards = [
   { cardId: "55144522", passcode: 55144522, frameClass: "Spell", name: "Pot of Greed" },
   { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
+const zoneEntries=[
+  {cardId:'41420027',passcode:41420027,frameClass:'Normal',name:'Solemn Judgment'},
+  {cardId:'76375913',passcode:76375913,frameClass:'Normal',name:'Mystic Mine'},
+  {cardId:'23995346',passcode:23995346,frameClass:'Normal',name:'Blue-Eyes Ultimate Dragon'},
+  {cardId:'16178681',passcode:16178681,frameClass:'Normal',name:'Odd-Eyes Pendulum Dragon'},
+  {cardId:'900000101',passcode:900000101,frameClass:'Normal',name:'Extra Deck Pendulum fixture'},
+  {cardId:'900000102',passcode:900000102,frameClass:'Normal',name:'Unknown full type fixture'},
+];
+const catalogFacts=[
+  ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),
+  ...zoneEntries.slice(0,-1).map((card,i)=>({id:card.passcode,name:card.name,type:['Trap Card','Spell Card','Dragon / Fusion Monster','Dragon / Pendulum Effect Monster','Dragon / Xyz Pendulum Effect Monster'][i],frameType:['trap','spell','fusion','effect_pendulum','xyz_pendulum'][i],...(i===1?{race:'Field'}:{}),effectText:'Fixture card text'})),
+];
 const result: RecognitionResult = {
   candidates: cards.map((card, i) => ({ cardId: card.cardId, score: .9 - i * .05 })), tier: "not sure", backend: "wasm", cropJpeg: "test-crop-only",
   quality: { sharpness: 123.45, detected: true, cornersFound: true, framesUsed: 1, selectedFrameIndices: [0], fallback: false },
@@ -80,6 +92,8 @@ const deferred = <T,>() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
+  state.fieldWatch=null;state.roomHook=null;
   state.initialSource = "photo";
   snapshots.length = 0; clones.length = 0;
   state.createRecognizer.mockImplementation(() => ({ recognize: state.recognize, detectCards: state.detectCards, dispose: state.dispose, askAI: state.askAI,recordFeedback:state.recordFeedback }));
@@ -99,7 +113,10 @@ beforeEach(() => {
     static revokeObjectURL = revokeObjectURL;
   });
   vi.stubGlobal("createImageBitmap", createBitmap);
-  fetcher.mockReset().mockImplementation(async (url) => Response.json(String(url).includes("remote-vision/feedback")?{enabled:false,askedAt:1,collectionEnabled:true}:{ entries: cards }));
+  fetcher.mockReset().mockImplementation(async (url,init) => {
+    if(String(url).endsWith('/api/cards/resolve')){const body=JSON.parse(init.body),ids=body.lookupIds??body.customCardIds??[];return Response.json({cards:catalogFacts.filter(card=>ids.includes(card.id))});}
+    return Response.json(String(url).includes("remote-vision/feedback")?{enabled:false,askedAt:1,collectionEnabled:true}:{entries:cards});
+  });
   vi.stubGlobal("fetch", fetcher);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["fixture"], { type: "image/jpeg" })));
@@ -404,6 +421,31 @@ import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
 import { FieldCalibrationControl } from "../src/components/remote/field-calibration";
 
 describe('field calibration modal',()=>{
+  it('guides first-run grid adjustment and restores saved calibration for each seat and camera',async()=>{
+    localStorage.clear();const {createFieldCalibration,mapFieldZone}=await import('@yugidraft/vision'),create=vi.fn(async()=>null),video=document.createElement('video');Object.defineProperties(video,{videoWidth:{value:1280},videoHeight:{value:720}});
+    const tilt=({x,y}:{x:number;y:number})=>({x:(.12+.78*x+.06*y)/(1+.12*x+.28*y),y:(.08+.06*x+.85*y)/(1+.12*x+.28*y)}),aspect=86/59,pitch=1.25,halfW=.128/(2*pitch),halfH=.4*aspect/(2*(aspect+pitch-1));
+    const {onMat}=await import('../../vision/src/field-zones'),projected=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(tilt)),roundtrip=onMat(tilt({x:.5,y:.78}),projected);expect(roundtrip.x).toBeCloseTo(.5,7);expect(roundtrip.y).toBeCloseTo(.78,7);
+    const {createTwoCardCalibration,fieldMatPoint}=await import('@yugidraft/vision');
+    const markers=[.244,.756].map((x,i)=>{const quad=[{x:x-halfW,y:.38-halfH},{x:x+halfW,y:.38-halfH},{x:x+halfW,y:.38+halfH},{x:x-halfW,y:.38+halfH}].map(tilt);return {kind:i?'face-up':'face-down',confidence:.99,partial:false,quad:[...quad.slice(i?3:1),...quad.slice(0,i?3:1)]} as DetectedQuad;});
+    const inferred=createTwoCardCalibration(markers);for(const point of [{x:.244,y:.38},{x:.5,y:.78},{x:.09,y:.28},{x:.91,y:.4}]){const actual=fieldMatPoint(point,inferred),expected=tilt(point);expect(actual.x).toBeCloseTo(expected.x,7);expect(actual.y).toBeCloseTo(expected.y,7);}expect(()=>createTwoCardCalibration([...markers,markers[0]])).toThrow(/two/i);expect(()=>createTwoCardCalibration(markers.map(card=>({...card,quad:[card.quad[0]]})))).toThrow(/corner|quad|card/i);
+    const detect=vi.fn(async(frame:HTMLCanvasElement)=>{expect([frame.width,frame.height]).toEqual([1280,720]);return markers;});
+    const capture=vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,fixture');
+    function Guided({seat='guided-seat',device='camera-a'}:{seat?:string;device?:string}){
+      const watch=useFieldWatcher({owner:true,active:true,seatKey:seat,deviceKey:device,create,onEvent:()=>{}}),[open,setOpen]=React.useState(false);
+      return <><button onClick={()=>setOpen(true)}>Recalibrate</button><output data-testid="saved-grid">{JSON.stringify(watch.calibration)}</output>{watch.calibrationNeeded||open?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} detectCalibrationCards={detect} onSave={grid=>{watch.setCalibration(grid);setOpen(false);}} onCancel={()=>{if(!watch.calibration)watch.setEnabled(false);setOpen(false);}}/>:null}</>;
+    }
+    try{
+      const view=render(<Guided/>),modal=await screen.findByRole('dialog',{name:'Calibrate field zones'});expect(create).not.toHaveBeenCalled();expect(within(modal).getByText('Drag the field grid over your mat')).toBeVisible();
+      const image=within(modal).getByTestId('field-calibration-image');vi.spyOn(image,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:800,height:450,right:800,bottom:450,x:0,y:0,toJSON:()=>({})});
+      const corner=within(modal).getByRole('button',{name:'Top-left grid corner'}),before=corner.style.left;fireEvent.pointerDown(corner,{pointerId:1,clientX:64,clientY:36});fireEvent.pointerMove(corner,{pointerId:1,clientX:100,clientY:60});fireEvent.pointerUp(corner,{pointerId:1});expect(corner.style.left).not.toBe(before);fireEvent.keyDown(corner,{key:'ArrowRight'});
+      fireEvent.click(within(modal).getByRole('button',{name:'Use cards in M1 and M5'}));await waitFor(()=>expect(detect).toHaveBeenCalledOnce());await waitFor(()=>expect(corner.style.left).toBe(`${inferred.corners[0].x*100}%`));
+      const polygons=Array.from(modal.querySelectorAll<SVGPolygonElement>('polygon[data-zone]'));expect(polygons.map(node=>node.dataset.zone)).toEqual(expect.arrayContaining(['FIELD','EXTRA','GY','BANISHED','DECK','EMZ1','EMZ2','M1','M2','M3','M4','M5','S1','S2','S3','S4','S5']));
+      const gridHeight=Number(modal.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[3]),centers=polygons.map(node=>({zone:node.dataset.zone,quad:node.getAttribute('points')!.trim().split(/\s+/).map(pair=>{const [x,y]=pair.split(',').map(Number);return {x:x/1000,y:y/gridHeight};})}));fireEvent.click(within(modal).getByRole('button',{name:'Save calibration'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+      const saved=JSON.parse(screen.getByTestId('saved-grid').textContent!),grid=createFieldCalibration(saved.corners);for(const cell of centers)expect(mapFieldZone({kind:'face-up',confidence:1,partial:false,quad:cell.quad},grid).zone).toBe(cell.zone);
+      view.unmount();const again=render(<Guided/>);await waitFor(()=>expect(create).toHaveBeenCalledTimes(2));expect(screen.queryByRole('dialog')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Recalibrate'}));expect(screen.getByRole('dialog')).toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Cancel calibration'}));
+      again.rerender(<Guided device="camera-b"/>);await screen.findByRole('dialog');expect(create).toHaveBeenCalledTimes(2);again.rerender(<Guided device="camera-a"/>);await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());again.rerender(<Guided seat="another-seat"/>);await screen.findByRole('dialog');
+    }finally{capture.mockRestore();localStorage.clear();}
+  });
   it('escapes feed containment, traps focus, closes with Escape and restores its opener',()=>{
     function CalibrationHarness(){
       const [open,setOpen]=React.useState(false);
@@ -535,7 +577,7 @@ it('automatic zone proposals draw defense cards in the existing main, spell and 
   }
 });
 it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
-  localStorage.clear();const create=vi.fn(async()=>null),onEvent=vi.fn();
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:test-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const create=vi.fn(async()=>null),onEvent=vi.fn();
   const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});
   await act(async()=>undefined);expect(create).not.toHaveBeenCalled();expect(hook.result.current.enabled).toBe(true);
   hook.rerender({owner:true});await waitFor(()=>expect(create).toHaveBeenCalledOnce());
@@ -544,13 +586,87 @@ it('the watcher hook only starts for an active feed owner and persists its defau
   expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
 });
 it('the watcher hook discards resource setup that resolves after unmount',async()=>{
-  localStorage.clear();const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:late-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
   const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
   hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
 });
 
 vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>state.feedHub}));
-vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>({...await importOriginal<typeof import('../src/components/remote/ui/recognizer')>(),attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[])}));
+vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>{
+ const original=await importOriginal<typeof import('../src/components/remote/ui/recognizer')>();
+ return {...original,attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[]),ownFieldResources:(...args:Parameters<typeof original.ownFieldResources>)=>state.fieldWatch?Promise.resolve({entries:state.fieldWatch.entries??cards,cpuBusy:()=>false}):original.ownFieldResources(...args)};
+});
+vi.mock('../src/lib/remote/use-field-watcher',async importOriginal=>{
+ const original=await importOriginal<typeof import('../src/lib/remote/use-field-watcher')>(),react=await import('react');
+ return {...original,useFieldWatcher:(options:Parameters<typeof original.useFieldWatcher>[0])=>{
+  if(!state.fieldWatch)return original.useFieldWatcher(options);
+  const fixture=state.fieldWatch;fixture.onEvent=options.onEvent;
+  react.useEffect(()=>{void options.create().then(config=>{fixture.config=config;fixture.ready=true;});},[]);
+  return fixture.watch;
+ }};
+});
+
+it.each(['face-down restart','face-down restart needs flip','different-card restart','face-down moved restart','different-card moved restart','unbound same-spot swap','second copy with hidden first track','automatic second copy with hidden first track'])('round 2 NB1/NS2: resolves %s without duplicating or stealing a twin',async scenario=>{
+ const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher');
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ const {ygoModule}=await import('@yugidraft/shared/remote');
+ const faceDown=scenario.startsWith('face-down'),secondCopy=scenario.includes('second copy'),automatic=scenario.startsWith('automatic'),unbound=scenario.startsWith('unbound'),moved=scenario.includes('moved');
+ const old={ref:'old-twin',zone:'monster',slot:2,faceUp:!faceDown||scenario==='face-down restart needs flip',cardId:46986414,name:'Dark Magician',position:'attack' as const};
+ let room:any={guildId:'g',slug:'round2',mySeat:0,lastSeq:0,status:'active',seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=[old];
+ const track:any={id:'candidate',zone:secondCopy?'M3':'M2',card:quads[0],faceDown,position:'attack',state:automatic?'identified':'prompt',...(automatic?{cardId:cards[0].cardId}:{}),visible:true,removed:false,firstSeen:0,lastSeen:1000};
+ const tracks=secondCopy||unbound?[{...track,id:old.ref,zone:'M2',state:'identified',visible:false,cardId:'46986414'},track]:[track];
+ const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>{const i=tracks.findIndex(t=>t.id===ref&&t.id!==id);if(i>=0)tracks.splice(i,1);Object.assign(track,{id:ref??id,cardId,state:'identified'});});
+ const fixture:any={ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks,metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>tracks.find(t=>t.id===id),confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
+ const source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ const post=vi.fn(async(proposal:any)=>{room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`r2-${room.lastSeq+1}`})};return room;});
+ const queue=createRoomMutationQueue(()=>room,post);
+ const host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+ try{
+  render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
+  const chosen=secondCopy?cards[0]:cards[1];
+  await act(async()=>fixture.onEvent({type:automatic?'placed':'prompt',track:{...track},...(!secondCopy&&!unbound?{bindRef:old.ref}:{}),source:'auto',reason:unbound?'changed':'restart',...(!faceDown?{result:{...result,candidates:[{cardId:chosen.cardId,score:.99}]}}:{})}));
+  if(moved)track.zone='M3';
+  if(!automatic)fireEvent.click(await screen.findByRole('button',{name:new RegExp(faceDown?'Confirm face-down card':chosen.name)}));
+  await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
+  expect(room.state.seats[0].twin).toHaveLength(secondCopy?2:1);
+  const target=room.state.seats[0].twin.find((c:any)=>c.ref===(secondCopy?'candidate':old.ref));
+  expect(target.faceUp).toBe(!faceDown);if(!faceDown)expect(target.cardId).toBe(Number(chosen.cardId));
+  expect(confirm).toHaveBeenCalledWith('candidate',faceDown?undefined:chosen.cardId,secondCopy?undefined:old.ref,!automatic);
+  expect(post.mock.calls.map(([p])=>p.type)).toEqual(secondCopy?['twin.place']:[...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(moved?['twin.move']:[])]);
+  if(moved)expect(target.slot).toBe(3);
+  if(secondCopy)expect(room.state.seats[0].twin.find((c:any)=>c.ref===old.ref).slot).toBe(2);
+ }finally{cleanup();host.remove();state.fieldWatch=null;}
+});
+
+vi.mock('next/navigation',()=>({useRouter:()=>({push:()=>{}})}));
+vi.mock('swr',async importOriginal=>{
+ const original=await importOriginal<typeof import('swr')>();
+ return {...original,default:(...args:Parameters<typeof original.default>)=>state.roomHook??original.default(...args)};
+});
+it.each(['hung action','hung recovery','hung action and recovery'])('round 2 NS1: %s times out, shows an error and releases the shared queue',async scenario=>{
+ const {useRemoteRoom}=await import('../src/components/remote/ui/use-remote-room');
+ vi.useFakeTimers();
+ const timeout=vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('The operation timed out','TimeoutError')),ms);return controller.signal;});
+ const room:any={slug:'timeout-room',lastSeq:0,status:'active'},signals:AbortSignal[]=[];
+ const mutate=vi.fn((update?:any)=>update?Promise.resolve(typeof update==='function'?update(room):update):new Promise(()=>{}));
+ state.roomHook={data:room,mutate};
+ fetcher.mockImplementation((url,init)=>{
+  const action=String(url).endsWith('/actions');
+  if(action&&JSON.parse(init.body).action.type==='phase.advance')return Promise.resolve(Response.json({...room,lastSeq:2}));
+  if((action&&scenario!=='hung recovery')||(!action&&scenario!=='hung action'))return new Promise((_resolve,reject)=>{const signal=init?.signal;if(signal){signals.push(signal);signal.addEventListener('abort',()=>reject(signal.reason),{once:true});}});
+  return Promise.resolve(action?Response.json({error:'Rejected action'},{status:409}):Response.json({...room,lastSeq:1}));
+ });
+ let done=false,first:any;const hook=renderHook(()=>useRemoteRoom(room.slug));
+ try{
+  await act(async()=>{void hook.result.current.action({type:'lp.change',actorSeat:0,seat:0,delta:-100,reason:'damage'}).then(value=>{done=true;first=value;});});
+  expect(done).toBe(false);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(scenario==='hung action and recovery'?20001:10001);});
+  expect(done).toBe(true);expect(first).toBeNull();expect(hook.result.current.error).toMatch(/timed out|Rejected action/i);
+  expect(signals.every(signal=>signal.aborted)).toBe(true);expect(timeout).toHaveBeenCalledWith(10000);expect(mutate.mock.calls.every(args=>args.length>0)).toBe(true);
+  let next:any;await act(async()=>{next=await hook.result.current.action({type:'phase.advance',actorSeat:0});});expect(next.lastSeq).toBe(2);expect(hook.result.current.error).toBe('');
+  expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).baseSeq).toBe(scenario==='hung action'?1:0);
+ }finally{hook.unmount();state.roomHook=null;vi.useRealTimers();}
+});
 it('owner and observer feed clicks select an identified physical ref without capturing or recognizing',async()=>{
   const {Feed}=await import('../src/components/remote/ui/feed');
   const card={ref:'physical-cached',cardId:46986414,name:'Dark Magician',quad:[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}]};
@@ -615,4 +731,179 @@ describe('remote room navigation',()=>{
     expect(hook.result.current.room?.slug).toBe('current');
     hook.unmount();
   });
+});
+
+async function typedWatcherFixture(entry:typeof cards[number],zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>){
+ const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations'),{ygoModule}=await import('@yugidraft/shared/remote');
+ let room:any={guildId:'g',slug:'typed-zone',mySeat:0,lastSeq:0,status:'active',format:{id:'normal'},seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=twins;
+ const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,lastSeen:1000};
+ const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
+ const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
+ let source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};return room;});
+ const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+ let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
+ return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+}
+
+const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+const physicalQuad=(row:'M'|'S'):DetectedQuad=>({kind:'face-up',confidence:.99,partial:false,quad:[{x:.588,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.38:.8},{x:.588,y:row==='M'?.38:.8}]});
+async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:DetectedQuad)=>string){
+ const {createFieldWatcher,yugioh}=await import('@yugidraft/vision');let at=0;
+ const recognize=vi.fn(async(_frames:any,opts:any)=>({...result,tier:'sure' as const,candidates:[{cardId:winner(opts.card),score:.99}]}));
+ const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
+ const events:any[]=[];reader.subscribe(event=>events.push(event));try{for(let i=0;i<12;i++){at+=333;await reader.tick();}return {events,recognize};}finally{reader.dispose();}
+}
+describe('typed watcher zone projection',()=>{
+ it.each([
+  ['Solemn Judgment in monster row',0,'M4','spell-trap',4],
+  ['Field Spell in monster row',1,'M4','field',undefined],
+  ['Fusion monster in Extra Monster Zone',2,'EMZ1','extra-monster',1],
+  ['Pendulum at left edge',3,'S1','spell-trap',1],
+  ['Pendulum at right edge',3,'S5','spell-trap',5],
+  ['Pendulum in middle Spell/Trap Zone',3,'S3','monster',3],
+  ['Extra Deck Pendulum in Extra Monster Zone',4,'EMZ2','extra-monster',2],
+ ] as const)('places %s in its legal row',async(_name,index,observed,zone,slot)=>{
+  const fixture=await typedWatcherFixture(zoneEntries[index],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({zone,...(slot?{slot}:{}),cardId:zoneEntries[index].passcode})]);expect(fixture.post).toHaveBeenCalledOnce();}finally{fixture.dispose();}
+ });
+ it.each([['EMZ1',2],['EMZ2',4]] as const)('corrects a main-deck monster at %s to its aligned main column',async(observed,slot)=>{
+  const fixture=await typedWatcherFixture(cards[0],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot});}finally{fixture.dispose();}
+ });
+ it('waits for an already-started catalog prefetch before committing the legal row',async()=>{
+  const {loadCards}=await import('../src/components/remote/ui/catalog'),ready=deferred<Response>();
+  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched trap fixture'};
+  fetcher.mockImplementation(async(url,init)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
+  const prefetch=loadCards([entry.passcode]),fixture=await typedWatcherFixture(entry,'M4');
+  try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
+ });
+ it('uses the latest physical column when a card moves during full-type loading',async()=>{
+  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Normal',name:'Moving trap fixture'};
+  fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
+  const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});}finally{fixture.dispose();}
+ });
+ it.each(['new placement','bound identity correction'])('follows a physical move during %s HTTP with the same ref',async scenario=>{
+  const ready=deferred<void>(),bound=scenario==='bound identity correction',initialType=bound?'card.identified':'twin.place';
+  const old={ref:'bound-save-race',zone:'monster',slot:4,cardId:46986414,name:'Old identity',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',bound?[old]:[],bound?'prompt':'placed',bound?old.ref:undefined,async proposal=>{if(proposal.type===initialType)await ready.promise;});
+  try{
+   await fixture.emit();if(bound){const button=await screen.findByRole('button',{name:/Solemn Judgment.*Spell\/Trap Zone 4/i});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());const first=fixture.post.mock.calls[0][0];expect(first.type).toBe(initialType);if(!bound)expect(first).toMatchObject({zone:'spell-trap',card:{slot:4}});
+   fixture.track.zone='M5';fixture.track.card={...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x+.128}))};
+   await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual([initialType,'twin.move']);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:bound?old.ref:'physical-typed',zone:'spell-trap',slot:5,cardId:41420027})]);
+   expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({[bound?old.ref:'physical-typed']:'M5'});
+  }finally{ready.resolve();fixture.dispose();}
+ });
+ it('chooses the nearest free Spell/Trap slot when the physical column is occupied',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'other',zone:'spell-trap',slot:4,cardId:55144522,faceUp:true,position:'attack'}]);
+  try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin.find((card:any)=>card.ref==='physical-typed')).toMatchObject({zone:'spell-trap',slot:3});}finally{fixture.dispose();}
+ });
+ it('annotates a prompt with its legal destination and applies that same projection',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'prompt');try{await fixture.emit();const button=await screen.findByRole('button',{name:/Solemn Judgment.*Spell\/Trap Zone 4/i});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});}finally{fixture.dispose();}
+ });
+ it.each(['candidate revalidation','new revision'])('hides stale choice UI during %s',async scenario=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'prompt');try{await fixture.emit();await screen.findByTestId('field-watcher-prompt');if(scenario==='candidate revalidation')Object.assign(fixture.track,{state:'candidate',visible:false});else fixture.track.revision=1;fixture.refresh();expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();expect(fixture.post).not.toHaveBeenCalled();}finally{fixture.dispose();}
+ });
+ it('disables a prompt choice when its legal row has no free slot',async()=>{
+  const occupied=Array.from({length:5},(_,i)=>({ref:`s${i}`,zone:'spell-trap',slot:i+1,cardId:55144522,faceUp:true,position:'attack'}));
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',occupied,'prompt');try{await fixture.emit();const button=await screen.findByRole('button',{name:/Solemn Judgment/i});await waitFor(()=>expect(button).toBeDisabled());expect(fixture.post).not.toHaveBeenCalled();}finally{fixture.dispose();}
+ });
+ it('abstains when the full type is unavailable instead of using an index-frame guess',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[5],'M4');try{await fixture.emit();await screen.findByText(/Card type is unknown/);expect(fixture.post).not.toHaveBeenCalled();expect(fixture.confirm).not.toHaveBeenCalled();}finally{fixture.dispose();}
+ });
+ it('corrects a live move while keeping the bound ref independent of its physical row',async()=>{
+  const old={ref:'bound-spell',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M5',[old],'moved');try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post.mock.calls[0][0]).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:5});expect(fixture.room().state.seats[0].twin).toHaveLength(1);}finally{fixture.dispose();}
+ });
+ it('resolves an old illegal same-spot twin before projecting the corrected destination',async()=>{
+  const old={ref:'reserved-spell',zone:'monster',slot:4,cardId:46986414,name:'Old mistaken identity',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'prompt',old.ref);try{await fixture.emit();fireEvent.click(await screen.findByRole('button',{name:/Solemn Judgment/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toHaveLength(1);expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:old.ref,cardId:41420027,zone:'spell-trap',slot:4});expect(fixture.post.mock.calls.some(([proposal])=>proposal.type==='twin.place')).toBe(false);}finally{fixture.dispose();}
+ });
+ it('retains the owner twin identity at a projected physical spot after camera restart',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();await fixture.restart();
+   expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M4'});
+   expect(fixture.known()).toEqual([expect.objectContaining({id:'physical-typed',zone:'M4',cardId:'41420027'})]);expect(fixture.known()[0]).not.toHaveProperty('card');
+   const restarted=await readRestart(fixture.known,[physicalQuad('M')],()=>cards[2].cardId);
+   expect(restarted.events.some(event=>event.type==='prompt'||event.type==='placed')).toBe(false);expect(restarted.recognize).toHaveBeenCalledOnce();
+   expect(restarted.events.find(event=>event.type==='moved')?.track).toMatchObject({id:'physical-typed',cardId:'41420027'});
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:4})]);
+  }finally{fixture.dispose();}
+ });
+ it('keeps actual M4 and S4 cards independent after both virtual destinations were projected',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'physical-s4',zone:'S4',cardId:cards[2].cardId,state:'identified'});await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));await fixture.restart();
+   expect(fixture.room().state.seats[0].twin.map((card:any)=>[card.ref,card.slot])).toEqual([['physical-typed',4],['physical-s4',3]]);
+   expect(fixture.known().map((card:any)=>[card.id,card.zone])).toEqual([['physical-typed','M4'],['physical-s4','S4']]);
+   const restarted=await readRestart(fixture.known,[physicalQuad('M'),physicalQuad('S')],card=>card.quad[0].y<.5?cards[3].cardId:cards[4].cardId);
+   expect(restarted.events.filter(event=>event.type==='moved').map(event=>[event.track.zone,event.track.id])).toEqual([['M4','physical-typed'],['S4','physical-s4']]);expect(restarted.events.some(event=>event.type==='placed'||event.type==='prompt')).toBe(false);
+  }finally{fixture.dispose();}
+ });
+ it('does not steal a projected M4 reference for an unrelated physical S4 prompt',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'new-s4',zone:'S4',cardId:undefined,state:'prompt'});await fixture.emit({type:'prompt',result:{...result,candidates:[{cardId:cards[2].cardId,score:.99}]}});
+   fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn.*Spell\/Trap Zone 3/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,slot:4}),expect.objectContaining({ref:'new-s4',cardId:83764718,slot:3})]);
+  }finally{fixture.dispose();}
+ });
+ it.each(['prompt','automatic'] as const)('keeps an unread restart reservation when a same-card second copy arrives via %s',async mode=>{
+  const old={ref:'reserved-unread',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  sessionStorage.setItem(physicalHintsKey,JSON.stringify({[old.ref]:'M4'}));const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],mode==='prompt'?'prompt':'placed');try{
+   const first={...fixture.track,id:'fw-unread-first',zone:'M4',state:'candidate',cardId:undefined,visible:false,removed:false};state.fieldWatch.watch.snapshot.tracks.unshift(first);fixture.refresh();
+   await fixture.emit();if(mode==='prompt')fireEvent.click(await screen.findByRole('button',{name:/Solemn Judgment/}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining(old),expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:3})]);expect(first).toMatchObject({id:'fw-unread-first',state:'candidate',cardId:undefined});expect(fixture.confirm).toHaveBeenCalledWith('physical-typed','41420027',undefined,mode==='prompt');
+  }finally{fixture.dispose();}
+ });
+ it('updates physical hints when a real move projects to the same virtual slot',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.known()[0].zone).toBe('M4');fixture.track.zone='S4';await fixture.emit({type:'moved'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S4'}));expect(fixture.post).toHaveBeenCalledOnce();await fixture.restart();expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
+ });
+ it('saves the latest physical row after a live move HTTP returns the matching virtual destination',async()=>{
+  const ready=deferred<void>(),fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'placed',undefined,async proposal=>{if(proposal.type==='twin.move')await ready.promise;});try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.track.zone='M5';await fixture.emit({type:'moved'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));fixture.track.zone='S5';await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S5'}));expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});
+  }finally{ready.resolve();fixture.dispose();}
+ });
+ it('prunes removed refs and keeps pile hints dormant until the same ref returns to the field',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());const card=fixture.room().state.seats[0].twin[0];card.zone='graveyard';delete card.slot;fixture.refresh();expect(fixture.known()[0].zone).toBe('GY');expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M4'});
+   card.zone='spell-trap';card.slot=4;fixture.refresh();expect(fixture.known()[0].zone).toBe('M4');fixture.setTwins([]);await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({}));
+  }finally{fixture.dispose();}
+ });
+ it('prunes a physical hint immediately when Undo removes its placement',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.room().state.undo.at=Date.now();fixture.refresh();fireEvent.click(await screen.findByRole('button',{name:'Undo'}));await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([]));expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({});expect(fixture.known()).toEqual([]);}finally{fixture.dispose();}
+ });
+ it.each(['restored departure','failed departure Undo','placement Undo'] as const)('marks an owner-restored track only after successful server Undo: %s',async mode=>{
+  const ready=deferred<void>(),placement=mode==='placement Undo',old={ref:'undo-departed',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',placement?[]:[old],placement?'placed':'moved',undefined,async proposal=>{if(proposal.type==='undo'){await ready.promise;if(mode==='failed departure Undo')return false;}});
+  const dismiss=vi.fn((ref:string)=>{expect(ref).toBe(old.ref);expect(fixture.room().state.seats[0].twin.find((card:any)=>card.ref===ref)).toMatchObject({zone:'spell-trap',slot:4});});state.fieldWatch.watch.dismiss=dismiss;
+  try{
+   if(!placement){Object.assign(fixture.track,{removed:true,visible:false});state.fieldWatch.watch.isRemoved=()=>true;}
+   await fixture.emit({type:placement?'placed':'removed'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());await act(async()=>{await fixture.post.mock.results[0].value;});fixture.room().state.undo.at=Date.now();fixture.refresh();fireEvent.click(await screen.findByRole('button',{name:'Undo'}));await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));expect(dismiss).not.toHaveBeenCalled();
+   await act(async()=>{ready.resolve();await fixture.post.mock.results[1].value;});
+   if(mode==='restored departure'){await waitFor(()=>expect(dismiss).toHaveBeenCalledExactlyOnceWith(old.ref));expect(fixture.track).toMatchObject({removed:true,visible:false});}
+   else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'graveyard'})]);}
+  }finally{ready.resolve();fixture.dispose();}
+ });
+ it('retains physical hints in memory when session storage is unavailable',async()=>{
+  const blocked=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('Storage unavailable');});const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();expect(fixture.known()[0].zone).toBe('M4');expect(sessionStorage.getItem(physicalHintsKey)).toBeNull();}finally{blocked.mockRestore();fixture.dispose();}
+ });
+ it('does not reuse another room\'s hints for the same ref',async()=>{
+  sessionStorage.setItem('dd-field-physical:v1:g:another-room:0',JSON.stringify({old:'M4'}));const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'old',zone:'spell-trap',slot:4,cardId:41420027,faceUp:true,position:'attack'}]);try{expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
+ });
+ it.each(['{','[]','{"old":"M99"}','{"old":{"zone":"M4","cardId":"41420027"}}'])('ignores invalid physical-hint storage %s without inferring a cross-row binding',async stored=>{
+  sessionStorage.setItem(physicalHintsKey,stored);const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'old',zone:'spell-trap',slot:4,cardId:41420027,faceUp:true,position:'attack'}]);try{expect(fixture.known()[0]).toMatchObject({id:'old',zone:'S4'});expect(fixture.known()[0]).not.toHaveProperty('card');}finally{fixture.dispose();}
+ });
+});
+
+// One integration scenario for the physical GY destination and its best-match twin.
+it('a placed best match follows its physical card into GY with one ref and no prompt',async()=>{
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4');
+ try{
+  fixture.track.bestMatch=true;await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'spell-trap',slot:4,bestMatch:true})]);
+  expect(screen.getByText(/Best match.*placed/)).toBeInTheDocument();
+  fixture.track.zone='GY';await fixture.emit({type:'moved'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'graveyard',bestMatch:true})]));
+  expect(fixture.post.mock.calls.map(([action]:any)=>action.type)).toEqual(['twin.place','twin.move']);
+  expect(screen.queryByTestId('field-watcher-prompt')).not.toBeInTheDocument();
+ }finally{fixture.dispose();}
 });

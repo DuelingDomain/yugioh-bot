@@ -6,6 +6,7 @@ export interface CardSummary {
   name: string;
   type: string;
   frameType: string;
+  race?: string | null;
   attribute?: string;
   level?: number;
   effectText: string;

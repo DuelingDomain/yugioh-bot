@@ -9,12 +9,14 @@ const sighting = {
   cardId: cardId.optional(), passcode: cardId.optional(), zone: zone.optional(),
   name: z.string().trim().min(1).max(200).optional(),
   slot: slot.optional(), cardRef: id.optional(),
+  bestMatch: z.boolean().optional(),
 };
 export const twinCardSchema = z.strictObject({
   ref: id, cardId: cardId.optional(), passcode: cardId.optional(),
   /** Optional public annotations; no catalog lookup is needed by speech resolution. */
   name: z.string().trim().min(1).max(200).optional(), race: z.string().trim().min(1).max(40).optional(), slot: slot.optional(),
   faceUp: z.boolean().default(true), position: z.enum(["attack", "defense"]).default("attack"),
+  bestMatch: z.boolean().optional(),
 });
 const meta = {
   idempotencyKey: id, actorSeat: remoteSeatSchema,

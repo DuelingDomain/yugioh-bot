@@ -4,12 +4,18 @@ let clockSkew = 0;
 export const serverNow = () => Date.now() + clockSkew;
 
 export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/remote${path}`, { cache: "no-store", ...(body === undefined ? {} : {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-  }) });
-  const date = Date.parse(response.headers.get("date") ?? "");
-  if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? "Could not update the table");
-  return data;
+  const signal=AbortSignal.timeout(10_000);
+  try {
+    const response = await fetch(`/api/remote${path}`, { cache: "no-store", signal, ...(body === undefined ? {} : {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }) });
+    const date = Date.parse(response.headers.get("date") ?? "");
+    if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Could not update the table");
+    return data;
+  } catch(error) {
+    if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');
+    throw error;
+  }
 }

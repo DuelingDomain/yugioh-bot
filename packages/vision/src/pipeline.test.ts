@@ -7,13 +7,13 @@ import type {ModelSession} from './runtime';
 import type {TensorCtor} from './embed';
 const selected:DetectedQuad={quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],kind:'face-up',confidence:1,partial:false};
 const frame={width:20,height:30,data:new Uint8ClampedArray(2400).fill(120)};
-function fixture(full=true,counter?:{calls:number}) {
+function fixture(full=true,counter?:{calls:number},scores=[.9,.95]) {
   const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   const index=(ids:string[])=>({meta:{dim:2,count:2,entries:ids.map(cardId=>({cardId,name:cardId,passcode:1,frameClass:'Effect'}))},vectors:new Float32Array([1,0,0,1])}) as LoadedIndex;
   class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
   let step=0;
   const detector={backend:'wasm',run:()=>{throw new Error('selected quad must skip detection');}} as unknown as ModelSession;
-  const embedder={backend:'wasm',run:async()=>{if(counter)counter.calls++;const score=step++===0?.9:.95;return {[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([score,Math.sqrt(1-score*score)])}};}} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>{if(counter)counter.calls++;const score=scores[Math.min(step++,scores.length-1)];return {[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([score,Math.sqrt(1-score*score)])}};}} as unknown as ModelSession;
   return new RecognitionPipeline(profile,index(['A','B']),detector,embedder,Tensor as unknown as TensorCtor,full?index(['C','D']):undefined);
 }
 test('clear full-catalog answer survives decklist preference across indexes',async()=>{
@@ -31,6 +31,20 @@ test('selected quad skips detector and returns its warp even without full-art re
   assert.equal(result.warpedCard?.height,15);
   assert.equal(result.quality.fallback,false);
   assert.deepEqual(result.detectedCard,selected);
+  const diagnostic=await fixture(false).recognize([frame],{card:selected,includeDiagnosticCrop:true});
+  assert.equal(diagnostic.warpedCard?.width,10);assert.equal(diagnostic.warpedCard?.height,15);
+  assert.deepEqual(diagnostic.candidates,result.candidates);assert.deepEqual(diagnostic.quality,result.quality);
+  for(const key of ['feedback','aiWarpedCard','deferredAICrop','aiCandidateNames'])assert.equal(diagnostic[key as keyof typeof diagnostic],undefined);
+});
+test('upright preference skips a clear reverse view with replay evidence and preserves uncertain reverse rescue',async()=>{
+  const baseline={calls:0},fast={calls:0},rescue={calls:0};
+  const plain=await fixture(false,baseline).recognize([frame],{card:selected,includeRaw:true});
+  const result=await fixture(false,fast).recognize([frame],{card:selected,includeRaw:true,includeFeedback:true,preferUpright:true});
+  assert.equal(baseline.calls,2);assert.equal(fast.calls,1);assert.equal(result.candidates[0].cardId,plain.candidates[0].cardId);
+  assert.equal(result.tier,'sure');assert.equal(result.raw?.winnerId,result.candidates[0].cardId);assert.equal(result.raw?.frames[0].hypotheses?.length,1);
+  assert.ok(Math.abs(result.feedback!.embedding[0]-.9)<1e-6);
+  const reversed=await fixture(false,rescue,[.76,.95]).recognize([frame],{card:selected,includeRaw:true,preferUpright:true});
+  assert.equal(rescue.calls,2);assert.equal(reversed.candidates[0].cardId,'A');assert.equal(reversed.tier,'sure');
 });
 test('live reads use only the sharpest buffered frame and return that frame outline',async()=>{
   const noisy={...frame,data:frame.data.slice()};
@@ -55,6 +69,40 @@ test('feedback evidence is opt-in, bound to a detected warp and carries its vect
   assert.equal(result.feedback.space,'art-box');assert.ok(result.warpedCard);
   const clipped=await fixture(false).recognize([frame],{card:{...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},includeFeedback:true});
   assert.equal(clipped.feedback,undefined);
+});
+test('identity embedding is opt-in and reuses the clean art vector without feedback or crop capture',async()=>{
+  const plainCount={calls:0},identityCount={calls:0};
+  const plain=await fixture(false,plainCount).recognize([frame],{card:selected});
+  const result=await fixture(false,identityCount).recognize([frame],{card:selected,includeIdentityEmbedding:true});
+  const feedback=await fixture(false).recognize([frame],{card:selected,includeFeedback:true});
+  assert.equal('identityEmbedding' in plain,false);
+  assert.deepEqual(result.identityEmbedding,{values:feedback.feedback!.embedding,space:'art-box'});
+  assert.ok(result.identityEmbedding!.values.every(Number.isFinite));assert.equal(identityCount.calls,plainCount.calls);
+  assert.deepEqual(result.candidates,plain.candidates);assert.deepEqual(result.quality,plain.quality);
+  for(const key of ['feedback','warpedCard','aiWarpedCard','deferredAICrop','cropJpeg','aiCropJpeg','aiCropToken'] as const) assert.equal(result[key as keyof typeof result],undefined);
+  const disabled=await fixture(false).recognize([frame],{card:selected,includeIdentityEmbedding:false});
+  assert.equal('identityEmbedding' in disabled,false);assert.equal('identityEmbedding' in feedback,false);
+});
+test('identity embedding copies the winning whole-card feedback hypothesis with its matching space',async()=>{
+  const baseline={calls:0},requested={calls:0};
+  await fixture(true,baseline).recognize([frame],{card:selected,includeFeedback:true});
+  const result=await fixture(true,requested).recognize([frame],{card:selected,includeFeedback:true,includeIdentityEmbedding:true});
+  assert.equal(result.candidates[0].cardId,'C');assert.equal(result.identityEmbedding?.space,'whole-card');
+  assert.deepEqual(result.identityEmbedding?.values,result.feedback!.embedding);assert.equal(requested.calls,baseline.calls);
+  assert.notEqual(result.identityEmbedding!.values,result.feedback!.embedding);
+  const cleanValue=result.feedback!.embedding[0];result.identityEmbedding!.values[0]=-123;
+  assert.equal(result.feedback!.embedding[0],cleanValue);
+});
+test('identity embeddings exclude covered, clipped, explicitly partial, face-down and fallback evidence',async()=>{
+  for(const card of [
+    {...selected,covered:true}, {...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},
+    {...selected,partial:true}, {...selected,kind:'face-down' as const},
+  ]) {
+    const result=await fixture(false).recognize([frame],{card,includeIdentityEmbedding:true});
+    assert.equal('identityEmbedding' in result,false);
+  }
+  const f=clickFixture(()=>[]),result=await f.pipeline.recognize([f.image],{clickPoint:{x:.5,y:.5},includeIdentityEmbedding:true});
+  assert.equal(result.quality.fallback,true);assert.equal('identityEmbedding' in result,false);
 });
 test('learned references compete with the main index without manufacturing sure',async()=>{
   const p=fixture(false);
@@ -293,10 +341,34 @@ test('runtime refuses thresholds calibrated for a different index or model',()=>
   assert.throws(()=>calibratedThresholds({...config,modelSha256:'wrong'},yugioh,index),/Incompatible/);
 });
 
-test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',()=>{
+test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',async()=>{
   const t=yugioh.embedding.thresholds,deck=[{cardId:'2',score:.81}],catalog=[{cardId:'1',score:.82},deck[0]];
   assert.equal(preferDeck(deck,catalog,t)[0].cardId,'2');
   assert.equal(preferDeck(deck,[{cardId:'1',score:.96},deck[0]],t)[0].cardId,'1');
+  const search=await import('./search');
+  const weakDeck=[{cardId:'nibiru',score:.66},{cardId:'deck-2',score:.56},{cardId:'too-low',score:.54}];
+  const visual=[.79,.78,.77,.76,.75].map((score,i)=>({cardId:`catalog-${i}`,score}));
+  const shown=search.withDeckSuggestions(weakDeck,visual,5);
+  assert.equal(shown[0],visual[0]);assert.equal(shown.length,5);assert.deepEqual(shown.slice(-2),weakDeck.slice(0,2));
+  assert.ok(!shown.some(c=>c.cardId==='too-low'));
+  const {replayTier}=await import('./decision');
+  const raw:any={visual:[{cardId:'nibiru',score:.79},{cardId:'other',score:.70}],ranked:[{cardId:'nibiru',score:.79},{cardId:'other',score:.70}],winnerId:'nibiru',cardBackId:'back',blocked:[],priors:{decklist:['nibiru']}};
+  raw.frames=[{eligible:true,clean:raw.visual,ranked:raw.ranked,deck:weakDeck}];
+  assert.equal(replayTier(raw,t),'sure');assert.notEqual(replayTier({...raw,priors:undefined},t),'sure');
+  assert.notEqual(replayTier({...raw,visual:[{cardId:'nibiru',score:.66},{cardId:'other',score:.5}]},t),'sure');
+  assert.notEqual(replayTier(raw,{score:.9,margin:.04,floor:.74}),'sure');
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  const rows=[{cardId:'clear',score:.95},...visual,...weakDeck];
+  const index:LoadedIndex={meta:{dim:2,count:rows.length,entries:rows.map(c=>({cardId:c.cardId,name:c.cardId,passcode:1}))} as LoadedIndex['meta'],vectors:Float32Array.from(rows.flatMap(c=>[c.score,Math.sqrt(1-c.score*c.score)]))};
+  class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
+  const detector={backend:'wasm',run:()=>{throw Error('selected quad');}} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([1,0])}})} as unknown as ModelSession;
+  const pipeline=new RecognitionPipeline(profile,index,detector,embedder,Tensor as unknown as TensorCtor);
+  const plain=await pipeline.recognize([frame],{card:selected,includeRaw:true,includeFeedback:true});
+  const result=await pipeline.recognize([frame],{card:selected,includeRaw:true,includeFeedback:true,priors:{decklist:weakDeck.map(c=>c.cardId)}});
+  assert.equal(result.candidates[0].cardId,'clear');assert.equal(result.tier,plain.tier);
+  assert.deepEqual(result.candidates.slice(-2).map(c=>c.cardId),['nibiru','deck-2']);
+  assert.deepEqual(result.raw?.ranked,plain.raw?.ranked);assert.deepEqual(result.feedback,plain.feedback);
 });
 
 import {catalogCards,physicalCatalogCards} from '../../../scripts/vision/catalog';
