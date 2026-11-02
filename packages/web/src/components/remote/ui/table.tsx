@@ -24,6 +24,7 @@ import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { RemoteLobbyRoom } from "./lobby";
+import { RecognitionSetting } from "./recognition-setting";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import s from "./remote-ui.module.css";
@@ -61,6 +62,7 @@ function CameraControl() {
   return <div className={s.camsel}>
     {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
+    <RecognitionSetting />
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>Camera off</button>
   </div>;
 }

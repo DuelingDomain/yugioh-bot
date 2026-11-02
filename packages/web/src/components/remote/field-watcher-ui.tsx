@@ -13,7 +13,7 @@ export type FieldWatcherPrompt={
 };
 export type FieldWatcherUIProps={
   host:HTMLElement|null;enabled:boolean;onEnabledChange(enabled:boolean):void;
-  statusLabel:string;statusTitle?:string;calibrated:boolean;calibrationDisabled:boolean;onCalibrate():void;
+  statusLabel:string;statusTitle?:string;statusExtra?:ReactNode;calibrated:boolean;calibrationDisabled:boolean;onCalibrate():void;
   prompts:readonly FieldWatcherPrompt[];pending:boolean;onChoose(promptId:string,cardId:string):void;onDismiss(promptId:string):void;
   notice?:ReactNode;noticeTestId?:string;
 };
@@ -34,7 +34,7 @@ function promptAnchor(host:HTMLElement,quad:FieldWatcherPrompt['quad']):{anchor:
 }
 
 /** Feed watcher presentation, independent of recognition and table actions. */
-export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId}:FieldWatcherUIProps) {
+export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId}:FieldWatcherUIProps) {
   const prompt=enabled?prompts[0]:undefined,description=useId();
   const bubble=useRef<HTMLDivElement>(null),toast=useRef<HTMLDivElement>(null);
   const [promptStyle,setPromptStyle]=useState<CSSProperties>({visibility:'hidden'}),[noticeStyle,setNoticeStyle]=useState<CSSProperties>({visibility:'hidden'});
@@ -72,7 +72,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
       <label className={`${table.fzbtn} ${s.toggle}`}><input type="checkbox" checked={enabled} onChange={event=>onEnabledChange(event.target.checked)}/>Auto-detect cards</label>
       <button type="button" className={table.fzbtn} disabled={calibrationDisabled} onClick={onCalibrate}>{calibrated?'Recalibrate':'Calibrate zones'}</button>
     </div>,controls):null}
-    {status&&enabled?createPortal(<span className={s.chip} role="status" title={tooltip} data-testid="field-watcher-status">{statusLabel}</span>,status):null}
+    {status&&enabled?createPortal(<div className={table.statusRow}><span className={s.chip} role="status" title={tooltip} data-testid="field-watcher-status">{statusLabel}</span>{statusExtra}</div>,status):null}
     {createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.announcement}`} role="status" aria-label="Card detection updates" aria-atomic="true">{prompt?`New card needs a choice in ${zoneName(prompt.zone)}. ${prompts.length>1?`${prompts.length-1} more waiting.`:''}`:''}</div>,document.body)}
     {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt}`} style={promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
       <header><strong>{prompt.title??'New card?'}</strong>{prompts.length>1?<span className={s.queue}>+{prompts.length-1} more</span>:null}</header>

@@ -1,4 +1,5 @@
 import type { RecognizeRawFeed } from "@/lib/remote/video";
+import { engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, type EngineBackend } from "./recognition-backend";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
 export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
@@ -17,13 +18,13 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object };
+type RawResult = { backend?: EngineBackend; timingsMs?: { total: number }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
-  prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<void>;
+  prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
@@ -50,7 +51,7 @@ function loadRecognizer() {
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
-    return createRecognizer({ profile: yugioh, backend: "auto" }) as unknown as VisionRecognizer;
+    return createRecognizer({ profile: yugioh, backend: engineBackend() }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
 }
@@ -94,6 +95,7 @@ export function readBoard(frame: HTMLCanvasElement, cards: ReadCard[], priors: P
         const match = entry.cardId ? found.entries.find(e => e.cardId === entry.cardId) : undefined;
         return { cardId: match?.passcode, name: entry.name ?? match?.name ?? null, tier: entry.tier, faceDown: entry.faceDown, covered: entry.covered, index: entry.index, side: entry.side, quad: entry.outline.quad, error: entry.error };
       };
+      reportReadTime(result.timingsMs.total);
       return { status: "ready" as const, near: result.near.map(convert), far: result.far.map(convert), ms: Math.round(result.timingsMs.total) };
     } catch (error) {
       if (signal.aborted) return { status: "error" as const, note: "Cancelled." };
@@ -106,6 +108,8 @@ export function disposeRecognizer() {
   const current = recognizer; recognizer = null;
   void current?.then(value => value?.dispose());
 }
+// A new mode (or a GPU failure) restarts the reader; the open camera warms the new one so the badge shows where it runs.
+onRecognitionReset(() => { disposeRecognizer(); if (ownVideo) void prepareOwnReader().catch(() => undefined); });
 
 /** Plays a track in a hidden element so frames can be sampled without touching the visible video. */
 async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promise<ImageBitmap[]> {
@@ -204,6 +208,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   try {
     const result = await vision.recognize(frames, { clickPoint: point, k: 5,maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true,deferAICrop:true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
+    if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total);
     const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
     const wire = toRemoteRecognitionResult(result, byId, "local");
     const guesses = wire.faceDown ? [] : result.candidates.flatMap(candidate => {
@@ -213,6 +218,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined };
   } catch (error) {
     if (signal.aborted) throw error;
+    if (reportGpuFailure()) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
 }
@@ -255,7 +261,7 @@ export function attachOwnFeed(video: HTMLVideoElement) {
 /** Shared by the table and its lobby preview; the resident worker warms once. */
 export async function prepareOwnReader(priors?:Priors) {
   const [reader,found]=await Promise.all([loadRecognizer(),loadMeta()]);
-  if(reader&&found)await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors)}:undefined));
+  if(reader&&found){const info=await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors)}:undefined));if(info?.backend)reportBackend(info.backend);}
 }
 export function detachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo !== video) return;
@@ -272,9 +278,9 @@ export async function ownFieldResources(getPriors: () => Priors) {
   if (!reader || !found) return null;
   return {
     recognizer: {
-      prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})),
+      prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">) => enqueue(() => reader.detectCards(frame as ImageBitmap,opts)),
-      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)) as Promise<import("@yugidraft/vision").RecognitionResult>,
+      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
     buffer: { sample: () => ownBuffer ? ownBuffer.sample() : Promise.reject(new Error("Waiting for the own camera buffer")) },
     getPriors: () => priorsFor(found, getPriors()),

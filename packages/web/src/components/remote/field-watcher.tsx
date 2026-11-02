@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard} from '@yugidraft/vision';
 import type {RemoteRoom,TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
@@ -10,6 +10,8 @@ import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {projectFieldZone} from '@/lib/remote/field-legality';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
+import {RecognitionBadge} from './ui/recognition-setting';
+import {useRecognitionBackend} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
@@ -258,7 +260,9 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
     });
   }
-  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:source,
+  // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
+  const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
+  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:readerKey,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.08,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
   useEffect(()=>{
@@ -352,7 +356,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   })).join('');
   return <>
     <style>{`@keyframes field-reading{to{background-position:-240% 0}}${readingStyles}@media(prefers-reduced-motion:reduce){[data-testid^="field-"] [data-zone]>div{animation:none!important}}`}</style>
-    <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusExtra={<RecognitionBadge/>} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={promptViews}
       onChoose={(id,cardId)=>{const event=activePrompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId==='face-down'?undefined:cardId));}}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
