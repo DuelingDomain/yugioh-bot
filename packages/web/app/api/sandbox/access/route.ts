@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
-import { requireSandboxActor } from "@/lib/sandbox-access";
+import { canUseSandbox } from "@/lib/sandbox-access";
+import { requireWebAccess } from "@/lib/web-access";
 
 export const runtime = "nodejs";
 
-/** Tells the shell whether this developer may see the Sandbox link. */
+/** Navigation hint; sandbox pages and actions enforce their own access checks. */
 export async function GET() {
-  const actor = await requireSandboxActor();
+  const actor = await requireWebAccess();
   if (!actor.ok) {
     actor.response.headers.set("Cache-Control", "no-store");
     return actor.response;
   }
-  return NextResponse.json({ allowed: true }, { headers: { "Cache-Control": "no-store" } });
+  const access = await canUseSandbox(actor.discordUserId);
+  return NextResponse.json({ allowed: access.ok }, { headers: { "Cache-Control": "no-store" } });
 }

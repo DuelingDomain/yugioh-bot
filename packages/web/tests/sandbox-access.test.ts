@@ -37,8 +37,14 @@ describe("sandbox developer allowlist", () => {
     if (!actor.ok) expect(actor.response.status).toBe(403);
     expect(mocks.db).not.toHaveBeenCalled();
   });
-  it("returns 403 from the access API for an unlisted user", async () => {
-    expect((await GET()).status).toBe(403);
+  it.each([developer, null])("reports unavailable sandbox access without a console error for %s", async discordUserId => {
+    signIn(discordUserId);
+    mocks.db.mockClear();
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ allowed: false });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(mocks.db).not.toHaveBeenCalled();
   });
   it.each([undefined, "", " , , ", "invalid", "1".repeat(16), "1".repeat(21), "+" + developer, developer + "x", "１".repeat(18)])("denies malformed or empty configuration %s", async value => {
     vi.stubEnv("SANDBOX_DISCORD_IDS", value);
