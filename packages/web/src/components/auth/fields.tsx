@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { HEARD_FROM, HEARD_FROM_DETAIL_MAX, HEARD_FROM_LABELS, type HeardFrom } from "@yugidraft/shared/util/heard-from";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { DiscordGlyph } from "./discord-glyph";
 import { PRIVACY_URL, TERMS_URL } from "./legal-links";
 import shell from "./sign-in-shell.module.css";
@@ -356,19 +357,17 @@ export function HeardFromSelect({ id = "f-heard", onChange }: { id?: string; onC
       <Field id={id} label={<>How did you hear about us? <span className={styles.opt}>(optional)</span></>}>
         {(aria) => (
           <div className={styles["input-wrap"]}>
-            <select
-              id={id}
-              name="heardFrom"
+            <input type="hidden" name="heardFrom" value={value} />
+            <ThemedSelect
+              className={styles["themed-heard"]}
+              label="How did you hear about us?"
+              hideLabel
+              ariaLabel="How did you hear about us?"
               value={value}
-              onChange={(e) => { setValue(e.target.value); emit(e.target.value, detail); }}
-              {...aria}
-            >
-              <option value="">Choose one</option>
-              {HEARD_FROM_CHOICES.map((choice) => <option key={choice} value={choice}>{HEARD_FROM_LABELS[choice]}</option>)}
-            </select>
-            <span className={styles["select-chev"]} aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
-            </span>
+              describedBy={aria["aria-describedby"]}
+              choices={[{ value: "", label: "Choose one" }, ...HEARD_FROM_CHOICES.map((choice) => ({ value: choice as string, label: HEARD_FROM_LABELS[choice] }))]}
+              onChange={(next) => { setValue(next); emit(next, detail); }}
+            />
           </div>
         )}
       </Field>

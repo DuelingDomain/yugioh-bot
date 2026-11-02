@@ -66,7 +66,7 @@
 .viewButton { width: 28px; }
 .de-sort { min-width: 0; }
 .de-sort-select { width: 124px; }
-:global(.ms) .de-sort-select select { height: 36px; font-size: 13.5px; }
+:global(.ms) .de-sort-select button[role="combobox"] { height: 36px; font-size: 13.5px; }
 :global(.ms) .de-lt2 :global(.seg) button { min-height: 28px; padding: 0 10px; font-size: 13px; }
 .iconButton { display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--ink-3); cursor: pointer; }
 .iconButton:hover { color: var(--ink); background: rgb(239 231 213 / 0.05); }

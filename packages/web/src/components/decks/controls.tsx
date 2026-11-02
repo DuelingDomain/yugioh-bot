@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { segmentSlide } from "@/components/sheet";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { cn } from "@/lib/utils";
 
 /** Deck controls use the Match Sheet's foundation classes. */
@@ -35,7 +36,7 @@ export function DeckSegmented<T extends string>({ label, value, choices, onChang
   );
 }
 
-export function DeckSelect<T extends string>({ label, value, choices, onChange, className, disabled }: {
+export function DeckSelect<T extends string>({ label, value, choices, onChange, className, disabled, compact }: {
   label: string;
   value: T;
   choices: readonly { value: T; label: string }[];
@@ -45,5 +46,5 @@ export function DeckSelect<T extends string>({ label, value, choices, onChange, 
   hideLabel?: boolean;
   compact?: boolean;
 }) {
-  return <label className={className}><span className="sr">{label}</span><select className="input select" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label>;
+  return <ThemedSelect className={className} label={label} hideLabel compact={compact} value={value} choices={choices} disabled={disabled} onChange={onChange} />;
 }
