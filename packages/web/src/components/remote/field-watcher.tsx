@@ -9,7 +9,7 @@ import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,appl
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {projectFieldZone} from '@/lib/remote/field-legality';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
-import {ownFieldResources} from './ui/recognizer';
+import {ownFieldResources,detectCards} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
@@ -105,7 +105,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       const moved=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});
       if(!moved){offer({...event,type:'prompt',reason:'recognition-error'});return;}
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,Boolean(chosen));
+      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,event.type==='prompt');
       setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;
     }
     const resolved=resolveExisting(event,track,entry,twins);
@@ -154,7 +154,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
-      watch.confirm(event.track.id,track.cardId,existing?.ref,Boolean(chosen));rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+      watch.confirm(event.track.id,track.cardId,existing?.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
@@ -257,6 +257,6 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
-    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
+    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
   </>;
 }
