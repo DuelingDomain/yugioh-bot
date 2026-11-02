@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
@@ -231,9 +231,9 @@ async function appearingCamera(page:Page) {
   await page.addInitScript(async data=>{
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let visible=false,x=460,y=170;
-    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible)ctx.drawImage(image,x,y,180,262);};
-    (window as unknown as {fieldTest:{appear():void;move():void;clear():void}}).fieldTest={appear:()=>{visible=true;paint();},move:()=>{x=660;y=185;paint();},clear:()=>{visible=false;paint();}};
+    let visible=false,x=460,y=170,defense=false;
+    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible){ctx.save();if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();}};
+    (window as unknown as {fieldTest:{appear():void;place(left:number,top:number,defense?:boolean):void;move():void;clear():void}}).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},clear:()=>{visible=false;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');return canvas.captureStream(15);};
     navigator.mediaDevices.enumerateDevices=async()=>[];
@@ -306,4 +306,60 @@ test('field watcher automatic: actual table format places both EMZ above the mai
       expect(Math.abs(a!.x+a!.width/2-b!.x-b!.width/2)).toBeLessThan(b!.width*.1);
     }
   }
+});
+
+async function cachedPopupClick(page:Page) {
+  return page.evaluate(()=>new Promise<number>((resolve,reject)=>{
+    const feed=document.querySelector<HTMLElement>('[data-testid="feed-0"]')!,video=feed.querySelector('video')!,rect=feed.getBoundingClientRect();
+    const scale=Math.min(rect.width/video.videoWidth,rect.height/video.videoHeight),w=video.videoWidth*scale,h=video.videoHeight*scale;
+    const start=performance.now(),timer=setTimeout(()=>{observer.disconnect();reject(Error('No cached popup '+JSON.stringify({status:document.querySelector('[data-testid=field-watcher-status]')?.textContent,tray:document.querySelector('[data-testid=recognition-tray]')?.textContent,calls:(window as any).visionCalls,visibility:document.visibilityState})));},3000);
+    const observer=new MutationObserver(()=>{if(document.querySelector('[data-testid="card-popover"]')?.textContent?.includes('Sacred Sword of Seven Stars')){clearTimeout(timer);observer.disconnect();resolve(performance.now()-start);}});
+    observer.observe(document.body,{subtree:true,childList:true});
+    feed.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:rect.left+(rect.width-w)/2+550/1280*w,clientY:rect.top+(rect.height-h)/2+301/720*h}));
+  }));
+}
+test('field watcher automatic: cached owner and observer clicks open the popup without another read',async({browser})=>{
+  test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
+  const alice=await browser.newContext({baseURL:origin,permissions:["camera","microphone"]}),bob=await browser.newContext({baseURL:origin,permissions:["camera","microphone"]}),records:{view:string;ms:number}[]=[];
+  try{
+    await authenticatePlayer(alice.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,origin);
+    const slug=await startTwoPlayerTable(alice.request,bob.request),a=await alice.newPage(),b=await bob.newPage();
+    for(const page of [a,b]){await appearingCamera(page);await page.addInitScript(()=>{
+      (window as any).visionCalls=[];const post=Worker.prototype.postMessage;
+      Worker.prototype.postMessage=function(...args:any[]){if(['recognize','detect'].includes(args[0]?.type))(window as any).visionCalls.push(args[0].type);return (post as any).apply(this,args);};
+    });}
+    await Promise.all([a.goto(`/duels/remote/${slug}`),b.goto(`/duels/remote/${slug}`)]);
+    for(const page of [a,b]){await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:40_000});}
+    await b.getByLabel('Auto-detect cards',{exact:true}).uncheck();
+    await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
+    await a.evaluate(()=>((window as any).fieldTest).appear());
+    await expect.poll(async()=>{const r=await alice.request.get(`/api/remote/${slug}`).then(r=>r.json());return r.state.seats[0].twin.length;},{timeout:30_000}).toBe(1);await b.waitForTimeout(800);
+    const counts=await Promise.all([a,b].map(p=>p.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)));
+    const eventCount=(await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events.length;
+    for(let n=0;n<20;n++)for(const [view,page] of [['owner',a],['observer',b]] as const){
+      records.push({view,ms:await cachedPopupClick(page)});await expect(page.getByTestId('recognition-tray')).toHaveCount(0);await page.getByRole('button',{name:'Close card',exact:true}).click();await expect(page.getByTestId('card-popover')).toHaveCount(0);
+    }
+    expect(await Promise.all([a,b].map(p=>p.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)))).toEqual(counts);
+    expect((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events.length).toBe(eventCount);
+    const summary=Object.fromEntries(['owner','observer'].map(view=>{const v=records.filter(r=>r.view===view).map(r=>r.ms).sort((a,b)=>a-b);return [view,{n:v.length,p50Ms:v[9],p95Ms:v[18],maxMs:v[19]}];}));
+    console.log('cached popup latency',JSON.stringify(summary));mkdirSync(new URL('../../../data/vision/benchmark/cache/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/cache/clicks.json',import.meta.url),JSON.stringify({summary,records,recognitionCounts:counts},null,2));
+    for(const row of Object.values(summary))expect(row.p95Ms).toBeLessThan(50);
+    await cachedPopupClick(a);await a.getByRole('button',{name:'Wrong card?',exact:true}).click();
+    await expect.poll(()=>a.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)).toBeGreaterThan(counts[0]);
+    await expect(a.getByTestId('card-popover')).toContainText('Sacred Sword of Seven Stars');
+    const room=await alice.request.get(`/api/remote/${slug}`).then(r=>r.json());expect(room.state.seats[0].twin).toHaveLength(1);
+  }finally{await Promise.allSettled([alice.close(),bob.close()]);}
+});
+test('field watcher automatic: physical EMZ and DEF orientation reach the correct virtual slot',async({page,context})=>{
+  test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
+  const slug=await soloTable(context.request,2);await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
+  await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await page.evaluate(()=>((window as any).fieldTest).place(345,8,true));
+  const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:45725480,zone:'extra-monster',slot:1,position:'defense'});
+  const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="emz1"]')).toContainText('Sacred Sword');
+  await expect.poll(()=>page.getByTestId('field-0').locator('[data-zone="emz1"]').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el.firstElementChild!).transform);return Math.round(Math.atan2(m.b,m.a)*180/Math.PI);})).toBe(-90);
+  await page.evaluate(()=>((window as any).fieldTest).place(714,8,false));
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:20_000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2,position:'attack'});
+  expect((await room()).state.seats[0].twin).toHaveLength(1);
 });
