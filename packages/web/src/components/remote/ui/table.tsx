@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, matchCardsByName, ygoBattleAllowed, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
@@ -13,7 +13,7 @@ import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Rect, Tier } from "./popup";
-import { interpret, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
+import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
@@ -665,6 +665,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       else setTranscript(old => ({ ...old, result: "No card with that name", ignored: true }));
       return;
     }
+    if (intent.kind === "none") setProposal(null);
     apply(intent, final.text, final.requestId);
     if (intent.kind !== "none") addVoiceLog(`${name(now.mySeat)} said “${final.text}”`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -856,7 +857,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
-          onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} battleOpen={ygoBattleAllowed(state)} />
+          onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
@@ -892,7 +893,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       <footer className={s.dock} aria-label="Voice and undo">
         <MicSection state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
-        <VoxSection transcript={shownTranscript} proposal={chip} samples={trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
+        <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false }) : trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
         <UndoSection label={undoText} enabled={canUndo} secondsLeft={left} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
       </footer>

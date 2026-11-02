@@ -27,9 +27,10 @@ export function TopBar({ crumb, chip, health, healthOpen, cardOpen, logOpen, log
   </header>;
 }
 
-export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, onPhase, onPhaseBack, onPass, turnIn, battleOpen }: {
+export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, onPhase, onPhaseBack, onPass, turnIn, backTo }: {
   players: Player[]; turnSeat: number; turn: number; phase: string; canAct: boolean; nextSeat: number; passHot: boolean;
-  onPhase: (id: string) => void; onPhaseBack: (id: string) => void; onPass: () => void; turnIn: boolean; battleOpen: boolean;
+  onPhase: (id: string) => void; onPhaseBack: (id: string) => void; onPass: () => void; turnIn: boolean;
+  /** The phase before this one in this turn (`previousYgoPhase`), or null on the first phase. */ backTo: string | null;
 }) {
   const current = players.find(p => p.seat === turnSeat); const next = players.find(p => p.seat === nextSeat);
   const at = phaseIndex(phase);
@@ -43,9 +44,6 @@ export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); setAsk(null); } };
     document.addEventListener("keydown", onKey, true); return () => document.removeEventListener("keydown", onKey, true);
   }, [ask]);
-  // The phase before this one. The Battle Phase is skipped while the rules do not allow it yet.
-  let previous = at - 1; if (PHASES[previous]?.id === "battle" && !battleOpen) previous--;
-  const backTo = previous >= 0 ? PHASES[previous].id : null;
   const click = (id: string, i: number) => { if (i < at) setAsk(id); else onPhase(id); };
   return <div className={s.rail} data-testid="rail">
     <div className={s.tbox}><span className={s.pip} style={{ "--c": current?.color } as React.CSSProperties} />

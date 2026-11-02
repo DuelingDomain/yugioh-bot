@@ -384,6 +384,9 @@
 .samples>span{flex:none}
 .samples button{background:none;border:1px solid var(--line2);border-radius:999px;color:var(--ink2);padding:4px 10px;font-size:12.5px;white-space:nowrap;flex:none}
 .samples button:hover{border-color:var(--pen);color:var(--ink)}
+.samples.suggest>span{color:var(--gold-ink);font-weight:700}
+.samples.suggest button{border-color:var(--gold);color:var(--gold-ink);background:var(--gold-soft);font-weight:600}
+.samples.suggest button:hover{background:var(--gold);color:#1b1204;border-color:var(--gold-ink)}
 .trybtn{display:none}
 .undo{gap:10px;padding:8px}
 .ubtn{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:12px;padding:0 14px;border-radius:8px;border:2px solid var(--gold);background:linear-gradient(180deg,rgb(232 185 79/.20),rgb(232 185 79/.08));color:var(--gold-ink);text-align:left;transition:.2s}

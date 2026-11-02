@@ -51,8 +51,8 @@ export function shortUndoLabel(event: RemoteEvent, cardName: (seat: number, ref:
 }
 
 /**
- * The one place that knows how to go back a phase. The shared "phase back" action is not in the foundation yet,
- * so this sends phase.set to the earlier phase. When the foundation adds the action, change only this function.
+ * The one place that knows how to go back a phase: phase.set to the earlier phase. The caller picks the target,
+ * the previous phase from `previousYgoPhase(state)` or the earlier phase the player clicked.
  */
 export function phaseBackAction(actorSeat: number, phase: string): RemoteAction {
   return { type: "phase.set", actorSeat, phase } as RemoteAction;
