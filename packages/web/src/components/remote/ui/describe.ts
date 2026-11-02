@@ -1,6 +1,7 @@
 import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
 import { PHASE_LONG, sg } from "./model";
 import { landingLabel } from "./placement";
+import { MERGED } from "./twins";
 
 export type LogKind = "LP" | "PH" | "CD" | "AT" | "VX";
 export type Described = { kind: LogKind; text: string; undoable: boolean };
@@ -32,7 +33,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.move": return { kind: "CD", text: a.source==='auto'&&['graveyard','banished','hand','extra'].includes(a.zone)?`${a.name??'A card'} left the field → ${{graveyard:'GY',banished:'banish',hand:'hand',extra:'Extra Deck'}[a.zone]} · auto`:`${a.name ?? "A card"} on ${name(a.seat)}'s field moved to ${landingLabel({ zone: a.zone, slot: a.slot })}${a.faceUp === false ? " face-down" : ""}${a.position === "defense" ? " in defense" : ""}`, undoable: true };
     case "twin.flip": return { kind: "CD", text: `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}`, undoable: true };
     case "twin.remove": return { kind: "CD", text: `A card was removed from ${name(a.seat)}'s field`, undoable: true };
-    case "twin.merge": return { kind: "CD", text: "Duplicate cards merged", undoable: true };
+    case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: true };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
