@@ -106,6 +106,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     existing=freshBinding.existing;if(existing)track={...track,id:existing.ref};
     const projected=projectFieldZone({zone:track.zone,facts:entry?cardInfo(catalogCardId(entry)):undefined,twins,ref:existing?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
+    const physicalAtSave={zone:track.zone,position:track.position};
     track={...track,zone:projected.zone};location=fieldZoneLocation(projected.zone);
     if(twins.some(c=>c.ref!==existing?.ref&&c.zone===location.zone&&c.slot===location.slot)) {offer({...event,type:'prompt',reason:'uncertain'});return;}
     setPending(true);
@@ -115,8 +116,25 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
       }
-      if(existing&&!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      if(existing&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position)){updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});if(!updated){offer({...event,type:'prompt',reason:'recognition-error'});return;}}
+      const currentTarget=()=>{
+        const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;
+        const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
+        const target=projectFieldZone({zone:observed!.zone,facts:cardInfo(code),twins,ref:card.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+        if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
+        return {observed:observed!,card,location:fieldZoneLocation(target.zone)};
+      };
+      const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&target.card.position===target.observed.position;
+      let target=currentTarget();if(!target)return;
+      if(!matches(target)){
+        const physicallyMoved=target.observed.zone!==physicalAtSave.zone||target.observed.position!==physicalAtSave.position;
+        const initialCorrection=!!existing&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position);
+        if(!physicallyMoved&&!initialCorrection){setNotice('The placement changed. Check this card.');return;}
+        // A genuine move is separate from the atomic placement and keeps its ref.
+        updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.move',actorSeat:seat,seat,cardRef:target.card.ref,...target.location,position:target.observed.position});
+        if(!updated)return;
+        target=currentTarget();if(!target)return;
+        if(!matches(target)){setNotice('The card is still moving. Confirm it once settled.');return;}
+      }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
       watch.confirm(event.track.id,track.cardId,existing?.ref);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
