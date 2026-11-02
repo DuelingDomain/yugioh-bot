@@ -239,9 +239,9 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
     if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let visible=false,x=460,y=170,defense=false,jitter=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as any).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},clear:()=>{visible=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
@@ -440,7 +440,10 @@ test('field watcher automatic: Solemn Judgment uses the legal row and confirmed 
     const calibration=page.getByRole('dialog',{name:'Calibrate field zones',exact:true});
     if(registeredDeck){
       await expect(calibration).toContainText('Drag the field grid over your mat');
-      for(const [name,keys] of [['Top-left',['ArrowLeft','ArrowUp']],['Top-right',['ArrowRight','ArrowUp']],['Bottom-right',['ArrowRight','ArrowDown']],['Bottom-left',['ArrowLeft','ArrowDown']]] as const){await calibration.getByRole('button',{name:`${name} grid corner`,exact:true}).focus();for(const key of keys)for(let n=0;n<4;n++)await page.keyboard.press(`Shift+${key}`);}
+      await page.evaluate(()=>((window as any).fieldTest).calibrateTwo());await page.waitForTimeout(300);
+      await calibration.getByRole('button',{name:'Use cards in M1 and M5',exact:true}).click();
+      await expect(calibration).not.toHaveAttribute('aria-busy','true');await expect(calibration.getByRole('alert')).toHaveCount(0);
+      await page.evaluate(()=>((window as any).fieldTest).clear());
       const shots=new URL('../../../data/vision/benchmark/field-watcher/pad-shots/',import.meta.url).pathname;mkdirSync(shots,{recursive:true});
       for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:`${shots}/calibration-${width}x${height}.png`});}
       await page.setViewportSize({width:1440,height:1000});await calibration.getByRole('button',{name:'Save calibration',exact:true}).click();
