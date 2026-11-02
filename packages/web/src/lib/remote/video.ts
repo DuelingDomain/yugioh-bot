@@ -8,6 +8,8 @@ import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
+import {FieldTrackCache,FIELD_TRACKS_TOPIC} from './field-track-cache';
+import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -29,6 +31,7 @@ export class RemoteVideo {
   private epoch = 0;
   private starting = false;
   private closed = false;
+  private fieldTracks=new FieldTrackCache();
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
@@ -44,10 +47,11 @@ export class RemoteVideo {
     this.room.on(RoomEvent.SignalConnected, () => this.patch({ signalLost: false }));
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
       this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
+      if (connection !== ConnectionState.Connected) this.fieldTracks.clear();
       if (connection === ConnectionState.Disconnected) { this.channel?.close(); this.scans.abort(); }
     });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic, _encryption, identity) => {
-      if (bytes.byteLength > 8192 || !this.channel) return;
+      if (bytes.byteLength > 8192) return;
       // OSS may omit data-only newcomers from remoteParticipants. The sixth argument is
       // SFU-authenticated; bind it to the current HTTP roster, never to message JSON.
       const from = participant ? this.seatOf(participant) : this.options.members.find(member =>
@@ -55,6 +59,8 @@ export class RemoteVideo {
       if (from === undefined) return;
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
+        if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value);return;}
+        if(!this.channel)return;
         if (topic === PENDING_TOPIC) this.channel.announce(from, value.requestId, value.feedOwnerSeat);
         else if (topic === RECOGNITION_TOPIC) void this.channel.receive(from, value).catch(error => this.fail(error));
       } catch { /* Invalid data is ignored, never executed or persisted. */ }
@@ -96,6 +102,7 @@ export class RemoteVideo {
     }
     for(const phone of this.phone.dataOnlyFeeds())feeds.push({...phone,phone:true,quality:local.connectionQuality,muted:false});
     this.patch({ feeds: feeds.filter(f => f.phone || !feeds.some(p => p.phone && p.seat === f.seat)) });
+    this.fieldTracks.retain(new Set(this.snapshot.feeds.filter(f=>f.video&&!f.muted).map(f=>f.seat)));
   }
   private async refreshDevices() {
     const devices = await Room.getLocalDevices("videoinput", false);
@@ -136,6 +143,8 @@ export class RemoteVideo {
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: announcement ? PENDING_TOPIC : RECOGNITION_TOPIC,
           destinationIdentities: identity ? [identity] : undefined });
       }, async request => {
+        const cached=!request.force?this.trackedAt(this.options.seat,request.x,request.y):undefined;
+        if(cached)return {candidates:[{cardId:cached.cardId,name:cached.name??`Card ${cached.cardId}`,score:0}],tier:'sure',faceDown:false,covered:false};
         if (this.phone.forSeat(this.options.seat)) {
           const result = await this.phone.read(request.x, request.y, this.scans.signal);
           if (result.reader !== "vision") return NO_ANSWER;
@@ -169,14 +178,27 @@ export class RemoteVideo {
     if (this.closed) { await this.room.disconnect(); return; }
     this.patch({ microphone: enabled });
   }
-  requestRecognition(seat: number, x = 0.5, y = 0.5) {
+  trackedAt(seat:number,x:number,y:number) {return this.room.state===ConnectionState.Connected?this.fieldTracks.hit(seat,x,y):undefined;}
+  trackedCards(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.snapshot(seat):[];}
+  async publishFieldTracks(message:RemoteFieldTracks) {
+    if(this.room.state!==ConnectionState.Connected)return;
+    this.fieldTracks.receive(this.options.seat,message);
+    let bytes=new TextEncoder().encode(JSON.stringify(message));
+    // Long names are already in the public twin state; retain every quad within
+    // the same small packet budget used by recognition messages.
+    if(bytes.byteLength>8192)bytes=new TextEncoder().encode(JSON.stringify({...message,cards:message.cards.map(({name:_,...card})=>card)}));
+    if(bytes.byteLength>8192)throw new Error('Field snapshot is too large');
+    await this.room.localParticipant.publishData(bytes,{reliable:true,topic:FIELD_TRACKS_TOPIC});
+  }
+  requestRecognition(seat: number, x = 0.5, y = 0.5, force=false) {
     if (!this.channel || this.room.state !== ConnectionState.Connected) return Promise.reject(new Error("Connect table video first"));
-    return this.channel.request(seat, x, y);
+    return this.channel.request(seat, x, y,undefined,force);
   }
   startAudio() { return this.room.startAudio(); }
   fail(error: unknown) { this.patch({ error: error instanceof Error ? error.message : "Video failed" }); }
   async stop() {
     this.phone.reset();
+    this.fieldTracks.clear();
     ++this.epoch; this.channel?.close(); this.channel = undefined; this.scans.abort();
     this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });

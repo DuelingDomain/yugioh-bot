@@ -301,3 +301,12 @@ packages/
   worker/       Scheduling worker and compiled owner ops CLI
   e2e/          Playwright duel tests on an isolated stack (ports 3300 family, `E2E_SLOT` for parallel runs; see packages/e2e/README.md)
 ```
+
+The remote field watcher keeps at most six shared native frames (about 50 MB at
+1080p), plus up to two transient native copies during a detector/read tick. On
+memory-limited mobile devices, select a lower camera resolution. Card identity
+stays local until a public twin is confirmed; automatic new placements require two
+agreeing reads and a registered deck match. Deck/Extra/GY/Banished outlines never
+automatically create new twins. A 1.5-second scene window keeps deck spreads
+prompt-only while recognition starts after 400–600 ms of stable pixels. See the
+[measurement report](packages/vision/REPORT.md) for current timings and limits.

@@ -1,18 +1,28 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
+import { SWRConfig } from "swr";
+import type { RemoteRoom } from "@yugidraft/shared/remote";
+
+vi.mock("next/navigation",()=>({useRouter:()=>({push:vi.fn()})}));
+vi.mock("socket.io-client",()=>({io:()=>{
+  const socket={connected:false,on:()=>socket,connect:()=>{},disconnect:()=>{},emit:()=>{}};
+  return socket;
+}}));
 
 const state = vi.hoisted(() => ({
-  initialSource: null as "photo" | "camera" | null,
+  initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(),
   createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(), recordFeedback:vi.fn(),
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
 
-vi.mock("@yugidraft/vision", () => ({
+vi.mock("@yugidraft/vision", async importOriginal => ({
+  ...await importOriginal<typeof import("@yugidraft/vision")>(),
   createRecognizer: state.createRecognizer,
   hitTestQuad: state.hitTestQuad,
+  isPhysicalEntry: () => true,
   yugioh: { id: "yugioh", metaUrl: "/test/vision-meta.json", embedding: { id: "test-model" }, cardBack: { cardId: "card-back", imageUrl: "/test/back.jpg" } },
 }));
 vi.mock("../app/dev/vision-lab/use-vision-source", async () => {
@@ -41,11 +51,11 @@ const quads: DetectedQuad[] = [
   { quad: [{ x: .6, y: .2 }, { x: .9, y: .2 }, { x: .9, y: .8 }, { x: .6, y: .8 }], kind: "face-down", confidence: .87, partial: true },
 ];
 const cards = [
-  { cardId: "46986414", passcode: 46986414, name: "Dark Magician" },
-  { cardId: "89631139", passcode: 89631139, name: "Blue-Eyes White Dragon" },
-  { cardId: "83764718", passcode: 83764718, name: "Monster Reborn" },
-  { cardId: "55144522", passcode: 55144522, name: "Pot of Greed" },
-  { cardId: "12580477", passcode: 12580477, name: "Raigeki" },
+  { cardId: "46986414", passcode: 46986414, frameClass: "Normal", name: "Dark Magician" },
+  { cardId: "89631139", passcode: 89631139, frameClass: "Normal", name: "Blue-Eyes White Dragon" },
+  { cardId: "83764718", passcode: 83764718, frameClass: "Spell", name: "Monster Reborn" },
+  { cardId: "55144522", passcode: 55144522, frameClass: "Spell", name: "Pot of Greed" },
+  { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
 const result: RecognitionResult = {
   candidates: cards.map((card, i) => ({ cardId: card.cardId, score: .9 - i * .05 })), tier: "not sure", backend: "wasm", cropJpeg: "test-crop-only",
@@ -150,7 +160,7 @@ describe("vision lab source and selected cards", () => {
     fireEvent.click(preview(), { detail: 1, clientX: 450, clientY: 240 });
     await screen.findByRole("dialog", { name: "Card matches" });
     expect(state.hitTestQuad).toHaveBeenCalledWith(quads, { x: 450 / 640, y: .5 }, { width: 640, height: 480 });
-    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, card: quads[1] });
+    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, deferAICrop:true, includeFeedback:false, includeRaw:false, earlyExit:true, card: quads[1] });
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[1]);
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Recognize selected card" }));
@@ -179,7 +189,7 @@ describe('live card inspection and owner capture',()=>{
     expect(document.querySelector('video')).not.toHaveAttribute('hidden');
     expect(screen.getByRole('button',{name:'Freeze & outline cards'})).toBeInTheDocument();
     await waitFor(()=>expect(state.recognize).toHaveBeenCalled());
-    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1});
+    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1,deferAICrop:true});
     await act(async()=>{pending.resolve({...result,detectedCard:quads[0]});await pending.promise;});
     expect(screen.getByLabelText('Selected card outline').querySelector('polygon')).toHaveAttribute('points','64,48 256,48 256,432 64,432');
     expect(state.detectCards).not.toHaveBeenCalled();expect(state.stop).not.toHaveBeenCalled();
@@ -386,4 +396,223 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
   expect(fetcher.mock.calls.filter(([,init])=>init?.method==='PATCH'&&JSON.parse(init.body).asked)).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'No thanks'}));
   await waitFor(()=>expect(screen.queryByRole('button',{name:'No thanks'})).toBeNull());expect(state.recordFeedback).not.toHaveBeenCalled();
+});
+
+
+// Field watcher lifecycle shares this existing browser test file.
+import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+import { FieldCalibrationControl } from "../src/components/remote/field-calibration";
+
+describe('field calibration modal',()=>{
+  it('escapes feed containment, traps focus, closes with Escape and restores its opener',()=>{
+    function CalibrationHarness(){
+      const [open,setOpen]=React.useState(false);
+      return <div data-testid="small-calibration-feed"><button type="button" onClick={()=>setOpen(true)}>Calibrate zones</button>{open?<FieldCalibrationControl video={null} onSave={()=>setOpen(false)} onCancel={()=>setOpen(false)}/>:null}</div>;
+    }
+    render(<CalibrationHarness/>);
+    const opener=screen.getByRole('button',{name:'Calibrate zones'});opener.focus();fireEvent.click(opener);
+    const modal=screen.getByRole('dialog',{name:'Calibrate field zones'});
+    expect(screen.getByTestId('small-calibration-feed')).not.toContainElement(modal);
+    expect(modal).toHaveAttribute('aria-modal','true');expect(modal).toHaveFocus();
+    const cancel=within(modal).getByRole('button',{name:'Cancel calibration'});
+    cancel.focus();fireEvent.keyDown(cancel,{key:'Tab'});expect(cancel).toHaveFocus();
+    modal.focus();fireEvent.keyDown(modal,{key:'Tab',shiftKey:true});expect(cancel).toHaveFocus();
+    fireEvent.keyDown(modal,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();expect(opener).toHaveFocus();
+  });
+});
+
+describe('field watcher presentation',()=>{
+  it('uses feed toolbar slots and shows one announced body prompt with a readable zone',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+    const choose=vi.fn(),dismiss=vi.fn(),enable=vi.fn(),calibrate=vi.fn();
+    const prompts=[{id:'first',zone:'M2',candidates:[{id:'46986414',label:'Dark Magician'}]},{id:'second',zone:'S4',candidates:[{id:'83764718',label:'Monster Reborn'}]},{id:'third',zone:'EMZ1',candidates:[]}];
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated={false} calibrationDisabled={false} onEnabledChange={enable} onCalibrate={calibrate} prompts={prompts} pending={false} onChoose={choose} onDismiss={dismiss}/>);
+      expect(host.querySelector('[data-field-watcher-controls]')).toContainElement(screen.getByRole('checkbox',{name:'Auto-detect cards'}));
+      expect(host.querySelector('[data-field-watcher-status-slot]')).toContainElement(screen.getByTestId('field-watcher-status'));
+      expect(screen.getAllByTestId('field-watcher-prompt')).toHaveLength(1);
+      const prompt=screen.getByTestId('field-watcher-prompt');expect(host).not.toContainElement(prompt);
+      expect(prompt).toHaveAccessibleDescription(/Main Monster Zone 2/);expect(within(prompt).getByText('+2 more')).toBeVisible();
+      expect(screen.getByRole('status',{name:'Card detection updates'})).toHaveTextContent('New card needs a choice');
+      expect(screen.queryByRole('button',{name:'Monster Reborn'})).toBeNull();
+      fireEvent.click(within(prompt).getByRole('button',{name:'Dark Magician'}));expect(choose).toHaveBeenCalledWith('first','46986414');
+      fireEvent.click(within(prompt).getByRole('button',{name:'Dismiss'}));expect(dismiss).toHaveBeenCalledWith('first');
+      fireEvent.click(screen.getByRole('checkbox',{name:'Auto-detect cards'}));expect(enable).toHaveBeenCalledWith(false);
+      fireEvent.click(screen.getByRole('button',{name:'Calibrate zones'}));expect(calibrate).toHaveBeenCalledOnce();
+    }finally{host.remove();}
+  });
+  it('keeps prompt choices and dismissal disabled while an action is pending',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[{id:'first',zone:'GY',candidates:[{id:'46986414',label:'Dark Magician'}]}]} pending onChoose={()=>{}} onDismiss={()=>{}}/>);
+      expect(screen.getByRole('button',{name:'Recalibrate'})).toBeDisabled();
+      const prompt=screen.getByTestId('field-watcher-prompt');expect(prompt).toHaveAttribute('aria-busy','true');
+      for(const button of within(prompt).getAllByRole('button'))expect(button).toBeDisabled();
+    }finally{host.remove();}
+  });
+  it('keeps a measured bottom-edge prompt inside the viewport when its feed is only 96 pixels tall',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    vi.stubGlobal('innerWidth',640);vi.stubGlobal('innerHeight',400);
+    const host=document.createElement('div');document.body.append(host);
+    vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+      const bounds=this.dataset.testid==='field-watcher-prompt'?{left:0,top:0,width:300,height:330}:{left:20,top:80,width:240,height:96};
+      return {...bounds,x:bounds.left,y:bounds.top,right:bounds.left+bounds.width,bottom:bounds.top+bounds.height,toJSON:()=>({})};
+    });
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled={false} onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[{id:'bottom',zone:'S5',quad:[{x:.8,y:.7},{x:.9,y:.7},{x:.9,y:.99},{x:.8,y:.99}],candidates:cards.map(card=>({id:card.cardId,label:card.name}))}]} pending={false} onChoose={()=>{}} onDismiss={()=>{}}/>);
+      const prompt=screen.getByTestId('field-watcher-prompt'),top=Number.parseFloat(prompt.style.top),left=Number.parseFloat(prompt.style.left);
+      expect(host).not.toContainElement(prompt);expect(top).toBeGreaterThanOrEqual(8);expect(top+330).toBeLessThanOrEqual(392);
+      expect(left).toBeGreaterThanOrEqual(8);expect(left+300).toBeLessThanOrEqual(632);
+      expect(within(prompt).getAllByRole('button')).toHaveLength(6);
+    }finally{host.remove();}
+  });
+  it('places destination and Undo notices above the existing feed toolbar in the body layer',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<div data-feed-toolbar></div>';document.body.append(host);
+    vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+      const bounds=this.dataset.testid==='departure-ui'?{left:0,top:0,width:300,height:72}:this.hasAttribute('data-feed-toolbar')?{left:20,top:300,width:400,height:26}:{left:20,top:60,width:400,height:280};
+      return {...bounds,x:bounds.left,y:bounds.top,right:bounds.left+bounds.width,bottom:bounds.top+bounds.height,toJSON:()=>({})};
+    });
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled={false} onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[]} pending={false} onChoose={()=>{}} onDismiss={()=>{}} noticeTestId="departure-ui" notice={<>Card left the field <button type="button">GY</button><button type="button">Undo</button></>}/>);
+      const notice=screen.getByTestId('departure-ui');expect(host).not.toContainElement(notice);
+      expect(Number.parseFloat(notice.style.top)+72).toBeLessThanOrEqual(292);
+      expect(within(notice).getByRole('button',{name:'Undo'})).toBeEnabled();
+    }finally{host.remove();}
+  });
+});
+it('keeps Ask AI available when the large source crop is deferred in the worker',async()=>{
+  state.recognize.mockResolvedValue({...result,aiCropJpeg:undefined,aiCropToken:'scoped-crop-1'});
+  state.askAI.mockResolvedValue({name:null,match:null});await renderLab();await recognizeCenter();
+  expect(screen.getByRole('button',{name:'Ask AI'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'Ask AI'}));
+  await waitFor(()=>expect(state.askAI).toHaveBeenCalledWith(expect.objectContaining({aiCropToken:'scoped-crop-1'}),expect.any(Object)));
+});
+it('desktop outlined clicks read the exact held frame once without resampling or redetecting',async()=>{
+  const {readCard,disposeRecognizer}=await import('../src/components/remote/ui/recognizer');
+  const first=document.createElement('canvas'),second=document.createElement('canvas');first.width=second.width=640;first.height=second.height=480;
+  try {
+    await readCard(null,{x:.25,y:.5},{decklist:[],seen:[]},new AbortController().signal,quads[0],[first,second]);
+    expect(createBitmap).toHaveBeenCalledTimes(1);expect(createBitmap).toHaveBeenCalledWith(first);
+    expect(state.recognize).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({card:quads[0],maxFrames:1,deferAICrop:true}));
+    expect(state.detectCards).not.toHaveBeenCalled();
+  }finally{disposeRecognizer();}
+});
+import { HoloField } from "../src/components/remote/ui/holo-field";
+import { cellsFor, foundationZone, hasExtraZones } from "../src/components/remote/ui/model";
+it('renders two interactive EMZ above the main row only for Advanced and Domain',()=>{
+  const twin=[{ref:'extra-right',zone:'extra-monster',slot:2,faceUp:false,position:'attack' as const}];
+  const onRv=vi.fn(),onAttack=vi.fn();
+  const props={seat:0,name:'Owner',twin,info:()=>undefined,rv:'m4' as const,onRv,picking:true,warnRefs:new Set<string>(),onActivate:vi.fn(),onAttack,onInspect:vi.fn()};
+  const view=render(<HoloField {...props} extraZones={hasExtraZones("normal")}/>);
+  expect(screen.getByRole('button',{name:/Extra Monster zone left: empty/i})).toBeVisible();
+  const right=screen.getByRole('button',{name:/Extra Monster zone right: face-down/i});
+  expect(right).toHaveAttribute('data-zone','e2');
+  fireEvent.keyDown(screen.getByRole('button',{name:/Monster zone 4: empty/i}),{key:'ArrowUp'});
+  expect(onRv).toHaveBeenCalledWith('e2');fireEvent.keyDown(right,{key:'a'});expect(onAttack).toHaveBeenCalledWith('e2',twin[0]);
+  expect(cellsFor(twin, true).e2.card?.ref).toBe('extra-right');
+  expect(foundationZone('e2')).toEqual({zone:'extra-monster',slot:2});
+  for(const format of ['domain','genesys','genesys-domain'] as const) {
+    view.rerender(<HoloField {...props} extraZones={hasExtraZones(format)}/>);
+    expect(screen.queryAllByRole('button',{name:/Extra Monster zone/i})).toHaveLength(format==='domain'?2:0);
+  }
+});
+it('automatic zone proposals draw defense cards in the existing main, spell and EMZ cells',async()=>{
+  const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+  const {default:styles}=await import('../src/components/remote/ui/remote-ui.module.css');
+  for(const [zone,key] of [['M4','m4'],['S3','s3'],['EMZ1','e1'],['EMZ2','e2']] as const) {
+    const track={id:`auto-${zone}`,zone,position:'defense',faceDown:false} as import('@yugidraft/vision').FieldTrack;
+    const placed=fieldPlacementProposals({track,seat:0,cardId:46986414,name:'Dark Magician'}).find(p=>p.type==='twin.place')!;
+    const twin=[{...placed.card,zone:placed.zone,faceUp:true,position:'defense' as const}];
+    expect(cellsFor(twin,true)[key].card?.ref).toBe(track.id);
+    const view=render(<HoloField seat={0} name="Owner" twin={twin} extraZones info={()=>undefined} rv={key} onRv={()=>{}} picking={false} warnRefs={new Set()} onActivate={()=>{}} onAttack={()=>{}} onInspect={()=>{}}/>);
+    const cell=view.getByTestId('field-0').querySelector(`[data-zone="${key}"]`)!;
+    expect(cell).toHaveAttribute('aria-label',expect.stringContaining('Dark Magician'));
+    expect(cell).toHaveClass(styles.def);
+    view.unmount();
+  }
+});
+it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
+  localStorage.clear();const create=vi.fn(async()=>null),onEvent=vi.fn();
+  const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});
+  await act(async()=>undefined);expect(create).not.toHaveBeenCalled();expect(hook.result.current.enabled).toBe(true);
+  hook.rerender({owner:true});await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+  act(()=>hook.result.current.setEnabled(false));expect(JSON.parse(localStorage.getItem('dd-field-watcher:v1:test-seat')!)).toMatchObject({enabled:false});
+  hook.unmount();const again=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'test-seat',create,onEvent}));await act(async()=>undefined);
+  expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
+});
+it('the watcher hook discards resource setup that resolves after unmount',async()=>{
+  localStorage.clear();const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
+  const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+  hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
+});
+
+vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>state.feedHub}));
+vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>({...await importOriginal<typeof import('../src/components/remote/ui/recognizer')>(),attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[])}));
+it('owner and observer feed clicks select an identified physical ref without capturing or recognizing',async()=>{
+  const {Feed}=await import('../src/components/remote/ui/feed');
+  const card={ref:'physical-cached',cardId:46986414,name:'Dark Magician',quad:[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}]};
+  const source={local:true,attach:(video:HTMLVideoElement)=>{Object.defineProperty(video,'videoWidth',{value:1280,configurable:true});Object.defineProperty(video,'videoHeight',{value:720,configurable:true});return ()=>{};}};
+  vi.stubGlobal('ResizeObserver',class{constructor(private callback:()=>void){}observe(){this.callback();}disconnect(){}});
+  const width=vi.spyOn(HTMLElement.prototype,'clientWidth','get').mockReturnValue(640),height=vi.spyOn(HTMLElement.prototype,'clientHeight','get').mockReturnValue(360);
+  const rect=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:0,top:0,right:640,bottom:360,width:640,height:360,x:0,y:0,toJSON:()=>({})});
+  const capture=vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>{throw Error('cached click must not capture');});
+  try{for(const you of [true,false]){
+    capture.mockClear();capture.mockImplementation(()=>{throw Error('cached click must not capture');});state.feedDetect.mockClear();
+    const select=vi.fn(),begin=vi.fn(),point=vi.fn();
+    state.feedHub={sourceFor:()=>source,setFrozen:()=>{},trackedAt:vi.fn(()=>card),trackedCards:()=>[card]};
+    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onMiss={()=>{}} onSearch={()=>{}} onPoint={point} onSelect={select} onAdd={()=>{}} onReset={()=>{}} holdSelection={false} emptyText=""/>);
+    fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
+    expect(select).toHaveBeenCalledWith(0,expect.objectContaining({cached:card,quad:card.quad}));
+    expect(begin).not.toHaveBeenCalled();expect(point).not.toHaveBeenCalled();expect(state.feedDetect).not.toHaveBeenCalled();expect(capture).not.toHaveBeenCalled();
+    capture.mockImplementation(()=>({drawImage:()=>{}} as any));
+    vi.stubGlobal('createImageBitmap',vi.fn(async()=>({width:640,height:360,close:()=>{}})));
+    state.feedDetect.mockResolvedValue({status:'ready',cards:[{quad:card.quad,kind:'face-up',confidence:.9,partial:false,refined:true}],ms:1});
+    fireEvent.keyDown(view.getByTestId('feed-box-0'),{key:'f'});await within(view.container).findByTestId('quads');
+    const newer={...card,ref:'new-card',cardId:89631139,name:'Blue-Eyes White Dragon'};
+    state.feedHub.trackedAt.mockReturnValue(newer);state.feedHub.trackedCards=()=>[newer];
+    fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
+    expect(select.mock.calls.at(-1)?.[1].cached).toEqual(card);
+    expect(select.mock.calls.at(-1)?.[1].frozenFrame).toBe(view.getByTestId('frozen-frame').querySelector('canvas'));
+    view.unmount();
+  }}finally{width.mockRestore();height.mockRestore();rect.mockRestore();capture.mockRestore();}
+});
+
+describe('remote room navigation',()=>{
+  it.each(['action response','failed action refresh'])('does not reuse an old room sequence after a late %s',async phase=>{
+    const {useRemoteRoom}=await import('../src/components/remote/ui/use-remote-room');
+    const {ygoModule}=await import('@yugidraft/shared/remote');
+    const room=(slug:string,lastSeq:number):RemoteRoom=>({
+      slug,lastSeq,guildId:'test',gameId:'ygo',seatCount:2,status:'active',solo:true,createdBy:1,createdAt:1,
+      startedAt:1,endedAt:null,lastEventAt:1,endReason:null,idleWarningAt:null,seats:[],mySeat:0,
+      state:ygoModule.initialState({seatCount:2}),events:[],
+    });
+    const old=room('old',50),current=room('current',2),late=deferred<Response>(),posts:{path:string;baseSeq:number}[]=[];
+    fetcher.mockImplementation(async(path:string,options?:RequestInit)=>{
+      if(options?.method==='POST'){
+        posts.push({path,baseSeq:JSON.parse(options.body as string).baseSeq});
+        if(path==='/api/remote/old/actions')return phase==='action response'?late.promise:Response.json({error:'stale action'},{status:409});
+        return Response.json({...current,lastSeq:3});
+      }
+      if(path==='/api/remote/old')return late.promise;
+      throw new Error(`Unexpected request ${path}`);
+    });
+    const cache=new Map(),fallback={'remote:old':old,'remote:current':current};
+    const wrapper=({children}:{children:React.ReactNode})=><SWRConfig value={{provider:()=>cache,fallback,revalidateOnMount:false,revalidateOnFocus:false,revalidateOnReconnect:false}}>{children}</SWRConfig>;
+    const hook=renderHook(({slug})=>useRemoteRoom(slug),{initialProps:{slug:'old'},wrapper});
+    const proposal={type:'phase.set',actorSeat:0,phase:'main1'} as const;
+    let pending!:Promise<RemoteRoom|null>;
+    act(()=>{pending=hook.result.current.action(proposal,'old-action');});
+    await waitFor(()=>expect(posts).toEqual([{path:'/api/remote/old/actions',baseSeq:50}]));
+    if(phase==='failed action refresh')await waitFor(()=>expect(fetcher.mock.calls.some(([path,options])=>path==='/api/remote/old'&&!options?.method)).toBe(true));
+    hook.rerender({slug:'current'});
+    expect(hook.result.current.room?.slug).toBe('current');
+    await act(async()=>{late.resolve(Response.json({...old,lastSeq:51}));await pending;});
+    await act(async()=>{await hook.result.current.action(proposal,'current-action');});
+    expect(posts.at(-1)).toEqual({path:'/api/remote/current/actions',baseSeq:2});
+    expect(hook.result.current.room?.slug).toBe('current');
+    hook.unmount();
+  });
 });

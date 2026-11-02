@@ -159,10 +159,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     get(slug: string, guildId: string, userId: number, afterSeq?: number): RemoteRoom {
       return db.transaction(() => room(load(slug, guildId), userId, afterSeq))();
     },
-    list(guildId: string, userId: number, scope: "mine" | "open" = "mine"): RemoteTable[] {
+    list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {
       const rows = db.prepare(`select t.* from remote_tables t where t.guild_id=? and ${scope === "open"
         ? "t.solo=0 and t.status='lobby' and (select count(*) from remote_seats s where s.table_id=t.id)<t.seat_count"
-        : "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)"} order by t.created_at desc,t.id desc limit 100`)
+        : `exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)${scope === "live" ? " and t.status!='ended'" : ""}`} order by t.created_at desc,t.id desc limit 100`)
         .all(...(scope === "open" ? [guildId] : [guildId, userId])) as Row[];
       return rows.map(row => projectRemoteTable(table(row)));
     },

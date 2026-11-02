@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import useSWR from "swr";
 import type { PhoneMember, PhoneScan } from "@/lib/remote/phone-protocol";
 import { ConnectionState } from "livekit-client";
-import type { RemoteRoom } from "@yugidraft/shared/remote";
+import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/shared/remote";
+import {FieldTrackCache} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { deckIdsOf, seenCardIds } from "./model";
@@ -37,8 +38,11 @@ type Hub = {
   disableCamera(): Promise<void>;
   selectCamera(id: string): Promise<void>;
   setMic(on: boolean): void;
+  trackedAt(seat:number,x:number,y:number):RemoteFieldCard|undefined;
+  trackedCards(seat:number):RemoteFieldCard[];
+  publishFieldTracks(message:RemoteFieldTracks):void;
   /** Reads the card at a normalized point of a seat's feed. */
-  read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult>;
+  read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[],force?:boolean): Promise<ReadResult>;
   /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
   askAi(token: number): Promise<AiAnswer>;
   /** Saves a confirmed card as a training sample (only when this person opted in). Never throws. */
@@ -50,6 +54,7 @@ type Hub = {
 };
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
+  trackedAt:()=>undefined,trackedCards:()=>[],publishFieldTracks:()=>undefined,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
@@ -84,6 +89,14 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const localRef = useRef<MediaStream | null>(null);
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
   const mySeat = room.mySeat;
+  const localTracks=useRef(new FieldTrackCache());
+  const publishFieldTracks=useCallback((message:RemoteFieldTracks)=>{
+    localTracks.current.receive(mySeat,message);
+    void controller?.publishFieldTracks(message).catch(error=>controller.fail(error));
+  },[controller,mySeat]);
+  const trackedAt=useCallback((seat:number,x:number,y:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.hit(seat,x,y):undefined):controller?.trackedAt(seat,x,y),[controller,mySeat,solo]);
+  const trackedCards=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.snapshot(seat):[]):controller?.trackedCards(seat)??[],[controller,mySeat,solo]);
+  useEffect(()=>()=>{localTracks.current.clear();},[room.slug,mySeat]);
 
   useEffect(() => { if(room.status==="ended")disposeRecognizer();else void prewarmRecognizer(); }, [room.slug, room.status === "ended", localOnly, phoneWanted]);
 
@@ -112,7 +125,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   useEffect(() => { if(phoneScan && !phones.some(p=>p.id===phoneScan.pairId))setPhoneScan(null); },[rosterKey,phoneScan]);
   useEffect(() => () => { localRef.current?.getTracks().forEach(t => t.stop()); disposeRecognizer(); }, []);
 
-  const stopLocal = useCallback(() => { localRef.current?.getTracks().forEach(t => t.stop()); localRef.current = null; setLocal(null); }, []);
+  const stopLocal = useCallback(() => { localTracks.current.clear();localRef.current?.getTracks().forEach(t => t.stop()); localRef.current = null; setLocal(null); }, []);
   useEffect(() => { if (phoneWanted) { stopLocal(); void controller?.suspendCamera().catch(e => controller.fail(e)); } },[phoneWanted,controller,stopLocal]);
   const startLocal = useCallback(async (deviceId: string) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("The camera needs HTTPS or localhost and browser permission.");
@@ -183,7 +196,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   }, [snap.result]);
 
   const snapRef = useRef(snap); snapRef.current = snap;
-  const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> => {
+  const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[],force=false): Promise<ReadResult> => {
     const current = roomRef.current;
     const priors = { decklist: deckIdsOf(current, seat), seen: seenCardIds(current) };
     // Own webcam reads retain the worker's queue-aware timeout and native frame ring.
@@ -199,7 +212,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     try {
       if (seat === mySeat && controller.phone.forSeat(mySeat)) return await controller.phone.read(x, y, abort.signal);
       const early = new Promise<ReadResult>(resolve => {
-        controller.requestRecognition(seat, x, y).then(id => { requestId = id; if (abort.signal.aborted) wait.current.delete(id); else wait.current.set(id, resolve); })
+        controller.requestRecognition(seat, x, y,force).then(id => { requestId = id; if (abort.signal.aborted) wait.current.delete(id); else wait.current.set(id, resolve); })
           .catch(e => { controller.fail(e); resolve({ guesses: [], reader: "none", frames: 0, note: e instanceof Error ? e.message : "Request failed" }); });
         abort.signal.addEventListener("abort", () => resolve({ guesses: [], reader: "none", frames: 0, note: "No answer from the feed owner" }), { once: true });
       });
@@ -221,8 +234,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen,
+    sourceFor, health, setFrozen, trackedAt, trackedCards, publishFieldTracks,
     enableCamera, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, setFrozen, read, peek, board]);
+  }), [solo, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
   return <Ctx value={value}>{children}</Ctx>;
 }

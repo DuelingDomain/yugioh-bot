@@ -13,6 +13,8 @@ export interface RecognizerConfig {
 export interface Recognizer {
   /** Load the worker, index and model sessions before a person asks to read a card. Safe to call repeatedly. */
   warmup(): Promise<void>;
+  /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
+  prepare():Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
@@ -29,6 +31,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
   let inFlight = false;
+  let prepared:Promise<void>|undefined;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   const failAll = (error: Error) => { for (const value of pending.values()) value.reject(error); pending.clear(); };
   function request(message: object, transfers: Transferable[] = []): Promise<unknown> {
@@ -41,13 +44,13 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-field-fast-v3', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined; };
+      worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined;prepared=undefined; };
       worker.onmessageerror = () => failAll(new Error('Recognition worker message failed'));
       initial = request({ type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/' }).catch(error => { worker?.terminate(); worker = undefined; initial = undefined; throw error; });
     }
@@ -61,7 +64,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     if(opts.cards) validateBoard(opts.cards);
     if('card' in opts) validateOptions({card:opts.card});
     const {signal,...workerOptions}=opts;
-    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
+    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;prepared=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
     inFlight=true;
     signal?.addEventListener('abort',abort,{once:true});
     try {
@@ -70,8 +73,15 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       return await request({type,frame,opts:workerOptions},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]);
     } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
   }
+  // Both table-open warmup and camera startup need the full recognition pipeline.
+  // The worker's init now loads only the detector so outlines can survive index failures.
+  function prepare(): Promise<void> {
+    if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
+    return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
+  }
   return {
-    async warmup() { if(disposed) throw new Error('Recognizer is disposed'); await initialize(); if(disposed) throw new Error('Recognizer is disposed'); },
+    warmup: prepare,
+    prepare,
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
     async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },
     async recognize(frames, opts = {}) {
@@ -98,7 +108,9 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');
       if(result.tier==='sure' && !options.explicitRequest) throw new Error('AI requires uncertainty or an explicit request');
-      const jpeg=result.aiCropJpeg??result.cropJpeg; // Compatible with pre-upgrade explicit crop callers.
+      let jpeg=result.aiCropJpeg;
+      if(!jpeg&&result.aiCropToken){await initialize();options.signal?.throwIfAborted();jpeg=await request({type:'aiCrop',token:result.aiCropToken}) as string;}
+      jpeg??=result.cropJpeg; // Compatible with pre-upgrade explicit crop callers.
       if(!jpeg) throw new Error('Recognize with includeCrop to ask AI');
       const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:jpeg,candidateNames:result.aiCandidateNames,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
       if(!response.ok) throw new Error(response.status===404?'AI reading is disabled or requires owner access':response.status===429?'AI rate limit reached':response.status===504?'AI reading timed out':'AI reading unavailable');

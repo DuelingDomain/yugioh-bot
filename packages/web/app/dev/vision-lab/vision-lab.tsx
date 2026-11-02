@@ -8,6 +8,7 @@ import { useOutlineReads } from "./use-outline-reads";
 import {RealsetCapture} from "./realset-capture";
 import { VisionResult } from "./vision-result";
 import styles from "./vision-lab.module.css";
+import { AutoDetectLab } from "./auto-detect-lab";
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
 // Modified for React and a local exportable correction log; no extension/report service.
@@ -28,6 +29,11 @@ function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
 }
 
 export function VisionLab() {
+  const [tab,setTab]=useState<'manual'|'auto'>('manual');
+  return <><nav className={styles.controls} aria-label="Vision lab modes" style={{padding:20}} role="tablist"><button type="button" role="tab" aria-selected={tab==='manual'} onClick={()=>setTab('manual')}>Click reader</button><button type="button" role="tab" aria-selected={tab==='auto'} onClick={()=>setTab('auto')}>Auto-detect</button></nav>{tab==='auto'?<main className={styles.lab}><h1>Auto-detect field lab</h1><AutoDetectLab/></main>:<ManualVisionLab/>}</>;
+}
+
+function ManualVisionLab() {
   const recognizerRef = useRef<{ backend: Backend; value: Recognizer } | null>(null);
   const runRef = useRef(0);
   const busyRef = useRef(false);
@@ -158,7 +164,7 @@ export function VisionLab() {
       }
       // The worker takes ownership of these clones; the source keeps its originals.
       const live=source.source==='camera'&&!frozenRef.current;
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
+      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,deferAICrop:!captureMode,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(live&&!captureMode?{maxFrames:1 as const}:{}),...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
       if (run === runRef.current) {
         if(live&&!next.detectedCard&&!captureMode)throw new Error('No card detected under this click.');
         setResult(next);setConfirmed(null);setQuery('');if(live&&next.detectedCard)setFlash(next.detectedCard);
@@ -353,7 +359,7 @@ export function VisionLab() {
             </div>}
           </div>
           {result ? <div className={styles.ai}>
-            <button type="button" onClick={()=>{void askAI();}} disabled={!result.aiCropJpeg || busy || aiBusy}>{aiBusy?'Reading…':'Ask AI'}</button>
+            <button type="button" onClick={()=>{void askAI();}} disabled={!(result.aiCropJpeg||result.aiCropToken) || busy || aiBusy}>{aiBusy?'Reading…':'Ask AI'}</button>
             <span>Sends this high-resolution card crop to Anthropic. Owner access and server opt-in required.</span>
             {result.quality.fullArt && !result.quality.fullArtReferences ? <p>Possible full-art layout; no verified full-art references. Use name correction or Ask AI.</p> : null}
             {aiError ? <p role="alert">{aiError}</p> : null}
