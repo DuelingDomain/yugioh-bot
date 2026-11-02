@@ -252,7 +252,11 @@ test('field watcher automatic: card appearance fills the lab twin without clicki
   await page.evaluate(()=>((window as any).fieldTest).move());
   await expect(page.getByTestId('auto-detect-events')).toContainText('moved',{timeout:15_000});
   await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(1);
-  await page.getByRole('button',{name:'Undo automatic placement'}).click();await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);
+  await page.evaluate(()=>((window as any).fieldTest).clear());
+  await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0,{timeout:12000});
+  await expect(page.getByTestId('auto-detect-departure')).toContainText('left the field');
+  await page.getByRole('button',{name:'Undo automatic field change'}).click();await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(1);
+  await page.waitForTimeout(2800);await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(1);
   await page.getByRole('button',{name:'Stop',exact:true}).click();
 });
 test('field watcher automatic: owner table applies once, logs auto and Undo removes the placement',async({page,context})=>{
@@ -350,7 +354,17 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
     const room=await alice.request.get(`/api/remote/${slug}`).then(r=>r.json());expect(room.state.seats[0].twin).toHaveLength(1);
   }finally{await Promise.allSettled([alice.close(),bob.close()]);}
 });
-test('field watcher automatic: physical EMZ and DEF orientation reach the correct virtual slot',async({page,context})=>{
+async function measuredFieldChange(page:Page,kind:'move'|'remove') {
+  return page.evaluate(kind=>new Promise<number>((resolve,reject)=>{
+    const started=performance.now(),observer=new MutationObserver(()=>{
+      const done=kind==='move'?document.querySelector('[data-testid="field-0"] [data-zone="emz2"]')?.textContent?.includes('Sacred Sword'):document.querySelector('[data-testid="field-departure-toast"]')?.textContent?.includes('left the field');
+      if(done){clearTimeout(timer);observer.disconnect();resolve(performance.now()-started);}
+    }),timer=setTimeout(()=>{observer.disconnect();reject(Error('Camera field update timed out: '+kind));},15000);
+    observer.observe(document.body,{childList:true,subtree:true});
+    if(kind==='move')(window as any).fieldTest.place(714,8,false);else (window as any).fieldTest.clear();
+  }),kind);
+}
+test('field watcher automatic: camera follows EMZ/DEF moves and clear departure with destinations and Undo',async({page,context})=>{
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2);await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
   await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
@@ -359,7 +373,30 @@ test('field watcher automatic: physical EMZ and DEF orientation reach the correc
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:45725480,zone:'extra-monster',slot:1,position:'defense'});
   const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="emz1"]')).toContainText('Sacred Sword');
   await expect.poll(()=>page.getByTestId('field-0').locator('[data-zone="emz1"]').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el.firstElementChild!).transform);return Math.round(Math.atan2(m.b,m.a)*180/Math.PI);})).toBe(-90);
-  await page.evaluate(()=>((window as any).fieldTest).place(714,8,false));
+  const moveMs=await measuredFieldChange(page,'move');
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:20_000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2,position:'attack'});
   expect((await room()).state.seats[0].twin).toHaveLength(1);
+  const removalMs=await measuredFieldChange(page,'remove');
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'graveyard'});
+  const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Sacred Sword of Seven Stars left the field');
+  await expect(page.getByTestId('field-0').locator('[data-zone="emz2"]')).not.toContainText('Sacred Sword');
+  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Sacred Sword of Seven Stars'});
+  await toast.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2});
+  await page.waitForTimeout(3200);expect((await room()).events.length).toBe(departed.events.length+1);
+  await page.evaluate(()=>((window as any).fieldTest).place(345,8,true));
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:15000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:1});
+  let rejectDeparture=true;await page.route('**/api/remote/*/actions',async route=>{
+    const action=route.request().postDataJSON()?.action;
+    if(rejectDeparture&&action?.type==='twin.move'&&action.source==='auto'){rejectDeparture=false;await route.fulfill({status:409,json:{error:'Stale sequence; fetch state and retry'}});}else await route.continue();
+  });
+  await page.evaluate(()=>((window as any).fieldTest).clear());
+  await expect(toast).toContainText('update failed',{timeout:15000});await toast.getByRole('button',{name:'Retry removal',exact:true}).click();
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:15000}).toMatchObject({ref:first.ref,zone:'graveyard'});
+  for(const [label,zone] of [['Banish','banished'],['Hand','hand'],['Extra Deck','extra'],['GY','graveyard']] as const){
+    await toast.getByRole('button',{name:label,exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe(zone);
+  }
+  await toast.getByRole('button',{name:'Undo',exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe('extra');
+  await page.getByTestId('log-button').click();await expect(page.getByTestId('log-drawer')).toContainText('Sacred Sword of Seven Stars left the field');
+  console.log('Table camera follow',JSON.stringify({moveMs,removalMs}));mkdirSync(new URL('../../../data/vision/benchmark/field-watcher/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/field-watcher/table-follow.json',import.meta.url),JSON.stringify({moveMs,removalMs,ref:first.ref},null,2));
 });
