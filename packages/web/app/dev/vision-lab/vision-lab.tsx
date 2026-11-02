@@ -9,6 +9,8 @@ import {RealsetCapture} from "./realset-capture";
 import { VisionResult } from "./vision-result";
 import styles from "./vision-lab.module.css";
 import { AutoDetectLab } from "./auto-detect-lab";
+import dynamic from "next/dynamic";
+const RecordSession = dynamic(() => import("./session/record-session"));
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
 // Modified for React and a local exportable correction log; no extension/report service.
@@ -29,8 +31,8 @@ function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
 }
 
 export function VisionLab() {
-  const [tab,setTab]=useState<'manual'|'auto'>('manual');
-  return <><nav className={styles.controls} aria-label="Vision lab modes" style={{padding:20}} role="tablist"><button type="button" role="tab" aria-selected={tab==='manual'} onClick={()=>setTab('manual')}>Click reader</button><button type="button" role="tab" aria-selected={tab==='auto'} onClick={()=>setTab('auto')}>Auto-detect</button></nav>{tab==='auto'?<main className={styles.lab}><h1>Auto-detect field lab</h1><AutoDetectLab/></main>:<ManualVisionLab/>}</>;
+  const [tab,setTab]=useState<'manual'|'auto'|'session'>('manual');
+  return <><nav className={styles.controls} aria-label="Vision lab modes" style={{padding:20}} role="tablist"><button type="button" role="tab" aria-selected={tab==='manual'} onClick={()=>setTab('manual')}>Click reader</button><button type="button" role="tab" aria-selected={tab==='auto'} onClick={()=>setTab('auto')}>Auto-detect</button><button type="button" role="tab" aria-selected={tab==='session'} onClick={()=>setTab('session')}>Record session</button></nav>{tab==='session'?<RecordSession/>:tab==='auto'?<main className={styles.lab}><h1>Auto-detect field lab</h1><AutoDetectLab/></main>:<ManualVisionLab/>}</>;
 }
 
 function ManualVisionLab() {

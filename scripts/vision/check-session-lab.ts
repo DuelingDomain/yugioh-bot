@@ -1,0 +1,43 @@
+/** One browser integration scenario: actual WebM streaming + label editing/export. */
+import {chromium,expect} from '@playwright/test';import {resolve,join} from 'node:path';import {mkdir,writeFile} from 'node:fs/promises';
+const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3437';
+if(['3000','3002','4002','4003','4010','4020','3417','7880','7881','7882'].includes(new URL(origin).port))throw Error('Use an isolated lab port');
+const out=resolve('data/vision-session-smoke');await mkdir(out,{recursive:true});
+const browser=await chromium.launch({channel:'chromium',headless:true,args:['--no-sandbox','--disable-gpu','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
+try {
+ const page=await browser.newPage(),errors:string[]=[],writes:string[]=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(r.method()!=='GET'&&r.method()!=='HEAD')writes.push(r.url());});
+ await page.addInitScript(()=>{(window as any).showDirectoryPicker=()=>navigator.storage.getDirectory();});
+ await page.route('**/*',route=>new URL(route.request().url()).origin===new URL(origin).origin?route.continue():route.abort());
+ await page.goto(origin+'/dev/vision-lab');await page.getByRole('tab',{name:'Record session',exact:true}).click();
+ await page.getByRole('button',{name:'Choose DATA folder',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Start recording',exact:true})).toBeEnabled();await page.getByLabel('Resolution',{exact:true}).selectOption('640x480');
+ await page.getByRole('button',{name:'Start recording',exact:true}).click();await expect(page.getByRole('button',{name:'Stop & save',exact:true})).toBeEnabled();
+ await expect(page.getByLabel('Recording time')).not.toHaveText('0.0s / 300s');
+ await page.getByRole('button',{name:'Mark moment',exact:true}).click();
+ await expect.poll(async()=>Number((await page.getByLabel('Recording time').textContent())?.split('s')[0]),{timeout:10000}).toBeGreaterThan(2);
+ await page.getByRole('button',{name:'Stop & save',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Session label editor',exact:true})).toBeVisible();
+ await page.getByLabel('Time (seconds)',{exact:true}).fill('0.5');await page.getByLabel('Physical card ID',{exact:true}).fill('copy-a');await page.getByLabel('Card catalog ID',{exact:true}).fill('89631139');
+ await page.getByText('Rectangle coordinates (0–1)',{exact:true}).click();
+ await page.getByLabel('Rectangle x',{exact:true}).fill('.2');await page.getByLabel('Rectangle y',{exact:true}).fill('.2');await page.getByLabel('Rectangle w',{exact:true}).fill('.15');await page.getByLabel('Rectangle h',{exact:true}).fill('.3');
+ await page.getByRole('button',{name:'Confirm label',exact:true}).click();await expect(page.getByRole('table')).toContainText('copy-a');
+ await page.getByRole('button',{name:'Check WebGPU',exact:true}).click();await expect(page.getByLabel('WebGPU result')).not.toHaveText('Not checked');
+ await page.getByRole('button',{name:'Propose detector checkpoint at playhead',exact:true}).click();await page.getByLabel('All visible cards and only visible cards have correct boxes.').check();
+ await page.getByLabel(/I reviewed the entire video/).check();await page.getByRole('button',{name:'Export labelled session JSON',exact:true}).click();
+ await expect(page.getByRole('status',{name:'Session editor status',exact:true})).toHaveText('Session JSON saved beside the video.');
+ const saved=await page.evaluate(async()=>{const root=await navigator.storage.getDirectory(),dir=await root.getDirectoryHandle('vision-sessions');const files:Record<string,{json?:unknown;base64?:string;bytes:number}>={};for await(const [name,handle] of (dir as any).entries()){const file=await handle.getFile();files[name]=name.endsWith('.json')?{json:JSON.parse(await file.text()),bytes:file.size}:{base64:await new Promise<string>(resolve=>{const r=new FileReader();r.onload=()=>resolve((r.result as string).split(',')[1]);r.readAsDataURL(file);}),bytes:file.size};}return files;});
+ const entry=Object.entries(saved).find(([name])=>name.endsWith('.session.json'));if(!entry)throw Error('Missing saved JSON');
+ const session=entry[1].json as any;session.source='synthetic';if(session.events.length!==1||!session.detectorFrames?.[0]?.reviewed||!session.reviewed||session.events[0].instanceId!=='copy-a'||session.width!==640||!session.log.some((e:any)=>e.type==='marker'))throw Error('Recorder/label export contract failed');
+ const video=saved[session.video];if(!video?.base64||video.bytes<1000)throw Error('Empty recording');
+ await writeFile(join(out,session.video),Buffer.from(video.base64,'base64'));await writeFile(join(out,entry[0]),JSON.stringify(session,null,2));
+ const revised={...session,events:session.events.map((e:any)=>({...e,instanceId:'revised-copy'}))};
+ await page.getByLabel('Open session JSON',{exact:true}).setInputFiles({name:'revised.session.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(revised))});await expect(page.getByRole('table')).toContainText('revised-copy');
+ await page.getByLabel('Offline replay backend',{exact:true}).selectOption('wasm');await page.getByRole('button',{name:'Prefill with current pipeline',exact:true}).click();
+ await expect(page.getByRole('status',{name:'Session editor status',exact:true})).toContainText('Actual backend:',{timeout:90000});
+ await page.getByRole('button',{name:'Prefill with current pipeline',exact:true}).click();await page.getByRole('button',{name:'Cancel replay',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Prefill with current pipeline',exact:true})).toBeEnabled({timeout:10000});
+ await page.screenshot({path:join(out,'label-editor.png'),fullPage:true});
+ if(errors.length||writes.length)throw Error(JSON.stringify({errors,writes}));
+ console.log(JSON.stringify({videoBytes:video.bytes,durationMs:session.durationMs,resolution:[session.width,session.height],labelExport:true,markers:session.log.length,networkWrites:writes.length,browserErrors:errors}));
+}finally{await browser.close();}
