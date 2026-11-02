@@ -100,6 +100,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(generation!==epoch||disposed)return;
       const cards=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       metrics.samples++;status='watching';error=undefined;
+      // Expire departures before matching, including after a long hidden pause.
+      for(let i=tracks.length-1;i>=0;i--)if(tracks[i].view.removed&&sample.at-tracks[i].view.lastSeen>30000)tracks.splice(i,1);
       const matched=new Map<InternalTrack,DetectedQuad>(),taken=new Set<DetectedQuad>();
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);

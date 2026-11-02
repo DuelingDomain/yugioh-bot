@@ -243,6 +243,13 @@ test('departed tombstones are bounded and never exhaust live tracking capacity',
   r.watcher.dispose();
 });
 
+test('a hidden tab cannot retain a departed identity beyond its return window',async()=>{
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const old=r.watcher.getSnapshot().tracks[0].id;
+  r.outlines=[];for(let i=0;i<10;i++)await r.tick();r.hidden=true;await r.tick(31000);
+  r.hidden=false;r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.watcher.getSnapshot().tracks.some(t=>t.id===old),false);r.watcher.dispose();
+});
+
 test('absence verification backs off when slow detections cannot accumulate continuous evidence',async()=>{
   let at=0,outlines=[card(.3,.3)];const events:field.FieldEvent[]=[];
   const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{at+=1100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'slow',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async f=>f});
