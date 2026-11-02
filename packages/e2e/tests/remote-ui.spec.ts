@@ -483,6 +483,94 @@ const BASE_URL = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
 const remoteRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Remote Duel" }) });
 const onlineRadio = (page: Page) => page.locator("label", { has: page.getByRole("radio", { name: "Online" }) });
 
+test.describe("remote duels screen, moving cards by hand", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
+  const seed = async (context: { request: APIRequestContext }, slug: string) => {
+    let room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    const act = async (action: Record<string, unknown>) => {
+      const response = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      expect(response.status(), await response.text()).toBe(200); room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    };
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1, faceUp: true, position: "attack" } });
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "bl", cardId: 89631139, name: "Blue-Eyes White Dragon", slot: 2, faceUp: true, position: "attack" } });
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "mst", cardId: 5318639, name: "Mystical Space Typhoon", slot: 1, faceUp: true, position: "attack" } });
+    return async () => (await (await context.request.get(`/api/remote/${slug}`)).json()) as { state: { seats: { twin: { ref: string; zone: string; slot?: number; faceUp: boolean; position?: string }[] }[] }; events: { action: { type: string } }[] };
+  };
+  const find = (room: Awaited<ReturnType<Awaited<ReturnType<typeof seed>>>>, ref: string) => room.state.seats[0].twin.find(card => card.ref === ref)!;
+
+  test("pointer drag moves a card to an empty zone with Undo and a log line; an occupied zone refuses", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0"); const from = field.locator('[data-zone="m1"]'); const to = field.locator('[data-zone="m4"]');
+    await expect(from).toBeVisible();
+    const drag = async (source: typeof from, target: typeof from) => {
+      const a = (await source.boundingBox())!; const b = (await target.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+      await page.mouse.move(a.x + a.width / 2 + 12, a.y + a.height / 2 + 12, { steps: 3 });
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+      await expect(page.getByTestId("drag-ghost")).toBeVisible(); await shot(page, "drag-over");
+      await page.mouse.up();
+    };
+    await drag(from, to);
+    await expect.poll(async () => find(await room(), "dm").slot).toBe(4);
+    expect((await room()).events.filter(event => event.action.type === "twin.move")).toHaveLength(1);
+    await page.getByTestId("log-button").click(); await expect(page.getByTestId("log-drawer")).toContainText("Monster Zone 4");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("undo").click(); await expect.poll(async () => find(await room(), "dm").slot).toBe(1);
+    // Occupied: refused, nothing changes.
+    await drag(field.locator('[data-zone="m1"]'), field.locator('[data-zone="m2"]'));
+    await expect(page.getByText("is taken")).toBeVisible(); expect(find(await room(), "dm").slot).toBe(1);
+    // A Spell cannot go in a Monster Zone.
+    await drag(field.locator('[data-zone="s1"]'), field.locator('[data-zone="m5"]'));
+    await expect(page.getByText("Spells do not go in a Monster Zone.")).toBeVisible(); expect(find(await room(), "mst").zone).toBe("spell-trap");
+    // A Spell to another Spell/Trap Zone works.
+    await drag(field.locator('[data-zone="s1"]'), field.locator('[data-zone="s3"]'));
+    await expect.poll(async () => find(await room(), "mst").slot).toBe(3);
+  });
+
+  test("keyboard: M picks a card up, arrows choose a zone, Enter drops", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+    await page.goto(`/duels/remote/${slug}`);
+    const cell = page.getByTestId("field-0").locator('[data-zone="m1"]'); await cell.focus();
+    await page.keyboard.press("m"); await expect(page.getByTestId("carry-hint")).toBeVisible();
+    await page.keyboard.press("ArrowRight"); await page.keyboard.press("ArrowRight"); await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => find(await room(), "dm").slot).toBe(4);
+    await expect(page.getByTestId("carry-hint")).toHaveCount(0);
+    await page.getByTestId("field-0").locator('[data-zone="m4"]').focus(); await page.keyboard.press("m"); await page.keyboard.press("Escape");
+    await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
+  });
+
+  test("voice: zone words move the last card, a named card, set face down, and the field zone", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("phase-main1").click();
+    const say = async (text: string) => { const chip = page.getByRole("button", { name: text, exact: true }); if (await chip.count()) await chip.first().click({ force: true }); else await page.evaluate(() => 0); };
+    await say("monster zone two");
+    // The last card placed was the Spell; it is not a monster, so the move is refused and nothing changes.
+    expect(find(await room(), "mst").zone).toBe("spell-trap");
+    await say("graveyard");
+    await expect.poll(async () => find(await room(), "mst").zone).toBe("graveyard");
+    await page.getByTestId("undo").click(); await expect.poll(async () => find(await room(), "mst").zone).toBe("spell-trap");
+  });
+
+  for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
+    test(`drag works at ${width}x${height}`, async ({ page, context }) => {
+      await page.setViewportSize({ width, height });
+      const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+      await page.goto(`/duels/remote/${slug}`);
+      const field = page.getByTestId("field-0"); const from = field.locator('[data-zone="m1"]'); const to = field.locator('[data-zone="m5"]');
+      await expect(from).toBeVisible(); await from.scrollIntoViewIfNeeded();
+      const a = (await from.boundingBox())!; const b = (await to.boundingBox())!;
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+      await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 3 });
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+      await shot(page, `drag-${width}x${height}`); await page.mouse.up();
+      await expect.poll(async () => find(await room(), "dm").slot).toBe(5);
+    });
+  }
+});
+
 test.describe("Remote Duel on the Duels screens (flag on)", () => {
   test.skip(process.env.E2E_REMOTE_OFF === "1", "the stack runs with REMOTE_DUELS off");
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, BASE_URL); });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, matchCardsByName, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
@@ -12,7 +12,10 @@ import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Tier } from "./popup";
-import { interpret, trySaying, type VoiceIntent } from "./grammar";
+import { interpret, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
+import type { FieldDrag } from "./holo-field";
+import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
+import { announceManualMove } from "@/lib/remote/manual-moves";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
@@ -513,6 +516,72 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attack, state.seats]);
 
+  // ---- moving cards by hand: drag, keyboard, voice ----
+  /** One twin.move, one Undo. The auto-detect watcher is told first so the camera keeps the new place. */
+  const moveCard = useCallback((seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}) => {
+    const { room: now } = R.current;
+    announceManualMove({ slug: now.slug, seat, ref: card.ref });
+    const label = card.faceUp ? card.name ?? cardInfo(cardCode(card))?.name : undefined;
+    return act({ type: "twin.move", actorSeat: now.solo ? seat : now.mySeat, seat, zone: land.zone, cardRef: card.ref, ...(land.slot ? { slot: land.slot } : {}),
+      ...(extra.position ? { position: extra.position } : {}), ...(extra.faceUp !== undefined ? { faceUp: extra.faceUp } : {}), ...(label ? { name: label } : {}) });
+  }, [act]);
+  const judgeFor = (seat: number, card: TwinCard, land: Landing) => {
+    const { state: cur, room: now } = R.current; const other = facingSeat(seat, now.seatCount);
+    return judgeMove({ card, info: cardInfo(cardCode(card)), land, twin: cur.seats[seat]?.twin ?? [], extraZones: hasExtraZones(now.format?.id),
+      facing: other === null || !cur.seats[other] ? null : { name: name(other), twin: cur.seats[other].twin } });
+  };
+  /** Drag, keyboard and voice share this: refuse says why, confirm asks once on the dock chip, ok moves with Undo. */
+  const tryMove = (seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}, requestId?: string, direct = false): { done: boolean; text: string } => {
+    const verdict = direct ? { kind: "ok" as const } : judgeFor(seat, card, land);
+    const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
+    if (verdict.kind === "refuse") { toast(verdict.message); return { done: false, text: verdict.message }; }
+    if (verdict.kind === "same" && extra.faceUp === undefined && !extra.position) return { done: false, text: "Already there" };
+    if (verdict.kind === "confirm") {
+      propose(`${who} to ${landingLabel(land)}`, verdict.message, "Place", () => void moveCard(seat, card, land, extra), requestId);
+      return { done: true, text: "Needs a confirm" };
+    }
+    void moveCard(seat, card, land, extra);
+    return { done: true, text: `${who} to ${landingLabel(land)}` };
+  };
+  const fieldDrag = (seat: number): FieldDrag | undefined => !live || !(solo || seat === mySeat) ? undefined : {
+    can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum"].includes(card.zone),
+    judge: (card, key) => judgeFor(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)),
+    drop: (card, key) => { tryMove(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)); },
+  };
+  /** The card this seat placed or moved last, if it is still on the field. */
+  const recentCard = (seat: number): TwinCard | undefined => {
+    const { room: now, state: cur } = R.current; const twin = cur.seats[seat]?.twin ?? [];
+    for (const event of [...now.events].sort((a, b) => b.seq - a.seq)) {
+      const a = event.action as { type: string; seat?: number; cardRef?: string; card?: { ref: string } };
+      const ref = a.type === "twin.place" ? a.card?.ref : a.type === "twin.move" || a.type === "card.identified" ? a.cardRef : undefined;
+      if (!ref || a.seat !== seat) continue;
+      const found = twin.find(card => card.ref === ref && ["monster", "spell-trap", "field", "extra-monster", "pendulum"].includes(card.zone));
+      if (found) return found;
+    }
+    return undefined;
+  };
+  const spokenMove = (move: MoveIntent, requestId: string): { text: string; ignored?: boolean } => {
+    const { room: now, state: cur } = R.current; const seat = now.solo ? cur.turnSeat : now.mySeat; const twin = cur.seats[seat]?.twin ?? [];
+    if (now.status !== "active" || cur.ended) return { text: "The table is not live", ignored: true };
+    let card: TwinCard | undefined;
+    if (move.query) {
+      const matches = matchCardsByName(twin, move.query, item => item.name ?? cardInfo(cardCode(item))?.name);
+      if (!matches.length) return { text: `No card named “${move.query}”`, ignored: true };
+      if (matches[1] && matches[1].score >= matches[0].score - 0.05 && matches[1].card.zone === matches[0].card.zone) return { text: `Which ${cardName(matches[0].card, cardInfo(cardCode(matches[0].card)))}? ${matches.length} match`, ignored: true };
+      card = matches[0].card;
+    } else card = recentCard(seat);
+    if (!card) return { text: "No card to move. Place one first.", ignored: true };
+    const dest = move.dest;
+    const emz = dest?.zone === "extra-monster" && !dest.slot ? freeEmzSlot(seat, cur.seats) : dest?.slot;
+    const land: Landing = dest ? { zone: dest.zone, ...(dest.zone === "extra-monster" ? (emz ? { slot: emz } : {}) : dest.slot ? { slot: dest.slot } : {}) } : { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
+    if (dest?.zone === "extra-monster" && !land.slot) return { text: "Both Extra Monster Zones are taken.", ignored: true };
+    // A card set to a Monster Zone goes in defense, face down. A move by voice never needs the card to be face up.
+    const faceUp = move.faceUp;
+    const position = move.position ?? (faceUp === false && land.zone === "monster" ? "defense" : undefined);
+    const result = tryMove(seat, card, land, { ...(faceUp !== undefined ? { faceUp } : {}), ...(position ? { position } : {}) }, requestId, !dest);
+    return { text: result.text, ignored: !result.done };
+  };
+
   // ---- voice ----
   const [muted, setMuted] = useState(false); const [ptt, setPtt] = useState(false); const [held, setHeld] = useState(false);
   const [wake, setWake] = useState(0); const [, setWakeTick] = useState(0);
@@ -545,11 +614,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => void act(best.proposal), requestId);
         break;
       }
+      case "move": { const result = spokenMove(intent.move, requestId); set(result.text, result.ignored); break; }
       case "pick": set("Picked"); document.dispatchEvent(new CustomEvent("remote-tray-pick", { detail: intent.index })); break;
       default: set("Not understood", true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [act, doUndo]);
+  }, [act, doUndo, moveCard]);
   const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
@@ -644,6 +714,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         // A move into the Extra Monster Zones picks a slot the facing seat has not taken. Pendulum Zones use the outer Spell/Trap cells.
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
         if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
+        announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
         void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}) });
       },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
@@ -706,7 +777,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} pickPlate={plate} viewScope={String(seatCount)}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
-            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
+            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void hub.enableCamera(); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
