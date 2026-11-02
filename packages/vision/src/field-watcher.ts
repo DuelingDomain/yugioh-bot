@@ -261,7 +261,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;
           const remembered=gallery.resolve(result?.identityEmbedding);
           const readable=result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
-          if((!t.binding||!t.binding.cardId||t.binding.faceDown)&&!t.promptOnly&&readable&&remembered.kind!=='new'&&(result.tier!=='sure'||remembered.kind==='match'&&remembered.cardId===winner)) {
+          if((!t.binding||!t.binding.cardId||t.binding.faceDown)&&!t.promptOnly&&readable&&remembered.kind!=='new'&&(remembered.kind!=='hold'||result.tier==='low match')&&(result.tier!=='sure'||remembered.kind==='match'&&(!remembered.cardId||remembered.cardId===winner))) {
             if(remembered.kind==='hold'||!remembered.cardId){t.view.state='dismissed';t.prompted=true;t.identityAppearance=pixels;t.best=undefined;continue;}
             winner=remembered.cardId;
           }

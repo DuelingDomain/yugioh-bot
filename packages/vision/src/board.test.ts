@@ -578,7 +578,8 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  const restored=createFieldIdentityGallery(JSON.parse(JSON.stringify(gallery.entries())));
  const a=fieldRig('low match',20,restored);a.embedding=[1,0];a.identity='B';a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
  const placements=a.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.ok(placements.every(e=>e.track.cardId==='A'));assert.notEqual(placements[0].track.id,placements[1].track.id);assert.equal(a.events.some(e=>e.type==='prompt'),false);a.watcher.dispose();
- restored.remember(vector,undefined);const b=fieldRig('low match',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
+ const unsure=fieldRig('not sure',20,restored);unsure.embedding=[.75,Math.sqrt(1-.75**2)];unsure.identity='B';for(let i=0;i<8;i++)await unsure.tick();assert.ok(unsure.events.some(e=>e.type==='placed'&&e.track.cardId==='B'&&e.track.bestMatch));assert.equal(unsure.events.some(e=>e.type==='prompt'),false);unsure.watcher.dispose();
+ restored.remember(vector,undefined);const b=fieldRig('sure',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
 
