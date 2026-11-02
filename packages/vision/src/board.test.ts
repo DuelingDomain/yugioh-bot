@@ -413,6 +413,15 @@ test('round 2 NB1 A4/A5: light-tick replacements keep one same-spot track and re
   r.watcher.confirm(id,'B');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'B');assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);r.watcher.dispose();
  }
 });
+test('round 2 NB1 A2: a CPU-budget light tick rereads replacement pixels on the original track',async()=>{
+ let at=0,detects=0,pixels=.2,identity='A';const events:field.FieldEvent[]=[];
+ const watcher=field.createFieldWatcher({profile:yugioh,cpuBudget:.05,getKnownCards:()=>[{id:'old-A',zone:'M2',cardId:'A'}],recognizer:{detectCards:async()=>{detects++;at+=100;return [card(.3,.3)];},recognize:async()=>({...sureResult(),candidates:[{cardId:identity,score:.99}]})},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(pixels)}),clone:async f=>f});
+ watcher.subscribe(e=>events.push(e));for(let i=0;i<20&&!events.some(e=>e.type==='placed');i++){at+=750;await watcher.tick();}
+ assert.equal(events[0]?.track.id,'old-A');assert.ok(watcher.getSnapshot().metrics.intervalMs>750);const before=detects;
+ pixels=.8;identity='B';at+=200;await watcher.tick();assert.equal(detects,before);assert.equal(watcher.getSnapshot().tracks[0].visible,false);
+ for(let i=0;i<20&&!events.some(e=>e.type==='prompt');i++){at+=750;await watcher.tick();}
+ assert.equal(events.at(-1)?.reason,'changed');assert.equal(events.at(-1)?.track.id,'old-A');assert.equal(watcher.getSnapshot().tracks.length,1);watcher.dispose();
+});
 test('review S4: auto placement requires two independent agreeing reads and deck membership',async()=>{
   const r=fieldRig();for(let i=0;i<3;i++)await r.tick();assert.equal(r.events.length,0);await r.tick();assert.equal(r.events.length,0);
   for(let i=0;i<3;i++)await r.tick();assert.equal(r.reads,2);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.notEqual(r.inputs[0].frame,r.inputs[1].frame);r.watcher.dispose();
