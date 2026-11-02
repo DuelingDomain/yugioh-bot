@@ -163,6 +163,8 @@ it("rejects invalid geometry/pixels and exports only safe visible public tracks"
   const entries=new Map([['46986414',{cardId:'46986414',passcode:46986414,name:'Dark Magician'}]]);
   const project=(tracks:any[],status='watching')=>fieldTrackMessage({status,tracks} as any,entries);
   expect(project([track]).cards).toEqual([{ref:'physical',cardId:46986414,name:'Dark Magician',quad}]);
+  expect(project([track],'busy').cards).toEqual(project([track]).cards);
+  expect(project([{...track,visible:false}],'busy').cards).toEqual([]);
   for(const patch of [{visible:false},{faceDown:true},{removed:true},{state:'prompt'},{zone:'DECK'},{card:{...track.card,covered:true}},{card:{...track.card,kind:'face-down'}}])expect(project([{...track,...patch}]).cards).toEqual([]);
   expect(project([track],'stopped').cards).toEqual([]);
   expect(cache.receive(0,{...project([track]),jpeg:'private'})).toBe(false);

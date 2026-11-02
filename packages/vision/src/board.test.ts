@@ -290,3 +290,26 @@ test('tracked click geometry is visible only while the detector sees the card',a
   r.outlines=[outline];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
   r.watcher.stop();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);r.watcher.dispose();
 });
+
+test('busy tracking refreshes known geometry from pixels without inference and invalidates changed cards',async()=>{
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+  const detects=r.detects,reads=r.reads;r.busy=true;
+  for(let i=0;i<6;i++){await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);}
+  assert.equal(r.detects,detects);assert.equal(r.reads,reads);
+  r.motion=.2;await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);
+  r.motion=0;await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'pixels cannot restore an invalidated outline');
+  r.busy=false;await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
+  r.busy=true;r.appearance=Array(12).fill(.8);await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'stationary replacements are invalidated');
+  const oldRef=r.watcher.getSnapshot().tracks[0].id;r.busy=false;await r.tick();
+  assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef)?.visible,false,'the detector cannot restore the old identity onto replacement pixels');
+  assert.equal(r.reads,reads);for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,reads+1);r.watcher.dispose();
+});
+
+test('pixel refreshes between slow detector samples preserve same-ref movement settlement',async()=>{
+  let at=0,outlines=[card(.3,.3,.08,.12)];const events:field.FieldEvent[]=[];
+  const watcher=field.createFieldWatcher({profile:yugioh,cpuBudget:.05,recognizer:{detectCards:async()=>{at+=100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
+  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=750;await watcher.tick();}
+  outlines=[card(.45,.3,.08,.12)];for(let i=0;i<20;i++){at+=750;await watcher.tick();}
+  assert.ok(watcher.getSnapshot().metrics.intervalMs>750);
+  assert.equal(events.filter(e=>e.type==='moved'&&e.track.id==='known'&&e.track.zone==='M3').length,1);watcher.dispose();
+});

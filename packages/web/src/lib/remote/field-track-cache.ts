@@ -36,7 +36,7 @@ export class FieldTrackCache {
 }
 export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<string,{cardId:string;passcode:number;name:string}>,knownCards:KnownFieldCard[]=[]):RemoteFieldTracks {
   const cards:RemoteFieldCard[]=[];
-  if(snapshot.status==='watching'||snapshot.status==='budget')for(const track of snapshot.tracks){
+  if(snapshot.status==='watching'||snapshot.status==='budget'||snapshot.status==='busy')for(const track of snapshot.tracks){
     if(track.state!=='identified'||!track.visible||track.removed||track.faceDown||track.zone==='DECK'||track.card.kind!=='face-up'||track.card.covered||track.card.partial)continue;
     const known=knownCards.find(k=>k.id===track.id);if(known?.faceDown)continue;
     const entry=entries.get((known?known.cardId:track.cardId)??'');if(!entry)continue;

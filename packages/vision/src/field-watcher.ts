@@ -34,7 +34,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const budget=Math.max(.05,Math.min(.5,options.cpuBudget??.2)),maxTracks=Math.max(1,Math.min(60,options.maxTracks??20));
   const tracks:InternalTrack[]=[],listeners=new Set<(event:FieldEvent)=>void>(),updates=new Set<()=>void>(),retained=new Set<FieldFrame>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
-  let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity;
+  let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,busyUntil=0,observer:PerformanceObserver|undefined,calibration=options.calibration,reading:Promise<void>|undefined;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   const notify=()=>{for(const listener of updates)listener();};
@@ -46,7 +46,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     while(retained.size>6){const frame=retained.values().next().value!;for(const t of tracks)if(t.best?.frame===frame)t.best=undefined;closeFieldFrame(frame);retained.delete(frame);}
   }
   function invalidateRead(t:InternalTrack) {if(t.read){t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
-  function interruptWindow() {previousAt=-Infinity;for(const t of tracks){t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;t.clearMissing=0;t.missingSamples=0;t.best=undefined;}pruneFrames();}
+  function interruptWindow(preserveVisibility=false) {previousAt=-Infinity;for(const t of tracks){if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;t.clearMissing=0;t.missingSamples=0;t.best=undefined;}pruneFrames();}
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
       const start=now();
@@ -61,7 +61,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   async function tick() {
     if(disposed||inFlight)return;
-    if(hidden()||idle()){status=hidden()?'hidden':'busy';metrics.skipped++;interruptWindow();notify();return;}
+    if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
+    const busy=idle(),tracked=tracks.some(t=>t.view.state==='identified'&&!t.view.removed);
+    if(busy&&!tracked){status='busy';metrics.skipped++;interruptWindow();notify();return;}
+    const light=busy||(tracked&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
     const generation=epoch;inFlight=true;const start=now();const samplesBefore=metrics.samples;let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const sample=await options.buffer.sample();current=sample.frame;
@@ -69,8 +72,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(sample.at<=lastFrameAt){metrics.skipped++;return;}
       lastFrameAt=sample.at;
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt,dt=Number.isFinite(gap)&&gap<=maxGap?gap:0;
-      if(gap>maxGap)interruptWindow();previousAt=sample.at;
+      if(gap>maxGap)interruptWindow(light);previousAt=sample.at;
       const evidence=analyze(current);
+      if(light) {
+        // Keep cached clicks fresh during input pressure and long detector gaps.
+        // Pixel evidence can retain an outline, but only the detector restores one.
+        if(busy)interruptWindow(true);status=busy?'busy':'budget';metrics.skipped++;
+        for(const t of tracks){
+          t.view.visible=!!t.view.visible&&t.view.state==='identified'&&!t.view.removed&&evidence.motion(t.view.card)<=.025&&sameFieldAppearance(t.appearance,evidence.appearance?.(t.view.card));
+          if(!t.view.visible){t.missed=true;t.stableSince=NaN;t.observations=0;}
+        }
+        return;
+      }
       if(reading) {
         for(const t of tracks)if(evidence.motion(t.view.card)>.025)t.view.visible=false;
         // Keep sampling motion/appearance while the worker embeds. Never infer
@@ -82,7 +95,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       detectFrame=await clone(current);
       const detectStart=now(),detected=await options.recognizer.detectCards(detectFrame);
-      metrics.detectorMs=now()-detectStart;
+      metrics.detectorMs=now()-detectStart;lastDetectionAt=sample.at;
       if(generation!==epoch||disposed)return;
       const cards=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       metrics.samples++;status='watching';error=undefined;
@@ -183,7 +196,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(status==='watching'&&metrics.intervalMs>500)status='budget';inFlight=false;notify();
     }
   }
-  function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();if(active)scheduleAfter(Math.max(0,metrics.intervalMs-(now()-start)));},0);}
+  function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();const interval=tracks.some(t=>t.view.state==='identified'&&!t.view.removed)?Math.min(750,metrics.intervalMs):metrics.intervalMs;if(active)scheduleAfter(Math.max(0,interval-(now()-start)));},0);}
   function scheduleAfter(delay:number) {if(active)timer=setTimeout(()=>schedule(),delay);}
   function stop() {active=false;epoch++;clearTimeout(timer);observer?.disconnect();observer=undefined;interruptWindow();status='stopped';notify();}
   return {
