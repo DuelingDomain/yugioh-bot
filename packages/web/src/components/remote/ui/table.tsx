@@ -17,7 +17,7 @@ import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceInten
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, cellsFor, hasExtraZones, isPile, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { CopyAsk, DupBanner } from "./dup-ui";
 import { chooseKeep, copyFlagOf, findTwinGroups, mergeProposal, type CopyFlag, type TwinGroup } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
@@ -40,10 +40,14 @@ import { Icon } from "./icons";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
+
+const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
-import {fieldZoneLocation} from '@yugidraft/vision';
+import {fieldZoneLocation,onMat,type FieldFormat} from '@yugidraft/vision';
+import { fieldGridCells, useZoneGrid } from "@/lib/remote/zone-grid";
+import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
@@ -248,6 +252,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
+  // Webcam only: the virtual fields are hidden and the camera feeds get the space. Remembered in this browser only.
+  const [webcamOnly, setWebcamOnlyState] = useState(false);
+  useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(WEBCAM_ONLY_KEY) === "1"); } catch { /* storage blocked: both views */ } }, []);
+  const setWebcamOnly = useCallback((next: boolean) => {
+    setWebcamOnlyState(next);
+    try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
+  }, []);
   // The table says a card just placed by hand is already on the field. One tap: move it here, or add another copy.
   const [copyAsk, setCopyAsk] = useState<{ seat: number; flag: CopyFlag; cardId: number; name?: string; zone: string; slot?: number } | null>(null);
   // "Two copies" answers (per viewer). The key is the set of refs, so a third copy asks again.
@@ -864,13 +875,65 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const draftPhase = PHASES.length;
   void draftPhase;
 
-  return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-testid="remote-table" data-status={room.status}>
+  // ---- camera card info and card actions ----
+  const zoneGrid = useZoneGrid();
+  /** The card the table holds in the zone under a point on a camera feed. Needs the feed's confirmed mat grid. */
+  const twinAtPoint = (seat: number, x: number, y: number): TwinCard | undefined => {
+    const calibration = hub.trackedCalibration?.(seat) ?? (zoneGrid.ownSeat === seat ? zoneGrid.calibration : undefined);
+    if (!calibration?.orientation) return undefined;
+    const mat = onMat({ x, y }, calibration);
+    const cell = fieldGridCells((room.format?.id ?? state.deckChecks.format.id) as FieldFormat).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h);
+    if (!cell) return undefined;
+    const key = cell.zone === "FIELD" ? "f" : cell.zone.startsWith("EMZ") ? `e${cell.zone.slice(-1)}` : /^[MS][1-5]$/.test(cell.zone) ? cell.zone.toLowerCase() : null;
+    if (!key) return undefined;
+    const own = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key as ZoneKey]?.card;
+    if (own || key[0] !== "e") return own;
+    // The Extra Monster Zones are shared with the facing seat, and its left zone is my right one.
+    const other = facingSeat(seat, seatCount);
+    return other === null ? undefined : cellsFor(state.seats[other]?.twin ?? [], extraZones)[`e${mirrorEmz(Number(key[1]))}` as ZoneKey]?.card;
+  };
+  const statLine = (id: number | undefined) => { const facts = info(id); return facts && isMonsterInfo(facts) ? `ATK ${facts.atk ?? "?"}${facts.def !== undefined && facts.def !== null ? ` / DEF ${facts.def}` : ""}` : facts?.type; };
+  /** Webcam only: the name under the pointer. Outlined cards first, then the card the table holds in that zone. A hidden card shows as a Set card. */
+  const hoverTip = (seat: number, x: number, y: number) => {
+    const tracked = hub.trackedAt(seat, x, y);
+    if (tracked) return { label: tracked.name ?? info(tracked.cardId)?.name ?? "Card", detail: statLine(tracked.cardId) };
+    const card = twinAtPoint(seat, x, y); if (!card) return null;
+    const id = cardCode(card);
+    if (id) return { label: cardName(card, info(id)), detail: card.faceUp ? statLine(id) : "Set" };
+    return card.faceUp ? null : { label: "Set card" };
+  };
+  /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". */
+  const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
+    const card = twinAtPoint(seat, at.x, at.y); if (!card) return false;
+    if (cardCode(card)) { openSubject(card, false, at.anchor); return true; }
+    if (card.faceUp) return false;
+    toast("Set card"); layers.close(); return true;
+  };
+  /** Right click or long press on a card: its actions in the card drawer (move, flip, position, Graveyard, Wrong card?, Undo). */
+  const openCardActions = (card: TwinCard) => {
+    if (!cardCode(card) && !card.faceUp) { toast("Set card"); return; }
+    openSubject(card, true);
+  };
+  const onCardMenu = (seat: number, at: { x: number; y: number }) => {
+    const tracked = hub.trackedAt(seat, at.x, at.y);
+    const twin = tracked ? publicTrackedTwin(tracked, state.seats[seat]?.twin ?? []) : undefined;
+    const card = (twin && findCard(seat, twin.ref)) ?? twinAtPoint(seat, at.x, at.y);
+    if (card) openCardActions(card);
+  };
+  const cardMenu = useCardMenu(target => {
+    const cell = target.closest<HTMLElement>("[data-zone][data-seat]"); if (!cell) return;
+    const key = cell.dataset.zone as ZoneKey; const seat = Number(cell.dataset.seat);
+    if (isPile(key)) return;
+    const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; if (card) openCardActions(card);
+  });
+  return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly && !picking ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
-        onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)} />
+        onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
+        webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
           onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
@@ -896,7 +959,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly && !picking} onZoneCard={onZoneCard} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
