@@ -602,7 +602,10 @@
 .cb.w{color:var(--warn);border-color:rgb(240 178 79/.6)}
 .cb.ok{color:var(--ok);border-color:rgb(121 217 168/.45)}
 .statline{font-size:12px;color:var(--ink3)}
-.ended{grid-column:1 / -1;text-align:center;padding:6px;color:var(--gold-ink);font-weight:700}
+.ended{grid-column:1 / -1;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 14px;text-align:center;padding:8px 10px;color:var(--gold-ink);font-weight:700;border:1px solid var(--line2);border-radius:8px;background:var(--p2)}
+.ended b{font-weight:800}
+.ended span{font-weight:600;color:var(--ink2,var(--ink))}
+.ended a{text-decoration:none}
 
 /* Hover peek, covered guard and board read */
 .qcov{stroke-dasharray:3 4;stroke:var(--warn);fill:rgb(240 178 79/.06)}

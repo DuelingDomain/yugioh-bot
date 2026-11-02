@@ -38,13 +38,13 @@ export async function notifyRemoteChange(slug: string, guildId: string) {
   if (!result.ok) log("warn", "Remote broadcast unavailable", { status: result.status });
 }
 export type RemoteRouteContext = { params: Promise<{ slug: string }> };
-export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format") {
+export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format" | "activity") {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules", "showCardsSetFromDeck"] };
-    // Empty bodies are accepted for the two bodyless operations.
-    const body = operation === "leave" || operation === "start" ? {} : await remoteBody(request, keys[operation]);
+    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules", "showCardsSetFromDeck"] };
+    // Empty bodies are accepted for the bodyless operations.
+    const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
     let result;
     switch (operation) {
       case "format":
@@ -59,6 +59,8 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
         result = actor.remote.join(slug, actor.guildId, actor.userId, actor.displayName, body.seat as number | undefined); break;
       case "leave": result = actor.remote.leave(slug, actor.guildId, actor.userId); break;
+      // Presence only: nothing changed for other viewers, so skip the phone cleanup and the broadcast.
+      case "activity": return remoteJson(actor.remote.touch(slug, actor.guildId, actor.userId));
       case "ready": remoteAssert(typeof body.ready === "boolean", "Invalid readiness");
         result = actor.remote.ready(slug, actor.guildId, actor.userId, body.ready); break;
       case "start": result = actor.remote.start(slug, actor.guildId, actor.userId); break;

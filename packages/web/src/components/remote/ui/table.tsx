@@ -19,7 +19,7 @@ import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-set
 import { setFeedbackCapture, type FeedbackSource } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import { useLayers } from "./use-layers";
-import { serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
+import { remoteApi, serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
@@ -61,6 +61,13 @@ function CameraControl({room}: {room:RemoteRoom}) {
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
+}
+
+/** One plain sentence on why a table ended. */
+function endedWhy(room: RemoteRoom, winner: string | null) {
+  if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
+  if (room.endReason === "creator-left") return "The host left the lobby.";
+  return winner ? `${winner} won.` : "The game is over.";
 }
 
 function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
@@ -159,6 +166,23 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const idleOn = room.idleWarningAt !== null;
   useEffect(() => { if (!undo && !idleOn) return; const timer = setInterval(() => setClock(n => n + 1), 250); return () => clearInterval(timer); }, [undo, idleOn]);
   void clock;
+  // The server closes a table after 10 minutes without activity. Playing with the camera on makes no table actions,
+  // so tell the server once a minute that a seated player is still here: camera or phone video on, or recent input.
+  const cameraLive = hub.cameraOn || hub.phones.some(p => p.seat === mySeat);
+  const cameraLiveRef = useRef(cameraLive); cameraLiveRef.current = cameraLive;
+  const slugOfTable = room.slug;
+  useEffect(() => {
+    if (!live || mySeat < 0) return;
+    let lastInput = Date.now();
+    const mark = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", mark, true); window.addEventListener("keydown", mark, true);
+    const ping = () => {
+      if (!cameraLiveRef.current && Date.now() - lastInput > 5 * 60_000) return;
+      void remoteApi(`/${slugOfTable}/activity`, {}).catch(() => {});
+    };
+    const timer = setInterval(ping, 60_000);
+    return () => { clearInterval(timer); window.removeEventListener("pointerdown", mark, true); window.removeEventListener("keydown", mark, true); };
+  }, [live, mySeat, slugOfTable]);
   // The server decides the window from its own clock (undo.at + 5 s), so count down from that time, not from first sight.
   const left = undo ? Math.ceil((undo.at + UNDO_MS - serverNow()) / 1000) : 0;
   const canUndo = !!undo && left > 0 && (room.status === "active" || room.status === "ended");
@@ -624,7 +648,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
           onPhase={setPhase} onPass={passTurn} turnIn={turnIn} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || state.ended ? <div className={s.ended} role="status">The table is closed.{state.winnerSeat !== null && state.winnerSeat !== undefined ? ` ${name(state.winnerSeat)} won.` : ""}</div> : null}
+        {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
+          <b>This table has ended.</b>
+          <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
+          <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
+        </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
