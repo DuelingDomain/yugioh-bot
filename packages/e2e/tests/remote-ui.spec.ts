@@ -343,7 +343,11 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
   const alice=await browser.newContext({baseURL:origin,permissions:["camera","microphone"]}),bob=await browser.newContext({baseURL:origin,permissions:["camera","microphone"]}),records:{view:string;ms:number}[]=[];
   try{
     await authenticatePlayer(alice.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,origin);
-    const slug=await startTwoPlayerTable(alice.request,bob.request),a=await alice.newPage(),b=await bob.newPage();
+    const slug=await startTwoPlayerTable(alice.request,bob.request),a=await alice.newPage(),b=await bob.newPage(),realtimeSeen=new Set<Page>(),realtimeAt=new Map<Page,number>();
+    for(const page of [a,b])page.on('websocket',socket=>socket.on('framereceived',({payload})=>{
+      const frame=typeof payload==='string'?payload:payload.toString();if(!frame.startsWith('42'))return;
+      try{const [event,snapshot]=JSON.parse(frame.slice(2));if(event==='remote:changed'&&snapshot?.state?.seats?.[0]?.twin?.some((card:any)=>card.cardId===45725480)&&!realtimeSeen.has(page)){realtimeSeen.add(page);realtimeAt.set(page,Date.now());}}catch{/* Other transports are not Socket.IO snapshots. */}
+    }));
     for(const page of [a,b]){await appearingCamera(page);await page.addInitScript(()=>{
       (window as any).visionCalls=[];const post=Worker.prototype.postMessage;
       Worker.prototype.postMessage=function(...args:any[]){if(['recognize','detect'].includes(args[0]?.type))(window as any).visionCalls.push(args[0].type);return (post as any).apply(this,args);};
@@ -352,8 +356,10 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
     for(const page of [a,b]){await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:40_000});}
     await b.getByLabel('Auto-detect cards',{exact:true}).uncheck();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
-    await a.evaluate(()=>((window as any).fieldTest).appear());
+    const appearedAt=await a.evaluate(()=>{const at=Date.now();((window as any).fieldTest).appear();return at;});
     await expect.poll(async()=>{const r=await alice.request.get(`/api/remote/${slug}`).then(r=>r.json());return r.state.seats[0].twin.length;},{timeout:30_000}).toBe(1);
+    // Require the real socket snapshot before testing the receiver's twin-state cache guard.
+    for(const page of [a,b])await expect.poll(()=>realtimeSeen.has(page),{timeout:10_000}).toBe(true);
     for(const page of [a,b])await expect(page.getByTestId('field-0')).toContainText('Sacred Sword',{timeout:15_000});
     await b.waitForTimeout(1200);
     const counts=await Promise.all([a,b].map(p=>p.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)));
@@ -364,7 +370,7 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
     expect(await Promise.all([a,b].map(p=>p.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)))).toEqual(counts);
     expect((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events.length).toBe(eventCount);
     const summary=Object.fromEntries(['owner','observer'].map(view=>{const v=records.filter(r=>r.view===view).map(r=>r.ms).sort((a,b)=>a-b);return [view,{n:v.length,p50Ms:v[9],p95Ms:v[18],maxMs:v[19]}];}));
-    console.log('cached popup latency',JSON.stringify(summary));mkdirSync(new URL('../../../data/vision/benchmark/cache/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/cache/clicks.json',import.meta.url),JSON.stringify({summary,records,recognitionCounts:counts},null,2));
+    console.log('cached popup latency',JSON.stringify(summary));console.log('Appearance to real socket snapshot',JSON.stringify({ownerMs:realtimeAt.get(a)!-appearedAt,observerMs:realtimeAt.get(b)!-appearedAt}));mkdirSync(new URL('../../../data/vision/benchmark/cache/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/cache/clicks.json',import.meta.url),JSON.stringify({summary,records,recognitionCounts:counts,realtimeSnapshots:{owner:realtimeSeen.has(a),observer:realtimeSeen.has(b)},appearanceToSnapshotMs:{owner:realtimeAt.get(a)!-appearedAt,observer:realtimeAt.get(b)!-appearedAt}},null,2));
     for(const row of Object.values(summary))expect(row.p95Ms).toBeLessThan(50);
     await cachedPopupClick(a);await a.getByRole('button',{name:'Wrong card?',exact:true}).click();
     await expect.poll(()=>a.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)).toBeGreaterThan(counts[0]);
