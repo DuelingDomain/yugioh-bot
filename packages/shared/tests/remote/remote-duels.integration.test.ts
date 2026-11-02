@@ -1603,3 +1603,35 @@ it.each(['graveyard','banished'])('targeted undo restores %s pile order while pr
  expect(state.seats[0].twin.filter(card=>card.zone===pile).map(card=>card.ref)).toEqual(['older','newer','latest']);
  expect(state.seats[0].twin.find(card=>card.ref==='newer')?.faceUp).toBe(false);
 });
+
+it('targeted pile undo skips an old neighbor that independently moved to another pile',()=>{
+ let state=ygoModule.initialState({seatCount:2}),serial=0;
+ const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:1000,idempotencyKey:`pile-neighbor-${++serial}`,...input}));
+ for(const ref of ['older','middle','newer'])act({type:'twin.place',zone:'graveyard',card:{ref,cardId:1,faceUp:true}});
+ act({type:'twin.move',cardRef:'older',zone:'banished'});const moved=state.undo!.actionId;
+ act({type:'twin.move',cardRef:'middle',zone:'banished'});
+ act({type:'undo',targetActionId:moved});
+ expect(state.seats[0].twin.filter(card=>card.zone==='graveyard').map(card=>card.ref)).toEqual(['older','newer']);
+ expect(state.seats[0].twin.find(card=>card.ref==='middle')?.zone).toBe('banished');
+});
+
+it.each([false,true])('targeted pile undo preserves later reentries with target last=%s',targetLast=>{
+ let state=ygoModule.initialState({seatCount:2}),serial=0;
+ const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:1000,idempotencyKey:`pile-reentry-${++serial}`,...input}));
+ for(const ref of targetLast?['neighbor','target']:['target','neighbor','remaining'])act({type:'twin.place',zone:'graveyard',card:{ref,cardId:1,faceUp:true}});
+ act({type:'twin.move',cardRef:'target',zone:'banished'});const moved=state.undo!.actionId;
+ act({type:'twin.move',cardRef:'neighbor',zone:'banished'});
+ act({type:'twin.move',cardRef:'neighbor',zone:'graveyard'});
+ act({type:'undo',targetActionId:moved});
+ expect(state.seats[0].twin.filter(card=>card.zone==='graveyard').map(card=>card.ref)).toEqual(targetLast?['target','neighbor']:['target','remaining','neighbor']);
+});
+
+it('targeted pile undo restores a removed card before later pile arrivals',()=>{
+ let state=ygoModule.initialState({seatCount:2}),serial=0;
+ const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:1000,idempotencyKey:`pile-removed-${++serial}`,...input}));
+ act({type:'twin.place',zone:'graveyard',card:{ref:'older',cardId:1,faceUp:true}});
+ act({type:'twin.remove',cardRef:'older'});const removed=state.undo!.actionId;
+ act({type:'twin.place',zone:'graveyard',card:{ref:'newer',cardId:2,faceUp:true}});
+ act({type:'undo',targetActionId:removed});
+ expect(state.seats[0].twin.map(card=>card.ref)).toEqual(['older','newer']);
+});

@@ -42,18 +42,6 @@ function restore(before: unknown, after: unknown, current: unknown): unknown {
         else if (index >= 0) result[index] = value;
         else result.splice(Math.min(before.findIndex(v => v[key] === id), result.length), 0, value);
       }
-      if (key === "ref") for (let i = before.length - 1; i >= 0; i--) {
-        const old = before[i], applied = after.find(v => v[key] === old[key]);
-        if (equal(old, applied) || after.findIndex(v => v[key] === old[key]) === i) continue;
-        const index = result.findIndex(v => v[key] === old[key]);
-        if (index < 0) continue;
-        // Pile moves append twins. Restore this card relative to its old
-        // neighbors while retaining later edits and newly added cards.
-        const [value] = result.splice(index, 1);
-        const next = before.slice(i + 1).map(v => result.findIndex(item => item[key] === v[key])).find(n => n >= 0);
-        const previous = before.slice(0, i).reverse().map(v => result.findIndex(item => item[key] === v[key])).find(n => n >= 0);
-        result.splice(next ?? (previous === undefined ? Math.min(i, result.length) : previous + 1), 0, value);
-      }
       return result;
     }
   }
@@ -124,6 +112,28 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
     return copy;
   };
   const restored = restore(withoutCandidates(before), withoutCandidates(after), withoutCandidates(remotePosition(state))) as RemotePosition;
+  // Returning a card to an ordered pile restores its old place. Other cards
+  // that entered that pile later keep their newer positions, including reentries.
+  const later = (state.undoHistory ?? []).filter(item => !item.undone && item.order > entry.order && item.before && item.after);
+  for (const seat of before.seats) {
+    const twins = restored.seats[seat.seat].twin;
+    for (let i = seat.twin.length - 1; i >= 0; i--) {
+      const old = seat.twin[i];
+      if (!["graveyard", "banished"].includes(old.zone) || after.seats[seat.seat].twin.find(card => card.ref === old.ref)?.zone === old.zone) continue;
+      const index = twins.findIndex(card => card.ref === old.ref && card.zone === old.zone);
+      if (index < 0) continue;
+      const newer = new Set(later.flatMap(item => item.after!.seats[seat.seat].twin.filter(card => card.zone === old.zone &&
+        item.before!.seats[seat.seat].twin.find(previous => previous.ref === card.ref)?.zone !== old.zone).map(card => card.ref)));
+      const [card] = twins.splice(index, 1);
+      const anchor = (neighbor: typeof old) => neighbor.zone !== old.zone || newer.has(neighbor.ref) ? -1 :
+        twins.findIndex(current => current.ref === neighbor.ref && current.zone === old.zone);
+      const following = seat.twin.slice(i + 1).map(anchor).filter(n => n >= 0);
+      const preceding = seat.twin.slice(0, i).map(anchor).filter(n => n >= 0);
+      const first = twins.findIndex(current => current.zone === old.zone);
+      const destination = following.length ? Math.min(...following) : preceding.length ? Math.max(...preceding) + 1 : first < 0 ? twins.length : first;
+      twins.splice(destination, 0, card);
+    }
+  }
   const living = restored.seats.filter(s=>!s.eliminated);
   restored.ended = living.length <= 1;
   restored.winnerSeat = restored.ended ? living[0]?.seat ?? null : null;
