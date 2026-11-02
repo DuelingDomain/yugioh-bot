@@ -109,8 +109,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
       // across the mat. Multiple unmatched cards remain ambiguous and are not guessed.
-      const lost=tracks.filter(t=>!matched.has(t)&&t.view.state==='identified'&&!t.view.removed&&sample.at-t.view.lastSeen<=removalMs);
       const incoming=cards.filter(c=>!taken.has(c));
+      const lost=tracks.filter(t=>!matched.has(t)&&t.view.state==='identified'&&(t.view.removed?
+        t.view.card.kind==='face-up'&&incoming.length===1&&incoming[0].kind==='face-up'&&sameFieldAppearance(t.appearance,evidence.appearance?.(incoming[0])):
+        sample.at-t.view.lastSeen<=removalMs));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&sameFieldAppearance(lost[0].appearance,evidence.appearance?.(incoming[0]))){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}

@@ -221,7 +221,7 @@ test('the adaptive CPU guard permits slow samples to settle instead of resetting
 });
 test('verified reappearance follows the same physical ref back to its field zone',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.outlines=[];for(let i=0;i<9;i++)await r.tick();
-  assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.outlines=[card(.65,.3)];for(let i=0;i<6;i++)await r.tick();
   assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===r.events[0].track.id));assert.equal(r.reads,1);r.watcher.dispose();
 });
 
