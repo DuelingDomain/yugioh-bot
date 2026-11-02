@@ -583,3 +583,9 @@ test('owner live move: a stable slide follows the same ref in under one second w
  r.outlines=[card(.428,.3)];r.motion=.2;await r.tick(100);r.motion=0;for(let i=0;i<8&&!r.events.some(e=>e.type==='moved');i++)await r.tick(100);
  const move=r.events.find(e=>e.type==='moved');assert.ok(move);assert.ok(r.at-from<600,'known movement settles within a short detector burst');assert.equal(move.track.id,id);assert.equal(move.track.zone,'M3');assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='prompt').length,0);r.watcher.dispose();
 });
+test('owner live move: two clean frames 100 ms apart settle an unchanged identity',async()=>{
+ const r=fieldRig();for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id,before=r.reads;
+ r.outlines=[card(.428,.3)];r.motion=.2;await r.tick(100);r.motion=0;await r.tick(100);
+ assert.equal(r.events.filter(e=>e.type==='moved').length,0);await r.tick(100);
+ assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.reads,before);r.watcher.dispose();
+});

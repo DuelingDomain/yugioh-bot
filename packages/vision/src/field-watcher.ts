@@ -24,7 +24,7 @@ export interface FieldWatcherOptions {
 }
 interface PendingRead { at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number }
-interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; verification?:string; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; verification?:string; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
@@ -177,13 +177,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // Uncalibrated ordering is assigned at settlement, then kept until the card actually moves.
         if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const position=fieldOrientation(c,current.width,current.height);
+        if(t.view.state==='identified'&&t.announced){
+          const moved=distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position;
+          if(moved)t.moveAt??=sample.at;else t.moveAt=undefined;
+        }
         const pixels=appearance(c);
         if(t.identityCheck&&sameFieldAppearance(t.identityAppearance,pixels)&&t.kind===c.kind&&evidence.motion(c)<=.025&&!c.covered&&!c.partial&&!isCovered(c,cards))restoreIdentity(t,pixels);
         const appearanceChanged=t.read?.appearance?.length&&pixels&&!sameFieldAppearance(t.read.appearance,pixels);
         const changedKind=(t.view.state==='prompt'||t.view.state==='dismissed')&&t.view.faceDown!==(c.kind==='face-down');
         const changedLook=(t.view.state==='prompt'||t.view.state==='dismissed'||(t.view.state==='identified'&&Boolean(t.view.cardId||!t.view.faceDown)&&c.kind==='face-up'))&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels);
         const changed=(changedKind||changedLook)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
-        if(changed){t.identityCheck??={state:t.view.state,cardId:t.view.cardId,result:t.lastResult,reason:t.promptOnly,strongSamples:0};invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
+        if(changed){t.moveAt=undefined;t.identityCheck??={state:t.view.state,cardId:t.view.cardId,result:t.lastResult,reason:t.promptOnly,strongSamples:0};invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
@@ -201,12 +205,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const score=evidence.sharpness(c);
         if(!t.best||score>t.best.score)t.best={frame:current,card:structuredClone(c),score};
         const movingKnown=t.view.state==='identified'&&!t.needsRead&&t.view.faceDown===(c.kind==='face-down');
-        if(t.observations<(movingKnown?2:3)||sample.at-t.stableSince<(movingKnown?150:stableMs))continue;
+        if(t.observations<(movingKnown?2:3)||sample.at-t.stableSince<(movingKnown?100:stableMs))continue;
         const wasFaceDown=t.view.faceDown;
         t.view.faceDown=c.kind==='face-down';t.view.position=position;
-        if(t.reappeared){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.reappeared=false;}
+        if(t.reappeared){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.reappeared=false;}
         if(t.view.state==='identified') {
-          if(t.announced&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;}
+          if(t.announced&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;}
           if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;if(t.needsRead)t.identityAppearance=undefined;}
         }
         t.halo=evidence.halo?.(c);t.appearance=pixels;
@@ -234,13 +238,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
           if(t.binding){
-            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.binding=undefined;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
+            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.binding=undefined;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
             else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
           }else if(winner&&!t.promptOnly&&!pile&&inDeck&&!t.verification){
             t.verification=winner;t.needsRead=true;t.best={frame:current,card:structuredClone(c),score};
           }else if(winner&&t.verification===winner&&!t.promptOnly&&!pile&&inDeck){
             if(sample.at-t.view.firstSeen<1500){t.read=pending;continue;}
-            t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;metrics.placements++;emit('placed',t,{result,latencyMs:metrics.latencyMs});
+            t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;emit('placed',t,{result,latencyMs:metrics.latencyMs});
           }else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
 
         }
@@ -275,7 +279,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // A bounded placement burst takes priority over the idle CPU budget. With
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
-      const settling=Boolean(reading)||tracks.some(t=>t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&now()-t.stableSince<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
+      const settling=Boolean(reading)||tracks.some(t=>t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&t.moveAt!==undefined&&now()-t.moveAt<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
       metrics.intervalMs=settling?100:Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
       if(metrics.intervalMs>650)guarded=true;else if(metrics.intervalMs<450)guarded=false;if(status==='watching'&&guarded)status='budget';inFlight=false;notify();
     }
@@ -299,7 +303,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     subscribeState(listener:()=>void){updates.add(listener);return()=>{updates.delete(listener);};},
     getSnapshot():FieldSnapshot{return {status,tracks:tracks.map(t=>copy(t.view)),metrics:{...metrics},error};},
     setCalibration(value?:FieldCalibration){calibration=value;interruptWindow();},
-    confirm(id:string,cardId?:string,ref?:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);t.view.cardId=cardId;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.verification=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.best=undefined;pruneFrames();notify();}},
+    confirm(id:string,cardId?:string,ref?:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);t.view.cardId=cardId;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.verification=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.read=undefined;t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0){suppressed.push({card:tracks[i].view.card,appearance:tracks[i].identityAppearance??tracks[i].appearance,halo:tracks[i].halo,samples:0});if(suppressed.length>maxTracks)suppressed.shift();tracks.splice(i,1);}pruneFrames();notify();},
   };
