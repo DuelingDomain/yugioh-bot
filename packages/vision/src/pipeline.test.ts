@@ -31,6 +31,10 @@ test('selected quad skips detector and returns its warp even without full-art re
   assert.equal(result.warpedCard?.height,15);
   assert.equal(result.quality.fallback,false);
   assert.deepEqual(result.detectedCard,selected);
+  const diagnostic=await fixture(false).recognize([frame],{card:selected,includeDiagnosticCrop:true});
+  assert.equal(diagnostic.warpedCard?.width,10);assert.equal(diagnostic.warpedCard?.height,15);
+  assert.deepEqual(diagnostic.candidates,result.candidates);assert.deepEqual(diagnostic.quality,result.quality);
+  for(const key of ['feedback','aiWarpedCard','deferredAICrop','aiCandidateNames'])assert.equal(diagnostic[key as keyof typeof diagnostic],undefined);
 });
 test('live reads use only the sharpest buffered frame and return that frame outline',async()=>{
   const noisy={...frame,data:frame.data.slice()};

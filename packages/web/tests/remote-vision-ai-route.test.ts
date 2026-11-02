@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
 import sharp from "sharp";
+import {mkdtemp,readdir,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
@@ -41,6 +44,27 @@ beforeEach(() => {
 afterEach(() => {
   state.db?.close();
   vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
+});
+
+it('local field diagnostics require the owner and loopback origin, validate crops and cap retained samples',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'field-diagnostics-'));vi.stubEnv('VISION_DATA_DIR',directory);
+  try{
+    const {POST}=await import('../app/api/remote-vision/diagnostics/route');
+    const value={jpegBase64,tier:'not sure',reason:'uncertain',zone:'M2',top5:[{cardId:'27204311',name:'Nibiru, the Primal Being',score:.73}],quality:{hypothesis:'art-box',fallback:false},timingsMs:{total:120}};
+    const req=(body:unknown=value,origin='http://localhost')=>new Request(`${origin}/api/remote-vision/diagnostics`,{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    state.auth.mockResolvedValue(null);expect((await POST(req())).status).toBe(401);
+    state.auth.mockResolvedValue({user:{id:'9'}});expect((await POST(req())).status).toBe(404);
+    state.auth.mockResolvedValue({user:{id:'7'}});expect((await POST(req(value,'https://example.com'))).status).toBe(404);
+    const cross=req();cross.headers.set('origin','https://example.com');expect((await POST(cross)).status).toBe(403);
+    expect((await POST(req({...value,jpegBase64:'not-a-jpeg'}))).status).toBe(400);
+    expect((await POST(req({...value,jpegBase64:'A'.repeat(100000)}))).status).toBe(413);
+    for(let i=0;i<25;i++)expect((await POST(req())).status).toBe(201);
+    const files=await readdir(join(directory,'diagnostics/field'));expect(files.filter(f=>f.endsWith('.json'))).toHaveLength(24);expect(files.filter(f=>f.endsWith('.jpg'))).toHaveLength(24);
+    const record=JSON.parse(await readFile(join(directory,'diagnostics/field',files.find(f=>f.endsWith('.json'))!),'utf8'));
+    expect(record.top5).toEqual(value.top5);expect(record.jpegBase64).toBeUndefined();expect(record.crop).toMatch(/\.jpg$/);expect(fetcher).not.toHaveBeenCalled();
+    const assets=await import('../app/dev/vision-assets/[...path]/route');
+    expect((await assets.GET(new Request('http://localhost/dev/vision-assets/diagnostics/field/'+record.crop),{params:Promise.resolve({path:['diagnostics','field',record.crop]})})).status).toBe(404);
+  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
 describe("owner remote vision AI route", () => {
