@@ -131,6 +131,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
+      if(!card.faceUp || ["deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (action.card.slot === undefined) delete card.slot;
       if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
@@ -151,7 +152,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.position !== undefined) card.position = action.position;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
       }
-      if (action.type === "twin.flip") card.faceUp = action.faceUp;
+      if (action.type === "twin.flip") { card.faceUp = action.faceUp; if(!action.faceUp) delete card.publicIdentity; }
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }

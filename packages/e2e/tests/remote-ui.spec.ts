@@ -39,7 +39,7 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 }
 
 test.describe("remote duels screen, solo", () => {
-  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
 
   test("1v1 table: phase rail, LP, undo, drawers", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);

@@ -345,6 +345,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
     let hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
+    const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
+    // A stale transport quad must not steer a fresh read or bind its old ref.
+    if(hit?.cached&&!cached)hit=undefined;
     if(hit?.kind==="face-down") {
       const origins=R.current.state.effectTracking?.origins.filter(o=>o.seat===seat && o.destination==="set" && R.current.state.seats[seat].twin.some(c=>c.ref===o.ref && !c.faceUp)) ?? [];
       if(origins.length && (R.current.room.solo || seat===R.current.room.mySeat)) {
@@ -354,9 +357,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       }
       toast(origins.length ? origins.map(o=>"Face-down · Set by "+o.source.name).join("; ") : "Face-down card"); layers.close(); return;
     }
-    const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
-    // A stale transport quad must not steer a fresh read or bind its old ref.
-    if(hit?.cached&&!cached)hit=undefined;
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
@@ -749,7 +749,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
-    const id = cardCode(card); if (!id) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : "This card is not identified yet. Click it on the camera feed."); return; }
+    const id = cardCode(card); if (!id) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
     setSubject({ cardId: id, seat, ref: card.ref, name: card.name, bestMatch:card.bestMatch, notInDecklist: flagFor(seat, id), addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref }); if (fromField) layers.open("insp");
   };
