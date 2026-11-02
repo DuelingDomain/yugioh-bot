@@ -544,7 +544,7 @@ for(const obstacle of ['hand','different embedding','missing embedding','differe
  const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(obstacle==='hand'?.8:.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
  if(obstacle==='removed ref'){r.outlines=[];for(let i=0;i<11;i++)await r.tick(300);assert.ok(r.events.some(e=>e.type==='removed'));r.known=[{id,zone:'GY',cardId:'A'}];}
  if(obstacle==='pile ref')r.known=[{id,zone:'GY',cardId:'A'}];
- if(obstacle==='different embedding')r.embedding=[0,1];if(obstacle==='different identity'){r.identity='B';r.decklist=['A','B'];}
+ if(obstacle==='different embedding')r.embedding=[0,1];if(obstacle==='different identity'){r.identity='B';r.embedding=[0,1];r.decklist=['A','B'];}
  r.outlines=obstacle==='multiple outlines'?[card(.5,.3),card(.72,.3)]:[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id).length,0,obstacle);if(obstacle==='multiple outlines')assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
@@ -576,7 +576,7 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  assert.equal(gallery.resolve({values:[.75,Math.sqrt(1-.75**2)],space:'art-box'}).kind,'hold');
  assert.equal(gallery.resolve({values:[0,1],space:'art-box'}).kind,'new');
  const restored=createFieldIdentityGallery(JSON.parse(JSON.stringify(gallery.entries())));
- const a=fieldRig('low match',20,restored);a.embedding=[1,0];a.identity='B';a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
+ const a=fieldRig('sure',20,restored);a.embedding=[1,0];a.identity='B';a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
  const placements=a.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.ok(placements.every(e=>e.track.cardId==='A'));assert.notEqual(placements[0].track.id,placements[1].track.id);assert.equal(a.events.some(e=>e.type==='prompt'),false);a.watcher.dispose();
  const unsure=fieldRig('not sure',20,restored);unsure.embedding=[.75,Math.sqrt(1-.75**2)];unsure.identity='B';for(let i=0;i<8;i++)await unsure.tick();assert.ok(unsure.events.some(e=>e.type==='placed'&&e.track.cardId==='B'&&e.track.bestMatch));assert.equal(unsure.events.some(e=>e.type==='prompt'),false);unsure.watcher.dispose();
  restored.remember(vector,undefined);const b=fieldRig('sure',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
