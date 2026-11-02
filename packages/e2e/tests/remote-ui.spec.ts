@@ -161,6 +161,35 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("card-popover")).toBeVisible();
   });
 
+  test("a click where no card is found shows a small note, not a popup, and Search card opens the search", async ({ page, context }) => {
+    test.setTimeout(240_000);
+    const slug = await soloTable(context.request, 2);
+    await fakeCamera(page);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    const video = page.locator('[data-testid="feed-0"] video');
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-0").hover();
+    await page.waitForTimeout(500);
+    // The top left corner of the picture is bare table.
+    const p = await video.evaluate((v: HTMLVideoElement) => {
+      const r = v.getBoundingClientRect(); const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+      const w = v.videoWidth * s; const h = v.videoHeight * s;
+      return { x: r.left + (r.width - w) / 2 + 0.05 * w, y: r.top + (r.height - h) / 2 + 0.05 * h };
+    });
+    await page.mouse.click(p.x, p.y);
+    await expect(page.getByTestId("no-card")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("no-card")).toContainText("No card here");
+    await expect(page.locator('[data-layer="tray"], [data-layer="card"]')).toHaveCount(0);
+    await expect(page.getByTestId("reticle")).toHaveCount(0);
+    await shot(page, "no-card-note");
+    await page.getByTestId("no-card-search").click();
+    await expect(page.locator('[data-layer="tray"]').first()).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByTestId("no-card")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-layer="tray"], [data-layer="card"]')).toHaveCount(0);
+  });
+
   test("a click on the feed of a closed table says so and opens no popup that vanishes", async ({ page, context }) => {
     test.setTimeout(180_000);
     const slug = await soloTable(context.request, 2);

@@ -5,7 +5,7 @@ import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
-import { hitTest, neighbour, toFeedCards, type FeedCard, type Pt } from "./quads";
+import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
 import s from "./remote-ui.module.css";
 
@@ -70,12 +70,16 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, below, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, below, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
   onBegin: (seat: number, start: FeedStart) => void;
   /** A click that found no outlined card. The table reads at that point. */
   onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
+  /** A click found no card (live or on a frozen frame). The table drops the popup it opened at once. */
+  onMiss: (seat: number) => void;
+  /** The "Search card" link on the no-card note: opens the popup for a manual search at that point. */
+  onSearch: (seat: number, start: FeedStart) => void;
   onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
   /** The outlines and labels on this feed are stale (camera off or changed, freeze changed, video shape changed). The table drops them. */
   onReset: (seat: number) => void;
@@ -101,6 +105,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const [flash, setFlash] = useState<{ quad: Pt[]; key: number } | null>(null); const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ring = useRef<{ canvas: HTMLCanvasElement; at: number }[]>([]); const scratch = useRef<HTMLCanvasElement | null>(null);
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
+  // "No card here" note at the click, with a link to search by hand. It fades after a few seconds.
+  const [miss, setMiss] = useState<Pt | null>(null); const missTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showMiss = (p: Pt) => { setMiss(p); setSay("No card here."); if (missTimer.current) clearTimeout(missTimer.current); missTimer.current = setTimeout(() => setMiss(null), 4200); };
+  useEffect(() => () => { if (missTimer.current) clearTimeout(missTimer.current); }, []);
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
   const phonePointerHandled=useRef(false);
   const setFrozenHealth = hub.setFrozen;
@@ -247,7 +255,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (!frozen || frozen.status === "detecting" || !frozen.pending || !box) return;
     const p = frozen.pending; setFrozenState(f => f && { ...f, pending: null });
     const hit = hitTest(frozen.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(frozen.canvas)] });
+    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
   }, [frozen, box, choose, onPoint, seat, around, feedRect]);
 
   /**
@@ -261,15 +269,17 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       onBegin(seat,{x:p.x,y:p.y,anchor:around(p),feed});setSay("Reading card.");
       onPoint(seat,p.x,p.y,{anchor:around(p),feed,live:true});return;
     }
-    const token = ++run.current; const feed = feedRect();
+    const token = ++run.current; const feed = feedRect(); setMiss(null);
     onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
     const frames = await sharpest(p); if (token !== run.current) return;
     const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
     const found = bitmap ? await detectCards(bitmap) : null;
     if (token !== run.current) return;
-    const cards = found?.status === "ready" ? toFeedCards(found.cards) : [];
+    // Only a quad that is shaped, sized and confident like a card can be read. Hands, mice and shadows get "No card here".
+    const frame = frames[0] ? { w: frames[0].width, h: frames[0].height } : { w: box.width, h: box.height };
+    const cards = found?.status === "ready" ? readableCards(toFeedCards(found.cards), frame) : [];
     const hit = hitTest(cards, p, { w: box.width, h: box.height });
-    if (!hit) { onPoint(seat, p.x, p.y, { anchor: around(p), feed, frames, live: true }); return; }
+    if (!hit) { onMiss(seat); showMiss(p); return; }
     flashQuad(hit.quad);
     onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length, anchor: anchorOf(hit.quad), feed, frames, live: true });
   }
@@ -283,7 +293,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
     const hit = hitTest(f.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(f.canvas)] });
+    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
   }
   function move(event: ReactPointerEvent<HTMLDivElement>) {
     if(phonePointerHandled.current && event.buttons!==0)return;
@@ -437,6 +447,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
           </span> : null}
         </div>;
       }) : null}
+      {source && miss && box ? <div className={s.miss} style={{ left: box.left + Math.min(0.88, Math.max(0.12, miss.x)) * box.width, top: box.top + miss.y * box.height }} role="status" data-testid="no-card">
+        <span>No card here</span>
+        <button type="button" onClick={() => { const at = miss; setMiss(null); onSearch(seat, { x: at.x, y: at.y, anchor: around(at), feed: feedRect() }); }} data-testid="no-card-search">Search card</button>
+      </div> : null}
       {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
     </div>
     <span className={s.ctag}><i />{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span>

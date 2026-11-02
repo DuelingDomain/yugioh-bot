@@ -16,7 +16,7 @@ import { interpret, trySaying, type VoiceIntent } from "./grammar";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
-import { setFeedbackCapture, type FeedbackSource } from "./recognizer";
+import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import { useLayers } from "./use-layers";
 import { remoteApi, serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
@@ -299,6 +299,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, name, toast]);
 
+  /** A click found no card. Drop the popup that opened at once; the feed shows a small "No card here" note. */
+  const noCard = useCallback((seat: number) => {
+    if (ctx.current?.seat === seat) delete ctx.current.cardRef;
+    readCounter.current++; setTray(null); layers.close("tray");
+  }, [layers]);
+  /** "Search card" on that note: the popup with only the search box, at the click. */
+  const searchHere = useCallback((seat: number, start: FeedStart) => {
+    const id = ++readCounter.current; beginId.current = id;
+    const at: PopAt = { anchor: start.anchor, feed: start.feed };
+    ctx.current = { seat, x: start.x, y: start.y, at, id };
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card or say its name.", reader: "none", at });
+    layers.open("tray");
+  }, [layers, name]);
+
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
     const hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
@@ -343,9 +357,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       void identify({ cardId: top.cardId, name: top.name || cardInfo(top.cardId)?.name || `Card ${top.cardId}`, via: "click" }, "auto");
       return;
     }
-    reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
+    // Not sure, but the frame is sharp and the top guess clearly leads: show it as the answer. Others still see "not sure".
+    const best = isBestMatch(result) && !hit?.covered;
+    if (best) await loadCards([top.cardId]);
+    if (readCounter.current !== id) return;
+    reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: best ? "Best match" : result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
     setTimeout(() => reticle(seat, null, rid), 1800);
-    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
+    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(best ? { best: true } : {}), ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name, toast]);
   const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
@@ -665,7 +683,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
-            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
+            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}

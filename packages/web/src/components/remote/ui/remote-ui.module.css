@@ -150,6 +150,9 @@
 .lk .nidc button{height:22px;padding:0 8px;border-radius:5px;border:1px solid var(--gold-ink);background:var(--gold);color:#1b1204;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .lk .nidc button:hover{filter:brightness(1.1)}
 .ret{position:absolute;z-index:6;pointer-events:none;border-radius:4px}
+.miss{position:absolute;z-index:7;transform:translate(-50%,12px);display:flex;align-items:center;gap:8px;padding:5px 6px 5px 10px;border:1px solid var(--line2);border-radius:8px;background:rgb(7 4 14/.94);box-shadow:0 8px 24px rgb(0 0 0/.55);font:600 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink);white-space:nowrap}
+.miss button{border:0;border-radius:5px;padding:5px 8px;background:rgb(255 255 255/.1);color:var(--gold-ink);font:inherit;cursor:pointer}
+.miss button:hover,.miss button:focus-visible{background:rgb(255 255 255/.18)}
 .ret::before,.ret::after{content:"";position:absolute;inset:-7px;border:2px solid var(--gold);border-radius:6px;-webkit-mask:linear-gradient(#000 0 0) top left/14px 14px no-repeat,linear-gradient(#000 0 0) top right/14px 14px no-repeat,linear-gradient(#000 0 0) bottom left/14px 14px no-repeat,linear-gradient(#000 0 0) bottom right/14px 14px no-repeat;mask:linear-gradient(#000 0 0) top left/14px 14px no-repeat,linear-gradient(#000 0 0) top right/14px 14px no-repeat,linear-gradient(#000 0 0) bottom left/14px 14px no-repeat,linear-gradient(#000 0 0) bottom right/14px 14px no-repeat}
 .ret::after{animation:retpulse 1s ease-in-out infinite;border-color:var(--gold-ink)}
 @keyframes retpulse{50%{inset:-12px;opacity:.4}}

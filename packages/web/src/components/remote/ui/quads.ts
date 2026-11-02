@@ -22,6 +22,23 @@ export function toFeedCards(list: { quad: Pt[]; kind: "face-up" | "face-down"; c
   return readingOrder(cards).map((card, index) => ({ ...card, id: `c${index}` }));
 }
 
+/** What a live click may read. A hand, a mouse or a shadow can pass the detector, so a click needs a quad that is shaped and sized like a card. */
+export const MIN_CLICK_CONFIDENCE = 0.5;
+export const MIN_CARD_AREA = 0.003; // share of the frame
+const CARD_RATIO = { min: 1.2, max: 1.8 }; // card is 86:59 = 1.46; perspective and tilt stretch it
+/** The outlines a click may land on. A partly visible card (cut by the frame edge) skips the shape test, since its corners are not all real. */
+export function readableCards(cards: readonly FeedCard[], frame: Scale): FeedCard[] {
+  return cards.filter(card => {
+    if (card.confidence < MIN_CLICK_CONFIDENCE || card.area < MIN_CARD_AREA) return false;
+    if (!card.refined) return true;
+    const side = (a: Pt, b: Pt) => Math.hypot((a.x - b.x) * frame.w, (a.y - b.y) * frame.h);
+    const [p0, p1, p2, p3] = card.quad;
+    const wide = (side(p0, p1) + side(p3, p2)) / 2; const tall = (side(p1, p2) + side(p0, p3)) / 2;
+    const ratio = Math.max(wide, tall) / Math.max(1, Math.min(wide, tall));
+    return ratio >= CARD_RATIO.min && ratio <= CARD_RATIO.max;
+  });
+}
+
 /** Convex test that accepts either winding. `scale` converts fractions to pixels so a distance tolerance is round. */
 function distanceToQuad(p: Pt, quad: readonly Pt[], scale: Scale): number {
   const px = (v: Pt) => ({ x: v.x * scale.w, y: v.y * scale.h });
