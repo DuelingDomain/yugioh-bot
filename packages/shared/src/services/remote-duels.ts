@@ -313,7 +313,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           if (remoteActionSchema.safeParse(action).success) {
             const effects:RemoteReductionContext|undefined=e.effects_json ? JSON.parse(e.effects_json) : undefined;
             if(effects?.showCardsSetFromDeck!==undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
-            state = game.reduce(state, action as RemoteAction, effects);
+            state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
           }
           else if (action.type === "table.created") {
             if(action.format) state = applyRemoteFormat(state, action.format);

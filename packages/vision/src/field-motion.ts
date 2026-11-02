@@ -60,9 +60,23 @@ export function createFieldAnalyzer() {
 
 /** Cheap pixel evidence for reconnecting a temporarily hidden card, never an identity decision. */
 export function sameFieldAppearance(a?:number[],b?:number[]):boolean {
-  if(!a?.length||a.length!==b?.length)return false;
-  const error=(reverse:boolean)=>a.reduce((s,v,i)=>{const j=reverse?(Math.floor((a.length-1-i)/3)*3+i%3):i;return s+(v-b![j])**2;},0)/a.length;
-  return Math.min(error(false),error(true))<.009;
+  return fieldAppearanceDistance(a,b)<.009;
+}
+
+/** Remove bounded exposure/white-balance drift, retaining structural changes. */
+export function fieldAppearanceDistance(a?:number[],b?:number[]):number {
+  if(!a?.length||a.length!==b?.length)return Infinity;
+  const shift=[0,1,2].map(c=>Math.max(-.18,Math.min(.18,a.reduce((sum,v,i)=>sum+(i%3===c?v-b[i]:0),0)/(a.length/3))));
+  const error=(reverse:boolean)=>a.reduce((sum,v,i)=>{const j=reverse?(Math.floor((a.length-1-i)/3)*3+i%3):i;return sum+(v-b[j]-shift[i%3])**2;},0)/a.length;
+  return Math.min(error(false),error(true));
+}
+
+/** Compare local identity references only within the same embedding space. */
+export function fieldEmbeddingSimilarity(a?:{values:number[];space:string},b?:{values:number[];space:string}):number|undefined {
+  if(!a?.values.length||a.space!==b?.space||a.values.length!==b.values.length)return;
+  let dot=0,aa=0,bb=0;
+  for(let i=0;i<a.values.length;i++){const x=a.values[i],y=b.values[i];if(!Number.isFinite(x)||!Number.isFinite(y))return;dot+=x*y;aa+=x*x;bb+=y*y;}
+  return aa>0&&bb>0?dot/Math.sqrt(aa*bb):undefined;
 }
 
 /** A detector miss is only absence when the old footprint looks like clear mat.

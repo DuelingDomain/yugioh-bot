@@ -15,6 +15,29 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
+it('catalog display lookups opt in to full Extra Deck card facts',async()=>{
+  const {loadCards,cardInfo}=await import('../src/components/remote/ui/catalog');
+  const card={id:44508094,name:'Stardust Dragon',type:'Dragon / Synchro Effect Monster',frameType:'synchro',race:'Dragon',effectText:'Synchro fixture'};
+  const fetcher=vi.fn().mockResolvedValue(Response.json({cards:[card]}));vi.stubGlobal('fetch',fetcher);await loadCards([44508094]);
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({customCardIds:[44508094],includeExtra:true});expect(cardInfo(44508094)).toMatchObject(card);
+});
+
+it.each(['fetch','response body'] as const)('a hung catalog %s releases the shared action queue after ten seconds',async stage=>{
+  vi.useFakeTimers();
+  try {
+    const {loadCards,cardInfo}=await import('../src/components/remote/ui/catalog'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+    const id=stage==='fetch'?920000201:920000202,never=new Promise<never>(()=>{});let signal:AbortSignal|undefined,finished=false;
+    const response=Response.json({cards:[]});response.json=()=>never;
+    const fetcher=vi.fn(async(_url:string,options:RequestInit)=>{signal=options.signal??undefined;return stage==='fetch'?never:response;});vi.stubGlobal('fetch',fetcher);
+    const room={lastSeq:0} as any,post=vi.fn(async()=>room),queue=createRoomMutationQueue(()=>room,post);
+    const metadata=queue.transaction(async(_room,act)=>{await loadCards([id]);finished=true;if(cardInfo(id))await act({type:'phase.advance',actorSeat:0});});
+    const manual=queue.action({type:'phase.advance',actorSeat:0});
+    await vi.advanceTimersByTimeAsync(9_999);expect(fetcher).toHaveBeenCalledOnce();expect(finished).toBe(false);expect(post).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledExactlyOnceWith({type:'phase.advance',actorSeat:0});await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
+    fetcher.mockResolvedValueOnce(Response.json({cards:[{id,name:'Recovered catalog fixture',type:'Trap Card',frameType:'trap',effectText:''}]}));await loadCards([id]);expect(cardInfo(id)).toMatchObject({id,type:'Trap Card'});expect(fetcher).toHaveBeenCalledTimes(2);
+  }finally{vi.useRealTimers();}
+});
+
 it("reads a local frame and sends only the public passcode to the existing catalog", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ cards: [{ id: 46986414, name: "Dark Magician" }] })); vi.stubGlobal("fetch", fetcher);
   expect(await recognizeLocalCard(canvas, new AbortController().signal)).toEqual([{ id: 46986414, name: "Dark Magician" }]);
@@ -297,4 +320,126 @@ it('failed compensating Undo exposes a recoverable stale-placement error with th
  const result=applyVerifiedFieldMutation(event,()=>current,async action=>{if(action.type==='undo'){if(networkFailure)throw Error('offline');return null;}current={...current,visible:false,revision:1};return {state:{undo:{actionId:'superseded'}}} as any;},proposal);
  const error=await result.catch(error=>error);expect(error).toBeInstanceOf(StaleFieldPlacementError);expect(error.placement.card.ref).toBe('a');expect(error.message).toContain('Remove the stale placement');
  }
+});
+
+it('field legality: Solemn Judgment observed in M4 projects to Spell/Trap Zone 4',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ expect(projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal'},twins:[]})).toEqual({zone:'S4',label:'Spell/Trap Zone 4'});
+});
+it('field legality: occupied Spell/Trap columns use the nearest free column with lower-column ties',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ const twins=[{ref:'occupied',zone:'spell-trap',slot:3}];
+ expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card'},twins}).zone).toBe('S2');
+ expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card'},twins:[...twins,{ref:'left',zone:'spell-trap',slot:2}]}).zone).toBe('S4');
+});
+it('field legality: a full compatible row abstains instead of overwriting a twin',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const [type,zone] of [['Spell Card','spell-trap'],['Normal Monster','monster']]){
+  const result=projectFieldZone({zone:'M3',facts:{type},twins:[1,2,3,4,5].map(slot=>({ref:String(slot),zone,slot}))});
+  expect(result.zone).toBeUndefined();expect(result.reason).toMatch(/no free|full/i);
+ }
+});
+it('field legality: Field Spells use only an unoccupied Field Spell Zone',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const facts of [{type:'Field Spell'},{type:'Spell Card',race:'Field'}]){
+  expect(projectFieldZone({zone:'M4',facts,twins:[]})).toEqual({zone:'FIELD',label:'Field Spell Zone'});
+  const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
+  expect(blocked.zone).toBeUndefined();expect(blocked.reason).toMatch(/Field Spell Zone.*occupied/i);
+ }
+});
+it('field legality: Main Deck monsters in the extra row project to the aligned main column',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const type of ['Normal Monster','Ritual Effect Monster','Pendulum Effect Monster','Spellcaster / Normal Monster']){
+  expect(projectFieldZone({zone:'EMZ1',facts:{type,frameType:'fusion'},twins:[]}).zone).toBe('M2');
+  expect(projectFieldZone({zone:'EMZ2',facts:{type,frameType:'xyz'},twins:[]}).zone).toBe('M4');
+ }
+});
+it('field legality: genuine Extra Deck monsters including Pendulums can retain a free extra zone',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const type of ['Fusion Monster','Synchro Tuner Monster','Xyz Effect Monster','Link Monster','Pendulum Effect Fusion Monster','Synchro Pendulum Effect Monster','Xyz Pendulum Effect Monster']){
+  expect(projectFieldZone({zone:'EMZ1',facts:{type,frameType:'normal'},twins:[]}).zone).toBe('EMZ1');
+  expect(projectFieldZone({zone:'EMZ2',facts:{type},twins:[],format:'domain'}).zone).toBe('EMZ2');
+ }
+});
+it('field legality: unavailable extra zones fall back to a free aligned main monster column',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ const facts={type:'Fusion Monster'};
+ for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
+});
+it('field legality: monsters observed in spell/trap zones use the same main monster column',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ expect(projectFieldZone({zone:'S4',facts:{type:'Spellcaster / Normal Monster'},twins:[]}).zone).toBe('M4');
+ expect(projectFieldZone({zone:'S4',facts:{type:'Effect Monster'},twins:[{ref:'busy',zone:'monster',slot:4}]}).zone).toBe('M3');
+});
+it('field legality: Pendulum monsters retain only free outer spell/trap columns',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ const facts={type:'Pendulum Effect Monster'};
+ for(const zone of ['S1','S5'] as const)expect(projectFieldZone({zone,facts,twins:[]}).zone).toBe(zone);
+ for(const zone of ['S2','S3','S4'] as const)expect(projectFieldZone({zone,facts,twins:[]}).zone).toBe(`M${zone[1]}`);
+ expect(projectFieldZone({zone:'S1',facts,twins:[{ref:'scale',zone:'spell-trap',slot:1}]}).zone).toBe('M1');
+});
+it('field legality: Trap Monsters retain their Trap category during automatic projection',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ expect(projectFieldZone({zone:'M4',facts:{type:'Trap Monster',frameType:'effect'},twins:[]}).zone).toBe('S4');
+});
+it('field legality: missing or unrecognized full types abstain without trusting frames',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const facts of [undefined,{type:''},{type:'Unknown',frameType:'spell'},{type:'Skill Card',frameType:'effect'}]){
+  const result=projectFieldZone({zone:'M4',facts,twins:[]});
+  expect(result.zone).toBeUndefined();expect(result.label).toBe('Main Monster Zone 4');expect(result.reason).toMatch(/type.*unknown|unknown.*type/i);
+ }
+});
+it('field legality: occupancy excludes the current physical ref and ignores unspecified row slots',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ const twins=[{ref:'self',zone:'spell-trap',slot:4},{ref:'legacy',zone:'spell-trap'}];
+ expect(projectFieldZone({zone:'M4',facts:{type:'Trap Card'},twins,ref:'self'}).zone).toBe('S4');
+ expect(projectFieldZone({zone:'M4',facts:{type:'Trap Card'},twins}).zone).toBe('S3');
+ expect(projectFieldZone({zone:'M2',facts:{type:'Spell Card',race:'Field'},twins:[{ref:'self',zone:'field'}],ref:'self'}).zone).toBe('FIELD');
+});
+it('field legality: face-down geometry can be retained without catalog facts',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ expect(projectFieldZone({zone:'S4',faceDown:true,twins:[]})).toEqual({zone:'S4',label:'Spell/Trap Zone 4'});
+ expect(projectFieldZone({zone:'M2',faceDown:true,twins:[{ref:'busy',zone:'monster',slot:2}]}).zone).toBe('M1');
+});
+it('field legality: face-down extra-row observations use aligned main zones in every format',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const format of ['normal','domain','genesys','genesys-domain'] as const){
+  expect(projectFieldZone({zone:'EMZ1',faceDown:true,format,twins:[]}).zone).toBe('M2');
+  expect(projectFieldZone({zone:'EMZ2',faceDown:true,format,twins:[]}).zone).toBe('M4');
+ }
+ expect(projectFieldZone({zone:'EMZ2',faceDown:true,twins:[{ref:'busy',zone:'monster',slot:4}]}).zone).toBe('M3');
+});
+it('field legality: nullable catalog race does not invent a Field Spell subtype',async()=>{
+ const {projectFieldZone,manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
+ const facts:import('../src/lib/remote/field-legality').FieldZoneFacts={type:'Spell Card',race:null};
+ expect(projectFieldZone({zone:'M4',facts,twins:[]}).zone).toBe('S4');
+ expect(manualFieldZoneWarning(facts,'spell-trap',4)).toBeUndefined();
+});
+it('field legality: pile observations remain unchanged for adapter policy',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const zone of ['GY','BANISHED','DECK','EXTRA'] as const)expect(projectFieldZone({zone,twins:[]}).zone).toBe(zone);
+});
+it('field legality: readable labels cover all geometric zone types',async()=>{
+ const {fieldZoneLabel}=await import('../src/lib/remote/field-legality');
+ for(const [zone,label] of [['M2','Main Monster Zone 2'],['S5','Spell/Trap Zone 5'],['EMZ1','Extra Monster Zone, left'],['EMZ2','Extra Monster Zone, right'],['FIELD','Field Spell Zone'],['GY','Graveyard'],['BANISHED','Banished cards'],['DECK','Deck'],['EXTRA','Extra Deck']] as const)expect(fieldZoneLabel(zone)).toBe(label);
+});
+it('field legality: manual move warnings identify incompatible public field destinations',async()=>{
+ const {manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
+ expect(manualFieldZoneWarning({type:'Spell Card'},'monster',4)).toMatch(/Spell.*Monster/i);
+ expect(manualFieldZoneWarning({type:'Normal Monster',frameType:'fusion'},'extra-monster',1)).toMatch(/Fusion.*Synchro.*Xyz.*Link/i);
+ expect(manualFieldZoneWarning({type:'Normal Monster'},'spell-trap',4)).toMatch(/Monster.*Spell\/Trap/i);
+ expect(manualFieldZoneWarning({type:'Spell Card',race:'Field'},'spell-trap',3)).toMatch(/Field Spell Zone/i);
+ expect(manualFieldZoneWarning({type:'Trap Card'},'field')).toMatch(/Field Spell Zone/i);
+ expect(manualFieldZoneWarning(undefined,'monster',2)).toMatch(/type.*unknown|unknown.*type/i);
+});
+it('field legality: manual moves allow compatible types, Trap Monsters, and specified outer Pendulum scales',async()=>{
+ const {manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
+ for(const [type,zone,slot] of [['Spellcaster / Normal Monster','monster',4],['Fusion Monster','extra-monster',1],['Trap Card','spell-trap',3],['Trap Monster','monster',2],['Pendulum Effect Monster','spell-trap',1],['Pendulum Effect Monster','spell-trap',5]] as const)expect(manualFieldZoneWarning({type},zone,slot)).toBeUndefined();
+ for(const slot of [undefined,2,3,4])expect(manualFieldZoneWarning({type:'Pendulum Effect Monster'},'spell-trap',slot)).toMatch(/1.*5/i);
+ expect(manualFieldZoneWarning({type:'Spell Card',race:'Field'},'field')).toBeUndefined();
+});
+it('field legality: manual pile destinations always remain available',async()=>{
+ const {manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
+ for(const zone of ['graveyard','banished','deck','extra','hand','hand-reveal','GY','BANISHED','DECK','EXTRA'])expect(manualFieldZoneWarning(undefined,zone)).toBeUndefined();
 });

@@ -80,10 +80,11 @@ try {
   console.log('Tracked hand occlusion:',occlusion.seconds,'seconds;',occlusion.falseRemovals,'false removals');
   const placementBeforeCpu=await cpu(),placementBeforeWall=performance.now();
   const trialCount=Number(process.env.FIELD_TRIALS??5);if(!Number.isInteger(trialCount)||trialCount<1||trialCount>50)throw Error('Invalid FIELD_TRIALS');
-  const placements=await page.evaluate(async trialLimit=>{
+  const stabilitySeconds=Number(process.env.FIELD_STABILITY_SECONDS??12);
+  const placements=await page.evaluate(async ({trialLimit,stabilitySeconds})=>{
     const {api,reader}=window as any,bitmap=await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob());
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;document.body.append(canvas);const ctx=canvas.getContext('2d')!;
-    let show=false,x=460;const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(show)ctx.drawImage(bitmap,x,170,180,262);};paint();const painter=setInterval(paint,65);
+    let show=false,x=460,jitter=false;const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(show){ctx.save();if(jitter){const phase=performance.now()/550;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,301);ctx.rotate(.04*Math.sin(phase));ctx.drawImage(bitmap,-90,-131,180,262);}else ctx.drawImage(bitmap,x,170,180,262);ctx.restore();}};paint();const painter=setInterval(paint,65);
     const video=document.createElement('video');video.muted=true;video.playsInline=true;video.srcObject=canvas.captureStream(15);document.body.append(video);await Promise.race([video.play(),new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Camera playback did not start')),10000))]);
     const buffer=api.createOwnFeedBuffer(video),trials:any[]=[];
     try {
@@ -94,8 +95,10 @@ try {
         while(!events.some(e=>e.type==='placed'||e.type==='prompt')&&performance.now()<deadline)await new Promise(r=>setTimeout(r,100));
         const result=events.find(e=>e.type==='placed'||e.type==='prompt');
         console.info('placement trial',n,'finished',result?.type??'timeout');
-        let move:any,removal:any;
+        let move:any,removal:any,stability:any;
         if(result?.type==='placed'){
+          watcher.confirm(result.track.id,result.track.cardId);
+          if(n===0&&stabilitySeconds>0){const before=events.length;jitter=true;paint();await new Promise(r=>setTimeout(r,stabilitySeconds*1000));jitter=false;paint();await new Promise(r=>setTimeout(r,400));stability={seconds:stabilitySeconds,unexpected:events.slice(before).filter(e=>['placed','prompt','removed','flipped'].includes(e.type)),notes:'Same identified card with sinusoidal brightness .73–.97 and angle ±2.3 degrees after confirmation.'};}
           x=x<500?660:340;paint();const changed=performance.now(),moveDeadline=changed+12000;
           while(!events.some(e=>e.type==='moved'&&e.track.zone!==result.track.zone)&&performance.now()<moveDeadline)await new Promise(r=>setTimeout(r,20));
           const moved=events.find(e=>e.type==='moved'&&e.track.zone!==result.track.zone);move={wallLatencyMs:moved?moved.wallAt-changed:null,event:moved};
@@ -103,11 +106,11 @@ try {
           while(!events.some(e=>e.type==='removed')&&performance.now()<removeDeadline)await new Promise(r=>setTimeout(r,20));
           const removed=events.find(e=>e.type==='removed');removal={wallLatencyMs:removed?removed.wallAt-gone:null,event:removed};
         }
-        trials.push({appeared,wallLatencyMs:result?result.wallAt-appeared:null,move,removal,events,snapshot:watcher.getSnapshot()});watcher.dispose();
+        trials.push({appeared,wallLatencyMs:result?result.wallAt-appeared:null,stability,move,removal,events,snapshot:watcher.getSnapshot()});watcher.dispose();
       }
       return trials;
     }finally{buffer.stop();clearInterval(painter);(video.srcObject as MediaStream).getTracks().forEach(t=>t.stop());video.remove();canvas.remove();bitmap.close();}
-  },trialCount);
+  },{trialLimit:trialCount,stabilitySeconds});
   const placementWall=performance.now()-placementBeforeWall,placementCpu=await cpu()-placementBeforeCpu;
   await page.evaluate(()=>((window as any).reader as {dispose():void}).dispose());
   const sorted=placements.flatMap(t=>t.wallLatencyMs===null?[]:[t.wallLatencyMs]).sort((a,b)=>a-b);
@@ -115,7 +118,7 @@ try {
   const follow={move:distribution(placements.flatMap(t=>t.move?.wallLatencyMs==null?[]:[t.move.wallLatencyMs])),removal:distribution(placements.flatMap(t=>t.removal?.wallLatencyMs==null?[]:[t.removal.wallLatencyMs]))};
   const report={at:new Date().toISOString(),node:process.version,browser:browser.version(),logicalCores:cpus().length,detectorOnly:{...detectorOnly,requests:initializedRequests},negative:{source:'https://gibranbenitez.github.io/IPN_Hand/images/sample.gif',sourcePage:'https://gibranbenitez.github.io/IPN_Hand/',license:'CC BY 4.0 (IPN Hand authors)',notes:'Public real hand-gesture sample (3.4 s), converted to MP4 and looped. Person and room visible; no playing cards. Not an overhead playmat or held-out player corpus.',...negative,cpuOneCorePercent:negativeCpu/(negativeWall/1000)*100,cpuMachinePercent:negativeCpu/(negativeWall/1000)/cpus().length*100},occlusion:{...occlusion,notes:'Same cached real hand clip composited inside an already identified card footprint, preserving its mat halo. Final eight seconds freeze the clip; zero removals required.'},follow,placement:{notes:'Synthetic native 1280x720 canvas camera trials, one indexed card rendered on a plain mat. API event timing excludes table action/network rendering.',trials:placements,medianMs:sorted[Math.floor(sorted.length/2)],p95Ms:sorted[Math.ceil(sorted.length*.95)-1],cpuOneCorePercent:placementCpu/(placementWall/1000)*100,cpuMachinePercent:placementCpu/(placementWall/1000)/cpus().length*100},browserErrors:errors};
   await writeFile(join(directory,`${label}.json`),JSON.stringify(report,null,2)+'\n');
-  console.log(JSON.stringify({detectorOnly:report.detectorOnly,negative:{seconds:negativeSeconds,samples:negative.snapshot.metrics.samples,events:negative.events.length,falsePlacements:negative.events.filter((e:any)=>e.type==='placed').length,cpuOneCorePercent:report.negative.cpuOneCorePercent,cpuMachinePercent:report.negative.cpuMachinePercent},placement:{medianMs:report.placement.medianMs,p95Ms:report.placement.p95Ms,results:placements.map(t=>({latencyMs:t.wallLatencyMs,event:t.events.find((e:any)=>e.type==='placed'||e.type==='prompt')}))},browserErrors:errors},null,2));
+  console.log(JSON.stringify({detectorOnly:report.detectorOnly,negative:{seconds:negativeSeconds,samples:negative.snapshot.metrics.samples,events:negative.events.length,falsePlacements:negative.events.filter((e:any)=>e.type==='placed').length,cpuOneCorePercent:report.negative.cpuOneCorePercent,cpuMachinePercent:report.negative.cpuMachinePercent},placement:{medianMs:report.placement.medianMs,p95Ms:report.placement.p95Ms,results:placements.map(t=>{const event=t.events.find((e:any)=>e.type==='placed'||e.type==='prompt');return {latencyMs:t.wallLatencyMs,type:event?.type,tier:event?.result?.tier,cardId:event?.result?.candidates[0]?.cardId};})},browserErrors:errors},null,2));
   console.log('Follow:',JSON.stringify(follow));
-  if(negative.events.some((e:any)=>e.type==='placed'||e.type==='removed')||occlusion.falseRemovals||placements.some(t=>!t.events.some((e:any)=>e.type==='placed'&&e.result?.tier==='sure'&&e.result.candidates[0]?.cardId==='45725480')||!t.move?.event||!t.removal?.event||t.move.event.track.id!==t.removal.event.track.id)||errors.length)process.exitCode=1;
+  if(negative.events.some((e:any)=>e.type==='placed'||e.type==='removed')||occlusion.falseRemovals||placements.some(t=>t.stability?.unexpected.length||!t.events.some((e:any)=>e.type==='placed'&&e.result?.tier==='sure'&&e.result.candidates[0]?.cardId==='45725480')||!t.move?.event||!t.removal?.event||t.move.event.track.id!==t.removal.event.track.id)||errors.length)process.exitCode=1;
 }finally{await browser.close();await new Promise<void>(done=>server.close(()=>done()));}

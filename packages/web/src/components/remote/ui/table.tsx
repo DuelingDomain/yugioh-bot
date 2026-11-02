@@ -36,6 +36,8 @@ import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
+import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
+import {fieldZoneLocation} from '@yugidraft/vision';
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const UNDO_MS = 5000;
@@ -160,7 +162,16 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const addVoiceLog = useCallback((text: string) => setVoiceLog(list => [...list.slice(-30), { id: `vx:${Date.now()}`, time: fmtTime(Date.now()), kind: "VX" as const, text, fresh: true }]), []);
 
   // ---- actions ----
-  const act = ctl.action;
+  const act = useCallback(async(proposal:RemoteActionProposal)=>{
+    let warning:string|undefined;
+    if(proposal.type==='twin.move'&&proposal.source!=='auto'){
+      const card=R.current.room.state.seats[proposal.seat]?.twin.find(item=>item.ref===proposal.cardRef),code=card?cardCode(card):undefined;
+      warning=manualFieldZoneWarning(cardInfo(code),proposal.zone,proposal.slot);
+    }
+    const updated=await ctl.action(proposal);
+    if(updated&&warning)toast(warning,5000);
+    return updated;
+  },[ctl.action,toast]);
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
@@ -219,12 +230,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   /** Where a new card goes on a field: its row, the first free slot and a fresh ref. */
   const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>, current=R.current.room) => {
-    const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = spellTrap && /field/i.test(found?.type ?? "");
-    const emzSlot = !spellTrap && /link/i.test(found?.type ?? "") && hasExtraZones(current.format?.id) ? freeEmzSlot(seat, current.state.seats) : undefined;
-    const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : emzSlot ? "extra-monster" : "monster";
-    const used = new Set(current.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
-    const slot = row === "field" ? undefined : emzSlot ?? [1, 2, 3, 4, 5].find(n => !used.has(n));
-    return { row, slot, ref: `c${seat}-${cardId}-${Date.now().toString(36)}` };
+    const projected=projectFieldZone({zone:'M1',facts:found,twins:current.state.seats[seat].twin,format:current.format?.id??current.state.deckChecks.format.id});
+    if(!projected.zone)return;
+    const location=fieldZoneLocation(projected.zone);
+    return {row:location.zone,slot:location.slot,ref:`c${seat}-${cardId}-${Date.now().toString(36)}`};
   };
   /** A free Extra Monster Zone for this seat: not used by its own cards and not taken by the facing seat, which shares the row (my zone 1 is their zone 2). */
   const freeEmzSlot = (seat: number, seats: readonly { twin: readonly TwinCard[] }[], also: ReadonlySet<number> = new Set()) => {
@@ -256,11 +265,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         ?? current.state.seats[seat].twin.find(card => card.ref === revealRef)
         ?? current.state.seats[seat].twin.find(card => cardCode(card) === pick.cardId && card.faceUp && !['hand', 'deck'].includes(card.zone)) : undefined;
       const spot=same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current);
-      const {row,slot,ref}=spot;
+      if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined};}
       let updated:RemoteRoom|null=null;
-      if(owns&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:row,card:{ref,cardId:pick.cardId,name:pick.name,...(slot?{slot}:{}),faceUp:true,position:'attack'}});
-      else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(owns?{cardRef:ref,zone:row,...(slot?{slot}:{})}:{})});
-      return {updated,owns,ref};
+      if(owns&&spot&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
+      else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
+      return {updated,owns,ref:spot?.ref};
     });
     const {updated,owns,ref}=outcome;
     if(owns&&updated)setFresh(ref);
@@ -284,7 +293,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
   const anotherCopy = async () => {
     const sub = subject; if (!sub || !live || !(solo || sub.seat === mySeat)) return;
-    const found = cardInfo(sub.cardId); const { row, slot, ref } = layoutFor(sub.seat, sub.cardId, found);
+    const found=cardInfo(sub.cardId),spot=layoutFor(sub.seat,sub.cardId,found);
+    if(!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return;}
+    const {row,slot,ref}=spot;
     const place = await act({ type: "twin.place", actorSeat: solo ? sub.seat : mySeat, seat: sub.seat, zone: row, card: { ref, cardId: sub.cardId, name: sub.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
     if (!place) return;
     await act({ type: "card.identified", actorSeat: mySeat, seat: sub.seat, cardId: sub.cardId, name: sub.name, source: "click", cardRef: ref, zone: row, ...(slot ? { slot } : {}) });
@@ -411,17 +422,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     });
     const fresh = sure.filter(card => !reveals.some(item=>item.card===card)).filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
       .sort((a, b) => a.quad.reduce((n, p) => n + p.x, 0) - b.quad.reduce((n, p) => n + p.x, 0));
-    const taken: Record<string, Set<number | undefined>> = { monster: new Set(), "spell-trap": new Set(), "extra-monster": new Set() };
-    const emzOn = hasExtraZones(R.current.room.format?.id);
-    for (const item of current.seats[seat].twin) taken[item.zone]?.add(item.slot);
+    const planned=[...current.seats[seat].twin];
     const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number }[] = [];
     for (const card of fresh) {
-      const type = cardInfo(card.cardId)?.type ?? ""; const spellTrap = /spell|trap/i.test(type);
-      const emzSlot = !spellTrap && emzOn && /link/i.test(type) ? freeEmzSlot(seat, current.seats, new Set([...taken["extra-monster"]].filter((n): n is number => !!n))) : undefined;
-      const zone = spellTrap && /field/i.test(type) ? "field" : spellTrap ? "spell-trap" : emzSlot ? "extra-monster" : "monster";
-      const slot = zone === "field" ? undefined : emzSlot ?? [1, 2, 3, 4, 5].find(n => !taken[zone].has(n));
-      if (slot) taken[zone].add(slot);
-      placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone, slot });
+      const projected=projectFieldZone({zone:'M1',facts:cardInfo(card.cardId),twins:planned,format:now.format?.id??current.deckChecks.format.id});
+      if(!projected.zone)continue;
+      const {zone,slot}=fieldZoneLocation(projected.zone),ref=`b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`;
+      planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
+      placed.push({ref,card,zone,slot});
     }
     const done: typeof placed = [...reveals];
     if (owns) {
