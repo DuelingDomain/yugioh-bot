@@ -218,7 +218,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const at = ctx.current; if (!at) return;
     const { seat } = at; const current = R.current.room;
     // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
-    const bail = () => { layers.close("tray"); setTray(null); };
+    // The table refused the card (for example it closed meanwhile). Say so: a popup that only vanishes looks like a bug.
+    const bail = () => { layers.close("tray"); setTray(null); toast("The table did not accept this card. Nothing was placed.", 4200); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
     const owns = current.solo || seat === current.mySeat;
@@ -249,7 +250,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setPopAt(at.at); layers.open("card");
     if(ctx.current) delete ctx.current.cardRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [act, layers, hub, saveSample]);
+  }, [act, layers, hub, saveSample, toast]);
 
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
   const anotherCopy = async () => {
@@ -264,16 +265,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   /** A click landed on a live feed: the popup opens at once with its skeleton, before the card is found. */
   const beginRead = useCallback((seat: number, start: FeedStart) => {
+    // On a closed table no card can be placed, so a read would end with a popup that closes by itself. Say it at once.
+    const now = R.current.room;
+    if (now.status !== "active" || now.state.ended) { readCounter.current++; toast("The table is closed. Cards cannot be read here.", 4200); return; }
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
     ctx.current = { seat, x: start.x, y: start.y, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}) };
     setTray({ seat, ownerName: name(seat), status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers, name]);
+  }, [layers, name, toast]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
     const hit = found?.hit; const extra = hit ?? found?.point;
+    { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     if(hit?.kind==="face-down") {
       const origins=R.current.state.effectTracking?.origins.filter(o=>o.seat===seat && o.destination==="set" && R.current.state.seats[seat].twin.some(c=>c.ref===o.ref && !c.faceUp)) ?? [];
       if(origins.length && (R.current.room.solo || seat===R.current.room.mySeat)) {
@@ -319,7 +324,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setTimeout(() => reticle(seat, null, rid), 1800);
     setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hub, identify, layers, name]);
+  }, [hub, identify, layers, name, toast]);
   const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
   useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); } }, [layers.layer, tray]);
 
