@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {compareRuns} from './compare';
 import {scoreSession} from './score';
 import {validateSession,type LabelledSession,type ReplayResult} from './session';
 test('session scoring keeps misses, wrong identity, duplicate events and hand negatives in the gate',()=>{
@@ -14,6 +15,7 @@ test('session scoring keeps misses, wrong identity, duplicate events and hand ne
   ],detections:[],wallMs:15000,warmMs:0,inferenceMs:20,errors:[],backends:['wasm'],runtime:[],stats:{}};
   assert.equal(validateSession(session).events.length,2);
   const score=scoreSession(session,run);
+  assert.equal(scoreSession({...session,events:[{...session.events[0],faceDown:true}]},run).wrongSure,1);
   assert.equal(score.events.recall,.5);assert.equal(score.events.precision,1/3);
   assert.equal(score.identity.top1,0);assert.equal(score.identity.top5,.5);
   assert.equal(score.zoneAccuracy,0);assert.equal(score.wrongSure,1);assert.equal(score.unsafeSure,0);
@@ -27,5 +29,10 @@ test('session scoring keeps misses, wrong identity, duplicate events and hand ne
   assert.equal(detector.detector.recall,1);assert.equal(detector.detector.precision,.5);
   assert.equal(score.perEvent[0].identifiedLatencyMs,null);
   assert.equal(scoreSession(session,{...run,wallMs:1000}).gate.passed,false);
+  const fragmented=scoreSession({...session,events:[session.events[0],{...session.events[1],atMs:12000}]},{...run,events:[{...run.events[0],trackId:'old'},{...run.events[0],atMs:8000,kind:'prompt',trackId:'old'},{...run.events[0],atMs:12500,kind:'moved',trackId:'new',box:session.events[1].box!}]});
+  assert.equal(fragmented.promptsPerCard[0].count,1);assert.equal(fragmented.promptsPerCard[0].trackChanges,1);
+  const base={sessionId:'test',deckMode:'with',result:run,metrics:score,labelSha256:'labels',videoSha256:'video'};
+  assert.equal(compareRuns([base],[base]).passed,true);assert.equal(compareRuns([base],[base,{...base,sessionId:'omitted'}]).passed,false);assert.equal(compareRuns([{...base,metrics:{...score,identity:{...score.identity,top5:0}}}],[base]).passed,false);
+  assert.equal(scoreSession({...session,events:[{...session.events[1],kind:'removed',box:undefined}]},{...run,events:[{...run.events[0],kind:'removed',atMs:6500}]}).events.matched,0);
   assert.throws(()=>validateSession({...session,events:[{...session.events[0],atMs:-2}]}));
 });
