@@ -11,6 +11,8 @@ export interface RecognizerConfig {
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
+  /** Current detector provider, including fallback after a GPU failure. */
+  readonly detectorBackend?: 'webgpu' | 'wasm';
   /** Load the worker, index and model sessions before a person asks to read a card. Safe to call repeatedly. */
   warmup(): Promise<void>;
   /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
@@ -30,7 +32,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
-  let inFlight = false;
+  let inFlight = false, detectorBackend: Recognizer['detectorBackend'];
   let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   const failAll = (error: Error) => { for (const value of pending.values()) value.reject(error); pending.clear(); };
@@ -44,10 +46,12 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-speed-engine-v1', { type: 'module', name: 'card-recognition' });
+      detectorBackend = undefined;
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-speed-engine-v1-scan-budget-v1', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
-        const { id, result, error } = event.data;
+        const { id, result, error, detectorBackend: backend } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
+        if (backend === 'webgpu' || backend === 'wasm') detectorBackend = backend;
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
       worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined;prepared=undefined; };
@@ -81,6 +85,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare'}) as {backend:'webgpu'|'wasm'};}).catch(error=>{prepared=undefined;throw error;});
   }
   return {
+    get detectorBackend() { return detectorBackend; },
     warmup: async()=>{await prepare();},
     prepare,
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },

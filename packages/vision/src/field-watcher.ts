@@ -18,7 +18,7 @@ export interface FieldSnapshot { status:'stopped'|'starting'|'watching'|'hidden'
 export interface FieldBuffer { sample():Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
-  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&Partial<Pick<Recognizer,'prepare'>>; buffer:FieldBuffer; profile:GameProfile;
+  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&Partial<Pick<Recognizer,'prepare'|'detectorBackend'>>; buffer:FieldBuffer; profile:GameProfile;
   getPriors?:()=>RecognitionPriors|undefined; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
@@ -512,7 +512,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
       const settling=Boolean(reading)||tracks.some(t=>(t.face?.pendingAt!==undefined&&now()-t.face.pendingAt<1500)||t.pose||t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&t.moveAt!==undefined&&now()-t.moveAt<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
-      metrics.intervalMs=settling?100:Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
+      // GPU inference leaves the CPU free; still leave room for input/rendering
+      // and back off with detector load. Unknown providers keep the WASM guard.
+      const gpu=options.recognizer.detectorBackend==='webgpu',scanBudget=gpu&&options.cpuBudget===undefined ? .5 : budget;
+      const interval=Math.max(gpu?66:250,Math.min(5000,ema/scanBudget));
+      metrics.intervalMs=settling?(gpu?Math.max(100,interval):100):interval;metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
       if(metrics.intervalMs>650)guarded=true;else if(metrics.intervalMs<450)guarded=false;if(status==='watching'&&guarded)status='budget';inFlight=false;notify();
     }
   }

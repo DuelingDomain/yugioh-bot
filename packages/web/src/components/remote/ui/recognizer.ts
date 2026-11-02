@@ -28,6 +28,7 @@ type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure"
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
+  readonly detectorBackend?: EngineBackend;
   warmup(): Promise<void>;
   prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
@@ -312,6 +313,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
   if (!reader || !found) return null;
   return {
     recognizer: {
+      get detectorBackend() { return reader.detectorBackend; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">) => enqueue(() => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
