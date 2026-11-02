@@ -262,40 +262,45 @@
 .lpbtn button{height:34px;border:1px solid var(--line2);border-radius:6px;background:var(--p0);font:600 14px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink2);padding:0}
 .lpbtn button.m:hover{border-color:var(--lossd);color:var(--loss)}.lpbtn button.p:hover{border-color:var(--gold);color:var(--gold-ink)}
 
-/* landscape seat (2x2 grid): feed left, field + LP right */
-/* stacked seats (1v1, 3-way): feed height follows its width, holo follows its width, LP block takes what is left */
-.fside{flex:0 0 auto;min-height:0}
-/* The virtual field is about two thirds of its old height in 1v1 and a little under it in 3-way; the video gets the rest. */
-.fwrap{--fk:.66;flex:0 1 auto;min-height:0;height:calc(var(--fk) * ((100cqw - 56px) / 7 * 2.92 + 26px))}
-.app[data-mode="3"] .fwrap{--fk:.85}
-/* Three rows instead of two: a little taller, with smaller cards. */
-.app[data-mode] .fwrap:has([data-emz]){--fk:.8}
-.lp{flex:1 1 auto;min-height:92px;max-height:210px;grid-template-rows:minmax(0,1fr) auto minmax(34px,auto)}
-.lpmain{min-height:0}
-.lpn{font-size:clamp(46px,min(14cqw,11cqh),140px)}
-.lpbtn{align-items:stretch}
-.lpbtn button{height:100%;min-height:34px;max-height:92px;font-size:clamp(14px,1.45cqw,24px)}
-.lpin{height:clamp(30px,3.4cqh,44px);width:clamp(100px,12cqw,150px);font-size:clamp(13px,1.2cqw,18px)}
+/* Seat layout: the camera comes first and takes all the spare height and the full width its shape allows.
+   The virtual field is a compact strip under it. Its frame hugs the zones (7 columns, 2 rows, or 3 with the Extra Monster Zone row),
+   so there is no empty side area. --fh is the most height the strip may take, --fw the most width. LP is one row. */
+.fside{flex:0 0 auto;min-height:0;align-items:stretch}
+.fwrap{--gp:4px;--fr:2;--fh:calc(100cqh * .3);--fw:calc(100cqw - 16px);
+  --fcw:max(24px,min((var(--fw) - 18px - 6 * var(--gp)) / 7,(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
+  flex:none;min-height:0;align-self:center;
+  width:calc(7 * var(--fcw) + 6 * var(--gp) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
+.fwrap:has([data-emz]){--fr:3}
+/* 3-way seats are narrow: the camera is limited by width, so the field takes the height the camera leaves (16:9 assumed), within 30% to 42% of the seat. */
+.app[data-mode="3"] .fwrap{--fh:max(calc(100cqh * .3),min(calc(100cqh * .42),calc(100cqh - 163px - (100cqw - 16px) * .5625)))}
+.field{--gp:4px}
+.lp{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:0;padding:2px 2px 5px}
+.lpmain{display:contents}
+.lpl{order:0;padding-bottom:0;align-self:center}
+.lpn{order:1;font-size:clamp(28px,min(4cqw,6cqh),40px);line-height:1}
+.lpd{order:2;font-size:14px}
+.lpbtn{order:3;flex:1 1 auto;min-width:0;display:flex;gap:4px}
+.lpbtn button{flex:1 1 0;min-width:0;height:30px;font-size:13px;max-height:none}
+.lpin{order:4;margin:0;flex:0 0 auto;width:84px;height:30px;font-size:13px}
+.lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
+@container seat (max-width:420px){
+  .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
+}
 @container seat (min-aspect-ratio:1.55){
-  .sbody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:8px}
-  .feedcol{--cellw:calc((100cqw - 26px) / 2);flex:none;min-height:0}
+  .sbody{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:8px}
+  .feedcol{--cellw:calc((100cqw - 26px) * .63);flex:none;min-height:0}
   .camsel [data-lbl]{display:none}.camsel button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:100px}
-  .fside{flex:none;min-height:0}
-  .fwrap{flex:1 1 0;height:auto;min-height:0}
-  .lp{flex:none;min-height:0;max-height:none;grid-template-rows:none}
-  .lpbtn button{height:30px;max-height:none}
-  .lpin{height:30px;width:100px;font-size:13px}
-  .lpn{font-size:clamp(40px,8cqw,84px)}
-  .lpbtn button{height:30px;font-size:13px}
-  .lp{gap:5px}
-  .lpbar{display:none}
+  .fside{flex:none;min-height:0;justify-content:center}
+  .fwrap{--fw:calc((100cqw - 26px) * .37);--fh:calc(100cqh - 128px)}
+  .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
 }
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
   .sh{min-height:30px;padding:4px 10px}.sh .nm{font-size:16px}
-  .lpn{font-size:clamp(38px,7.4cqw,60px)}
+  .lpn{font-size:30px}
   .lpin{height:26px;width:84px}
-  .lpbtn button{height:28px;font-size:12.5px}
-  .field{--gp:3px}.holo{padding:6px 6px 7px}
+  .lpbtn button{height:26px;font-size:12px}
+  .fwrap{--fh:calc(100cqh - 112px)}
+  .holo{padding:6px 6px 7px}
 }
 
 /* ============ dock: voice + undo ============ */
@@ -488,15 +493,15 @@
   .dwarn{font-size:12px;padding:4px 8px;gap:6px;bottom:6px;left:6px;right:6px}
   .mctl,.msub{display:none}
   .fside{display:contents}
-  .fwrap{height:150px;order:2}
+  .fwrap{width:auto;align-self:stretch;height:150px;order:2}
   .app[data-mode] .fwrap:has([data-emz]){height:215px}
-  .lp{padding:0 2px}
-  .lpmain{gap:10px}.lpn{font-size:46px}
+  .lp{display:grid;padding:0 2px}
+  .lpmain{display:flex;gap:10px}.lpn{font-size:46px}
   .lpl{display:none}
   .lpin{display:none}
   .lpbar{display:none}
   .lpbtn{position:absolute;right:10px;top:4px;display:flex;gap:4px}
-  .lpbtn button{width:46px;height:44px;font-size:13px}
+  .lpbtn button{flex:none;width:46px;height:44px;font-size:13px}
   .lpbtn button.x{display:none}
   .lp{position:relative;min-height:52px}
   .lpmain{min-height:50px}
