@@ -49,7 +49,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
-  const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>());
+  const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
@@ -57,7 +57,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
-  useEffect(()=>{placeholders.current.clear();},[room.slug,seat]);
+  useEffect(()=>{placeholders.current.clear();readerRemovals.current.clear();},[room.slug,seat]);
   const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
   const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
   const prunePhysical=()=>{const refs=new Set(current.current.room.state.seats[seat].twin.map(c=>c.ref));let changed=false;for(const ref of physical.current!.zones.keys())if(!refs.has(ref)){physical.current!.zones.delete(ref);changed=true;}if(changed)savePhysical();};
@@ -130,7 +130,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
     // A manual identification owns the twin now; never delete that correction.
     if(card&&cardCode(card)){placeholders.current.delete(id);bindings.current.set(id,ref);return true;}
-    if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref}))return false;
+    // This intermediate removal belongs to the reader, so the room update
+    // must not forget and suppress the live track before its identity is saved.
+    readerRemovals.current.add(ref);
+    try{if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref})){readerRemovals.current.delete(ref);return false;}}
+    catch(error){readerRemovals.current.delete(ref);throw error;}
     placeholders.current.delete(id);bindings.current.delete(id);return true;
   }
   async function showPlaceholder(event:FieldEvent,act:RoomMutation) {
@@ -330,7 +334,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   useEffect(()=>{
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
-    for(const ref of previousRefs.current)if(!refs.has(ref)){forgetPhysical(ref);watch.forget(ref);}
+    for(const ref of previousRefs.current)if(!refs.has(ref)&&!readerRemovals.current.has(ref)){forgetPhysical(ref);watch.forget(ref);}
+    // Consume the exemption only after the server removal is observed, or after
+    // a batched replacement already contains the identified card.
+    for(const ref of readerRemovals.current)if(!refs.has(ref)||room.state.seats[seat].twin.some(card=>card.ref===ref&&cardCode(card)))readerRemovals.current.delete(ref);
     prunePhysical();
     previousRefs.current=refs;
     const value=departureRef.current;if(!value)return;

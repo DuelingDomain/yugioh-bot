@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
+import { flushSync } from "react-dom";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
@@ -742,10 +743,10 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
  let source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
- const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};return room;});
+ const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
- return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+ return {refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
@@ -1020,5 +1021,27 @@ it.each([false,true])('field diagnostics require server-confirmed owner permissi
   const uploads=fetcher.mock.calls.filter(([url])=>url==='/api/remote-vision/diagnostics');
   expect(uploads).toHaveLength(diagnosticsAllowed?1:0);
   expect(fixture.post).not.toHaveBeenCalled();
+ }finally{fixture.dispose();}
+});
+
+
+it('keeps a live track while its Reading placeholder is replaced across authoritative room updates',async()=>{
+ let fixture:Awaited<ReturnType<typeof typedWatcherFixture>>;
+ fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'placed',undefined,async proposal=>{
+  if(proposal.type==='twin.remove'){state.fieldWatch.watch.snapshot={...state.fieldWatch.watch.snapshot};flushSync(()=>fixture.refresh());}
+ });
+ const watch=state.fieldWatch.watch;
+ const forget=vi.fn(()=>{watch.snapshot.tracks=[];watch.getTrack=()=>undefined;});watch.forget=forget;
+ try{
+  fixture.refreshAfterPosts();
+  Object.assign(fixture.track,{state:'candidate',cardId:undefined,visible:false});
+  await fixture.emit({type:'reading'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toHaveLength(1));
+  fixture.refresh();
+  Object.assign(fixture.track,{state:'identified',cardId:'41420027',visible:true});
+  await fixture.emit({type:'placed'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:4})]));
+  expect(forget).not.toHaveBeenCalled();expect(fixture.confirm).toHaveBeenCalledOnce();
+  fixture.setTwins([]);expect(forget).toHaveBeenCalledExactlyOnceWith('physical-typed');
  }finally{fixture.dispose();}
 });
