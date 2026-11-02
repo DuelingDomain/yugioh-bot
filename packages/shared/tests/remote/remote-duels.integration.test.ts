@@ -333,6 +333,22 @@ describe("remote deck registration and live checks", () => {
   });
 });
 describe("B3 physical field slot guard", () => {
+  it.each(["monster", "extra-monster", "field"].flatMap(zone=>["twin.place", "twin.move"].map(type=>({zone,type}))))("round 2 NS3: replays legacy $type conflicts in $zone while live writes stay guarded", ({zone,type}) => {
+    const s=deckSession();s.start();s.place("old-first",zone,1,1);
+    if(type==='twin.move')s.place('old-second','graveyard',1,2);
+    const action={type,actorSeat:0,seat:0,zone,idempotencyKey:'legacy-conflict',at:2200,
+      ...(type==='twin.place'?{card:{ref:'old-second',slot:1,cardId:2,faceUp:true}}:{cardRef:'old-second',slot:1})};
+    expect(remoteActionSchema.safeParse(action).success).toBe(true);
+    const tableId=(s.db.prepare('select id from remote_tables where slug=?').get(s.room.slug) as {id:number}).id;
+    s.db.prepare('insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,created_at) values(?,?,?,?,?,?,?)')
+      .run(tableId,s.room.lastSeq+1,action.idempotencyKey,0,s.users[0],JSON.stringify(action),2200);
+    const replayed=s.service.replay(s.room.slug,'g',s.users[0]);
+    expect(replayed.seats[0].twin.filter(c=>c.zone===zone).map(c=>c.ref)).toEqual(['old-first','old-second']);
+    expect(replayed.undo?.actionId).toBe('legacy-conflict');
+    expect(()=>ygoModule.reduce(replayed,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone,card:{ref:'live-third',slot:1},idempotencyKey:'live-after-legacy',at:2201}))).toThrow(/occupied/i);
+    const restored=ygoModule.reduce(replayed,{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
+    expect(restored.seats[0].twin).toEqual(s.room.state.seats[0].twin);
+  });
   const slots = [
     ...["monster", "spell-trap"].flatMap(zone => [1, 2, 3, 4, 5].map(slot => ({ zone, slot }))),
     ...["extra-monster", "pendulum"].flatMap(zone => [1, 2].map(slot => ({ zone, slot }))),

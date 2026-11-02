@@ -53,6 +53,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     remoteAssert(shape !== "row" || slot === undefined || physicalSlot !== undefined, "Invalid physical slot");
     // Legacy row twins without a slot do not identify a physical position.
     if (shape === "row" && physicalSlot === undefined) return;
+    if (context?.replay) return;
     remoteAssert(!s.twin.some(card => card.ref !== exceptRef && card.zone === zone &&
       (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot)),
     "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");

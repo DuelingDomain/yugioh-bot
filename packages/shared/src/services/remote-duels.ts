@@ -281,7 +281,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count });
         for (const e of db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[]) {
           const action: RemoteEvent["action"] = JSON.parse(e.action_json);
-          if (remoteActionSchema.safeParse(action).success) state = game.reduce(state, action as RemoteAction, e.effects_json ? JSON.parse(e.effects_json) : undefined);
+          if (remoteActionSchema.safeParse(action).success) state = game.reduce(state, action as RemoteAction, { ...(e.effects_json ? JSON.parse(e.effects_json) : {}), replay: true });
           else if (action.type === "table.created" && action.format) state = applyRemoteFormat(state, action.format);
           else if (action.type === "table.configured") { state = applyRemoteFormat(state, action.format); state.deckChecks.registrations = action.registrations; }
           else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; }

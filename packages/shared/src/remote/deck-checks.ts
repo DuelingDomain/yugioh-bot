@@ -47,6 +47,8 @@ export type RemoteDeckChecks = {
 export type RemoteReductionContext = {
   facts?: RemoteCardFacts; registration?: RemoteDeckRegistration;
   identified?: { notInDecklist: boolean; addErrors: string[] };
+  /** Trusted replay only: retain slot conflicts accepted before the live guard. */
+  replay?: boolean;
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
