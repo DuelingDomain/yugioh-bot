@@ -537,6 +537,48 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
+  test("field layout: Field, M1-M5, GY on top; Extra Deck, S1-S5, Deck below; other seats turned 180 degrees", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); await seed(context, slug);
+    await page.goto(`/duels/remote/${slug}`);
+    const box = async (seat: number, zone: string) => (await page.getByTestId(`field-${seat}`).locator(`[data-zone="${zone}"]`).boundingBox())!;
+    await expect(page.getByTestId("field-0")).toBeVisible();
+    const [f, m1, m5, gy, ex, s1, s5, deck, e1, m2] = await Promise.all(["f", "m1", "m5", "gy", "ex", "s1", "s5", "deck", "e1", "m2"].map(zone => box(0, zone)));
+    expect(f.x).toBeLessThan(m1.x); expect(gy.x).toBeGreaterThan(m5.x); expect(Math.abs(f.y - gy.y)).toBeLessThan(3);
+    expect(ex.x).toBeLessThan(s1.x); expect(deck.x).toBeGreaterThan(s5.x); expect(ex.y).toBeGreaterThan(f.y); expect(Math.abs(ex.x - f.x)).toBeLessThan(3); expect(Math.abs(deck.x - gy.x)).toBeLessThan(3);
+    expect(e1.y).toBeLessThan(m2.y); expect(Math.abs(e1.x - m2.x)).toBeLessThan(3);
+    // The other seat is turned: its Graveyard is on the left and its Field Zone on the right, its Deck on top.
+    const [ogy, of, odeck] = await Promise.all(["gy", "f", "deck"].map(zone => box(1, zone)));
+    expect(ogy.x).toBeLessThan(of.x); expect(odeck.y).toBeLessThan(ogy.y);
+    await shot(page, "layout-1920");
+  });
+
+  test("camera row: three-way choice; Turn camera on leaves manual mode; no deck flag without a registered deck", async ({ page, context }) => {
+    await fakeCamera(page, "16:9");
+    const slug = await soloTable(context.request, 2); await seed(context, slug);
+    // A banned card on a table with no registered deck must not raise "Deck no longer valid".
+    const room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    const placed = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "ttt", cardId: 25311006, name: "Triple Tactics Talent", slot: 2, faceUp: true, position: "attack" } } } });
+    expect(placed.status(), await placed.text()).toBe(200);
+    await page.goto(`/duels/remote/${slug}`);
+    const choice = page.getByRole("radiogroup", { name: "Camera source" });
+    await expect(choice.getByRole("radio")).toHaveCount(3);
+    await expect(choice.getByRole("radio", { name: "Use webcam" })).toBeVisible();
+    await expect(choice.getByRole("radio", { name: "Use phone as camera" })).toBeVisible();
+    const manual = choice.getByRole("radio", { name: "No camera (manual)" });
+    await expect(async () => { await manual.click(); await expect(manual).toHaveAttribute("aria-checked", "true", { timeout: 1500 }); }).toPass({ timeout: 30_000 });
+    await expect(page.getByText("No camera (manual). Use voice")).toBeVisible();
+    await page.getByTestId("camera-on-feed").click();
+    await expect(page.getByTestId("feed-0").locator("video")).toBeVisible();
+    await expect(choice.getByRole("radio", { name: "Use webcam" })).toHaveAttribute("aria-checked", "true");
+    await expect(manual).toHaveAttribute("aria-checked", "false");
+    // The row's own webcam choice also leaves manual mode.
+    await manual.click(); await expect(manual).toHaveAttribute("aria-checked", "true");
+    await choice.getByRole("radio", { name: "Use webcam" }).click();
+    await expect(page.getByTestId("feed-0").locator("video")).toBeVisible();
+    await expect(page.getByText("Deck no longer valid")).toHaveCount(0);
+    await shot(page, "camera-row");
+  });
+
   test("voice: zone words move the last card, a named card, set face down, and the field zone", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);

@@ -74,7 +74,9 @@ const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? "", sam
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, drag: dnd }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, drag: dnd, rotated }: {
+  /** Another player's field: turned 180 degrees as on the online board, so it reads from across the table. */
+  rotated?: boolean;
   seat: number; name: string; twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined;
   /** Master Rule 5: draw the two Extra Monster Zones and the Pendulum label on the outer Spell/Trap zones. */
   extraZones?: boolean;
@@ -126,17 +128,20 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   }
   function move(event: KeyboardEvent<HTMLDivElement>, key: ZoneKey) {
     let next: ZoneKey | null = null;
+    // A turned field: the arrow keys follow what the player sees.
+    const turned: Record<string, string> = { ArrowLeft: "ArrowRight", ArrowRight: "ArrowLeft", ArrowUp: "ArrowDown", ArrowDown: "ArrowUp" };
+    const arrow = rotated ? turned[event.key] ?? event.key : event.key;
     if (key === "e1" || key === "e2") {
       // The Extra Monster Zones sit above Main Monster Zone 2 and 4.
-      if (event.key === "ArrowRight" && key === "e1") next = "e2"; else if (event.key === "ArrowLeft" && key === "e2") next = "e1";
-      else if (event.key === "ArrowDown") next = key === "e1" ? "m2" : "m4";
+      if (arrow === "ArrowRight" && key === "e1") next = "e2"; else if (arrow === "ArrowLeft" && key === "e2") next = "e1";
+      else if (arrow === "ArrowDown") next = key === "e1" ? "m2" : "m4";
     } else {
       const i = ZK.indexOf(key as (typeof ZK)[number]);
-      if (event.key === "ArrowRight" && i % 7 < 6) next = ZK[i + 1];
-      else if (event.key === "ArrowLeft" && i % 7 > 0) next = ZK[i - 1];
-      else if (event.key === "ArrowDown" && i < 7) next = ZK[i + 7];
-      else if (event.key === "ArrowUp" && i >= 7) next = ZK[i - 7];
-      else if (event.key === "ArrowUp" && extraZones && (key === "m2" || key === "m4")) next = key === "m2" ? "e1" : "e2";
+      if (arrow === "ArrowRight" && i % 7 < 6) next = ZK[i + 1];
+      else if (arrow === "ArrowLeft" && i % 7 > 0) next = ZK[i - 1];
+      else if (arrow === "ArrowDown" && i < 7) next = ZK[i + 7];
+      else if (arrow === "ArrowUp" && i >= 7) next = ZK[i - 7];
+      else if (arrow === "ArrowUp" && extraZones && (key === "m2" || key === "m4")) next = key === "m2" ? "e1" : "e2";
     }
     if (next) {
       const target = next; event.preventDefault(); onRv(target);
@@ -154,9 +159,10 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   }
   const drawn = new Set(Object.values(cells).map(cell => cell.card?.ref).filter(Boolean));
   const extras = EXTRA_ZONES.map(zone => ({ ...zone, cards: twin.filter(card => card.zone === zone.id && !drawn.has(card.ref)) })).filter(zone => zone.cards.length);
+  const banished = twin.filter(card => card.zone === "banished").length;
   const keys: ZoneKey[] = extraZones ? [...EK, ...ZK] : [...ZK];
   return <>
-    <div className={s.field} role="group" onClickCapture={event => { if (swallow.current) { event.stopPropagation(); event.preventDefault(); } }} aria-label={`${name}'s virtual field`} data-testid={`field-${seat}`} data-emz={extraZones ? "on" : undefined}>
+    <div className={s.field} role="group" onClickCapture={event => { if (swallow.current) { event.stopPropagation(); event.preventDefault(); } }} aria-label={`${name}'s virtual field`} data-testid={`field-${seat}`} data-emz={extraZones ? "on" : undefined} data-rotated={rotated ? "on" : undefined}>
       {keys.map(key => {
         const cell = cells[key]; const card = cell.card; const pile = isPile(key);
         const cardInfo = card ? info(cardCode(card)) : undefined;
@@ -182,7 +188,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
         return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
           aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={() => { if (carried) dropCarried(key); else onActivate(key, card); }} onPointerDown={card ? event => begin(event, card) : undefined}>
-          {inner}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
+          {inner}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished`}>BAN {banished}</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
         </div>;
       })}
     </div>
