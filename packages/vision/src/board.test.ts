@@ -279,7 +279,7 @@ test('recognition starts after 500 ms and publishes only after the next clean de
 });
 test('a new card gets a short sampling burst even while placement motion is clearing',async()=>{
   const r=fieldRig();r.motion=.2;await r.tick(250);
-  assert.equal(r.watcher.getSnapshot().metrics.intervalMs,150);assert.equal(r.reads,0);
+  assert.equal(r.watcher.getSnapshot().metrics.intervalMs,100);assert.equal(r.reads,0);
   r.motion=0;for(let i=0;i<7;i++)await r.tick(250);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
 test('tracking continues during a slow read and motion invalidates the late identity',async()=>{
@@ -425,7 +425,7 @@ test('disagreeing second read prompts instead of placing',async()=>{
  const r=fieldRig();r.decklist=['A','B'];for(let i=0;i<3;i++)await r.tick();r.identity='B';for(let i=0;i<5;i++)await r.tick();assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='placed'),false);assert.equal(r.events.at(-1)?.type,'prompt');r.watcher.dispose();
 });
 test('calibrated candidates outside the mat are rejected',async()=>{
- const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([{x:.4,y:.4},{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();
+ for(const corner of [{x:.4,y:.4},{x:.34,y:.2}]){const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
 });
 
 test('a deck spread staggered across 1.5 seconds stays prompt-only',async()=>{
@@ -458,4 +458,13 @@ test('an optional priors provider returning undefined still recognizes full cata
 
 test('quiet empty-mat pixel checks skip inference but new motion starts detection before the idle budget',async()=>{
  const r=fieldRig();r.outlines=[];await r.tick(100);const before=r.detects;await r.tick(100);assert.equal(r.detects,before);r.motion=.2;r.outlines=[card(.3,.3)];await r.tick(50);assert.equal(r.detects,before+1);assert.equal(r.watcher.getSnapshot().tracks.length,1);r.watcher.dispose();
+});
+
+test('native camera ring refreshes within100ms while retaining at most six originals',async t=>{
+ const original=globalThis.createImageBitmap;let captured=0,closed=0;
+ globalThis.createImageBitmap=(async (source:any)=>({width:1280,height:720,n:source.n??++captured,close(){closed++;}})) as any;
+ t.mock.timers.enable({apis:['setTimeout']});const {createOwnFeedBuffer}=await import('./frame-buffer');const buffer=createOwnFeedBuffer({readyState:2,videoWidth:1280,videoHeight:720} as HTMLVideoElement);
+ const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
+ try{await flush();t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);for(let i=0;i<8;i++){t.mock.timers.tick(100);await flush();}assert.equal((await buffer.snapshot()).length,6);assert.ok(closed>=4);}
+ finally{buffer.stop();await flush();t.mock.timers.reset();globalThis.createImageBitmap=original;}
 });

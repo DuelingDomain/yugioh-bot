@@ -17,7 +17,7 @@ export function createOwnFeedBuffer(video:HTMLVideoElement,onFrame?:(count:numbe
         const at=performance.now();frames.push({bitmap,at});evict(at);onFrame?.(frames.length);
       });
     } catch {/* A temporarily unavailable camera frame does not destroy the ring. */}
-    if(!stopped)timer=setTimeout(()=>{void capture();},200);
+    if(!stopped)timer=setTimeout(()=>{void capture();},100);
   }
   void capture();
   return {
