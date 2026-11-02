@@ -3,6 +3,7 @@
 import type { RemoteActionProposal, RemoteEffectOrigin, RemoteRoom } from "@yugidraft/shared/remote";
 import { PopupFrame, type PopAt } from "./popup";
 import s from "./remote-ui.module.css";
+import { ThemedSelect } from "@/components/ui/themed-select";
 
 type Act = (action:RemoteActionProposal)=>Promise<RemoteRoom|null>;
 export function EffectControls({room,act,onOpen}:{room:RemoteRoom;act:Act;onOpen:(id:string)=>void}) {
@@ -40,7 +41,8 @@ export function EffectPicker({origin,showCardsSetFromDeck,at,onPick,onClose,onRe
   const label=origin.destination==="set" ? `Face-down · Set by ${origin.source.name}` : `${showCardsSetFromDeck ? "Search" : "Private hand"} · from ${origin.source.name}`;
   return <PopupFrame at={at} layer="effect" label={label} testid="effect-picker" className={s.effectPicker}>
     <h3>{label}</h3>
-    {alternatives && alternatives.length>1 ? <label>Choose the physical card <select aria-label="Choose face-down card" value={origin.id} onChange={event=>onOrigin?.(event.target.value)}>{alternatives.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label> : null}
+    {alternatives && alternatives.length>1 ? <ThemedSelect variant="menu" wide prefix="Physical card ·" label="Choose face-down card" value={origin.id} testId="effect-origin"
+      choices={alternatives.map(item=>({value:item.id,label:item.label}))} onChange={id=>onOrigin?.(id)} /> : null}
     <p>{showCardsSetFromDeck ? "Only you see these candidates. Your chosen card is shown to all players." : "Only you see these candidates and your choice."}{!showCardsSetFromDeck && origin.destination==="hand" && origin.announceRecommended ? " Reveal the searched card to the table when resolving the effect." : ""}</p>
     {origin.announcedCard ? <p>Shown to all: {origin.announcedCard.name}</p> : <>
       <div className={s.effectCandidates}>{(origin.candidates ?? []).map(candidate=><button className={s.btn} type="button" key={candidate.cardId} onClick={()=>onPick(candidate.cardId)}>{candidate.name} <small>×{candidate.copies}</small></button>)}</div>

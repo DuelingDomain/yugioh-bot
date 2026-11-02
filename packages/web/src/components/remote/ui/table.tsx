@@ -44,6 +44,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation} from '@yugidraft/vision';
+import { ThemedSelect } from "@/components/ui/themed-select";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
@@ -70,8 +71,8 @@ function CameraControl({room}: {room:RemoteRoom}) {
   const hub = useVideoHub();
   const leave = hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off";
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
-    {hub.cameraOn && hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
-      {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
+    {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" value={hub.cameraId} testId="camera-choice"
+      choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
     <RecognitionSetting variant="menu" />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;

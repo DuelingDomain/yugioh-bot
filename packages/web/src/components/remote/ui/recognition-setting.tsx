@@ -3,15 +3,16 @@
 import { useEffect, useId, useState } from "react";
 import { SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend, type RecognitionMode } from "./recognition-backend";
+import { RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import s from "./remote-ui.module.css";
+import { ThemedSelect } from "@/components/ui/themed-select";
 
 /** Notes already shown on this page: each one is said once. */
 const announced = new Set<string>();
 
 /**
  * "Card recognition: Auto / GPU / CPU", saved on this device. The lobby camera step and the table camera menu share it.
- * `sheet` (default) is the standard Match Sheet select for the lobby; `menu` is the small native select for the table's camera bar,
+ * `sheet` (default) is the standard Match Sheet select for the lobby; `menu` is the small themed select for the table's camera bar,
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
@@ -19,9 +20,8 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   if (variant === "menu") {
-    return <select aria-label="Card recognition" title={hint} value={mode} data-testid="recognition-mode" onChange={event => setRecognitionMode(event.target.value as RecognitionMode)}>
-      {RECOGNITION_MODES.map(item => <option key={item.value} value={item.value}>Recognition · {item.label}</option>)}
-    </select>;
+    return <ThemedSelect variant="menu" label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
+      choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />;
   }
   return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
     <SheetSelect label="Card recognition" value={mode} testId="recognition-mode" describedBy={hintId} compact
