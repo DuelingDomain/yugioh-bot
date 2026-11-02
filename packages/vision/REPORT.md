@@ -1,5 +1,113 @@
 # Remote vision measurements — 2026-11-01
 
+## Coordinator stop / handoff
+
+Stopped further implementation and tests at the coordinator's request. Zone layout
+mapping is **DONE**: Field left / GY right / Banished above or beside GY on the top
+row; Extra Deck left / Deck right on the bottom row; EMZ above M2/M4 in Advanced
+and Domain, none in Genesys. Homography and reviewed two-card calibration are wired.
+The virtual field's screen layout belongs to the separate screen worker.
+
+**Incomplete:** the full native tracker rerun identified all 10 placements, but only
+**4/10** complete slide/GY transfers kept their ref without another read. The other
+six created new tracks/re-reads. The clear-old-footprint guard includes the incoming
+card when its new outline overlaps the old footprint/halo; it needs an incoming-card
+mask. Do not treat the one successful single-trial diagnostic as a completed fix.
+Among the four successful transfers, slide p50/p95 was 517.8/852.6 ms and GY was
+612.1/1149.7 ms. These distributions exclude six failures and do **not** meet the
+0.3–0.5s target. Removal latency from that failed run includes stale removal events
+and is invalid; the harness now filters removal by original ref and departure time,
+but that harness adjustment was not rerun. Evidence is retained in ignored
+`data/vision/benchmark/field-watcher/gallery-verified.json` and earlier failed runs.
+
+The hand-only replay had **0 events across 276 samples / 30 s**; a separate 30 s
+moving/frozen hand occlusion had **0 false removals**. The cached positive replay
+retained 18/18 correct winners and reduced embedding calls 42→33. The matched placement
+before/after results below remain valid; fresh no-deck click p95 still misses 300 ms.
+
+The existing black-pad browser scenario was extended to use real two-card setup
+and four viewport screenshots, but **was not rerun** before this stop. No new test
+cases were added to CI. Earlier 153 vision, 137 component/recognition and 139 shared
+checks passed; the broad route run had four 5 s timeouts and one resulting stale-fixture
+failure, plus ten old confirm-argument expectations subsequently corrected by the
+passing 137-check rerun. Those five route failures remain unverified. Final quick
+vision/web/e2e typechecks all pass; no more tests were started.
+The isolated stack on 3449/3349/4349/7889/7890 was stopped by its recorded PIDs.
+
+**Worker rebundle: YES on the owner's test stack.** Pipeline/types/search changed and
+`data/vision/worker.js` is ignored, so merging commits does not transfer the artifact.
+Run `npm run build --workspace @yugidraft/vision`. This worktree's local bundle was
+already rebuilt after the pipeline changes; cache tag is `gallery-v6`.
+
+## Vision recommendation quick wins: duel gallery and one-read placement
+
+Applied the five requested quick wins on `feat/remote-autodetect` without replacing
+models or rebuilding/downloading the index. This section supersedes the earlier
+mandatory second-read and 1.5 s-hold policies in the historical results below.
+
+- Confirmed/sure and dismissed visual identities are stored per seat/duel in
+  browser sessionStorage, separate from copy refs and quads. Gallery similarity
+  >=.84 resolves an identity silently; .68–.84 holds uncertain matches without a
+  prompt. Open/dismissed track metadata survives three-second absences. Explicit
+  `Wrong card?` corrections refresh the gallery. A low read guessing another card
+  still resolves the confirmed gallery identity; two visible copies keep two refs.
+- The best two raw deck matches >=.55 are reserved in the top-five suggestions,
+  after the confidence decision. A clear catalog winner, raw evidence and feedback
+  vector remain unchanged. A conservative separate legacy deck window (.78/.08)
+  requires unboosted full-catalog/frame agreement; loaded calibration limits remain
+  unchanged. This does not promote a weak deck-only winner to sure.
+- A single clean card starts recognition after 300 ms stable geometry and publishes
+  after the next clean detector frame, using one read. Clear upright hypotheses may
+  skip the reverse embedding even when diagnostics are requested; uncertain,
+  upside-down, confusion and full-art cases keep their rescue paths. Simultaneous
+  spreads, covered/partial crops and new pile outlines remain guarded.
+- The tracker compares quarter-turned 8×12 patches without inference, prioritizes
+  strong outlines, and follows legal moves/rotation/GY with the existing ref.
+  A translated lost card requires a clear old footprint so a new same-art copy
+  cannot take a card's ref while a hand still covers it. Ambiguous jumps abstain
+  or use the existing read fallback; same-centre rotation remains fast.
+- Zone mapping now uses cached forward/inverse homographies, including EMZ and
+  existing type-based legal-row projection. M1/M5 setup captures one native frame,
+  fits all eight corners, then previews the same frozen frame before Save.
+  Four-corner adjustment/Recalibrate remains. Equal physical gaps in both directions
+  are an explicit preview assumption: two cards in one row cannot measure unknown
+  row spacing. Projective fixture recovery improves from x=.52368967 for true .5
+  to within 1e-7; invalid/covered/extra-outline captures are rejected.
+
+Matched real-Chromium CPU timing used the frozen 69aadfade source and current source,
+20 alternating trials per condition, 1280×720 camera capture, the same cached card,
+resident 14,652 int8 vectors / 14,488 card IDs and 4 threads SIMD WASM. No external model or
+index fetch occurred. Other workers share this machine; this is a repeatable local
+synthetic-camera benchmark, not a webcam population or WebGPU hardware claim.
+
+| Placement → identified | Before p50 / p95 | After p50 / p95 |
+| --- | ---: | ---: |
+| With 60-card deck prior | 1819.0 / 2090.0 ms | 976.6 / 1400.9 ms |
+| Without deck | 1823.1 / 1940.1 ms | 1013.6 / 1662.7 ms |
+
+Both runs: 40/40 correct ordinary placements and 40/40 correct fresh clicks; each
+index/meta/embedder/detector asset fetched once, no browser errors. Catalog search
+p50/p95 remains 2.880/3.605 → 2.885/3.345 ms over 120 measured queries with zero ranking
+mismatches. Placement p95 meets two seconds in both conditions; one no-deck maximum
+was 2532.8 ms, so a hard maximum is not guaranteed. Fresh untracked click p50/p95 changed
+170.6/284.5 → 198.0/291.5 ms with deck and 197.4/268.7 → 215.7/331.9 ms without. The after
+harness exits 1 because no-deck fresh-click p95 exceeds 300 ms (and is 23.5% above before);
+this speed miss is retained, not counted as a passing gate. Cached-popup behavior
+still performs no recognition; it was not re-timed in this round.
+
+Cached recognition replay: 18/18 positive winners unchanged, including six Nibiru
+orientation crops. Embedding calls 42→33; the three upright Nibiru samples change
+2→1 call and 111.5→58.6,86.2→47.5,87.0→50.1 ms in the paired Node 2-thread replay.
+Upside-down samples retain two calls and correct rescue. No new wrong-sure result;
+one existing forced-empty-pad-quad false sure remains. This limited replay does
+not reproduce the owner's missing native Nibiru read. The missing deck-tail case
+is now covered by a controlled low-score probe and owner-local diagnostics.
+
+Evidence: ignored `data/vision/benchmark/before-gallery/run/before-gallery-69aadfade.json`,
+`data/vision/benchmark/latency/gallery-after.json`, and
+`data/vision/diagnostics/deck-orientation/{before,after}.json`.
+
+
 ## Plain black pad follow-up: one-shot prompts and guided calibration
 
 Read all three supplied screenshots from the owner's `bbaa6c946` test. This

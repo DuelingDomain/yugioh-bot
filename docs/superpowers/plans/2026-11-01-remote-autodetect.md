@@ -307,3 +307,43 @@ screen worker, and generate the ignored pad-v5 worker bundle when merging.
 All owned isolated services were stopped by PID; their ports are free and
 protected ports were untouched. The normalized-origin diagnostic saves with 201;
 public diagnostic assets return 404 and foreign origins return 403.
+
+## Vision quick wins: duel gallery, one-read settlement and projective setup
+
+Coordinator supplied `vision-stack-recommendation.md` and authorized these five
+bounded changes. Keep the current local models/index, action queue and conservative
+clear-mat removal policy; no training or protected-service changes.
+
+- [x] Reuse confirmed/sure and dismissed identity embeddings through a duel-local,
+  seat-scoped gallery with .84/.68 hysteresis, independent of physical copy refs.
+  Retain open/dismissed track metadata rather than deleting it after three seconds.
+  Persist gallery answers in sessionStorage across camera restart/reload; explicit
+  public identity corrections replace their gallery answer.
+- [x] Reserve two deck suggestions at raw score >=.55 in the final top-five list.
+  Keep confidence evidence separate; use a conservative deck limit and preserve
+  loaded webcam calibration thresholds and clear off-deck winners.
+- [x] Start the single-card read at 300ms stability, publish on the next clean
+  frame, remove the independent second read and unconditional 1.5 s hold, and prefer
+  the upright view while keeping uncertain/reverse rescue.
+- [ ] Finish all clean slides, quarter turns and GY entries with the same tracker ref
+  and no new read. Prioritize strong outlines; weak observations may retain a track
+  but cannot create/place one. Lost translated tracks require a clear old footprint
+  so a second copy under a hand cannot steal the first card's ref.
+- [x] Replace inverse bilinear mapping with cached homographies. Fit two full card
+  quads in M1/M5 and review the inferred grid before Save; keep draggable corners
+  and Recalibrate. Equal horizontal/vertical physical gaps remain an explicit
+  assumption because two cards in one row cannot observe unknown row spacing.
+- [ ] Finish matched before/after timing, hand/rotation/GY benchmark, targeted
+  checks and the existing isolated black-pad browser scenario, stop owned PIDs,
+  record limits and push small commits without a PR or attribution trailers.
+
+One existing feature probe covers each requested behavior; older mandatory
+second-read/long-hold probes were consolidated. No new per-case CI tests or model
+inference were added to CI.
+
+Coordinator stop: no further implementation or tests. Final native transfer run
+passes4/10 same-ref/no-read slide/GY sequences; overlapping old-footprint/halo needs
+an incoming-card mask. Hand-only276samples and30s tracked occlusion have zero false
+removals. Browser scenario changes remain unrun. Route fixture failures remain
+unverified. Quick touched-package types, commit/push and recorded-PID cleanup only.
+Zone mapping is DONE; owner test stack must rebundle the ignored vision worker.
