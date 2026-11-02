@@ -98,6 +98,46 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
 describe("remote deck registration and live checks", () => {
+  it("moves one visible camera or manual copy after a slide or lift without a twin prompt", () => {
+    const s = deckSession("normal"); s.start();
+    const code = 89631133;
+    const place = (ref: string, slot: number, extra: Record<string, unknown> = {}) => s.act({
+      type: "twin.place", seat: 0, zone: "monster", card: { ref, cardId: code, name: "Blue-Eyes White Dragon", slot }, ...extra,
+    });
+    const single = (slot: number) => {
+      expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: "blue", slot, zone: "monster" })]);
+      expect(s.room.state.twinConfirmation).toBeUndefined();
+      expect(s.room.state.deckChecks.instances).toHaveLength(1);
+      expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    };
+    place("blue", 5, { source: "auto" });
+    place("slide-quad", 4, { source: "auto" }); single(4);
+    place("click-read", 3); single(3);
+    s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
+    place("lifted-quad", 4, { source: "auto" }); single(4);
+    s.act({ type: "twin.remove", seat: 0, cardRef: "blue" });
+    place("new-tracker-id", 5, { source: "auto" }); single(5);
+    place("future-proof", 4, { copyProof: { simultaneousQuads: 2, at: 999999 } }); single(4);
+    // A lift followed by a new detector ref puts the same card on top of each pile.
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "older-gy", cardId: 46986414 } });
+    s.act({ type: "twin.place", seat: 0, zone: "banished", card: { ref: "older-banish", cardId: 14558127 } });
+    for (const zone of ["graveyard", "banished"]) {
+      s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
+      s.act({ type: "twin.place", seat: 0, zone, source: "auto", card: { ref: "pile-quad-" + zone, cardId: code } });
+      expect(s.room.state.seats[0].twin.filter(c => c.zone === zone).map(c => c.ref)).toEqual([zone === "graveyard" ? "older-gy" : "older-banish", "blue"]);
+      expect(s.room.state.twinConfirmation).toBeUndefined();
+      expect(s.room.state.deckChecks.instances.filter(i => i.code === code)).toHaveLength(1);
+      expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    }
+    s.act({ type: "twin.remove", seat: 0, cardRef: "older-gy" });
+    s.act({ type: "twin.remove", seat: 0, cardRef: "older-banish" });
+    place("return-quad", 4, { source: "auto" });
+    // Only two simultaneous physical copies justify the manual question.
+    place("second-quad", 2, { copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } });
+    expect(s.room.state.seats[0].twin).toHaveLength(2);
+    expect(s.room.state.twinConfirmation?.existingRefs).toEqual(["blue"]);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
   it("defaults Deck choice publicity on and preserves a strict table option through configuration and replay", () => {
     const s = deckSession("normal");
     expect(s.room.showCardsSetFromDeck).toBe(true);
@@ -168,7 +208,7 @@ describe("remote deck registration and live checks", () => {
     expect(twins().find(t => t.ref === "proven-copy")).toMatchObject({ zone: "spell-trap", slot: 1 });
     expect(twins().find(t => t.ref === "original")?.slot).toBe(2);
     s.act({ type: "twin.remove", seat: 0, cardRef: "proven-copy" });
-    s.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "manual", cardId: talent, slot: 3 } });
+    s.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "manual", cardId: talent, slot: 3 }, copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } });
     expect(twins()).toHaveLength(2);
     expect(s.room.state.twinConfirmation).toMatchObject({ seat: 0, anotherCopyAllowed: true, message: "You already have Triple Tactics Talent on the field — another copy?" });
     s.act({ type: "twin.remove", seat: 0, cardRef: "manual" });
@@ -214,7 +254,7 @@ describe("remote deck registration and live checks", () => {
   it("keeps manual duplicate confirmation private in snapshots and Undo history", () => {
     const s = deckSession("normal"); s.start();
     for (const [index, ref] of ["private-first", "private-second"].entries())
-      s.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref, cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: index + 1 } });
+      s.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref, cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: index + 1 }, ...(index ? { copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } } : {}) });
     expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.twinConfirmation?.message).toContain("Ash Blossom");
     expect(s.service.snapshot(s.room.slug, "g").state.twinConfirmation).toBeUndefined();
     s.act({ type: "phase.set", phase: "main1" });

@@ -33,7 +33,12 @@ export function guardTwinPlacement(state: RemoteState, action: Extract<RemoteAct
   const code = action.card.cardId ?? action.card.passcode;
   const limit = code ? context?.facts?.[code]?.limit : undefined;
   const anotherCopyAllowed = !!registration && !registration.validation.issues.length && matches.length < Math.min(registeredCount, limit ?? registeredCount);
-  if (action.source !== "auto") {
+  const legacyManual = context?.replay && context.twinPlacementGuard === 1 && action.source !== "auto";
+  const proof = action.copyProof, at = action.at ?? state.updatedAt;
+  const simultaneous = !!proof && proof.simultaneousQuads > matches.length && proof.at <= at && at - proof.at <= 5000;
+  // A click is another observation of the same physical copy unless a current
+  // frame proves that more copies exist. Keep the old rule for recorded events.
+  if (legacyManual || action.source !== "auto" && (action.anotherCopy || simultaneous)) {
     if (action.anotherCopy) remoteAssert(anotherCopyAllowed, "The registered decklist does not allow another copy", 409, "TWIN_COPY_NOT_ALLOWED");
     const onField = matches.filter(t => remoteFieldZone(t.zone));
     if (onField.length && !action.anotherCopy) state.twinConfirmation = {
@@ -42,9 +47,7 @@ export function guardTwinPlacement(state: RemoteState, action: Extract<RemoteAct
     };
     return;
   }
-  const proof = action.copyProof;
-  const at = action.at ?? state.updatedAt;
-  if (proof && proof.simultaneousQuads > matches.length && proof.at <= at && at - proof.at <= 5000) return;
+  if (simultaneous) return;
   const pile = matches.find(t => !remoteFieldZone(t.zone));
   if (pile) return { ref: pile.ref, card: pile };
   const field = matches.find(t => t.zone === action.zone && remotePhysicalSlot(t.zone, t.slot) === remotePhysicalSlot(action.zone, action.card.slot)) ?? matches[0];

@@ -120,7 +120,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   function proposePose(t:InternalTrack,card:DetectedQuad,cards:DetectedQuad[],evidence:FieldAnalysis,at:number,width:number,height:number) {
     const origin=t.announced??t.view.card,pixels=evidence.appearance?.(card);
-    if(!bound(t)||t.view.removed||card.kind!==t.view.card.kind||(card.kind==='face-down')!==t.view.faceDown||card.confidence<.7||card.partial||card.covered||isCovered(card,cards)||!pixels?.length||
+    if(!bound(t)||card.kind!==t.view.card.kind||(card.kind==='face-down')!==t.view.faceDown||card.confidence<.7||card.partial||card.covered||isCovered(card,cards)||!pixels?.length||
       (distance(origin,card)<=.04&&fieldOrientation(card,width,height,calibration)===t.view.position))return;
     t.pose={card:structuredClone(card),origin:structuredClone(origin),appearance:pixels,at,samples:0};
   }
@@ -137,7 +137,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       t.view.visible=false;
       if(pose.samples<2||at-pose.cleanAt<100)continue;
       const card=pose.card,position=fieldOrientation(card,width,height,calibration);
-      t.view.card=card;t.view.zone=mapFieldZone(card,calibration,[],options.format).zone;t.view.position=position;t.view.lastSeen=at;t.view.visible=true;
+      t.view.card=card;t.view.zone=mapFieldZone(card,calibration,[],options.format).zone;t.view.position=position;t.view.lastSeen=at;t.view.visible=true;t.view.removed=false;
       t.anchor=card;t.kind=card.kind;t.position=position;t.appearance=pixels;t.halo=evidence.halo?.(card);t.missed=false;t.reappeared=false;t.stableSince=pose.cleanAt;t.observations=pose.samples;resetAbsence(t);
       t.pose=undefined;t.announced=card;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;emit('moved',t);
     }
@@ -206,6 +206,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
         pruneFrames();return;
       }
+      const readyRead=tracks.some(t=>t.previewEligible&&!t.view.removed&&!t.promptOnly&&!t.identityCheck&&t.read?.result?.tier==='sure'&&
+        (t.read.result.candidates[0]?.score??0)>=.84&&sample.at-t.view.lastSeen<=1500&&evidence.motion(t.view.card)<=.025&&
+        sameFieldAppearance(t.read.appearance,evidence.appearance?.(t.view.card)));
+      let detected:DetectedQuad[];
+      if(readyRead){
+        // Retain only outlines whose current pixels still agree. A new outline
+        // or changed/occluded pixels must go through detection as usual.
+        detected=tracks.filter(t=>!t.view.removed&&(t.view.visible||t.read)&&evidence.motion(t.view.card)<=.025&&
+          sameFieldAppearance(t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
+      }else{
       detectFrame=await clone(current);
       // Discover new outlines in the recent motion crop, including all live
       // tracks so association and overlap checks still see the whole field.
@@ -218,13 +228,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if((right-x)*(bottom-y)<.6)region={x,y,w:right-x,h:bottom-y};
       }
       const detectStart=now();
-      let detected=await options.recognizer.detectCards(detectFrame,region?{region}:undefined);
+      detected=await options.recognizer.detectCards(detectFrame,region?{region}:undefined);
       if(region&&detected.some(c=>c.partial)){
         closeFieldFrame(detectFrame);detectFrame=await clone(current);
         detected=await options.recognizer.detectCards(detectFrame);region=undefined;
       }
       if(!region)lastFullDetectionAt=sample.at;
       metrics.detectorMs=now()-detectStart;lastDetectionAt=sample.at;
+      }
       if(generation!==epoch||disposed)return;
       const cards=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       metrics.samples++;status='watching';error=undefined;
@@ -326,7 +337,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.appearance=pixels;t.halo=evidence.halo?.(c);
           await startRead(t,current,c,crop,sample.at,generation);
         }
-        const face=faceState.gate.update(observation,sample.at);
+        const knownFace=bound(t)&&c.kind===t.kind&&t.view.faceDown===(c.kind==='face-down')&&matchesLook(t,pixels)&&
+          c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
+        const sureFront=observation.state==='up'&&t.read?.result?.tier==='sure'&&(t.read.result.candidates[0]?.score??0)>=.84&&
+          !t.read.result.quality.fallback&&!t.read.result.quality.covered&&!t.read.result.quality.partial&&!t.read.result.quality.faceDown&&
+          sameFieldAppearance(t.read.appearance,pixels);
+        const gatedFace=faceState.gate.update(observation,sample.at);
+        const face=knownFace?{state:t.view.faceDown?'down' as const:'up' as const,confidence:1}:sureFront?observation:gatedFace;
         if(face.state==='unknown'){
           if(observation.state!=='unknown')faceState.pendingAt??=sample.at;else faceState.pendingAt=undefined;
           t.view.visible=false;t.pose=undefined;t.best=undefined;

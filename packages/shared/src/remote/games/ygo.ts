@@ -126,7 +126,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
-      const reuse = !context?.replay || context.twinPlacementGuard === 1 ? guardTwinPlacement(next, action, context) : undefined;
+      const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
       const ref = reuse?.ref ?? action.card.ref;
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
