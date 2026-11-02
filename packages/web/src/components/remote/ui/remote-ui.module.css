@@ -200,7 +200,8 @@
 .field[data-rotated]{transform:rotate(180deg)}
 /* Text on a turned field stays upright so it can be read. */
 .field[data-rotated] .zl,.field[data-rotated] .cnt,.field[data-rotated] .pl,.field[data-rotated] .plate,.field[data-rotated] .originLabel,.field[data-rotated] .ban{transform:rotate(180deg)}
-.zc .ban{position:absolute;left:2px;top:2px;z-index:3;font:700 8px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:#e8c66a;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;pointer-events:none}
+.zc .ban{position:absolute;left:2px;top:2px;z-index:3;font:700 8px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:#e8c66a;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;cursor:pointer}
+.zc .ban:hover{background:var(--gold);color:#1b1204}
 .zc.taken{opacity:.55;border-style:dashed}
 .zc.drg{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
 .zc.dragSrc{opacity:.5}
@@ -799,3 +800,54 @@
 .dupbar .btn.q{color:var(--gold-ink)}
 .dupbar .btn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
 @media (max-width:700px){.dupbar{font-size:12px;padding:4px 6px}}
+
+/* Graveyard and Banished pile viewer. Fixed over the table, not modal: while a card is dragged the panel lets the pointer through. */
+.pileRoot{position:fixed;inset:0;z-index:44;pointer-events:none}
+.pile{position:absolute;left:50%;bottom:calc(var(--dock) + 12px);transform:translateX(-50%);display:flex;flex-direction:column;width:min(980px,calc(100vw - 32px));max-height:min(62dvh,560px);
+  border:1px solid var(--gold);border-radius:12px;background:linear-gradient(180deg,#1a1030,#0d0819);box-shadow:0 24px 70px rgb(0 0 0/.7),0 0 40px rgb(232 185 79/.16);pointer-events:auto;animation:pop .28s var(--ease);overflow:hidden}
+.pileHead{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.pileTitle{margin:0;flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:10px;font:700 18px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pileTitle small{font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold-ink)}
+.pileHead .seg b{margin-left:5px;font:700 12px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--gold-ink)}
+.pileBody{display:flex;gap:14px;min-height:0;flex:1 1 auto;padding:12px}
+.pileList{list-style:none;margin:0;padding:4px 2px 8px;flex:1 1 0;min-width:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px 10px;align-content:start}
+.pileItem{display:block;min-width:0}
+.pileTile{position:relative;display:flex;flex-direction:column;gap:5px;width:100%;padding:0;border:0;background:none;color:var(--ink2);text-align:center;user-select:none;-webkit-user-select:none}
+.pileTile.drg{cursor:grab}
+.pileTile.dragSrc{opacity:.45}
+.pileArt{position:relative;display:block;aspect-ratio:59/86;border-radius:5px;overflow:hidden;background:#05030b;box-shadow:0 0 0 1px rgb(167 139 255/.28),0 6px 14px rgb(0 0 0/.5);transition:transform .16s var(--ease),box-shadow .16s}
+.pileArt img{display:block;width:100%;height:100%;object-fit:cover}
+.pileTile:hover .pileArt,.pileTile:focus-visible .pileArt{transform:translateY(-4px);box-shadow:0 0 0 2px var(--gold),0 10px 22px rgb(0 0 0/.6),0 0 18px rgb(232 185 79/.4)}
+.pileTile:focus-visible{outline:none}
+.pileBack{position:absolute;inset:0;width:100%;height:100%}
+.pileUnk{position:absolute;inset:0;display:grid;place-items:center;font:700 28px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink3)}
+.pileDown{position:absolute;left:3px;bottom:3px;right:3px;padding:2px 3px;border-radius:3px;background:rgb(7 4 14/.88);color:var(--gold-ink);font:700 9.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;font-style:normal}
+.pileDown:empty{display:none}
+.pileTile[data-down=on] .pileArt img{opacity:.72}
+.pileNo{position:absolute;left:4px;top:4px;padding:2px 5px;border-radius:3px;background:rgb(7 4 14/.9);color:var(--ink2);font:700 10px/1 var(--font-duel-display),Oxanium,sans-serif;pointer-events:none}
+.pileItem:first-child .pileNo{background:var(--gold);color:#1b1204}
+.pileName{display:block;font-size:11.5px;font-weight:600;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.pilePrev{flex:none;width:230px;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto;--aw:200px}
+.pilePrev:empty{display:none}
+.pilePrev>*{flex:none}
+@media (max-height:820px){.pilePrev{--aw:140px;width:180px}}
+.pilePrev .bname{font-size:17px;padding-right:0}
+.pilePrev .btext{font-size:12px;line-height:1.4}
+.pileEmpty{margin:auto;padding:28px 12px;color:var(--ink3);font-size:14px}
+.pileHint{margin:0;padding:7px 12px;border-top:1px solid var(--line);color:var(--ink3);font-size:11.5px}
+.pileHand{pointer-events:auto;position:absolute;left:50%;bottom:calc(var(--dock) + 14px);transform:translateX(-50%);display:none;align-items:center;gap:8px;height:44px;padding:0 20px;border:2px dashed var(--gold);border-radius:10px;background:rgb(26 16 48/.94);color:var(--gold-ink);font:700 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 10px 30px rgb(0 0 0/.6)}
+.pileHand.dropOk{border-style:solid;border-color:rgb(121 217 168/.95);color:#bff3d8;box-shadow:0 0 0 3px rgb(121 217 168/.35)}
+.pileHand.dropAsk{border-style:solid;box-shadow:0 0 0 3px rgb(232 185 79/.35)}
+.pileHand.dropNo{border-color:rgb(240 100 120/.9);color:#ffb3bd}
+.pileRoot[data-dragging=on] .pile{opacity:.28;pointer-events:none;transition:opacity .12s}
+.pileRoot[data-dragging=on] .pileHand{display:inline-flex}
+@media (max-width:1100px){.pilePrev{display:none}}
+@media (max-width:700px){
+  .pile{left:0;right:0;bottom:0;transform:none;width:auto;max-height:56dvh;border-radius:14px 14px 0 0;border-width:1px 0 0}
+  .pileHead{flex-wrap:wrap;gap:8px}
+  .pileTitle{flex-basis:100%;order:-1;font-size:16px}
+  .pileList{grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:10px 8px}
+  .pileHint{display:none}
+  .pileHand{bottom:auto;top:calc(var(--hdr) + 10px)}
+}
+@media (prefers-reduced-motion:reduce){.pile{animation:none}.pileArt{transition:none}}
