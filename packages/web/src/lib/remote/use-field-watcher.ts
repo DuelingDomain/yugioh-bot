@@ -8,6 +8,22 @@ export interface UseFieldWatcherOptions {
   owner:boolean; active:boolean; seatKey:string; duelKey?:string; sourceKey?:unknown; deviceKey?:string;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
+const keyOf=(seatKey:string)=>`dd-field-watcher:v1:${seatKey}`;
+/** The saved field calibration of a seat, or undefined. The lobby reads and writes the same record the table watcher uses. */
+export function loadFieldCalibration(seatKey:string):FieldCalibration|undefined {
+  try {const stored=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}');return stored?.calibration?createFieldCalibration(stored.calibration.corners):undefined;}catch{return undefined;}
+}
+/** The camera the saved calibration was made with, when the lobby saved it. */
+export function loadFieldCalibrationCamera(seatKey:string):string|undefined {
+  try {const id=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}')?.cameraId;return typeof id==='string'&&id?id:undefined;}catch{return undefined;}
+}
+export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string) {
+  try {
+    let stored:{enabled?:boolean}={};
+    try {const old=JSON.parse(localStorage.getItem(keyOf(seatKey))??'{}');if(old&&typeof old==='object')stored=old;}catch{/* Start from empty. */}
+    localStorage.setItem(keyOf(seatKey),JSON.stringify({...stored,calibration:grid,cameraId}));
+  } catch {/* Memory-only fallback. */}
+}
 /** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const latest=useRef(options);latest.current=options;

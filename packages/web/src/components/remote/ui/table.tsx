@@ -29,6 +29,7 @@ import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
+import { takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
@@ -124,6 +125,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, []);
   useEffect(() => { if (ctl.error) { toast(ctl.error, 4200); ctl.setError(""); } }, [ctl, ctl.error, toast]);
   useEffect(() => { if (hub.error) toast(hub.error, 4200); }, [hub.error, toast]);
+  // A webcam player whose lobby preview worked gets the table camera without another click.
+  const handoff = useRef(false);
+  useEffect(() => {
+    if (handoff.current || !live || !hub.rosterReady) return;
+    handoff.current = true;
+    if (!takeCameraReady(room.slug) || hub.manual(mySeat) || hub.phones.some(item => item.seat === mySeat) || hub.cameraOn) return;
+    void hub.enableCamera();
+  }, [live, hub, room.slug, mySeat]);
 
   const seen = useRef<{ phase: string; turn: number; seat: number } | null>(null);
   const [turnIn, setTurnIn] = useState(false);
