@@ -19,7 +19,7 @@ import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
-import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck } from './search';
+import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions } from './search';
 import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
 
 /** Worker-only source ownership; never included in its public reply. */
@@ -160,7 +160,9 @@ export class RecognitionPipeline {
         merged = mergeCandidates(lists, 10);
         if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds);
         timings.search += performance.now() - t;
-        if (!opts.includeRaw && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(mergeCandidates(cleanLists,10), thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
+        const cleanMerged=mergeCandidates(cleanLists,10);
+        const clearUpright=opts.preferUpright && hypothesis.rotation===0 && found && !partial && !selected?.partial && !covered && !fullArt && !faceDown && !this.fullArtIndex?.meta.count && cleanMerged[0]?.cardId===merged[0]?.cardId && cleanMerged[0].score>=thresholds.score && cleanMerged[0].score-(cleanMerged[1]?.score??0)>=Math.max(.08,thresholds.margin);
+        if ((!opts.includeRaw || clearUpright) && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(cleanMerged, thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
       }
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
@@ -211,12 +213,12 @@ export class RecognitionPipeline {
       if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,thresholds,this.profile.cardBack.cardId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
     }
     const t = performance.now(), k = opts.k ?? 5;
-    let candidates: Candidate[] = [], visual: Candidate[] = [];
+    let candidates: Candidate[] = [], visual: Candidate[] = [], deckSuggestions:Candidate[]=[];
     let frameClass: string | undefined;
     const fallback = !views.length || views.some(v => !v.corners);
     if (views.length) {
       frameClass = views.map(v => v.frameClass).find(c => c && views.filter(v => v.frameClass === c).length > views.length / 2);
-      const visualLists: Candidate[][]=[], rankedLists: Candidate[][]=[];
+      const visualLists: Candidate[][]=[], rankedLists: Candidate[][]=[], deckLists:Candidate[][]=[];
       for(const index of [this.index,this.fullArtIndex].filter((i): i is LoadedIndex=>Boolean(i))) {
         const group=views.flatMap(view=>view.alternatives.filter(a=>a.index===index).map(a=>({...a,corners:view.corners}))); if(!group.length) continue;
         const average=new Float32Array(index.meta.dim);
@@ -224,9 +226,11 @@ export class RecognitionPipeline {
         const query=group.length===1?group[0].vector:normalize(average),clean=cleanSearch(query,index);
         visualLists.push(clean);
         rankedLists.push(this.search(query,index,Math.max(k,10),opts.priors,index===this.index?frameClass:undefined,clean));
+        if(opts.priors?.decklist?.length)deckLists.push(topK(query,index,2,undefined,undefined,new Set(opts.priors.decklist)));
       }
       visual=mergeCandidates(visualLists,Math.max(k,10));
       candidates=mergeCandidates(rankedLists,Math.max(k,10));
+      deckSuggestions=mergeCandidates(deckLists,2);
       if(opts.priors?.decklist?.length)candidates=preferDeck(candidates.filter(c=>opts.priors!.decklist!.includes(c.cardId)),candidates,thresholds,visual);
       if (fallback) {
         visual = visual.map(c => ({ ...c, score: c.score * .85 }));
@@ -249,6 +253,6 @@ export class RecognitionPipeline {
     const collect=opts.includeFeedback && safeEvidence;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
     const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const}:undefined;
-    return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), candidates: candidates.slice(0, k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+    return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }

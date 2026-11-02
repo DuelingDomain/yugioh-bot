@@ -7,13 +7,13 @@ import type {ModelSession} from './runtime';
 import type {TensorCtor} from './embed';
 const selected:DetectedQuad={quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],kind:'face-up',confidence:1,partial:false};
 const frame={width:20,height:30,data:new Uint8ClampedArray(2400).fill(120)};
-function fixture(full=true,counter?:{calls:number}) {
+function fixture(full=true,counter?:{calls:number},scores=[.9,.95]) {
   const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   const index=(ids:string[])=>({meta:{dim:2,count:2,entries:ids.map(cardId=>({cardId,name:cardId,passcode:1,frameClass:'Effect'}))},vectors:new Float32Array([1,0,0,1])}) as LoadedIndex;
   class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
   let step=0;
   const detector={backend:'wasm',run:()=>{throw new Error('selected quad must skip detection');}} as unknown as ModelSession;
-  const embedder={backend:'wasm',run:async()=>{if(counter)counter.calls++;const score=step++===0?.9:.95;return {[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([score,Math.sqrt(1-score*score)])}};}} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>{if(counter)counter.calls++;const score=scores[Math.min(step++,scores.length-1)];return {[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([score,Math.sqrt(1-score*score)])}};}} as unknown as ModelSession;
   return new RecognitionPipeline(profile,index(['A','B']),detector,embedder,Tensor as unknown as TensorCtor,full?index(['C','D']):undefined);
 }
 test('clear full-catalog answer survives decklist preference across indexes',async()=>{
@@ -35,6 +35,16 @@ test('selected quad skips detector and returns its warp even without full-art re
   assert.equal(diagnostic.warpedCard?.width,10);assert.equal(diagnostic.warpedCard?.height,15);
   assert.deepEqual(diagnostic.candidates,result.candidates);assert.deepEqual(diagnostic.quality,result.quality);
   for(const key of ['feedback','aiWarpedCard','deferredAICrop','aiCandidateNames'])assert.equal(diagnostic[key as keyof typeof diagnostic],undefined);
+});
+test('upright preference skips a clear reverse view with replay evidence and preserves uncertain reverse rescue',async()=>{
+  const baseline={calls:0},fast={calls:0},rescue={calls:0};
+  const plain=await fixture(false,baseline).recognize([frame],{card:selected,includeRaw:true});
+  const result=await fixture(false,fast).recognize([frame],{card:selected,includeRaw:true,includeFeedback:true,preferUpright:true});
+  assert.equal(baseline.calls,2);assert.equal(fast.calls,1);assert.equal(result.candidates[0].cardId,plain.candidates[0].cardId);
+  assert.equal(result.tier,'sure');assert.equal(result.raw?.winnerId,result.candidates[0].cardId);assert.equal(result.raw?.frames[0].hypotheses?.length,1);
+  assert.ok(Math.abs(result.feedback!.embedding[0]-.9)<1e-6);
+  const reversed=await fixture(false,rescue,[.76,.95]).recognize([frame],{card:selected,includeRaw:true,preferUpright:true});
+  assert.equal(rescue.calls,2);assert.equal(reversed.candidates[0].cardId,'A');assert.equal(reversed.tier,'sure');
 });
 test('live reads use only the sharpest buffered frame and return that frame outline',async()=>{
   const noisy={...frame,data:frame.data.slice()};
@@ -331,10 +341,34 @@ test('runtime refuses thresholds calibrated for a different index or model',()=>
   assert.throws(()=>calibratedThresholds({...config,modelSha256:'wrong'},yugioh,index),/Incompatible/);
 });
 
-test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',()=>{
+test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',async()=>{
   const t=yugioh.embedding.thresholds,deck=[{cardId:'2',score:.81}],catalog=[{cardId:'1',score:.82},deck[0]];
   assert.equal(preferDeck(deck,catalog,t)[0].cardId,'2');
   assert.equal(preferDeck(deck,[{cardId:'1',score:.96},deck[0]],t)[0].cardId,'1');
+  const search=await import('./search');
+  const weakDeck=[{cardId:'nibiru',score:.66},{cardId:'deck-2',score:.56},{cardId:'too-low',score:.54}];
+  const visual=[.79,.78,.77,.76,.75].map((score,i)=>({cardId:`catalog-${i}`,score}));
+  const shown=search.withDeckSuggestions(weakDeck,visual,5);
+  assert.equal(shown[0],visual[0]);assert.equal(shown.length,5);assert.deepEqual(shown.slice(-2),weakDeck.slice(0,2));
+  assert.ok(!shown.some(c=>c.cardId==='too-low'));
+  const {replayTier}=await import('./decision');
+  const raw:any={visual:[{cardId:'nibiru',score:.79},{cardId:'other',score:.70}],ranked:[{cardId:'nibiru',score:.79},{cardId:'other',score:.70}],winnerId:'nibiru',cardBackId:'back',blocked:[],priors:{decklist:['nibiru']}};
+  raw.frames=[{eligible:true,clean:raw.visual,ranked:raw.ranked,deck:weakDeck}];
+  assert.equal(replayTier(raw,t),'sure');assert.notEqual(replayTier({...raw,priors:undefined},t),'sure');
+  assert.notEqual(replayTier({...raw,visual:[{cardId:'nibiru',score:.66},{cardId:'other',score:.5}]},t),'sure');
+  assert.notEqual(replayTier(raw,{score:.9,margin:.04,floor:.74}),'sure');
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  const rows=[{cardId:'clear',score:.95},...visual,...weakDeck];
+  const index:LoadedIndex={meta:{dim:2,count:rows.length,entries:rows.map(c=>({cardId:c.cardId,name:c.cardId,passcode:1}))} as LoadedIndex['meta'],vectors:Float32Array.from(rows.flatMap(c=>[c.score,Math.sqrt(1-c.score*c.score)]))};
+  class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
+  const detector={backend:'wasm',run:()=>{throw Error('selected quad');}} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([1,0])}})} as unknown as ModelSession;
+  const pipeline=new RecognitionPipeline(profile,index,detector,embedder,Tensor as unknown as TensorCtor);
+  const plain=await pipeline.recognize([frame],{card:selected,includeRaw:true,includeFeedback:true});
+  const result=await pipeline.recognize([frame],{card:selected,includeRaw:true,includeFeedback:true,priors:{decklist:weakDeck.map(c=>c.cardId)}});
+  assert.equal(result.candidates[0].cardId,'clear');assert.equal(result.tier,plain.tier);
+  assert.deepEqual(result.candidates.slice(-2).map(c=>c.cardId),['nibiru','deck-2']);
+  assert.deepEqual(result.raw?.ranked,plain.raw?.ranked);assert.deepEqual(result.feedback,plain.feedback);
 });
 
 import {catalogCards,physicalCatalogCards} from '../../../scripts/vision/catalog';
