@@ -5,22 +5,34 @@
 .stage{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;align-items:start}
 .viewCol{min-width:0}
 /* The frame takes the camera's real aspect ratio, so there are no black bars. */
-.view{position:relative;width:100%;aspect-ratio:var(--ar,1.7778);max-height:56vh;background:var(--duel-panel);border:1px solid var(--duel-rule-lo);border-radius:6px;overflow:hidden;transition:border-color .2s}
+.view{--vh:52vh;position:relative;width:min(100%,calc(var(--vh)*var(--ar,1.7778)));aspect-ratio:var(--ar,1.7778);background:var(--duel-panel);border:1px solid var(--duel-rule-lo);border-radius:6px;overflow:hidden;transition:border-color .2s}
 .view[data-found]{border-color:var(--duel-ok)}
 .video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;background:var(--duel-ground)}
 .outlines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .outlines polygon{fill:rgb(134 207 161/.12);stroke:var(--duel-ok);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;background:rgb(7 11 21/.78);color:var(--duel-ink-2);font-size:14px}
+.veilBody{display:grid;gap:8px;justify-items:center;text-align:center;padding:12px}
+.veilBody p{margin:0}
+.feed{display:grid;gap:6px;min-width:0}
+.feed p{margin:0}
+.feedButton{position:absolute;inset:0;display:block;width:100%;height:100%;padding:0;border:0;background:none;cursor:crosshair}
+.feedButton:disabled{cursor:progress}
+.feedButton:focus-visible{outline:2px solid var(--duel-chain);outline-offset:-2px}
+.readNote{min-height:18px}
+.phoneStatus{color:var(--duel-ok);font-size:13.5px;font-weight:500}
+.others{display:grid;gap:8px;padding-top:12px;border-top:1px solid var(--duel-rule-lo)}
+.others p{margin:0}
+.otherGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
 .chip{position:absolute;left:8px;bottom:8px;display:inline-flex;align-items:center;gap:7px;padding:3px 9px;border-radius:99px;background:rgb(7 11 21/.72);border:1px solid var(--duel-rule-lo);font-size:12px;letter-spacing:.04em;color:var(--duel-ink-2);font-variant-numeric:tabular-nums}
 .chip i{width:7px;height:7px;border-radius:50%;background:var(--duel-ok)}
 
 .controls{display:grid;gap:12px;min-width:0}
 .row{display:grid;gap:5px;padding-bottom:12px;border-bottom:1px solid var(--duel-rule-lo)}
 .row:last-child{border-bottom:0;padding-bottom:0}
-.label{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--duel-ink-3)}
-.label svg{color:var(--duel-chain)}
-.hint{margin:0;font-size:13px;color:var(--duel-ink-2);line-height:1.4}
-.hint a{color:var(--duel-pen-ink)}
+.row p{margin:0}
+.rowLabel{display:inline-flex;align-items:center;gap:6px;margin-bottom:0}
+.rowLabel svg{color:var(--duel-chain)}
+.row a,.phoneText a{color:var(--duel-pen-ink)}
 .lead{margin:0;font-size:16px;color:var(--duel-ink)}
 .err{margin:0;font-size:13px;color:var(--duel-loss-ink)}
 .check{margin:0;display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--duel-ink-2);min-height:22px}
@@ -39,7 +51,10 @@
 .qrEmpty{color:#334;font-size:13px}
 .phoneText{display:grid;gap:8px;min-width:0}
 .code{margin:0;font:500 26px/1 var(--duel-f-num);letter-spacing:.28em;color:var(--duel-chain-ink)}
-.actions{display:flex;flex-wrap:wrap;gap:8px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.linkButton{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border:1px solid var(--duel-rule-lo);border-radius:6px;font-size:13px;text-decoration:none;color:var(--duel-ink-2)}
+.linkButton:hover{color:var(--duel-ink);border-color:var(--duel-rule)}
+.phoneText p{margin:0}
 
 .manual{display:flex;gap:12px;align-items:flex-start;margin:0;padding:14px 16px;border:1px solid var(--duel-rule-lo);background:var(--duel-panel);border-radius:6px;color:var(--duel-ink-2);font-size:14px;line-height:1.45}
 .manual svg{flex:none;margin-top:1px;color:var(--duel-chain)}
@@ -50,7 +65,7 @@
 
 @media (max-width:760px){
   .stage{grid-template-columns:minmax(0,1fr);gap:14px}
-  .view{max-height:44vh}
+  .view{--vh:44vh}
   .phoneWait{grid-template-columns:minmax(0,1fr)}
   .qrBox{justify-self:center}
 }

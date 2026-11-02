@@ -8,7 +8,7 @@ import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/
 import {FieldTrackCache} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
-import { readSavedCamera, savedCameraIfPresent } from "./camera-choice";
+import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
 import { deckIdsOf, seenCardIds } from "./model";
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
@@ -18,6 +18,8 @@ export type FeedSource = { attach: (el: HTMLVideoElement) => () => void; local: 
 
 type Hub = {
   solo: boolean;
+  /** False until the room's saved camera choice (phone, manual) has loaded. Do not start a camera before this is true. */
+  rosterReady: boolean;
   phones: PhoneMember[];
   phoneScan: PhoneScan | null;
   clearPhoneScan(note?: string): void;
@@ -56,7 +58,7 @@ type Hub = {
   readBoard(seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal): Promise<BoardAnswer>;
 };
 const noop = async () => undefined;
-const Ctx = createContext<Hub>({ phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
+const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   trackedAt:()=>undefined,trackedCards:()=>[],publishFieldTracks:()=>undefined,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
@@ -72,6 +74,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     if (!response.ok) return {phones:[],modes:[]};
     return response.json();
   }, {refreshInterval:1500});
+  const rosterReady = roster.data !== undefined || !!roster.error;
   const phones = roster.data?.phones ?? [];
   const phoneWanted = phones.some(p => p.seat === room.mySeat);
   const localOnly = solo && !phoneWanted;
@@ -122,9 +125,10 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const rosterKey = JSON.stringify(phones);
   useEffect(() => { controller?.phone.setRoster(JSON.parse(rosterKey),JSON.parse(members)); },[controller,rosterKey,members]);
   useEffect(() => {
-    if(controller && (phoneWanted || phones.some(p=>p.paired)) && controller.getSnapshot().connection===ConnectionState.Disconnected)
+    // A seat with a phone, or with no camera, still joins table video receive-only to see the other seats.
+    if(controller && (phoneWanted || manual(mySeat) || phones.some(p=>p.paired)) && controller.getSnapshot().connection===ConnectionState.Disconnected)
       void controller.connect("",false);
-  },[controller,phoneWanted,rosterKey]);
+  },[controller,phoneWanted,rosterKey,manual,mySeat]);
   useEffect(() => { if(phoneScan && !phones.some(p=>p.id===phoneScan.pairId))setPhoneScan(null); },[rosterKey,phoneScan]);
   useEffect(() => () => { localRef.current?.getTracks().forEach(t => t.stop()); disposeRecognizer(); }, []);
 
@@ -133,7 +137,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const startLocal = useCallback(async (deviceId: string) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("The camera needs HTTPS or localhost and browser permission.");
     stopLocal();
-    const any = { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } };
+    const any = FIELD_CAMERA_CONSTRAINTS;
     // A remembered camera can be gone (unplugged, or the id changed). Fall back to the default camera instead of failing.
     const wanted = deviceId || readSavedCamera();
     const media = wanted
@@ -245,7 +249,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const board = useCallback((seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal) => readBoard(frame, cards, priorsOf(seat), signal), [priorsOf]);
 
   const value = useMemo<Hub>(() => ({
-    solo, phones, phoneScan, manual, refreshPhones: roster.mutate,
+    solo, rosterReady, phones, phoneScan, manual, refreshPhones: roster.mutate,
     receivePhone: async () => { stopLocal(); await controller?.connect("",false); },
     answerPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note);},
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
@@ -253,6 +257,6 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, setFrozen, trackedAt, trackedCards, publishFieldTracks,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
+  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
   return <Ctx value={value}>{children}</Ctx>;
 }
