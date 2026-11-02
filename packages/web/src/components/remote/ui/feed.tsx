@@ -76,7 +76,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, below, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, hoverTip, onCardMenu, below, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
   onBegin: (seat: number, start: FeedStart) => void;
@@ -93,6 +93,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
   holdSelection: boolean; extra?: ReactNode;
+  /** Webcam only: a click on a spot with no outline asks the table first. It answers true when the zone under the click holds a card it handled. */
+  onZoneCard?: (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => boolean;
+  /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
+  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string } | null;
+  /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. */
+  onCardMenu?: (seat: number, at: { x: number; y: number }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
 }) {
@@ -117,6 +123,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   useEffect(() => () => { if (missTimer.current) clearTimeout(missTimer.current); }, []);
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
   const phonePointerHandled=useRef(false);
+  // Webcam only: the name line that follows the pointer over a card.
+  const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; flip: boolean } | null>(null);
   const setFrozenHealth = hub.setFrozen;
 
   useEffect(() => { setAuto(readAuto()); }, []);
@@ -305,6 +313,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       onSelect(seat,{x:p.x,y:p.y,quad:cached.quad,kind:'face-up',confidence:1,refined:true,covered:false,index:0,count:1,anchor:anchorOf(cached.quad),feed:feedRect(),cached});
       return;
     }
+    if (!f && onZoneCard && onZoneCard(seat, { x: p.x, y: p.y, anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() })) return;
     if (!f) { void liveClick(p); return; }
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
@@ -315,6 +324,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if(phonePointerHandled.current && event.buttons!==0)return;
     const p = point(event.clientX, event.clientY);
     const f = frozenRef.current;
+    if (hoverTip && !f && p && event.pointerType === "mouse") {
+      const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
+      if (found && area) { const left = event.clientX - area.left; setTip({ left: left + 14, top: event.clientY - area.top + 16, flip: left > area.width - 230, ...found }); } else setTip(null);
+    }
     if (f) {
       if (f.status === "ready" && p && box) { const hit = hitTest(f.cards, p, { w: box.width, h: box.height }); const index = hit ? f.cards.indexOf(hit) : -1; setHover(old => old === index ? old : index); }
       else setHover(-1);
@@ -327,7 +340,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     dwell.current = setTimeout(() => { dwell.current = null; void freeze(false); }, DWELL_MS);
   }
   function leave() {
-    setHovered(false); setHover(-1); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
+    setHovered(false); setHover(-1); setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
     if (frozenRef.current && !frozenRef.current.pinned) unfreeze("Live feed.");
   }
   function key(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -427,6 +440,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
       onPointerDown={event=>{phonePointerHandled.current=false;if(event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
+      onContextMenu={event => {
+        event.preventDefault(); if (!onCardMenu || !source) return; event.stopPropagation();
+        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p);
+      }}
       data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
       {source ? <video ref={video} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
@@ -434,6 +451,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
+      {tip && !frozen ? <div className={s.peek2} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
+        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}

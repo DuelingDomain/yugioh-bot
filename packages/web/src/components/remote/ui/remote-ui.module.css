@@ -544,6 +544,19 @@
   .app[data-mode] .seat[data-view="field"] .fwrap:has([data-emz]){height:310px}
 }
 
+/* Webcam only: the virtual field is hidden and the camera takes its space. LP, the undo button and the rail stay. */
+.viewseg{flex:none}
+.seat[data-wc] .fwrap{display:none}
+.app[data-wc] :is(.arrow,.amath){display:none}
+@container seat (min-aspect-ratio:1.55){
+  .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
+  .seat[data-wc] .feedcol{--cellw:calc(100cqw - 18px)}
+}
+@media (max-width:900px){
+  .vlong{display:none}
+  .viewseg button{padding:6px 9px}
+}
+
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){

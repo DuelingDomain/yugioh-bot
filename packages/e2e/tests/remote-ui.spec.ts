@@ -623,6 +623,25 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
+  test("webcam only hides the virtual field and is remembered; right click opens card actions and never the browser menu", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); await seed(context, slug);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0");
+    await expect(field.locator('[data-zone="m1"]')).toBeVisible();
+    // Right click on an empty spot is swallowed. On a card it opens the card drawer with its actions.
+    const swallowed = (selector: string) => page.locator(selector).first().evaluate(el => !el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    expect(await swallowed('[data-testid="remote-table"] main')).toBe(true);
+    await field.locator('[data-zone="m1"]').click({ button: "right" });
+    await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("view-webcam").click();
+    await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
+    await shot(page, "webcam-only-1920");
+    await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+  });
+
   test("piles: the Graveyard and Banished keep their order, the viewer lists them newest first, a drag brings a card back, Undo restores the order", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
     const move = async (ref: string, zone: string) => {
