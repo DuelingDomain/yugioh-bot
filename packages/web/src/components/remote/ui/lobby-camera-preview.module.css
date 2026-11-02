@@ -76,7 +76,8 @@
 .fieldGrid[data-guess] polygon{stroke-dasharray:5 4;stroke:#f3ca7566}
 .fieldGrid[data-guess] text{opacity:.7}
 
-.zoneChip{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:99px;background:rgb(7 11 21/.72);border:1px solid var(--duel-rule-lo);font-size:12px;letter-spacing:.04em;color:var(--duel-chain-ink)}
+/* Next to .chip: same pill, at the top. */
+.zoneChip{top:8px;bottom:auto;gap:5px;color:var(--duel-chain-ink)}
 .zoneChipOn{color:var(--duel-ok);border-color:var(--duel-ok)}
 
 /* The calibrate-zones step: plain row once done, highlighted card the first time. */

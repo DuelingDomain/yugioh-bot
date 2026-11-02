@@ -6,10 +6,10 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { loadFieldCalibration, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
+import { loadFieldCalibration, loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
 import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
-import { defaultSideFor, displayCalibration, fieldGridCells, isPlacedCalibration, projectCell } from "@/lib/remote/zone-grid";
+import { defaultSideFor, displayCalibration, fieldGridCells, projectCell } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
 import { detectCards, prewarmRecognizer } from "./recognizer";
@@ -90,7 +90,7 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
   const [calibrating,setCalibrating]=useState(false);
   const seatKey=room?seatKeyOf(room):undefined;
   useEffect(()=>{setCalibration(seatKey?loadFieldCalibration(seatKey,cameraKey):undefined);},[seatKey,cameraKey]);
-  const saveCalibration=(grid:FieldCalibration)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey);setCalibration(grid);}};
+  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed});setCalibration(grid);}};
   const inFlight = useRef(false);
   const [note, setNote] = useState("");
   const [reading, setReading] = useState(false);
@@ -121,10 +121,10 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
       {room?<PreviewGrid calibration={calibration} format={formatOf(room)} kind="phone"/>:null}
       <span className={s.chip}><i aria-hidden /> {name} · {hub.health(seat).label}</span>
     </div>
-    {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={saveCalibration}/>
+    {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={grid=>saveCalibration(grid)}/>
       <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
       {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-        onSave={grid=>{saveCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
+        onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
     <p className={ui.hint}>Click a face-up card to test the reader.</p>
     <p className={cx(ui.hint, s.readNote)} role="status" data-testid={`lobby-phone-read-${seat}`}>{note}</p>
   </div>;
@@ -152,11 +152,16 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [calibrating, setCalibrating] = useState(false);
   const seatKey = seatKeyOf(room);
   const [calibration,setCalibration]=useState<FieldCalibration>();
-  // "Calibrated" means the grid was placed on the mat, not only a side picked. The table reads the same record.
-  const calibrated=isPlacedCalibration(calibration);
-  const [zonesSkipped,setZonesSkipped]=useState(false);
-  const readCalibration=useCallback(()=>setCalibration(loadFieldCalibration(seatKey,cameraId||undefined)),[seatKey,cameraId]);
-  const saveCalibration=(grid:FieldCalibration)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined);setCalibration(grid);};
+  // "Calibrated" = the saved flag the table reads too (zones placed on the mat, not only a side picked).
+  // Before the camera runs there is no camera to match, so no state is shown.
+  const [placed,setPlaced]=useState(false),[cameraLabel,setCameraLabel]=useState("");
+  const calibrated=live&&placed;
+  const skipKey=`dd-lobby-zones-skip:${room.slug}`;
+  const [zonesSkipped,setZonesSkippedState]=useState(false);
+  useEffect(()=>{try{setZonesSkippedState(sessionStorage.getItem(skipKey)==="1");}catch{/* not remembered */}},[skipKey]);
+  const setZonesSkipped=(on:boolean)=>{setZonesSkippedState(on);try{sessionStorage.setItem(skipKey,on?"1":"0");}catch{/* not remembered */}};
+  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);},[seatKey,cameraId,cameraLabel]);
+  const saveCalibration=(grid:FieldCalibration,placedNow?:boolean)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow});readCalibration();};
   useEffect(() => { readCalibration(); }, [readCalibration]);
 
   const release = useCallback(() => { stream.current?.getTracks().forEach(track => track.stop()); stream.current = null; }, []);
@@ -177,7 +182,9 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       const track = media.getVideoTracks()[0];
       const settings = track?.getSettings() ?? {};
       if (settings.width && settings.height) setSize({ w: settings.width, h: settings.height });
-      setCameraId(settings.deviceId ?? wanted);
+      setCameraId(settings.deviceId ?? wanted); setCameraLabel(track?.label ?? "");
+      // The table opens the camera saved here, so it gets the same device (and the same calibration key).
+      if (settings.deviceId) saveCamera(settings.deviceId);
       // The camera can be unplugged while the preview runs.
       track?.addEventListener("ended", () => {
         if (id !== run.current) return;
@@ -303,7 +310,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
           </div>
         </div> : null}
         {live ? <span className={s.chip}><i aria-hidden /> Live · {size.w}×{size.h}</span> : null}
-        {live ? <span className={cx(s.zoneChip, calibrated && s.zoneChipOn)} data-testid="lobby-cam-zone-chip">{calibrated ? <><Check size={12} strokeWidth={2.2} aria-hidden /> Zones calibrated</> : "Zones: not calibrated"}</span> : null}
+        {live ? <span className={cx(s.chip, s.zoneChip, calibrated && s.zoneChipOn)} data-testid="lobby-cam-zone-chip" aria-hidden>{calibrated ? <><Check size={12} strokeWidth={2.2} aria-hidden /> Zones calibrated</> : "Zones: not calibrated"}</span> : null}
       </div>
     </div>
     <div className={s.controls}>
@@ -311,7 +318,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         choices={devices.map((device, i) => ({ value: device.deviceId, label: device.label || `Camera ${i + 1}` }))}
         onChange={id => { saveCamera(id); void start(id); }} /> : null}
       <LobbyZonesStep live={live} calibrated={calibrated} skipped={zonesSkipped} calibration={calibration}
-        onCalibrate={() => setCalibrating(true)} onSkip={() => setZonesSkipped(true)} onChange={saveCalibration} />
+        onCalibrate={() => setCalibrating(true)} onSkip={() => setZonesSkipped(true)} onChange={grid => saveCalibration(grid)} />
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Mic size={13} strokeWidth={1.6} aria-hidden /> Microphone</span>
         <span className={s.meter} ref={meter} aria-hidden><i /></span>
@@ -325,7 +332,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       <div className={s.row}><RecognitionSetting /></div>
     </div>
     {calibrating ? <FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-      onSave={(grid: FieldCalibration) => { saveCalibration(grid); setCalibrating(false); }} onCancel={() => setCalibrating(false)} /> : null}
+      onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); }} onCancel={() => setCalibrating(false)} /> : null}
   </div>;
 }
 
