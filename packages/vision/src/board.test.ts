@@ -477,3 +477,13 @@ test('repeated decoded camera frames cannot provide two independent watcher read
  try{await flush();at=100;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,1);presented=2;at=200;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);}
  finally{buffer.stop();await flush();t.mock.timers.reset();globalThis.createImageBitmap=original;}
 });
+
+test('a face-down outline in the next zone cannot inherit a face-up departing identity',async()=>{
+ const r=fieldRig();for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.appearance=Array(12).fill(.8);r.outlines=[{...card(.428,.3),kind:'face-down'}];for(let i=0;i<8;i++)await r.tick();assert.equal(r.events.some(e=>e.type==='moved'&&e.track.id===id),false);assert.equal(r.watcher.getSnapshot().tracks.length,2);r.watcher.dispose();
+});
+test('turning a pending prompt face-down invalidates its old public identity choice',async()=>{
+ const r=fieldRig('not sure');for(let i=0;i<8;i++)await r.tick();const previous=r.events.at(-1)!.track.revision??0;r.appearance=Array(12).fill(.8);r.outlines=[{...card(.3,.3),kind:'face-down'}];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate');assert.equal(r.watcher.getSnapshot().tracks[0].revision,previous+1);r.watcher.dispose();
+});
+test('unverified zone reservations do not exempt new outlines from the deck-spread guard',async()=>{
+ const r=fieldRig();r.known=[{id:'old-X',zone:'M1',cardId:'X'},{id:'old-Y',zone:'M3',cardId:'Y'}];r.outlines=[card(.2,.3),card(.45,.3),card(.65,.3)];for(let i=0;i<18;i++)await r.tick();assert.equal(r.events.some(e=>e.type==='placed'),false);r.watcher.dispose();
+});
