@@ -14,7 +14,7 @@ export interface Recognizer {
   /** Load the worker, index and model sessions before a person asks to read a card. Safe to call repeatedly. */
   warmup(): Promise<void>;
   /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
-  prepare(opts?:PrepareOptions):Promise<void>;
+  prepare(opts?:PrepareOptions):Promise<{backend:'webgpu'|'wasm'}>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData, opts?:Pick<RecognizeOptions,'region'>): Promise<DetectedQuad[]>;
@@ -31,7 +31,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
   let inFlight = false;
-  let prepared:Promise<void>|undefined;
+  let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   const failAll = (error: Error) => { for (const value of pending.values()) value.reject(error); pending.clear(); };
   function request(message: object, transfers: Transferable[] = []): Promise<unknown> {
@@ -75,13 +75,13 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   // Both table-open warmup and camera startup need the full recognition pipeline.
   // The worker's init now loads only the detector so outlines can survive index failures.
-  function prepare(opts?:PrepareOptions): Promise<void> {
+  function prepare(opts?:PrepareOptions): Promise<{backend:'webgpu'|'wasm'}> {
     if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
-    if(opts)return initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare',opts});});
-    return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
+    if(opts)return initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare',opts}) as {backend:'webgpu'|'wasm'};});
+    return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare'}) as {backend:'webgpu'|'wasm'};}).catch(error=>{prepared=undefined;throw error;});
   }
   return {
-    warmup: prepare,
+    warmup: async()=>{await prepare();},
     prepare,
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
     async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },

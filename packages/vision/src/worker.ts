@@ -144,7 +144,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
             if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
             preparedOptions=message.opts;
           }
-          scope.postMessage({id:message.id,result:null});return;}
+          scope.postMessage({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'}});return;}
         if(learningCache) {
           const learning=learningCache.current();
           pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});
