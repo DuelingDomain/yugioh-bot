@@ -1,8 +1,8 @@
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
-import type { GameModule, RemotePosition, RemoteState } from "../types.js";
+import type { GameModule, RemotePosition, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
-import { initialDeckChecks, type RemoteReductionContext } from "../deck-checks.js";
+import { initialDeckChecks, remotePhysicalSlot, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
 
 const phases = [
@@ -46,6 +46,17 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   };
   const ownField = (n: number) => { remoteAssert(n === action.actorSeat, "Only the field owner can edit their twin", 403); return seat(n); };
   const validZone = (z: string) => remoteAssert(zones.some(item => item.id === z), "Unknown zone");
+  const freeSlot = (s: RemoteSeatState, zone: string, slot?: number, exceptRef?: string) => {
+    const shape = zones.find(item => item.id === zone)?.shape;
+    if (shape === "pile") return;
+    const physicalSlot = remotePhysicalSlot(zone, slot);
+    remoteAssert(shape !== "row" || slot === undefined || physicalSlot !== undefined, "Invalid physical slot");
+    // Legacy row twins without a slot do not identify a physical position.
+    if (shape === "row" && physicalSlot === undefined) return;
+    remoteAssert(!s.twin.some(card => card.ref !== exceptRef && card.zone === zone &&
+      (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot)),
+    "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");
+  };
   const endTurn = () => {
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
     let n = state.turnSeat;
@@ -109,6 +120,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
       remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === action.card.ref), "Duplicate card ref or field is full", 409);
+      freeSlot(s, action.zone, action.card.slot);
       s.twin.push({ ...action.card, zone: action.zone }); break;
     }
     case "twin.move": case "twin.flip": case "twin.remove": {
@@ -116,6 +128,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       remoteAssert(card, "Unknown twin card", 409);
       if (action.type === "twin.move") {
         validZone(action.zone);
+        const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
+        freeSlot(s, action.zone, slot, card.ref);
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         card.zone = action.zone;
