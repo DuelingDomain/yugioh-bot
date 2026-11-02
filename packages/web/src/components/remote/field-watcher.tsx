@@ -252,7 +252,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}
   </>;
 }
