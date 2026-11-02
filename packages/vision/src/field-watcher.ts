@@ -165,7 +165,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const position=fieldOrientation(c,current.width,current.height);
         const pixels=appearance(c);
         const appearanceChanged=t.read?.appearance?.length&&pixels&&!sameFieldAppearance(t.read.appearance,pixels);
-        const changed=(t.view.state==='identified'||t.view.state==='prompt')&&c.kind==='face-up'&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
+        const changed=(t.view.state==='identified'||t.view.state==='prompt')&&Boolean(t.view.cardId||!t.view.faceDown)&&c.kind==='face-up'&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
         if(changed){invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
@@ -188,7 +188,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.reappeared){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.reappeared=false;}
         if(t.view.state==='identified') {
           if(t.announced&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;}
-          if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;}
+          if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;if(t.needsRead)t.identityAppearance=undefined;}
         }
         t.halo=evidence.halo?.(c);t.appearance=pixels;
         if(t.read&&(t.read.result||t.read.error)&&sample.at>t.read.at) {
@@ -215,9 +215,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(reading)continue;
         t.needsRead=false;
         if(t.view.faceDown) {
-          if(!t.promptOnly&&!t.binding&&!['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)&&sample.at-t.view.firstSeen<1500){t.needsRead=true;continue;}
-          if(t.promptOnly||t.binding||['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)){t.view.state='prompt';t.best=undefined;emit('prompt',t,{reason:t.promptOnly??'pile'});continue;}
-          t.view.cardId=undefined;t.view.state='identified';t.view.visible=true;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.best=undefined;metrics.placements++;emit('placed',t,{latencyMs:now()-t.view.firstSeen});continue;
+          t.view.cardId=undefined;t.view.state='prompt';t.view.visible=true;t.identityAppearance=pixels;t.best=undefined;
+          emit('prompt',t,{reason:t.promptOnly??(['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)?'pile':'uncertain')});continue;
         }
         const best=t.best!,pending:PendingRead={at:sample.at,appearance:t.appearance?.slice()};t.read=pending;
         const input=await clone(best.frame);
