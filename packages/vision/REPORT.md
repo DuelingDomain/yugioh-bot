@@ -1665,3 +1665,59 @@ Local ignored evidence: `data/vision/benchmark/latency/engine-{before,roi,simd,p
 All benchmark servers used OS-assigned ephemeral ports. Generated input tensors,
 temporary source/export files and the rejected QDQ model are removed after use.
 The retained fp16 models are reproducible ignored runtime assets, not Git binaries.
+
+
+## Watcher/engine integration — 2026-11-02
+
+Baseline: watcher `767bad537`; merged engine: `84fd909a3`. Same local
+1280×720 indexed-card fixture, Chromium 153.0.8010.12, Node 22.23.3,
+Ryzen 7 9800X3D, isolated WASM with four threads and SIMD. Warm placement
+measurements exclude remote action/network rendering. These are synthetic
+local timings, not physical-camera accuracy or WebGPU measurements.
+
+| Measurement | Before p50 / p95 (ms) | After p50 / p95 (ms) | Samples per version |
+| --- | ---: | ---: | ---: |
+| Placement → identified, with deck | 693.32 / 983.64 | 609.87 / 851.67 | 20 |
+| Placement → identified, no deck | 660.11 / 854.75 | 679.80 / 809.64 | 20 |
+| Tracked quad reread, deck + remembered identity | 108.66 / 138.10 | 100.31 / 136.81 | 20 |
+
+All 40 placements in each version identified the expected card. All 20 paired
+tracked reads per version returned the expected card at `sure`. Tracked reads
+measure a held native frame through the recognition API with the watcher's
+identity/raw/diagnostic options, excluding settlement and preparation. The
+updated version supplies gallery/deck early exits; the saved baseline worker
+uses its original catalog path. Paired versions alternate order after two
+untimed iterations. Percentiles use nearest rank.
+
+The first integration attempt redundantly redetected a known quad and its run
+also overlapped typechecking; its latency gates failed. That attempt is not the
+reported result. The final run was made after moving ROI detection to discovery
+and finishing typechecks; both final benchmark commands exited successfully.
+
+Reproduction with local assets (before merging, save the baseline worker with
+esbuild to `data/vision/benchmark/watch-before-worker.js`):
+
+```sh
+LATENCY_LABEL=watch-integration-before LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
+# After integrating the watcher and engine:
+LATENCY_LABEL=watch-integration-final LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
+LATENCY_LABEL=watch-tracked-paired LATENCY_TRIALS=20 LATENCY_ENGINE=1 \
+  LATENCY_COMPARE_WORKER=/dev/vision-assets/benchmark/watch-before-worker.js \
+  npx tsx scripts/vision/benchmark-latency.ts
+```
+
+Raw local reports: `data/vision/benchmark/latency/watch-integration-before.json`,
+`watch-integration-final.json`, and `watch-tracked-paired.json`. The existing
+paired script now preloads a gallery and uses watcher options for tracked reads.
+No new tests were added.
+
+The existing `benchmark-field-watcher.ts` also passed with
+`FIELD_LABEL=watch-integration-final` and its default five trials: 30 seconds of
+hand-only motion produced zero events, 30 seconds of tracked-card occlusion
+produced zero false removals, and all slide/rotation/graveyard/return/removal
+checks passed with zero additional identity reads. Raw report:
+`data/vision/benchmark/field-watcher/watch-integration-final.json`.
+
+Validation: vision and web typechecks, with the shared package built locally
+for its declaration exports. Generated bundles, shared build output and
+TypeScript build metadata were removed after verification.

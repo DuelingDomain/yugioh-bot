@@ -913,6 +913,19 @@ Session references follow the existing conservative learning reranker: they may
 rerank visually supported candidates but cannot supply clean confidence evidence.
 The watcher still owns its identity gallery and its save/restore lifecycle.
 
+The field watcher passes `gallery.entries()`, enables `deckFirst` when a deck is
+present, and defaults `earlyExitMargin` to `0.08`. Table and lobby camera startup
+warm the shared reader; restored gallery entries preload before calibration
+finishes. Reads refresh prepared references so owner corrections also reach the
+fallback reranker.
+
+For discovery, `detectCards(frame, {region})` returns every outline from a 448 px
+motion crop in source coordinates. The watcher includes all live tracks and a
+neighbouring-card margin, falls back to the full frame for clipped outlines or
+broad motion, and performs a full scan at least every two seconds of detection.
+Recognition then consumes the detected same-frame quad without another detector
+pass. Native pixels remain available for warping and embedding.
+
 ImageBitmap ownership is unchanged. Callers that already have disposable
 ImageData can pass `{transferFrames: true}` to transfer its underlying buffer
 without a structured-clone pixel copy. The buffer is detached on submission;

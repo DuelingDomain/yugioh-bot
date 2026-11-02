@@ -93,9 +93,14 @@ try {
       const canvas=new OffscreenCanvas(1280,720),ctx=canvas.getContext('2d')!;
       ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);ctx.drawImage(bitmap,460,170,180,262);bitmap.close();
       const card={quad:[{x:460/1280,y:170/720},{x:640/1280,y:170/720},{x:640/1280,y:432/720},{x:460/1280,y:432/720}],kind:'face-up',confidence:1,partial:false};
+      const seed=await reader.recognize([await createImageBitmap(canvas)],{card,maxFrames:1,includeIdentityEmbedding:true});
+      const gallery=seed.identityEmbedding?[{cardId:'45725480',embedding:seed.identityEmbedding}]:[];
+      await reader.prepare({priors:{decklist:deckCardIds},sessionGallery:gallery});
       const samples:any[]=[];
       for(let n=0;n<trials+2;n++)for(const mode of ['tracked','roi','click'])for(const version of reference?(n%2?['before','after']:['after','before']):['after']) {
         const opts:any={maxFrames:1,includeCrop:true,deferAICrop:true,priors:{decklist:deckCardIds},clickPoint:{x:550/1280,y:301/720}};
+        if(mode==='tracked')Object.assign(opts,{includeCrop:false,deferAICrop:false,includeDiagnosticCrop:true,includeIdentityEmbedding:true,includeRaw:true,preferUpright:true,k:5});
+        if(version==='after')Object.assign(opts,{gallery,deckFirst:true,earlyExitMargin:.08});
         if(mode==='tracked')opts.card=card;
         if(mode==='roi')opts.region={x:380/1280,y:100/720,w:340/1280,h:410/720};
         const start=performance.now(),frame=await createImageBitmap(canvas),captured=performance.now();
