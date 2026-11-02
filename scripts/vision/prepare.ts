@@ -1,4 +1,5 @@
 /** Reproducible model/runtime setup; never executes code from the upstream repository. */
+import {execFileSync} from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, copyFile, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,6 +26,13 @@ for (const model of process.argv.includes('--bundle-only') ? [] : models) {
   const data = Buffer.from(await response.arrayBuffer());
   if (sha(data) !== model.sha) throw new Error(`Checksum failed: ${model.file}`);
   await writeFile(`${dest}.part`, data); await rename(`${dest}.part`, dest);
+}
+if(process.argv.includes('--webgpu')) {
+  execFileSync(process.env.VISION_PYTHON??'python3',[path.join(root,'scripts/vision/export-runtime-models.py'),'--data',out,'--export-only'],{stdio:'inherit'});
+  for(const variant of [yugioh.embedding.webgpu!,yugioh.detector.webgpu!]) {
+    const file=path.join(out,'models',path.basename(variant.url));
+    if(sha(await readFile(file))!==variant.sha256)throw new Error(`WebGPU export checksum mismatch: ${file}. Use the pinned Python dependencies in README.md.`);
+  }
 }
 const require = createRequire(import.meta.url);
 const runtimeDir = path.dirname(require.resolve('onnxruntime-web/wasm'));

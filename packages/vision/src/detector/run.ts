@@ -7,8 +7,8 @@ import { refineCard } from './refine';
 import { CARD_DETECTOR } from './spec';
 import type { Point } from '../types';
 import { clipToConvex, polygonArea } from '../geometry';
-export async function detect(session: SessionLike, Tensor: TensorCtor, image: RGBAImage, longSide: number, minScore: number = CARD_DETECTOR.minConfidence): Promise<DetectedCard[]> {
-  return createCardDetector({ session, Tensor }).findCards(image, { longSide, minScore });
+export async function detect(session: SessionLike, Tensor: TensorCtor, image: RGBAImage, longSide: number, minScore: number = CARD_DETECTOR.minConfidence, enlarge = false): Promise<DetectedCard[]> {
+  return createCardDetector({ session, Tensor }).findCards(image, { longSide, minScore, enlarge });
 }
 
 function contains(pts: Point[], p: Point): boolean {

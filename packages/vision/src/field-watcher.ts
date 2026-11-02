@@ -2,7 +2,7 @@ import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions} from 
 import type {RGBAImage} from './pixels';
 import {createFieldIdentityGallery, type FieldIdentityGallery} from './field-gallery';
 import type { Recognizer } from './client';
-import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } from './types';
+import type { DetectedQuad, FractionalBox, GameProfile, RecognitionPriors, RecognitionResult } from './types';
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
 import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, clearFieldTransfer, type FieldFrame, type FieldAnalysis } from './field-motion';
@@ -18,9 +18,9 @@ export interface FieldSnapshot { status:'stopped'|'starting'|'watching'|'hidden'
 export interface FieldBuffer { sample():Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
-  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&{prepare?:(options?:{priors?:RecognitionPriors;sessionGallery?:{cardId:string;embedding:NonNullable<RecognitionResult['identityEmbedding']>}[]})=>Promise<void>}; buffer:FieldBuffer; profile:GameProfile;
+  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&Partial<Pick<Recognizer,'prepare'>>; buffer:FieldBuffer; profile:GameProfile;
   getPriors?:()=>RecognitionPriors|undefined; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
-  gallery?:FieldIdentityGallery; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
+  gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
   analyze?:(frame:FieldFrame)=>FieldAnalysis; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
@@ -45,6 +45,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,busyUntil=0,observer:PerformanceObserver|undefined,calibration=options.calibration,reading:Promise<void>|undefined;
+  let recentMotion:{region:FractionalBox;at:number}|undefined,lastFullDetectionAt=-Infinity;
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   const notify=()=>{for(const listener of updates)listener();};
@@ -102,11 +103,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
       const start=now();
-      // Older readers accept and ignore these optional preparation hints. The
-      // speed engine can re-identify session embeddings before catalog search.
+      if(generation!==epoch||disposed||t.read!==pending)return;
+      // Refresh fallback references too: owner corrections must replace the
+      // startup gallery even when a shortlist match misses the early-exit gate.
       await options.recognizer.prepare?.(preparation());
       if(generation!==epoch||disposed||t.read!==pending)return;
-      const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors:options.getPriors?.()});
+      const priors=options.getPriors?.();
+      const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:!!priors?.decklist?.length,earlyExitMargin:options.earlyExitMargin??.08});
       if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;}
     }catch{if(generation===epoch&&!disposed&&t.read===pending){metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
@@ -157,6 +160,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
       if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
       const evidence=analyze(current);
+      if(evidence.motionRegion)recentMotion={region:evidence.motionRegion,at:sample.at};
       for(const t of tracks)observeAbsence(t,evidence,sample.at);
       if(!reading)for(const t of tracks){
         const c=t.view.card,pixels=evidence.appearance?.(c);
@@ -203,7 +207,23 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         pruneFrames();return;
       }
       detectFrame=await clone(current);
-      const detectStart=now(),detected=await options.recognizer.detectCards(detectFrame);
+      // Discover new outlines in the recent motion crop, including all live
+      // tracks so association and overlap checks still see the whole field.
+      // Periodic full scans catch stationary cards missed outside that crop.
+      let region:FractionalBox|undefined;
+      if(recentMotion&&sample.at-recentMotion.at<1500&&sample.at-lastFullDetectionAt<2000){
+        const boxes=[recentMotion.region,...tracks.filter(t=>!t.view.removed).map(t=>boundsOf(t.view.card.quad))];
+        const x=Math.max(0,Math.min(...boxes.map(b=>b.x))-.06),y=Math.max(0,Math.min(...boxes.map(b=>b.y))-.08);
+        const right=Math.min(1,Math.max(...boxes.map(b=>b.x+b.w))+.06),bottom=Math.min(1,Math.max(...boxes.map(b=>b.y+b.h))+.08);
+        if((right-x)*(bottom-y)<.6)region={x,y,w:right-x,h:bottom-y};
+      }
+      const detectStart=now();
+      let detected=await options.recognizer.detectCards(detectFrame,region?{region}:undefined);
+      if(region&&detected.some(c=>c.partial)){
+        closeFieldFrame(detectFrame);detectFrame=await clone(current);
+        detected=await options.recognizer.detectCards(detectFrame);region=undefined;
+      }
+      if(!region)lastFullDetectionAt=sample.at;
       metrics.detectorMs=now()-detectStart;lastDetectionAt=sample.at;
       if(generation!==epoch||disposed)return;
       const cards=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);

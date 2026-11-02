@@ -880,3 +880,108 @@ backs or perfectly occluded replacements, or reconstruct hidden cards. Appearanc
 zone heuristics and upstream confidence thresholds are not calibrated for all
 webcams. The measured indexed synthetic card trials and single short negative clip
 are workflow/regression evidence, not a real-player false-sure guarantee.
+
+## Fast engine paths
+
+Prepare as soon as the owner's camera attaches. Remote Duels now starts this on
+feed attachment and passes the deck when the watcher starts. Both models run a
+dummy inference before `prepare()` resolves. Index vectors, norms, SIMD storage
+and supplied session references stay in the worker:
+
+```ts
+await reader.prepare({
+  priors: { decklist: ['45725480'] },
+  // Optional confirmed session appearances; never uploaded by prepare().
+  sessionGallery: [{cardId: '45725480', embedding: previous.identityEmbedding!}],
+});
+const tracked = await reader.recognize([frame], {card: trackedQuad});
+const regional = await reader.recognize([nextFrame], {
+  region: {x: .25, y: .15, w: .35, h: .65}, // normalized source coordinates
+});
+```
+
+A tracked quad applies to one frame and bypasses detection. A region is cropped
+at source resolution and detected once at 448 px, with coordinates mapped back
+to the source. Supply a margin containing neighbouring cards. Without a click,
+the region center selects the target. Missed-region fallbacks stay inside the
+region and cannot be sure; outlines touching its edge remain partial. Multi-frame
+reads redetect each frame. Existing full-frame/click detection stays available.
+
+`prepare(options)` replaces prepared defaults; `prepare()` preserves them.
+Explicit per-read priors override prepared priors, including for `peek/readAll`.
+Session references follow the existing conservative learning reranker: they may
+rerank visually supported candidates but cannot supply clean confidence evidence.
+The watcher still owns its identity gallery and its save/restore lifecycle.
+
+The field watcher passes `gallery.entries()`, enables `deckFirst` when a deck is
+present, and defaults `earlyExitMargin` to `0.08`. Table and lobby camera startup
+warm the shared reader; restored gallery entries preload before calibration
+finishes. Reads refresh prepared references so owner corrections also reach the
+fallback reranker.
+
+For discovery, `detectCards(frame, {region})` returns every outline from a 448 px
+motion crop in source coordinates. The watcher includes all live tracks and a
+neighbouring-card margin, falls back to the full frame for clipped outlines or
+broad motion, and performs a full scan at least every two seconds of detection.
+Recognition then consumes the detected same-frame quad without another detector
+pass. Native pixels remain available for warping and embedding.
+
+ImageBitmap ownership is unchanged. Callers that already have disposable
+ImageData can pass `{transferFrames: true}` to transfer its underlying buffer
+without a structured-clone pixel copy. The buffer is detached on submission;
+omitting this option preserves the old copy behavior. The worker reuses its
+OffscreenCanvas and replaces its pixels, including transparent frames.
+
+`timingsMs.total` retains its original pipeline meaning. Optional `pixels`,
+`encode`, `worker`, and `roundTrip` timings expose readback, JPEG output, total
+worker processing, and warm API round trip. Capture remains caller-timed. Without `prepare()`, `roundTrip` also includes
+lazy index/embedder loading. The lab displays all of these and a **Check WebGPU**
+capability button; an actual read still determines the reported backend.
+
+The deck subset is searched first and reused within a read. Full-catalog evidence
+is still required to distinguish a clear off-deck card from a plausible deck
+match. Repeated ranking passes reuse raw catalog dots when the query values are
+unchanged. The optional WASM SIMD kernel uses Float64 lanes over an exact
+Float32 expansion of stored Int8 vectors; its matrix costs about 22 MiB for this
+catalog. Unsupported SIMD/CSP restrictions retain scalar search. The index file
+and confidence thresholds are unchanged.
+
+### WebGPU model assets
+
+The GPU path uses separate fp16 graphs with Float32 IO; CPU fallback uses the
+original q8 embedder and detector. Software adapters and adapters without
+`shader-f16` fall back to threaded SIMD WASM. Only the selected model is fetched;
+a GPU create/run failure fetches the original WASM model. The alternate model
+URLs do not change the existing index layout identity. Both exports have pinned
+checksums and passed native parity against the original graphs; hardware WebGPU
+execution must still be measured on the owner's Windows Chrome.
+
+Reproduce the validated exports locally (about 50 MB total, ignored assets):
+
+```sh
+uv venv data/vision/export-venv
+uv pip install --python data/vision/export-venv/bin/python \
+  onnx==1.23.2 onnxruntime==1.31.1 numpy==2.4.6
+VISION_PYTHON=data/vision/export-venv/bin/python \
+  npx tsx scripts/vision/prepare.ts --webgpu
+```
+
+`prepare.ts --webgpu` verifies generated hashes; `--bundle-only --webgpu` also
+works when the original models already exist. Ordinary `--bundle-only` needs no
+Python. Missing fp16 files fall back to the original WASM models.
+
+For a fresh parity/QDQ experiment using the existing local 30-photo corpus:
+
+```sh
+npx tsx scripts/vision/model-inputs.ts
+data/vision/export-venv/bin/python scripts/vision/export-runtime-models.py --qdq
+npx tsx scripts/vision/model-inputs.ts --compare-detector
+LATENCY_ENGINE=1 LATENCY_DETECTOR=card-detector.qdq.onnx \
+  LATENCY_LABEL=qdq LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
+```
+
+The QDQ detector is deliberately not configured or shipped: decoded held-out
+recall matched, but browser WASM click detection was slower. Delete experimental
+QDQ models and `data/vision/model-inputs` after measurement. Rebuild the small
+checked-in SIMD byte array from its WAT source with the export script's `--simd`
+option (requires `wasmtime`). No new CI tests or dependencies are introduced.

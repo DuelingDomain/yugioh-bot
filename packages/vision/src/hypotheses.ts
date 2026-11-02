@@ -196,7 +196,8 @@ export function buildHypotheses(
   for (const rotation of [0, 180] as const) {
     for (const warpedCard of cards) {
       const card = { x: 0, y: 0, w: warpedCard.width, h: warpedCard.height };
-      out.push({ id: 'quad', rotation, image: cutBox(warpedCard, rotation, card, ART_BOX) });
+      let image:RGBAImage|undefined;
+      out.push({ id: 'quad', rotation, get image(){return image??=cutBox(warpedCard, rotation, card, ART_BOX);} });
     }
   }
 

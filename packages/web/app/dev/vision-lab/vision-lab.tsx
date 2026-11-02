@@ -8,6 +8,7 @@ import { useOutlineReads } from "./use-outline-reads";
 import {RealsetCapture} from "./realset-capture";
 import { VisionResult } from "./vision-result";
 import styles from "./vision-lab.module.css";
+import {GPUCheck} from "./gpu-check";
 import { AutoDetectLab } from "./auto-detect-lab";
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
@@ -18,7 +19,7 @@ type Backend = "auto" | "wasm";
 type Recognizer = ReturnType<typeof createRecognizer>;
 type CardEntry = IndexMeta["entries"][number];
 interface Selection { card?:DetectedQuad; point: { x: number; y: number }; left: number; top: number }
-const STAGES = ["sharpness", "detect", "warp", "embed", "search", "total"] as const;
+const STAGES = ["sharpness", "detect", "warp", "embed", "search", "total", "pixels", "encode", "worker", "roundTrip"] as const;
 
 function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
   if (cardId === yugioh.cardBack.cardId) return yugioh.cardBack.imageUrl;
@@ -312,6 +313,7 @@ function ManualVisionLab() {
             <span>{source.source === "camera" ? `${source.frameCount}/6 buffered · 5 fps max · 1 second` : source.source === "photo" ? "1 photo frame" : "Camera permission required"}</span>
           </div>
 
+          <GPUCheck />
           <div className={styles.runControls}>
             <label htmlFor="vision-backend">Compute
               <select id="vision-backend" value={backend} disabled={busy} onChange={event => {
@@ -402,7 +404,7 @@ function ManualVisionLab() {
           <div><dt>Covered guard</dt><dd>{result ? result.quality.covered ? "Suppressed confidence" : "No overlap found" : "—"}</dd></div>
         </dl>
         <dl className={styles.timings}>
-          {STAGES.map(stage => <div key={stage}><dt>{stage}</dt><dd>{result ? <>{result.timingsMs[stage].toFixed(1)} <span>ms</span></> : "—"}</dd></div>)}
+          {STAGES.map(stage => <div key={stage}><dt>{stage}</dt><dd>{result ? <>{(result.timingsMs[stage]??0).toFixed(1)} <span>ms</span></> : "—"}</dd></div>)}
         </dl>
       </section>
     </main>

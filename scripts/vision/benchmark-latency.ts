@@ -2,6 +2,7 @@
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, join, extname } from 'node:path';
+import {createHash} from 'node:crypto';
 import { cpus } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
@@ -10,6 +11,8 @@ import sharp from 'sharp';
 
 const root=resolve(import.meta.dirname,'../..'),data=resolve(process.env.VISION_DATA_DIR??join(root,'data/vision'));
 const directory=join(data,'benchmark/latency');await mkdir(directory,{recursive:true});
+const trials=Number(process.env.LATENCY_TRIALS??20);
+if(!Number.isInteger(trials)||trials<1||trials>100)throw new Error('LATENCY_TRIALS must be 1–100 per condition');
 const label=process.env.LATENCY_LABEL??'results';if(!/^[a-z0-9-]+$/.test(label))throw new Error('Invalid LATENCY_LABEL');
 // Reuse the pinned local fixture; no model, index, image or network downloads.
 await stat(join(data,'benchmark/field-watcher/card.png'));
@@ -70,14 +73,57 @@ try {
   }));
   console.log('Catalog search:',JSON.stringify({before:distribution(search.samples.before),after:distribution(search.samples.catalog),deck:distribution(search.samples.deck),mismatches:search.mismatches}));
   requests.length=0;
-  const ready=await page.evaluate(async()=>{
+  const detectorFile=process.env.LATENCY_DETECTOR;
+  if(detectorFile&&!/^card-detector[.a-z0-9-]*\.onnx$/.test(detectorFile))throw new Error('Invalid LATENCY_DETECTOR');
+  const detectorOverride=detectorFile?{url:'/dev/vision-assets/models/'+detectorFile,sha256:createHash('sha256').update(await readFile(join(data,'models',detectorFile))).digest('hex')}:undefined;
+  const ready=await page.evaluate(async({detectorOverride})=>{
     const api=await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/latency/api.js'));
-    const reader=api.createRecognizer({backend:'wasm',workerUrl:'/dev/vision-lab/assets/benchmark/latency/worker.js'});(window as any).api=api;(window as any).reader=reader;
+    const profile=detectorOverride?{...api.yugioh,detector:{...api.yugioh.detector,...detectorOverride}}:api.yugioh;
+    const reader=api.createRecognizer({profile,backend:'wasm',workerUrl:'/dev/vision-lab/assets/benchmark/latency/worker.js'});(window as any).api=api;(window as any).reader=reader;
     const start=performance.now();await reader.prepare();return {ms:performance.now()-start,isolated:crossOriginIsolated,hardwareConcurrency:navigator.hardwareConcurrency};
-  });
+  },{detectorOverride});
   console.log('Reader ready:',JSON.stringify(ready));
-  const trials=Number(process.env.LATENCY_TRIALS??20);
-  if(!Number.isInteger(trials)||trials<1||trials>100)throw new Error('LATENCY_TRIALS must be 1–100 per condition');
+  if(process.env.LATENCY_ENGINE==='1') {
+    const measurements=await page.evaluate(async({trials,deckCardIds,compareWorker})=>{
+      const {reader,api}=window as any;
+      const referenceProfile=structuredClone(api.yugioh);delete referenceProfile.embedding.webgpu;delete referenceProfile.detector.webgpu;
+      const reference=compareWorker?api.createRecognizer({profile:referenceProfile,backend:'wasm',workerUrl:compareWorker}):undefined;
+      if(reference)await reference.prepare();
+      const bitmap=await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob());
+      const canvas=new OffscreenCanvas(1280,720),ctx=canvas.getContext('2d')!;
+      ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);ctx.drawImage(bitmap,460,170,180,262);bitmap.close();
+      const card={quad:[{x:460/1280,y:170/720},{x:640/1280,y:170/720},{x:640/1280,y:432/720},{x:460/1280,y:432/720}],kind:'face-up',confidence:1,partial:false};
+      const seed=await reader.recognize([await createImageBitmap(canvas)],{card,maxFrames:1,includeIdentityEmbedding:true});
+      const gallery=seed.identityEmbedding?[{cardId:'45725480',embedding:seed.identityEmbedding}]:[];
+      await reader.prepare({priors:{decklist:deckCardIds},sessionGallery:gallery});
+      const samples:any[]=[];
+      for(let n=0;n<trials+2;n++)for(const mode of ['tracked','roi','click'])for(const version of reference?(n%2?['before','after']:['after','before']):['after']) {
+        const opts:any={maxFrames:1,includeCrop:true,deferAICrop:true,priors:{decklist:deckCardIds},clickPoint:{x:550/1280,y:301/720}};
+        if(mode==='tracked')Object.assign(opts,{includeCrop:false,deferAICrop:false,includeDiagnosticCrop:true,includeIdentityEmbedding:true,includeRaw:true,preferUpright:true,k:5});
+        if(version==='after')Object.assign(opts,{gallery,deckFirst:true,earlyExitMargin:.08});
+        if(mode==='tracked')opts.card=card;
+        if(mode==='roi')opts.region={x:380/1280,y:100/720,w:340/1280,h:410/720};
+        const start=performance.now(),frame=await createImageBitmap(canvas),captured=performance.now();
+        const result=await (version==='before'?reference:reader).recognize([frame],opts);
+        if(n>=2)samples.push({mode,version,captureMs:captured-start,wallMs:performance.now()-start,result});
+      }
+      // Exercise the optional zero-copy API without changing the timed bitmap path.
+      const pixels=ctx.getImageData(0,0,1280,720);
+      const transferred=await reader.recognize([pixels],{card,transferFrames:true,includeIdentityEmbedding:true});
+      if(pixels.data.byteLength!==0 || transferred.candidates[0]?.cardId!=='45725480')throw new Error('Transferable pixel read failed');
+      await reader.prepare({priors:{decklist:deckCardIds},sessionGallery:[{cardId:'45725480',embedding:transferred.identityEmbedding}]});
+      const preloaded=await reader.recognize([await createImageBitmap(canvas)],{card});
+      if(preloaded.candidates[0]?.cardId!=='45725480')throw new Error('Preloaded read failed');
+      reader.dispose();reference?.dispose();return samples;
+    },{trials,deckCardIds:search.deckCardIds,compareWorker:process.env.LATENCY_COMPARE_WORKER});
+    const modes=Object.fromEntries([...new Set(measurements.map((r:any)=>r.mode+'-'+r.version))].map(key=>{
+      const rows=measurements.filter((r:any)=>r.mode+'-'+r.version===key);
+      return [key,{wall:distribution(rows.map((r:any)=>r.wallMs)),stages:Object.fromEntries(['capture','sharpness','detect','warp','embed','search','total','pixels','encode','worker','roundTrip'].map(stage=>[stage,distribution(rows.map((r:any)=>stage==='capture'?r.captureMs:r.result.timingsMs[stage]).filter(Number.isFinite))])),correct:rows.filter((r:any)=>r.result.candidates[0]?.cardId==='45725480').length,sure:rows.filter((r:any)=>r.result.tier==='sure').length}];
+    }));
+    const report={generatedAt:new Date().toISOString(),referenceWorker:process.env.LATENCY_COMPARE_WORKER,detector:detectorFile??'card-detector.onnx',cpu:cpus()[0]?.model,browser:browser.version(),ready,runtime:measurements[0]?.result.runtime,modes,search:{catalog:distribution(search.samples.catalog),deck:distribution(search.samples.deck),mismatches:search.mismatches,maxScoreDelta:search.maxScoreDelta},measurements,errors};
+    await writeFile(join(directory,`${label}.json`),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({...report,measurements:undefined},null,2));
+    if(errors.length||search.mismatches||measurements.some((r:any)=>r.result.candidates[0]?.cardId!=='45725480'||r.result.tier!=='sure'))process.exitCode=1;
+  } else {
   const measurements=await page.evaluate(async({trials,deckCardIds})=>{
     const {api,reader}=window as any,bitmap=await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob());
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;document.body.append(canvas);const ctx=canvas.getContext('2d')!;
@@ -124,4 +170,5 @@ try {
   await writeFile(join(directory,`${label}.json`),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({ready:report.ready,search:{before:report.search.before,catalog:report.search.catalog,deck:report.search.deck},withDeck:report.withDeck,withoutDeck:report.withoutDeck,assetRequests,deferredCrop,browserErrors:errors},null,2));
   if(errors.length||search.mismatches||assetRequests.index!==1||assetRequests.embedder!==1||deferredCrop.mockRequests!==1||deferredCrop.width!==640||(trials*2>6&&!deferredCrop.expiredRefused)||[report.withDeck,report.withoutDeck].some(r=>r.correctPlacements!==trials||r.correctClicks!==trials||r.placement.p95Ms===null||r.placement.p95Ms>2000||r.click.p95Ms===null||r.click.p95Ms>=300)||report.search.catalog.p95Ms===null||report.search.catalog.p95Ms>6)process.exitCode=1;
+  }
 }finally{await browser.close();await new Promise<void>(done=>server.close(()=>done()));}

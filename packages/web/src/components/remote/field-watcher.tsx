@@ -10,7 +10,7 @@ import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone} from '@/lib/remote/field-legality';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
-import {ownFieldResources,detectCards} from './ui/recognizer';
+import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
@@ -43,6 +43,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const current=useRef({room,active:false});
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
   current.current.active=ownsSource&&hub.cameraOn;
+  const deckKey=deckIdsOf(room,seat).join(',');
+  useEffect(()=>{
+    if(!ownsSource||!hub.cameraOn)return;
+    void prepareOwnReader({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}).catch(()=>undefined);
+  },[room.slug,seat,ownsSource,hub.cameraOn,deckKey]);
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const manual=useRef(new Map<string,{zone:string;slot?:number;position?:string}>());
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
@@ -287,7 +292,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     });
   }
   const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:cameraKey,sourceKey:source,
-    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.08,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   const updateCalibration=useCallback((grid:FieldCalibration)=>{
     watch.setCalibration(grid);
     // Keep an unanswered identity prompt, but require fresh visibility at the
