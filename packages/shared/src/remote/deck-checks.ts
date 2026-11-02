@@ -49,6 +49,8 @@ export type RemoteReductionContext = {
   identified?: { notInDecklist: boolean; addErrors: string[] };
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
+  /** Persisted by the service: old events replay with the original placement semantics. */
+  twinPlacementGuard?: 1;
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
@@ -91,13 +93,13 @@ export function instanceLocation(instance: Pick<RemoteCardInstance, "zone" | "sl
   const slot = remotePhysicalSlot(instance.zone, instance.slot);
   return name + (slot ? " zone " + slot : "");
 }
-type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; observationId?: string };
+type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; observationId?: string; newCopy?: boolean };
 /** Pure. Unlocated/repeated sightings cannot prove new copies. */
 export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, actionId: string, used: ReadonlySet<string> = new Set()): { checks: RemoteDeckChecks; instance: RemoteCardInstance } {
   const checks = structuredClone(input);
   const { fact, seat, zone, ref } = sight;
   const slot = remotePhysicalSlot(zone, sight.slot);
-  const same = checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
+  const same = sight.newCopy ? [] : checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
   const publicView = remotePublicZone(zone, sight.faceUp);
   const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && !remoteLocationsDistinct(i, { zone, slot });
   const pinned = ref ? checks.instances.find(i => i.seat === seat && i.refs.includes(ref)) : undefined;

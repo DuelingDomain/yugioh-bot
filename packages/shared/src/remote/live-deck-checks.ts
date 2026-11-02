@@ -2,6 +2,7 @@ import type { RemoteAction } from "./actions.js";
 import { remoteAssert } from "./actions.js";
 import { flagRemoteCopies, observeRemoteCard, remoteLocationsDistinct, remotePhysicalSlot, remotePublicZone, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteState } from "./types.js";
+import { sameTwinIdentity } from "./twin-placement.js";
 
 /** Pure. All catalog/validation facts are explicit replay inputs. */
 export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, context: RemoteReductionContext = {}): RemoteState {
@@ -9,7 +10,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   const checks = next.deckChecks;
   const seen: RemoteCardInstance[] = [];
   const used = new Set<string>();
-  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; observationId?: string }) => {
+  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; observationId?: string; newCopy?: boolean }) => {
     const code = card.cardId ?? card.passcode;
     const fact = code ? context.facts?.[code] : undefined;
     if (!fact) return;
@@ -40,7 +41,13 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       if (twin && twin.faceUp) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; if(action.source!=='auto')delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true; }
     }
   }
-  if (action.type === "twin.place") observe(action.seat, { ...action.card, zone: action.zone, cardRef: action.card.ref });
+  if (action.type === "twin.place") {
+    const proof = action.copyProof, at = action.at ?? next.updatedAt;
+    const newCopy = (!context.replay || context.twinPlacementGuard === 1) && (action.source === "auto"
+      ? !!proof && proof.at <= at && at - proof.at <= 5000
+      : action.anotherCopy === true);
+    observe(action.seat, { ...action.card, zone: action.zone, cardRef: action.card.ref, newCopy });
+  }
   if (action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove") {
     const instance = checks.instances.find(i => i.seat === action.seat && i.refs.includes(action.cardRef));
     if (instance) {
@@ -67,12 +74,24 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   if (action.type === "twin.merge") {
     remoteAssert(action.seat === action.actorSeat, "Only the field owner can merge instances", 403);
-    const keep = checks.instances.find(i => i.id === action.keepInstanceId && i.seat === action.seat);
-    const remove = checks.instances.find(i => i.id === action.removeInstanceId && i.seat === action.seat);
-    remoteAssert(keep && remove && keep !== remove && keep.copyKey === remove.copyKey, "Choose two instances of the same card", 409);
-    next.seats[action.seat].twin = next.seats[action.seat].twin.filter(c => !remove.refs.includes(c.ref));
-    checks.instances = checks.instances.filter(i => i !== remove);
-    for (const flag of checks.flags) if (flag.instanceIds.includes(remove.id)) {
+    const twins = next.seats[action.seat].twin;
+    const keep = checks.instances.find(i => i.seat === action.seat && (action.keepRef ? i.refs.includes(action.keepRef) : i.id === action.keepInstanceId));
+    const remove = checks.instances.find(i => i.seat === action.seat && (action.removeRef ? i.refs.includes(action.removeRef) : i.id === action.removeInstanceId));
+    let removedRefs: string[];
+    if (action.keepRef && action.removeRef) {
+      const kept = twins.find(t => t.ref === action.keepRef), removed = twins.find(t => t.ref === action.removeRef);
+      remoteAssert(kept && removed && kept !== removed && sameTwinIdentity(next, action.seat, kept, removed, context), "Choose two twins of the same card", 409);
+      removedRefs = [action.removeRef];
+      if (remove) remove.refs = remove.refs.filter(ref => ref !== action.removeRef);
+      if (remove && remove !== keep && !remove.refs.some(ref => twins.some(t => t.ref === ref)))
+        checks.instances = checks.instances.filter(i => i !== remove);
+    } else {
+      remoteAssert(keep && remove && keep !== remove && keep.copyKey === remove.copyKey, "Choose two instances of the same card", 409);
+      removedRefs = remove.refs;
+      checks.instances = checks.instances.filter(i => i !== remove);
+    }
+    next.seats[action.seat].twin = twins.filter(c => !removedRefs.includes(c.ref));
+    for (const flag of checks.flags) if (remove && flag.instanceIds.includes(remove.id)) {
       flag.dismissed = true; flag.reason = action.reason;
     }
   }
