@@ -23,7 +23,7 @@ export function fieldGridCells(format: FieldFormat = "normal"): GridCell[] {
 export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
 let defaultGrid: FieldCalibration | undefined;
 export const defaultGridCalibration = () => defaultGrid ??= createFieldCalibration(DEFAULT_GRID_CORNERS);
-/** True when the player placed the grid on the mat: a saved side alone leaves the corners at the first guess. */
+/** Legacy records have no saved flag: they count as placed when the corners left the first guess. */
 export const isPlacedCalibration = (calibration?: FieldCalibration) => !!calibration?.orientation
   && calibration.corners.some((corner, i) => Math.abs(corner.x - DEFAULT_GRID_CORNERS[i].x) > .002 || Math.abs(corner.y - DEFAULT_GRID_CORNERS[i].y) > .002);
 /** Webcams usually face the player across the table (flipped); a phone is held from the player's own side. */
@@ -70,6 +70,8 @@ export function straddledZones(quad: readonly Point[], calibration: FieldCalibra
 /** What the field watcher shares with the camera feeds: the saved calibration and the cards it sees. */
 export interface ZoneGridState {
   ownSeat: number | null; format: FieldFormat; calibration?: FieldCalibration;
+  /** The own zones were placed on the mat (the shared "calibrated" rule), not only a side saved. */
+  placed?: boolean;
   /** Side to guess for the own feed until the player confirms one. */
   defaultSide?: PlayerSide;
   tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];
