@@ -20,6 +20,8 @@ export function parseLpInput(raw: string): number | null {
   return text.startsWith("+") ? amount : -amount;
 }
 
+export type SeatUndo = { label: string; enabled: boolean; secondsLeft: number; onUndo: () => void };
+
 export type SeatPanelProps = {
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
@@ -33,6 +35,8 @@ export type SeatPanelProps = {
   twinCounts?: ReadonlyMap<string, number>; fieldNotice?: ReactNode;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
+  /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
+  undo?: SeatUndo;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -75,6 +79,11 @@ export function SeatPanel(p: SeatPanelProps) {
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
+      {p.undo ? <button type="button" className={s.sundo} disabled={!p.undo.enabled} onClick={p.undo.onUndo} data-testid="seat-undo"
+        aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${Math.max(1, p.undo.secondsLeft)} seconds left. Shortcut Ctrl Z` : "Nothing to undo"}
+        title={p.undo.enabled ? "Undo the last action (Ctrl+Z)" : "Nothing to undo"}>
+        <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span>
+        {p.undo.enabled ? <small>{Math.max(1, p.undo.secondsLeft)}s</small> : null}</button> : null}
       <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat}

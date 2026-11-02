@@ -40,6 +40,8 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLElement>(null);
+  const suggest = transcript.ignored && transcript.result === "Not understood";
+  const expanded = open || suggest;
   // The list floats over the field on small screens. Any press or key outside it closes it, and the press still reaches the field.
   useEffect(() => {
     if (!open) return;
@@ -48,7 +50,7 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
     document.addEventListener("pointerdown", away, true); document.addEventListener("keydown", key);
     return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
   }, [open]);
-  return <section ref={root} className={`${s.dk} ${s.vox} ${proposal ? s.has : ""} ${open ? s.sopen : ""}`} aria-label="Voice commands">
+  return <section ref={root} className={`${s.dk} ${s.vox} ${proposal ? s.has : ""} ${expanded ? s.sopen : ""}`} aria-label="Voice commands">
     {proposal ? null : <div className={`${s.chip} ${s.tr}`} data-testid="transcript">
       <span className={s.who}><Icon name="mic" />YOU</span>
       <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase, an LP change or an attack."}</q>
@@ -62,8 +64,8 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
         <button type="button" className={`${s.btn} ${s.q}`} onClick={onCancel}>Cancel <kbd>Esc</kbd></button>
       </div>
     </div> : null}
-    {proposal ? null : <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={open} onClick={() => setOpen(v => !v)}>Try saying…</button>}
-    {proposal ? null : <div className={`${s.samples} ${open ? s.open : ""}`}><span>Try saying…</span>
+    {proposal ? null : <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={expanded} onClick={() => setOpen(v => !v)}>{suggest ? "Did you mean…?" : "Try saying…"}</button>}
+    {proposal ? null : <div className={`${s.samples} ${expanded ? s.open : ""} ${suggest ? s.suggest : ""}`} data-testid={suggest ? "voice-suggestions" : undefined} role={suggest ? "group" : undefined} aria-label={suggest ? "Did you mean" : undefined}><span>{suggest ? "Did you mean…?" : "Try saying…"}</span>
       {samples.map(text => <button type="button" key={text} onClick={() => { setOpen(false); onSample(text); }}>{text}</button>)}</div>}
   </section>;
 }

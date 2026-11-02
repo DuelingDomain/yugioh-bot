@@ -112,6 +112,21 @@
 .seat.next .tag.nextt{display:inline-block}
 .micI{display:none;color:#1b1204;background:var(--gold);width:20px;height:20px;border-radius:50%;place-items:center}
 .seat.speak .micI{display:grid}
+.sundo{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:min(300px,52%);height:28px;padding:0 10px;border-radius:7px;border:1.5px solid var(--gold);background:linear-gradient(180deg,rgb(232 185 79/.22),rgb(232 185 79/.09));color:var(--gold-ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.sundo .ic{width:15px;height:15px;flex:none}
+.sundo .sul{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sundo small{flex:none;font-size:11px;font-weight:600;opacity:.8;font-variant-numeric:tabular-nums}
+.sundo:hover:not(:disabled){background:var(--gold);color:#1b1204}
+.sundo:disabled{border-color:var(--line2);background:none;color:var(--ink3);font-weight:600;cursor:default}
+.cundo{border-color:var(--gold);color:var(--gold-ink)}
+.cundo:hover{background:var(--gold);color:#1b1204}
+.pback{display:inline-flex;align-items:center;gap:6px;flex:none;height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);background:var(--p0);color:var(--gold-ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.pback span{font-size:10px}
+.pback:hover:not(:disabled){border-color:var(--gold);background:var(--gold-soft)}
+.pback:disabled{color:var(--ink3);opacity:.5;cursor:default}
+.rail{position:relative}
+.pconfirm{position:absolute;z-index:40;left:50%;top:calc(100% + 6px);transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 10px 8px 14px;border:1.5px solid var(--gold);border-radius:10px;background:#1b1229;color:var(--ink);font-size:15px;box-shadow:0 10px 30px rgb(0 0 0/.6),0 0 24px rgb(232 185 79/.25);white-space:nowrap}
+.pconfirm b{color:var(--gold-ink)}
 .hl{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:12px;white-space:nowrap;background:none;border:0;padding:2px 4px;border-radius:4px}
 .hl:hover{color:var(--ink)}
 .sig{display:inline-flex;align-items:flex-end;gap:2px;height:12px}.sig i{width:3px;background:var(--ink3);opacity:.5;border-radius:1px}.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}.sig i:nth-child(3){height:10px}.sig i:nth-child(4){height:12px}
@@ -369,6 +384,9 @@
 .samples>span{flex:none}
 .samples button{background:none;border:1px solid var(--line2);border-radius:999px;color:var(--ink2);padding:4px 10px;font-size:12.5px;white-space:nowrap;flex:none}
 .samples button:hover{border-color:var(--pen);color:var(--ink)}
+.samples.suggest>span{color:var(--gold-ink);font-weight:700}
+.samples.suggest button{border-color:var(--gold);color:var(--gold-ink);background:var(--gold-soft);font-weight:600}
+.samples.suggest button:hover{background:var(--gold);color:#1b1204;border-color:var(--gold-ink)}
 .trybtn{display:none}
 .undo{gap:10px;padding:8px}
 .ubtn{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:12px;padding:0 14px;border-radius:8px;border:2px solid var(--gold);background:linear-gradient(180deg,rgb(232 185 79/.20),rgb(232 185 79/.08));color:var(--gold-ink);text-align:left;transition:.2s}
@@ -563,8 +581,8 @@
   .hl i.hlt{display:none}
   .field{--gp:3px}
   /* mobile rail: phase arc */
-  .rail{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"tb pass" "ph ph";gap:6px 10px;align-items:center;padding:0 2px}
-  .tbox{grid-area:tb}.order{display:none}.pass{grid-area:pass;height:40px}
+  .rail{display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"tb back pass" "ph ph ph";gap:6px 10px;align-items:center;padding:0 2px}
+  .tbox{grid-area:tb}.order{display:none}.pass{grid-area:pass;height:40px}.pback{grid-area:back;height:40px;padding:0 9px;font-size:12px}.tbox{min-width:0;overflow:hidden}.tn{min-width:0}.tn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pconfirm{left:0;right:0;transform:none;white-space:normal;flex-wrap:wrap}.sundo{max-width:46%}.sundo small{display:none}
   .tbox .tm{display:none}
   .phases{grid-area:ph;padding:0;gap:3px;align-items:flex-start;height:54px}
   .phases::before{display:none}

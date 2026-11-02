@@ -53,6 +53,11 @@ export type CardActions = {
   onFlag?: (button: HTMLElement) => void;
   /** Twin edits for a card that is on a field the person may change. */
   edit?: CardEdit;
+  /**
+   * "Undo last change to this card". `latest`: the newest action touched this card, so one click undoes it.
+   * Otherwise only the newest action can be undone, so the button explains that and opens the recent actions list.
+   */
+  undo?: { latest: boolean; label: string; onUndo: () => void; onHistory?: (button: HTMLElement) => void };
 };
 
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
@@ -63,6 +68,10 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
     {a.onFlag ? <button type="button" className={`${s.btn} ${s.q}`} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
     {a.edit ? <CardEditRow edit={a.edit} /> : null}
+    {a.undo ? a.undo.latest
+      ? <button type="button" className={`${s.btn} ${s.cundo}`} onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}><Icon name="undo" />Undo last change to this card</button>
+      : <button type="button" className={`${s.btn} ${s.cundo}`} data-layer-opener onClick={event => a.undo?.onHistory?.(event.currentTarget)} data-testid="card-undo-older"
+          title="Only the newest action can be undone. Open the recent actions."><Icon name="hist" />Last change is not the newest action: recent actions</button> : null}
     {a.onWrong ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onWrong}>Wrong card?</button> : null}
     {a.onPin ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onPin} data-testid="pin-inspector"><Icon name="card" />Pin to inspector</button> : null}
   </div>;
