@@ -56,6 +56,13 @@ it('local field diagnostics require the owner and loopback origin, validate crop
     state.auth.mockResolvedValue({user:{id:'9'}});expect((await POST(req())).status).toBe(404);
     state.auth.mockResolvedValue({user:{id:'7'}});expect((await POST(req(value,'https://example.com'))).status).toBe(404);
     const cross=req();cross.headers.set('origin','https://example.com');expect((await POST(cross)).status).toBe(403);
+    const normalized=(origin='http://127.0.0.1:3449',host='127.0.0.1:3449')=>new Request('http://localhost:3449/api/remote-vision/diagnostics',{method:'POST',headers:{origin,host,'content-type':'application/json'},body:JSON.stringify(value)});
+    expect((await POST(normalized())).status).toBe(201);
+    expect((await POST(normalized('http://127.0.0.1:3450'))).status).toBe(403);
+    expect((await POST(normalized('http://127.0.0.1:3450','127.0.0.1:3450'))).status).toBe(403);
+    expect((await POST(normalized('https://127.0.0.1:3449'))).status).toBe(403);
+    expect((await POST(normalized('https://example.com:3449','example.com:3449'))).status).toBe(403);
+    const forwarded=normalized();forwarded.headers.set('host','localhost:3449');forwarded.headers.set('x-forwarded-host','127.0.0.1:3449');forwarded.headers.set('x-forwarded-proto','http');expect((await POST(forwarded)).status).toBe(201);
     expect((await POST(req({...value,jpegBase64:'not-a-jpeg'}))).status).toBe(400);
     expect((await POST(req({...value,priors:{decklist:Array(513).fill('27204311')}}))).status).toBe(400);
     expect((await POST(req({...value,jpegBase64:'A'.repeat(100000)}))).status).toBe(413);

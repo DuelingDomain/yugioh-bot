@@ -10,7 +10,14 @@ const text=(v:unknown,max:number)=>typeof v==='string'&&v.length>0&&v.length<=ma
 /** Loopback URL and same-origin POST are both required, even for an owner. */
 export function localFieldDiagnosticRequest(request:Request):boolean {
   const url=new URL(request.url);
-  return ['localhost','127.0.0.1','[::1]'].includes(url.hostname)&&request.headers.get('origin')===url.origin;
+  if(!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!['http:','https:'].includes(url.protocol))return false;
+  // Next may normalize Request.url to localhost while Host retains 127.0.0.1.
+  // A proxy host is accepted only when it is also loopback at this exact port.
+  const host=request.headers.get('x-forwarded-host')??request.headers.get('host')??url.host;
+  const protocol=request.headers.get('x-forwarded-proto');
+  if(protocol&&protocol!==url.protocol.slice(0,-1))return false;
+  if(!/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host))return false;
+  try{const expected=new URL(`${url.protocol}//${host}`);return expected.port===url.port&&request.headers.get('origin')===expected.origin;}catch{return false;}
 }
 export async function saveFieldDiagnostic(input:unknown):Promise<void> {
   if(!object(input)||!text(input.jpegBase64,Math.ceil(MAX_JPEG/3)*4)||!['sure','not sure','low match'].includes(String(input.tier))||!text(input.reason,64)||!text(input.zone,20)||!Array.isArray(input.top5)||input.top5.length>5||!input.top5.every(c=>object(c)&&text(c.cardId,100)&&text(c.name,200)&&typeof c.score==='number'&&Number.isFinite(c.score)&&Math.abs(c.score)<=2))throw new Error('invalid_diagnostic');
