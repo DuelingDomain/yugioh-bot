@@ -74,7 +74,9 @@ const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? "", sam
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, drag: dnd, rotated }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, drag: dnd, rotated, twinCounts }: {
+  /** Cards that share an identity with another public card of this seat (copies seen). They get a "2×" badge. */
+  twinCounts?: ReadonlyMap<string, number>;
   /** Another player's field: turned 180 degrees as on the online board, so it reads from across the table. */
   rotated?: boolean;
   seat: number; name: string; twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined;
@@ -188,7 +190,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
         return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
           aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={() => { if (carried) dropCarried(key); else onActivate(key, card); }} onPointerDown={card ? event => begin(event, card) : undefined}>
-          {inner}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished`}>BAN {banished}</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
+          {inner}{key === "gy" && cells.gy.count && twinCounts && twin.some(card => card.zone === "graveyard" && twinCounts.has(card.ref)) ? <span className={s.dupb} data-testid="dup-badge" title="A card here has a copy on the field">{Math.max(...twin.filter(card => card.zone === "graveyard").map(card => twinCounts.get(card.ref) ?? 0))}×</span> : null}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished`}>BAN {banished}</span> : null}{card && twinCounts?.has(card.ref) ? <span className={s.dupb} data-testid="dup-badge" title={`${twinCounts.get(card.ref)} cards with this name`}>{twinCounts.get(card.ref)}×</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
         </div>;
       })}
     </div>

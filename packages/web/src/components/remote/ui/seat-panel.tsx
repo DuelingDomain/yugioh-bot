@@ -28,6 +28,8 @@ export type SeatPanelProps = {
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   drag?: FieldDrag;
+  /** Cards with a same-identity twin on this field (ref to count), and the line above the field that asks about them. */
+  twinCounts?: ReadonlyMap<string, number>; fieldNotice?: ReactNode;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
@@ -91,13 +93,14 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
+        {p.fieldNotice}
         <div className={s.fwrap} onClick={enlargeFromField} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
             <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} extraZones={p.extraZones} facing={p.facing} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
-              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} drag={p.drag} rotated={!p.you} />
+              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} />
           </div>
           <div className={s.projector} />
         </div>

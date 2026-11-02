@@ -17,6 +17,8 @@ import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
+import { CopyAsk, DupBanner } from "./dup-ui";
+import { chooseKeep, copyFlagOf, findTwinGroups, mergeProposal, type TwinGroup } from "./twins";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
@@ -214,6 +216,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
+  // The table says a card just placed by hand is already on the field. One tap: move it here, or add another copy.
+  const [copyAsk, setCopyAsk] = useState<{ seat: number; existingRef: string; cardId: number; name?: string; zone: string; slot?: number } | null>(null);
+  // "Two copies" answers (per viewer). The key is the set of refs, so a third copy asks again.
+  const [twoCopies, setTwoCopies] = useState<ReadonlySet<string>>(new Set());
+  const [merging, setMerging] = useState(false);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -260,11 +267,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       let updated:RemoteRoom|null=null;
       if(owns&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:row,card:{ref,cardId:pick.cardId,name:pick.name,...(slot?{slot}:{}),faceUp:true,position:'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(owns?{cardRef:ref,zone:row,...(slot?{slot}:{})}:{})});
-      return {updated,owns,ref};
+      return {updated,owns,ref,row,slot};
     });
     const {updated,owns,ref}=outcome;
-    if(owns&&updated)setFresh(ref);
     if (!updated) { bail(); return; }
+    // The table says this card is already on the field: ask once whether it moved or is another copy.
+    const onField = owns ? copyFlagOf(updated) : null;
+    if (onField) { layers.close("tray"); setTray(null); setCopyAsk({ seat, existingRef: onField, cardId: pick.cardId, name: pick.name, zone: outcome.row, slot: outcome.slot }); return; }
+    if(owns)setFresh(ref);
     saveSample(at.token, pick.cardId, pick.feedback);
     const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
     setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
@@ -282,8 +292,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [ctl.transaction, layers, hub, saveSample, toast]);
 
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
-  const anotherCopy = async () => {
-    const sub = subject; if (!sub || !live || !(solo || sub.seat === mySeat)) return;
+  const anotherCopy = async (sub: Subject | null = subject) => {
+    if (!sub || !live || !(solo || sub.seat === mySeat)) return;
     const found = cardInfo(sub.cardId); const { row, slot, ref } = layoutFor(sub.seat, sub.cardId, found);
     const place = await act({ type: "twin.place", actorSeat: solo ? sub.seat : mySeat, seat: sub.seat, zone: row, card: { ref, cardId: sub.cardId, name: sub.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
     if (!place) return;
@@ -740,6 +750,37 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
+  /** Same-identity twins per seat that nobody has called "two copies". */
+  const twinGroups = (seat: number): TwinGroup[] => findTwinGroups(state.seats[seat]?.twin ?? []).filter(group => !twoCopies.has(group.key));
+  const twinCounts = (seat: number) => new Map(twinGroups(seat).flatMap(group => group.cards.map(card => [card.ref, group.cards.length] as const)));
+  /** Merge keeps the card the camera tracks (else the one on the field, else the newer one) and removes the other. One action, one Undo, one log line. */
+  const mergeTwins = async (seat: number, group: TwinGroup) => {
+    if (!live || merging || !(solo || seat === mySeat)) return;
+    const { keep, remove } = chooseKeep(group, new Set(hub.trackedCards(seat).map(card => card.ref)));
+    const label = cardName(keep, info(cardCode(keep)));
+    setMerging(true);
+    try {
+      const done = await act(mergeProposal({ room: R.current.room, seat, actorSeat: solo ? seat : mySeat, keep, remove, label }));
+      if (done) {
+        setSelected(old => old?.ref === remove.ref ? { seat, ref: keep.ref } : old);
+        toast(<>Merged <b>{label}</b> into one card. <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => void doUndo()} data-testid="merge-undo">Undo</button></>, 5000);
+      }
+    } finally { setMerging(false); }
+  };
+  const fieldNotice = (seat: number): ReactNode => {
+    const mine = solo || seat === mySeat;
+    if (copyAsk?.seat === seat) {
+      const existing = state.seats[seat]?.twin.find(card => card.ref === copyAsk.existingRef);
+      const place = landingLabel({ zone: copyAsk.zone, ...(copyAsk.slot ? { slot: copyAsk.slot } : {}) });
+      return <CopyAsk seat={seat} name={copyAsk.name ?? cardInfo(copyAsk.cardId)?.name ?? `Card ${copyAsk.cardId}`} place={place} busy={!live || merging}
+        onCancel={() => setCopyAsk(null)}
+        onMove={() => { const ask = copyAsk; setCopyAsk(null); if (existing) void moveCard(seat, existing, { zone: ask.zone, ...(ask.slot ? { slot: ask.slot } : {}) }); }}
+        onCopy={() => { const ask = copyAsk; setCopyAsk(null); void anotherCopy({ cardId: ask.cardId, seat, name: ask.name, notInDecklist: flagFor(seat, ask.cardId), addErrors: [], via: "click" }); }} />;
+    }
+    const [group, ...rest] = twinGroups(seat); if (!group) return null;
+    return <DupBanner seat={seat} name={cardName(group.cards[0], info(group.cardId))} count={group.cards.length} more={rest.length} busy={!live || merging} canAct={live && mine}
+      onMerge={() => void mergeTwins(seat, group)} onTwo={() => setTwoCopies(old => new Set([...old, group.key]))} />;
+  };
   const draftPhase = PHASES.length;
   void draftPhase;
 
@@ -775,7 +816,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} pickPlate={plate} viewScope={String(seatCount)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}

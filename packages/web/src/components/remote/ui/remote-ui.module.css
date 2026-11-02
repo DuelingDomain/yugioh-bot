@@ -775,3 +775,15 @@
 .watcherControlsSlot{display:flex;flex:none}
 @container feed (max-width:280px){.ctagText{display:none}.watcherStatusSlot{max-width:calc(100cqw - 54px)}}
 .cams:has(.camq) .feedTagRow{right:110px}
+
+/* Two public cards of one seat look like one card: amber badge on each, one line above the field. */
+.zc .dupb{position:absolute;right:-3px;top:-3px;z-index:4;padding:1px 4px;border-radius:9px;background:var(--warn);color:#1b1204;font:800 10px/12px var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.02em;box-shadow:0 0 8px rgb(240 178 79/.8);pointer-events:none}
+.field[data-rotated] .dupb{transform:rotate(180deg)}
+.dupbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:4px 8px;border:1px solid rgb(240 178 79/.7);border-radius:8px;background:rgb(34 22 6/.92);color:var(--gold-ink);font-weight:600;font-size:12.5px;line-height:1.2}
+.dupbar .ic{flex:none;color:var(--warn);width:1.3em;height:1.3em}
+.dupbar .duptx{flex:1 1 180px;min-width:0}
+.dupbar .duptx b{color:#fff3d0}
+.dupbar .btn{flex:none}
+.dupbar .btn.q{color:var(--gold-ink)}
+.dupbar .btn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
+@media (max-width:700px){.dupbar{font-size:12px;padding:4px 6px}}
