@@ -10,6 +10,8 @@ export type RemotePosition = {
   attack: { id: string; attackerSeat: number; attackerCardRef?: string; targetSeat: number; targetCardRef?: string; direct?: boolean } | null;
   identified: { seat: number; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
   deckChecks: RemoteDeckChecks;
+  /** Soft manual-placement warning, delivered in the normal authoritative snapshot. */
+  twinConfirmation?: { seat: number; cardRef: string; existingRefs: string[]; message: string; anotherCopyAllowed: boolean };
 };
 export type RemoteState = RemotePosition & {
   updatedAt: number;
