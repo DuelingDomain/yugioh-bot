@@ -98,45 +98,67 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
 describe("remote deck registration and live checks", () => {
-  it("moves one visible camera or manual copy after a slide or lift without a twin prompt", () => {
+  it("slides M5 to M4, stacks GY and asks once for a later copy's origin", () => {
     const s = deckSession("normal"); s.start();
     const code = 89631133;
-    const place = (ref: string, slot: number, extra: Record<string, unknown> = {}) => s.act({
-      type: "twin.place", seat: 0, zone: "monster", card: { ref, cardId: code, name: "Blue-Eyes White Dragon", slot }, ...extra,
+    const place = (ref: string, zone: string, slot?: number, extra: Record<string, unknown> = {}) => s.act({
+      type: "twin.place", seat: 0, zone, source: "auto",
+      card: { ref, cardId: code, name: "Blue-Eyes White Dragon", ...(slot ? { slot } : {}) }, ...extra,
     });
-    const single = (slot: number) => {
-      expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: "blue", slot, zone: "monster" })]);
-      expect(s.room.state.twinConfirmation).toBeUndefined();
-      expect(s.room.state.deckChecks.instances).toHaveLength(1);
-      expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
-    };
-    place("blue", 5, { source: "auto" });
-    place("slide-quad", 4, { source: "auto" }); single(4);
-    place("click-read", 3); single(3);
-    s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
-    place("lifted-quad", 4, { source: "auto" }); single(4);
-    s.act({ type: "twin.remove", seat: 0, cardRef: "blue" });
-    place("new-tracker-id", 5, { source: "auto" }); single(5);
-    place("future-proof", 4, { copyProof: { simultaneousQuads: 2, at: 999999 } }); single(4);
-    // A lift followed by a new detector ref puts the same card on top of each pile.
+    const replay = () => expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    place("blue", "monster", 5);
+    place("slide-quad", "monster", 4);
+    expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "blue", slot: 4, zone: "monster" }]);
+    expect(s.room.state.twinConfirmation).toBeUndefined(); replay();
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "older-gy", cardId: 46986414 } });
-    s.act({ type: "twin.place", seat: 0, zone: "banished", card: { ref: "older-banish", cardId: 14558127 } });
-    for (const zone of ["graveyard", "banished"]) {
-      s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
-      s.act({ type: "twin.place", seat: 0, zone, source: "auto", card: { ref: "pile-quad-" + zone, cardId: code } });
-      expect(s.room.state.seats[0].twin.filter(c => c.zone === zone).map(c => c.ref)).toEqual([zone === "graveyard" ? "older-gy" : "older-banish", "blue"]);
-      expect(s.room.state.twinConfirmation).toBeUndefined();
-      expect(s.room.state.deckChecks.instances.filter(i => i.code === code)).toHaveLength(1);
-      expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
-    }
-    s.act({ type: "twin.remove", seat: 0, cardRef: "older-gy" });
-    s.act({ type: "twin.remove", seat: 0, cardRef: "older-banish" });
-    place("return-quad", 4, { source: "auto" });
-    // Only two simultaneous physical copies justify the manual question.
-    place("second-quad", 2, { copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } });
-    expect(s.room.state.seats[0].twin).toHaveLength(2);
-    expect(s.room.state.twinConfirmation?.existingRefs).toEqual(["blue"]);
-    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
+    place("pile-quad", "graveyard");
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["older-gy", "blue"]);
+    expect(s.room.state.twinConfirmation).toBeUndefined(); replay();
+    // D: a newly seen card cannot silently consume the recorded GY copy.
+    place("return-quad", "monster", 4);
+    expect(s.room.state.twinConfirmation).toMatchObject({ cardRef: "return-quad", options: [
+      { ref: "blue", label: "From GY" }, { label: "New copy" },
+    ] });
+    expect(s.room.state.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("graveyard"); replay();
+    s.act({type:"twin.place",seat:0,zone:"monster",source:"auto",card:{ref:"other-origin",cardId:46986414,slot:5}});
+    expect(s.room.state.twinConfirmation?.cardRef).toBe("return-quad");
+    expect(s.room.state.twinConfirmationQueue?.map(f=>f.cardRef)).toEqual(["other-origin"]);
+    s.act({type:"twin.place",seat:0,zone:"monster",source:"auto",fromRef:"older-gy",originRequestRef:"other-origin",card:{ref:"other-origin",cardId:46986414,slot:5}});
+    expect(s.room.state.twinConfirmation?.cardRef).toBe("return-quad");
+    expect(s.room.state.twinConfirmationQueue).toBeUndefined(); replay();
+    place("return-quad", "monster", 4, { fromRef: "blue" });
+    expect(s.room.state.seats[0].twin.find(c => c.ref === "blue")).toMatchObject({ zone: "monster", slot: 4 });
+    expect(s.room.state.twinConfirmation).toBeUndefined();
+    // A: two concurrent quads are two copies; neither manual nor auto asks.
+    place("second", "monster", 3, { source: undefined, copyProof: { simultaneousQuads: 2, at: s.room.state.updatedAt } });
+    expect(s.room.state.seats[0].twin.filter(c => c.cardId === code)).toHaveLength(2);
+    expect(s.room.state.twinConfirmation).toBeUndefined();
+    s.act({ type: "twin.move", seat: 0, cardRef: "second", zone: "banished", source: "auto" });
+    // C: the absent field copy is first, followed by the actual pile and new copy.
+    s.act({ type: "twin.move", seat: 0, cardRef: "blue", zone: "hand", source: "auto" });
+    place("ambiguous", "monster", 2, { source: undefined });
+    expect(s.room.state.twinConfirmation?.options).toEqual([
+      { ref: "blue", label: "Moved from M4" }, { ref: "second", label: "From banish" }, { label: "New copy" },
+    ]); replay();
+    const before = s.room.state.seats[0].twin;
+    place("ambiguous", "monster", 2, { source: undefined });
+    expect(s.room.state.seats[0].twin).toEqual(before);
+    place("ambiguous", "monster", 2, { fromRef: "blue" });
+    expect(s.room.state.twinConfirmation).toBeUndefined();
+    expect(s.room.state.seats[0].twin.find(c => c.ref === "blue")).toMatchObject({ zone: "monster", slot: 2 });
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "banished").map(c => c.ref)).toEqual(["second"]);
+    expect(s.room.state.deckChecks.instances.filter(i => i.code === code)).toHaveLength(2); replay();
+    // An explicit pile answer wins even if the physical card returns to its old slot.
+    place("blue", "monster", 1);
+    place("blue", "monster", 2, {fromRef:"second",originRequestRef:"blue"});
+    expect(s.room.state.seats[0].twin.find(c=>c.ref==="blue")).toMatchObject({zone:"hand",departedFrom:{zone:"monster",slot:2}});
+    expect(s.room.state.seats[0].twin.find(c=>c.ref==="second")).toMatchObject({zone:"monster",slot:2}); replay();
+    // Recorded version-1 events retain their original manual warning.
+    const oldPlace=(ref:string,slot:number)=>remoteActionSchema.parse({type:"twin.place",actorSeat:0,seat:0,zone:"monster",card:{ref,slot,cardId:code},idempotencyKey:ref,at:1});
+    const legacy=ygoModule.reduce(ygoModule.reduce(ygoModule.initialState({seatCount:2}),oldPlace("old-a",1),{replay:true,twinPlacementGuard:1}),oldPlace("old-b",2),{replay:true,twinPlacementGuard:1});
+    expect(legacy.twinConfirmation).toMatchObject({cardRef:"old-b",existingRefs:["old-a"]});
+
   });
   it("defaults Deck choice publicity on and preserves a strict table option through configuration and replay", () => {
     const s = deckSession("normal");

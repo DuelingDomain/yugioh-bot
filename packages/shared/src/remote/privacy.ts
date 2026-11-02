@@ -6,6 +6,7 @@ const hidden = (zone?:string,faceUp=true) => !faceUp || zone==="hand" || zone===
 function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<number>):T {
   const next=structuredClone(state);
   if(next.twinConfirmation && !seats.has(next.twinConfirmation.seat)) delete next.twinConfirmation;
+  if(next.twinConfirmationQueue)next.twinConfirmationQueue=next.twinConfirmationQueue.filter(flag=>seats.has(flag.seat));
   next.deckChecks.registrations=Object.fromEntries(Object.entries(next.deckChecks.registrations).filter(([seat])=>seats.has(Number(seat))));
   next.deckChecks.flags=next.deckChecks.flags.filter(f=>!f.private || seats.has(f.seat));
   next.deckChecks.instances=next.deckChecks.instances.filter(i=>seats.has(i.seat) || (i.public && i.zone!=="extra"));

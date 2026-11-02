@@ -6,6 +6,10 @@ import type { RemoteEffectTracking } from "./effect-tracking.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteSeatState = { seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
+export type RemoteTwinConfirmation = {
+  seat:number;cardRef:string;existingRefs:string[];message:string;anotherCopyAllowed:boolean;
+  options?:{ref?:string;label:string}[];placement?:Extract<RemoteAction,{type:"twin.place"}>;
+};
 export type RemotePosition = {
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
@@ -17,8 +21,9 @@ export type RemotePosition = {
   effectTracking?: RemoteEffectTracking;
   /** Older JSON snapshots omit this default-on table rule. */
   showCardsSetFromDeck?: boolean;
-  /** Soft manual-placement warning, delivered in the normal authoritative snapshot. */
-  twinConfirmation?: { seat: number; cardRef: string; existingRefs: string[]; message: string; anotherCopyAllowed: boolean };
+  /** Pending physical origin choice. No pile is changed until the owner answers. */
+  twinConfirmation?: RemoteTwinConfirmation;
+  twinConfirmationQueue?: RemoteTwinConfirmation[];
 };
 export type RemoteUndoEntry = {
   actionId: string; actorSeat: number; at: number; turn: number; order: number; action: RemoteAction; cards: string[];
