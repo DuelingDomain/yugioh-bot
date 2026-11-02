@@ -2,16 +2,17 @@ import type {FieldCalibration,FieldFormat,FieldZone} from '../src/field-zones';
 export type EventKind='placed'|'moved'|'removed'|'flipped'|'defense';
 export type Zone=FieldZone|'HAND'|'UNKNOWN';
 export interface Box {x:number;y:number;w:number;h:number}
+export interface DetectorFrame {atMs:number;reviewed:boolean;cards:{instanceId:string;box:Box}[]}
 export interface CardEvent {id:string;instanceId:string;atMs:number;kind:EventKind;cardId?:string;zone:Zone;fromZone?:Zone;faceDown?:boolean;position?:'attack'|'defense';box?:Box;reviewed:boolean}
 export interface LabelledSession {
   version:1;id:string;source:'real'|'synthetic';video:string;durationMs:number;width:number;height:number;decklist:string[];
-  format:FieldFormat;calibration?:FieldCalibration;reviewed:boolean;events:CardEvent[];
+  format:FieldFormat;calibration?:FieldCalibration;reviewed:boolean;events:CardEvent[];detectorFrames?:DetectorFrame[];
   negatives:{startMs:number;endMs:number;kind:'hands'|'empty'}[];
   log:{atMs:number;type:string;detail?:string}[];capture?:{frameRate?:number;mimeType?:string;bytes?:number;createdAt?:string};
 }
 export interface PredictedEvent {atMs:number;frameAtMs?:number;kind:EventKind|'prompt';trackId:string;cardId?:string;zone:Zone;box:Box;candidates?:string[];tier?:string;faceDown?:boolean;position?:'attack'|'defense'}
 export interface DetectionSample {atMs:number;cards:{box:Box;confidence:number}[]}
-export type Variant='baseline'|'efficient'|'reid'|'combined';
+export type Variant='baseline'|'efficient';
 export interface ReplayResult {
   variant:Variant;requestedBackend:'wasm'|'webgpu';events:PredictedEvent[];detections:DetectionSample[];wallMs:number;warmMs:number;inferenceMs:number;
   errors:string[];backends:string[];runtime:{crossOriginIsolated:boolean;wasmThreads:number;simd:boolean}[];stats:Record<string,number>;
@@ -27,6 +28,10 @@ export function validateSession(input:unknown):LabelledSession {
     if(!e||typeof e.id!=='string'||ids.has(e.id)||typeof e.instanceId!=='string'||!e.instanceId||!Number.isFinite(e.atMs)||e.atMs<0||e.atMs>s.durationMs||!['placed','moved','removed','flipped','defense'].includes(e.kind)||!zones.has(e.zone)||e.fromZone!==undefined&&!zones.has(e.fromZone)||typeof e.reviewed!=='boolean'||e.cardId!==undefined&&typeof e.cardId!=='string'||e.box&&!validBox(e.box)||e.position!==undefined&&!['attack','defense'].includes(e.position)||e.faceDown!==undefined&&typeof e.faceDown!=='boolean')throw Error('Invalid or duplicate labelled event');ids.add(e.id);
   }
   for(const n of s.negatives)if(!n||!['hands','empty'].includes(n.kind)||!Number.isFinite(n.startMs)||!Number.isFinite(n.endMs)||n.startMs<0||n.endMs<=n.startMs||n.endMs>s.durationMs)throw Error('Invalid negative interval');
+  if(s.detectorFrames!==undefined){
+    if(!Array.isArray(s.detectorFrames)||s.detectorFrames.length>2000)throw Error('Invalid detector frames');
+    for(const f of s.detectorFrames)if(!Number.isFinite(f.atMs)||f.atMs<0||f.atMs>s.durationMs||typeof f.reviewed!=='boolean'||!Array.isArray(f.cards)||f.cards.length>60||f.cards.some(c=>!c.instanceId||!validBox(c.box))||new Set(f.cards.map(c=>c.instanceId)).size!==f.cards.length)throw Error('Invalid detector frame');
+  }
   if(s.calibration&&(s.calibration.version!==1||s.calibration.corners?.length!==4||s.calibration.corners.some(p=>![p.x,p.y].every(Number.isFinite)||p.x<0||p.x>1||p.y<0||p.y>1)))throw Error('Invalid calibration');
   return s;
 }

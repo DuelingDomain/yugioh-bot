@@ -1,7 +1,6 @@
 import type {Recognizer} from '../src/client';
-import type {DetectedQuad,RecognitionResult} from '../src/types';
-import {boundsOf,warpQuad,type Quad} from '../src/geometry';
-import {appearanceError} from './tracker';
+import type {DetectedQuad} from '../src/types';
+import {boundsOf} from '../src/geometry';
 import type {Box} from './session';
 export class MotionGate {
   private previous?:Uint8ClampedArray;private sweep=-Infinity;
@@ -23,15 +22,10 @@ function pixels(frame:ImageData|ImageBitmap,width?:number):ImageData {
   if('data' in frame){if(!width)return frame;const original=new OffscreenCanvas(frame.width,frame.height);original.getContext('2d')!.putImageData(frame,0,0);ctx.drawImage(original,0,0,w,h);}else ctx.drawImage(frame,0,0,w,h);
   return ctx.getImageData(0,0,w,h);
 }
-export function cropAppearance(frame:ImageData|ImageBitmap,card:DetectedQuad):number[] {
-  const image=pixels(frame,Math.min(640,frame.width));
-  const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,16,24);
-  return patch?Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255):[];
-}
 /** Original-size frames always reach recognition. Only detector input is cropped. */
 export function efficientRecognizer(base:Recognizer,clock:()=>number) {
   const gate=new MotionGate(),stats={detectorCalls:0,motionSkips:0,roiCalls:0,cacheHits:0,recognitionCalls:0};
-  let last:DetectedQuad[]=[];const cache:{appearance:number[];result:RecognitionResult}[]=[];
+  let last:DetectedQuad[]=[];
   return {stats,prepare:()=>base.prepare(),
     async detectCards(frame:ImageBitmap|ImageData) {
       const small=pixels(frame,64),change=gate.inspect(small.data,small.width,small.height,clock());
@@ -47,13 +41,7 @@ export function efficientRecognizer(base:Recognizer,clock:()=>number) {
       last=await base.detectCards(frame);return structuredClone(last);
     },
     async recognize(frames:ImageBitmap[]|ImageData[],opts:Parameters<Recognizer['recognize']>[1]) {
-      const appearance=opts?.card?cropAppearance(frames[0],opts.card):[];
-      const ranked=cache.map(c=>({c,error:appearanceError(c.appearance,appearance)})).sort((a,b)=>a.error-b.error);
-      if(ranked[0]?.error<.0025&&(!ranked[1]||ranked[1].c.result.candidates[0]?.cardId===ranked[0].c.result.candidates[0]?.cardId||ranked[1].error-ranked[0].error>.005)&&!opts?.card?.covered&&!opts?.card?.partial&&opts?.card?.kind==='face-up'){
-        stats.cacheHits++;frames.forEach(f=>{if('close' in f)f.close();});return {...structuredClone(ranked[0].c.result),detectedCard:opts.card,timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:0}};
-      }
       stats.recognitionCalls++;const result=await base.recognize(frames,opts);
-      if(appearance.length&&result.tier==='sure'&&!result.quality.covered&&!result.quality.partial&&!result.quality.fallback&&!result.quality.faceDown){cache.push({appearance,result:structuredClone(result)});if(cache.length>60)cache.shift();}
       return result;
     },
   };
