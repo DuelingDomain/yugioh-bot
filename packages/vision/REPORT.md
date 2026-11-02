@@ -1,5 +1,40 @@
 # Remote vision measurements — 2026-11-01
 
+## Branch 2: merged server duplicate guard — 2026-11-02
+
+Merged `origin/feat/remote-dup-guard` (`2f8ec21d3`). Camera placements send
+`source: 'auto'`; top-level two-copy proof is emitted only for distinct,
+identified quads in the same frame. The client adopts the authoritative twin ref
+in the returned slot, including when the server moves an existing GY/pile twin
+instead of creating the proposed camera ref. Legacy duplicate recovery now uses
+the ref-based `twin.merge` action, with its ordinary atomic Undo.
+
+An isolated real-table browser replay inserted a GY twin immediately before the
+camera placement request. The server retained that GY ref and the watcher adopted
+it, kept one twin through GY and S4 return, and continued tracking it. A separate
+two-card replay sent one unmodified proof **207 ms** old; the merged server accepted
+it and retained exactly two twins. Duplicate repair took **5344 ms**; Undo retained
+the restored duplicate for **6500 ms**, without repair repeating. Browser errors:
+zero. Full-table GY/return timings under concurrent native/build load were
+**741/1852 ms**; these are separate from native tracker latency.
+
+Fresh native Chromium/WASM harness: **10/10 GY → S/T round trips**, one placement,
+one surviving ref and one visible track each, **zero duplicate births and zero
+extra recognition reads**. GY p50/p95 **448.5/652.9 ms**; S/T return p50/p95
+**513.9/1257.8 ms** (previous run **518.6/640.8** and **395.8/542.3 ms**, respectively).
+This run overlapped compilation/browser probes; the 500 ms tail-latency target
+remains unmet. Hand-only **30 s / 279 samples / zero events**; tracked hand
+occlusion **30 s / zero false removals**. Native browser errors: zero.
+Evidence: ignored `data/vision/benchmark/field-watcher/guard-merged-10.json` and
+`/tmp/remote-guard-{native,browser,proof}.log` / browser/proof JSON snapshots.
+
+Existing **153 vision + 137 web + 140 remote-service checks pass**. Shared production
+build and vision/web typechecks pass. The broader shared typecheck still fails on
+unchanged vision-feedback imports outside its rootDir and NodeNext extension
+errors in `scripts/vision/feedback.ts`; no unrelated fix or new tests were added.
+No worker change or face-state wiring is included. The isolated stack was stopped
+by recorded PID and its TCP ports were confirmed closed.
+
 ## Branch 2: strict physical copies and GY round trips — 2026-11-02
 
 Coordinator scope split: only the duplicate watcher fix is published here.

@@ -147,6 +147,13 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       const copyProof=!existing&&code&&twins.some(c=>cardCode(c)===code)?{simultaneousQuads:2 as const,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
+        if(proposal.type==='twin.place'){
+          // Automatic placement may have moved an existing pile/field twin.
+          // Numbered slots (and Field) are unique in the authoritative snapshot.
+          const saved=updated.state.seats[seat].twin.find(c=>c.zone===proposal.zone&&c.slot===proposal.card.slot);
+          if(!saved)throw new Error('Camera placement was not returned in its slot');
+          track={...track,id:saved.ref};bindings.current.set(event.track.id,saved.ref);
+        }
       }
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;
@@ -168,8 +175,8 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         if(!matches(target)){setNotice('The card is still moving. Confirm it once settled.');return;}
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      if(existing)bindings.current.set(event.track.id,existing.ref);
-      watch.confirm(event.track.id,track.cardId,existing?.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+      bindings.current.set(event.track.id,target.card.ref);
+      watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
@@ -229,8 +236,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         void queue(async act=>{
           const latest=current.current.room,twins=latest.state.seats[seat].twin,survivor=twins.find(c=>c.ref===keep.ref),duplicate=twins.find(c=>c.ref===ghost.ref),t=tracked(keep.ref),gone=tracked(ghost.ref);
           if(!live()||!survivor||!duplicate||!t?.visible||t.removed||(gone&&!gone.removed))return;
-          const instances=latest.state.deckChecks.instances,a=instances.find(i=>i.refs.includes(survivor.ref)),b=instances.find(i=>i.refs.includes(duplicate.ref));
-          const updated=await act(a&&b&&a.id!==b.id?{type:'twin.merge',actorSeat:seat,seat,keepInstanceId:a.id,removeInstanceId:b.id,reason:'Camera sees one physical copy; absent duplicate merged'}:{type:'twin.remove',actorSeat:seat,seat,cardRef:duplicate.ref});
+          const updated=await act({type:'twin.merge',actorSeat:seat,seat,keepRef:survivor.ref,removeRef:duplicate.ref,reason:'Camera sees one physical copy; absent duplicate merged'});
           if(updated){mergedCopies.current.set(duplicate.ref,updated.lastSeq);missingCopies.current.delete(duplicate.ref);setDeparture(null);setNotice(`${survivor.name??'Card'} duplicate merged · one physical copy`);setUndoId(updated.state.undo?.actionId??'');}
         }).finally(()=>{repairingCopies.current=false;});
         break;
