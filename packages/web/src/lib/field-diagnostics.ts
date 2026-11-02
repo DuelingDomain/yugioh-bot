@@ -23,8 +23,28 @@ export async function saveFieldDiagnostic(input:unknown):Promise<void> {
     if(meta.format!=='jpeg'||!meta.width||!meta.height||meta.width>224||meta.height>384||meta.width<16||meta.height<16)throw new Error('invalid');
     await decoder.raw().toBuffer();
   }catch{throw new Error('invalid_diagnostic');}
+  const quad=(value:unknown)=>{
+    if(value===undefined)return;
+    if(!Array.isArray(value)||value.length!==4||!value.every(p=>object(p)&&typeof p.x==='number'&&typeof p.y==='number'&&[p.x,p.y].every(n=>Number.isFinite(n)&&n>=-2&&n<=3)))throw new Error('invalid_diagnostic');
+    return value.map(p=>({x:p.x,y:p.y}));
+  };
+  const priors:Record<string,string[]>={};
+  if(input.priors!==undefined){
+    if(!object(input.priors))throw new Error('invalid_diagnostic');
+    for(const key of ['decklist','seen','voiceMentioned','frameClasses'])if(input.priors[key]!==undefined){
+      const ids=input.priors[key];if(!Array.isArray(ids)||ids.length>512||!ids.every(id=>text(id,100)))throw new Error('invalid_diagnostic');
+      priors[key]=ids;
+    }
+  }
+  if(input.backend!==undefined&&!['wasm','webgpu'].includes(String(input.backend)))throw new Error('invalid_diagnostic');
+  let runtime:Record<string,unknown>|undefined;
+  if(input.runtime!==undefined){
+    const r=input.runtime;
+    if(!object(r)||typeof r.crossOriginIsolated!=='boolean'||typeof r.simd!=='boolean'||typeof r.wasmThreads!=='number'||!Number.isInteger(r.wasmThreads)||r.wasmThreads<1||r.wasmThreads>64)throw new Error('invalid_diagnostic');
+    runtime={crossOriginIsolated:r.crossOriginIsolated,wasmThreads:r.wasmThreads,simd:r.simd};
+  }
   const scalars=(v:unknown)=>object(v)?Object.fromEntries(Object.entries(v).filter(([key,value])=>key.length<=40&&(['boolean','number'].includes(typeof value)||typeof value==='string'&&value.length<=80)).slice(0,24)):{};
-  const metadata={at:new Date().toISOString(),tier:input.tier,reason:input.reason,zone:input.zone,top5:input.top5.map(c=>({cardId:c.cardId,name:c.name,score:c.score})),quality:scalars(input.quality),timingsMs:scalars(input.timingsMs)};
+  const metadata={at:new Date().toISOString(),tier:input.tier,reason:input.reason,zone:input.zone,top5:input.top5.map(c=>({cardId:c.cardId,name:c.name,score:c.score})),quad:quad(input.quad),detectedQuad:quad(input.detectedQuad),priors:input.priors===undefined?undefined:priors,backend:input.backend,runtime,quality:scalars(input.quality),timingsMs:scalars(input.timingsMs)};
   const directory=resolve(process.env.VISION_DATA_DIR??join(process.cwd(),'../../data/vision'),'diagnostics/field');
   const task=writes.then(async()=>{
     await mkdir(directory,{recursive:true,mode:0o700});

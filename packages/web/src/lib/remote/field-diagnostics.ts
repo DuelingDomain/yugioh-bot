@@ -8,7 +8,8 @@ export async function saveLocalFieldDiagnostic(event:FieldEvent,entries:Readonly
     await fetch('/api/remote-vision/diagnostics',{method:'POST',redirect:'error',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(3000),body:JSON.stringify({
       jpegBase64:result.cropJpeg,tier:result.tier,reason:event.reason??event.type,zone:event.track.zone,
       top5:result.candidates.slice(0,5).map(c=>({...c,name:entries.get(c.cardId)?.name??c.cardId})),
-      quality:result.quality,timingsMs:result.timingsMs,
+      quad:event.track.card.quad,detectedQuad:result.detectedCard?.quad,priors:result.raw?.priors,
+      backend:result.backend,runtime:result.runtime,quality:result.quality,timingsMs:result.timingsMs,
     })});
   }catch{/* Local diagnostics never interrupt recognition or a table action. */}
 }
