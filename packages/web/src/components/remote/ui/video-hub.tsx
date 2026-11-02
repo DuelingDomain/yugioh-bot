@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import useSWR from "swr";
 import type { PhoneMember, PhoneScan } from "@/lib/remote/phone-protocol";
 import { ConnectionState } from "livekit-client";
@@ -49,6 +49,7 @@ type Hub = {
   trackedCalibration?(seat:number):FieldCalibration|undefined;
   trackedCards(seat:number):RemoteFieldCard[];
   trackedBacks(seat:number):FieldBack[];
+  subscribeFieldBacks(listener:()=>void):()=>void;
   publishFieldTracks(message:RemoteFieldTracks):void;
   /** Reads the card at a normalized point of a seat's feed. */
   read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[],force?:boolean): Promise<ReadResult>;
@@ -61,21 +62,18 @@ type Hub = {
   /** Reads all outlined cards of a frozen frame. Local only. */
   readBoard(seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal): Promise<BoardAnswer>;
 };
+const emptyBacks:FieldBack[]=[];
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
-  trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>[],publishFieldTracks:()=>undefined,
+  trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
 /** Back markers never participate in the public identity/click cache. */
 export function useFieldBacks(seat:number){
-  const {trackedBacks}=useVideoHub();const [backs,setBacks]=useState<FieldBack[]>([]);
-  useEffect(()=>{
-    const refresh=()=>{const next=trackedBacks(seat);setBacks(old=>JSON.stringify(old)===JSON.stringify(next)?old:next);};
-    refresh();const timer=setInterval(refresh,200);return()=>clearInterval(timer);
-  },[seat,trackedBacks]);
-  return backs;
+  const {trackedBacks,subscribeFieldBacks}=useVideoHub();
+  return useSyncExternalStore(subscribeFieldBacks,()=>trackedBacks(seat),()=>emptyBacks);
 }
 
 const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
@@ -116,7 +114,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const trackedAt=useCallback((seat:number,x:number,y:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.hit(seat,x,y):undefined):controller?.trackedAt(seat,x,y),[controller,mySeat,solo]);
   const trackedCalibration=useCallback((seat:number)=>solo&&seat===mySeat?localTracks.current.calibration(seat):controller?.trackedCalibration(seat),[controller,mySeat,solo]);
   const trackedCards=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.snapshot(seat):[]):controller?.trackedCards(seat)??[],[controller,mySeat,solo]);
-  const trackedBacks=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.backs(seat):[]):controller?.trackedBacks(seat)??[],[controller,mySeat,solo]);
+  const trackedBacks=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.backs(seat):emptyBacks):controller?.trackedBacks(seat)??emptyBacks,[controller,mySeat,solo]);
+  const subscribeFieldBacks=useCallback((listener:()=>void)=>solo?localTracks.current.subscribe(listener):controller?.subscribeFieldTracks(listener)??(()=>undefined),[controller,solo]);
   useEffect(()=>()=>{localTracks.current.clear();},[room.slug,mySeat]);
 
   useEffect(() => { if(room.status==="ended")disposeRecognizer();else void prewarmRecognizer(); }, [room.slug, room.status === "ended", localOnly, phoneWanted]);
@@ -270,8 +269,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, trackedCalibration, publishFieldTracks,
+    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, trackedCalibration, publishFieldTracks]);
+  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks]);
   return <Ctx value={value}>{children}</Ctx>;
 }
