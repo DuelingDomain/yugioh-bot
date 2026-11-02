@@ -40,7 +40,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
         notInDecklist: context.identified?.notInDecklist ?? false, addErrors: context.identified?.addErrors ?? [] };
       // An explicit ref attaches recognition to the same physical twin card.
-      if (twin && (legacy ? twin.faceUp : isPublic(twin))) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; }
+      if (twin && (legacy ? twin.faceUp : isPublic(twin))) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; if(action.source!=='auto')delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true; }
     }
   }
   if (action.type === "twin.flip" || action.type === "twin.move") {

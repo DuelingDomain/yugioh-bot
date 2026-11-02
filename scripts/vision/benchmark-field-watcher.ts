@@ -38,7 +38,7 @@ const server=createServer(async(req,res)=>{
 await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));const origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
 const browser=await chromium.launch({channel:'chromium',headless:true,args:['--disable-gpu','--no-sandbox']});
 try {
-  const page=await browser.newPage(),errors:string[]=[],requests:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
+  const page=await browser.newPage(),errors:string[]=[],requests:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>console.log('browser:',m.type(),m.text()));page.on('request',r=>requests.push(r.url()));
   await page.addInitScript('window.__name = (value) => value;');
   await page.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());await page.goto(origin+'/dev/vision-lab');
   const cdp=await browser.newBrowserCDPSession();
@@ -84,29 +84,35 @@ try {
   const placements=await page.evaluate(async ({trialLimit,stabilitySeconds})=>{
     const {api,reader}=window as any,bitmap=await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob());
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;document.body.append(canvas);const ctx=canvas.getContext('2d')!;
-    let show=false,x=460,jitter=false;const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(show){ctx.save();if(jitter){const phase=performance.now()/550;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,301);ctx.rotate(.04*Math.sin(phase));ctx.drawImage(bitmap,-90,-131,180,262);}else ctx.drawImage(bitmap,x,170,180,262);ctx.restore();}};paint();const painter=setInterval(paint,65);
+    let show=false,x=460,jitter=false,angle=0;const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(show){ctx.save();const phase=performance.now()/550;if(jitter)ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,301);ctx.rotate(angle+(jitter?.04*Math.sin(phase):0));ctx.drawImage(bitmap,-90,-131,180,262);ctx.restore();}};paint();const painter=setInterval(paint,65);
     const video=document.createElement('video');video.muted=true;video.playsInline=true;video.srcObject=canvas.captureStream(15);document.body.append(video);await Promise.race([video.play(),new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Camera playback did not start')),10000))]);
     const buffer=api.createOwnFeedBuffer(video),trials:any[]=[];
     try {
       for(let n=0;n<trialLimit;n++) {
-        show=false;paint();await new Promise(r=>setTimeout(r,300));const watcher=api.createFieldWatcher({recognizer:reader,buffer,profile:api.yugioh,getPriors:()=>({decklist:['45725480']})}),events:any[]=[];
+        show=false;angle=0;paint();await new Promise(r=>setTimeout(r,300));let reads=0;const observedReader={...reader,recognize:(...args:any[])=>{reads++;return reader.recognize(...args);}};const watcher=api.createFieldWatcher({recognizer:observedReader,buffer,profile:api.yugioh,getPriors:()=>({decklist:['45725480']})}),events:any[]=[];
         watcher.subscribe((e:any)=>events.push({...e,wallAt:performance.now()}));watcher.start();await new Promise(r=>setTimeout(r,1100));
         x=340+(n%5)*50;show=true;paint();const appeared=performance.now(),deadline=appeared+15000;
         while(!events.some(e=>e.type==='placed'||e.type==='prompt')&&performance.now()<deadline)await new Promise(r=>setTimeout(r,100));
         const result=events.find(e=>e.type==='placed'||e.type==='prompt');
         console.info('placement trial',n,'finished',result?.type??'timeout');
-        let move:any,removal:any,stability:any;
+        let move:any,rotation:any,graveyard:any,removal:any,stability:any,followReads:number|undefined;
         if(result?.type==='placed'){
-          watcher.confirm(result.track.id,result.track.cardId);
+          watcher.confirm(result.track.id,result.track.cardId);const readBefore=reads;
           if(n===0&&stabilitySeconds>0){const before=events.length;jitter=true;paint();await new Promise(r=>setTimeout(r,stabilitySeconds*1000));jitter=false;paint();await new Promise(r=>setTimeout(r,400));stability={seconds:stabilitySeconds,unexpected:events.slice(before).filter(e=>['placed','prompt','removed','flipped'].includes(e.type)),notes:'Same identified card with sinusoidal brightness .73–.97 and angle ±2.3 degrees after confirmation.'};}
           x=x<500?660:340;paint();const changed=performance.now(),moveDeadline=changed+12000;
-          while(!events.some(e=>e.type==='moved'&&e.track.zone!==result.track.zone)&&performance.now()<moveDeadline)await new Promise(r=>setTimeout(r,20));
-          const moved=events.find(e=>e.type==='moved'&&e.track.zone!==result.track.zone);move={wallLatencyMs:moved?moved.wallAt-changed:null,event:moved};
+          while(!events.some(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone!==result.track.zone)&&performance.now()<moveDeadline)await new Promise(r=>setTimeout(r,20));
+          const moved=events.find(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone!==result.track.zone);move={wallLatencyMs:moved?moved.wallAt-changed:null,event:moved};
+          const beforeTurn=events.length;angle=Math.PI/2;paint();const turned=performance.now();
+          while(!events.slice(beforeTurn).some(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.position==='defense')&&performance.now()-turned<6000)await new Promise(r=>setTimeout(r,10));
+          const rotated=events.slice(beforeTurn).find(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.position==='defense');rotation={wallLatencyMs:rotated?rotated.wallAt-turned:null,event:rotated};
+          const beforeGY=events.length;x=1040;paint();const toGY=performance.now();
+          while(!events.slice(beforeGY).some(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone==='GY')&&performance.now()-toGY<6000)await new Promise(r=>setTimeout(r,10));
+          const gy=events.slice(beforeGY).find(e=>e.type==='moved'&&e.track.id===result.track.id&&e.track.zone==='GY');graveyard={wallLatencyMs:gy?gy.wallAt-toGY:null,event:gy};followReads=reads-readBefore;
           show=false;paint();const gone=performance.now(),removeDeadline=gone+12000;
-          while(!events.some(e=>e.type==='removed')&&performance.now()<removeDeadline)await new Promise(r=>setTimeout(r,20));
-          const removed=events.find(e=>e.type==='removed');removal={wallLatencyMs:removed?removed.wallAt-gone:null,event:removed};
+          while(!events.some(e=>e.type==='removed'&&e.track.id===result.track.id&&e.wallAt>=gone)&&performance.now()<removeDeadline)await new Promise(r=>setTimeout(r,20));
+          const removed=events.find(e=>e.type==='removed'&&e.track.id===result.track.id&&e.wallAt>=gone);removal={wallLatencyMs:removed?removed.wallAt-gone:null,event:removed};
         }
-        trials.push({appeared,wallLatencyMs:result?result.wallAt-appeared:null,stability,move,removal,events,snapshot:watcher.getSnapshot()});watcher.dispose();
+        trials.push({appeared,wallLatencyMs:result?result.wallAt-appeared:null,stability,move,rotation,graveyard,followReads,removal,events,snapshot:watcher.getSnapshot()});watcher.dispose();
       }
       return trials;
     }finally{buffer.stop();clearInterval(painter);(video.srcObject as MediaStream).getTracks().forEach(t=>t.stop());video.remove();canvas.remove();bitmap.close();}
@@ -115,10 +121,10 @@ try {
   await page.evaluate(()=>((window as any).reader as {dispose():void}).dispose());
   const sorted=placements.flatMap(t=>t.wallLatencyMs===null?[]:[t.wallLatencyMs]).sort((a,b)=>a-b);
   const distribution=(values:number[])=>{const s=[...values].sort((a,b)=>a-b);return {n:s.length,p50Ms:s[Math.ceil(s.length*.5)-1],p95Ms:s[Math.ceil(s.length*.95)-1],maxMs:s.at(-1)};};
-  const follow={move:distribution(placements.flatMap(t=>t.move?.wallLatencyMs==null?[]:[t.move.wallLatencyMs])),removal:distribution(placements.flatMap(t=>t.removal?.wallLatencyMs==null?[]:[t.removal.wallLatencyMs]))};
+  const follow={rotation:distribution(placements.flatMap(t=>t.rotation?.wallLatencyMs==null?[]:[t.rotation.wallLatencyMs])),graveyard:distribution(placements.flatMap(t=>t.graveyard?.wallLatencyMs==null?[]:[t.graveyard.wallLatencyMs])),extraReads:placements.map(t=>t.followReads),move:distribution(placements.flatMap(t=>t.move?.wallLatencyMs==null?[]:[t.move.wallLatencyMs])),removal:distribution(placements.flatMap(t=>t.removal?.wallLatencyMs==null?[]:[t.removal.wallLatencyMs]))};
   const report={at:new Date().toISOString(),node:process.version,browser:browser.version(),logicalCores:cpus().length,detectorOnly:{...detectorOnly,requests:initializedRequests},negative:{source:'https://gibranbenitez.github.io/IPN_Hand/images/sample.gif',sourcePage:'https://gibranbenitez.github.io/IPN_Hand/',license:'CC BY 4.0 (IPN Hand authors)',notes:'Public real hand-gesture sample (3.4 s), converted to MP4 and looped. Person and room visible; no playing cards. Not an overhead playmat or held-out player corpus.',...negative,cpuOneCorePercent:negativeCpu/(negativeWall/1000)*100,cpuMachinePercent:negativeCpu/(negativeWall/1000)/cpus().length*100},occlusion:{...occlusion,notes:'Same cached real hand clip composited inside an already identified card footprint, preserving its mat halo. Final eight seconds freeze the clip; zero removals required.'},follow,placement:{notes:'Synthetic native 1280x720 canvas camera trials, one indexed card rendered on a plain mat. API event timing excludes table action/network rendering.',trials:placements,medianMs:sorted[Math.floor(sorted.length/2)],p95Ms:sorted[Math.ceil(sorted.length*.95)-1],cpuOneCorePercent:placementCpu/(placementWall/1000)*100,cpuMachinePercent:placementCpu/(placementWall/1000)/cpus().length*100},browserErrors:errors};
   await writeFile(join(directory,`${label}.json`),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({detectorOnly:report.detectorOnly,negative:{seconds:negativeSeconds,samples:negative.snapshot.metrics.samples,events:negative.events.length,falsePlacements:negative.events.filter((e:any)=>e.type==='placed').length,cpuOneCorePercent:report.negative.cpuOneCorePercent,cpuMachinePercent:report.negative.cpuMachinePercent},placement:{medianMs:report.placement.medianMs,p95Ms:report.placement.p95Ms,results:placements.map(t=>{const event=t.events.find((e:any)=>e.type==='placed'||e.type==='prompt');return {latencyMs:t.wallLatencyMs,type:event?.type,tier:event?.result?.tier,cardId:event?.result?.candidates[0]?.cardId};})},browserErrors:errors},null,2));
   console.log('Follow:',JSON.stringify(follow));
-  if(negative.events.some((e:any)=>e.type==='placed'||e.type==='removed')||occlusion.falseRemovals||placements.some(t=>t.stability?.unexpected.length||!t.events.some((e:any)=>e.type==='placed'&&e.result?.tier==='sure'&&e.result.candidates[0]?.cardId==='45725480')||!t.move?.event||!t.removal?.event||t.move.event.track.id!==t.removal.event.track.id)||errors.length)process.exitCode=1;
+  if(negative.events.some((e:any)=>e.type==='placed'||e.type==='removed')||occlusion.falseRemovals||placements.some(t=>t.stability?.unexpected.length||!t.events.some((e:any)=>e.type==='placed'&&e.result?.tier==='sure'&&e.result.candidates[0]?.cardId==='45725480')||!t.move?.event||!t.rotation?.event||!t.graveyard?.event||t.followReads!==0||!t.removal?.event||t.move.event.track.id!==t.removal.event.track.id)||errors.length)process.exitCode=1;
 }finally{await browser.close();await new Promise<void>(done=>server.close(()=>done()));}

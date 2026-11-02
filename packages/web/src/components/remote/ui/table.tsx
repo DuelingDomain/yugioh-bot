@@ -351,7 +351,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const at: PopAt = { anchor: extra?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
     ctx.current = { seat, x, y, quad: hit?.quad, at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
     if(cached){
-      setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,tier:'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
+      setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,bestMatch:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch,tier:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch?'not sure':'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
       setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
     }
     if (extra?.live) beginId.current = id;
@@ -734,7 +734,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card); if (!id) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : "This card is not identified yet. Click it on the camera feed."); return; }
-    setSubject({ cardId: id, seat, ref: card.ref, name: card.name, notInDecklist: flagFor(seat, id), addErrors: [], via: "field" });
+    setSubject({ cardId: id, seat, ref: card.ref, name: card.name, bestMatch:card.bestMatch, notInDecklist: flagFor(seat, id), addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref }); if (fromField) layers.open("insp");
   };
 

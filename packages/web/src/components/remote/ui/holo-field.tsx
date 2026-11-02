@@ -33,7 +33,7 @@ export function CardFace({ card, info }: { card: TwinCard; info?: CardInfo }) {
   const rating = ratingOf(kind, info);
   const stat = (value: number | undefined) => (value === undefined || value < 0 ? "?" : String(value));
   return <div className={`${s.cd} ${FRAME_CLASS[kind]}`} data-frame={kind} data-art={state} style={{ "--h": hueOf(code ?? 1), "--shape": SHAPE } as React.CSSProperties}>
-    <div className={s.nm}>{cardName(card, info)}</div>
+    <div className={s.nm} title={card.bestMatch?'Best match · use Wrong card? to correct':undefined}>{card.bestMatch?'Best match · ':''}{cardName(card, info)}</div>
     <div className={s.art} />
     <div className={s.st}>{monster ? <><b>{stat(info?.atk)}</b>{link ? null : <b>{stat(info?.def)}</b>}</> : <b>{kind === "trap" ? "TRAP" : kind === "spell" ? "SPELL" : "\u2026"}</b>}</div>
     {code && state !== "broken" ? <img className={s.fimg} src={cardArt(code, "small")} alt="" draggable={false} onLoad={() => setState("ok")} onError={() => setState("broken")} /> : null}

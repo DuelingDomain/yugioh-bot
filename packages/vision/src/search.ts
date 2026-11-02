@@ -75,6 +75,24 @@ export function preferDeck(deck: Candidate[], catalog: Candidate[], thresholds: 
   return [first, ...catalog.filter(c => c.cardId !== first.cardId)];
 }
 
+/** Reserve suggestion slots without changing the winner or its confidence evidence. */
+export function withDeckSuggestions(deck:Candidate[], catalog:Candidate[], k=5):Candidate[] {
+  if(!catalog.length)return [];
+  const limit=Math.max(1,Math.floor(k));
+  const seen=new Set<string>();
+  const required=deck.filter(c=>c.score>=.55 && !seen.has(c.cardId) && Boolean(seen.add(c.cardId))).slice(0,2)
+    .filter(c=>c.cardId!==catalog[0].cardId).slice(0,limit-1);
+  const ids=new Set([catalog[0].cardId,...required.map(c=>c.cardId)]);
+  const middle=catalog.slice(1).filter(c=>!ids.has(c.cardId) && Boolean(ids.add(c.cardId))).slice(0,limit-1-required.length);
+  return [catalog[0],...middle,...required];
+}
+
+/** The legacy two-rule profile has a narrow deck window. Loaded webcam
+ * calibrations use one rule and retain their complete, measured limits. */
+export function deckConfidenceThresholds(t:ConfidenceThresholds):ConfidenceThresholds {
+  return t.second ? {...t,score:Math.max(.78,t.score-.02,t.floor),margin:Math.max(.08,t.margin),second:undefined} : t;
+}
+
 /** Merge candidate lists from several crop hypotheses: max score per card. */
 export function mergeCandidates(lists: Candidate[][], k: number): Candidate[] {
   const best = new Map<string, Candidate>();

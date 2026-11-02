@@ -35,6 +35,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   if (!path.length || path.some(part => !part || part === "." || part === ".." || /[/\\\0]/.test(part))) {
     return new Response(null, { status: 404 });
   }
+  // Owner diagnostic crops share DATA, but are never public model/lab assets.
+  if (path[0] === "diagnostics") return new Response(null, { status: 404 });
   const mime = ["LICENSE", "NOTICE"].includes(path.at(-1)!) ? "text/plain; charset=utf-8" : MIME_TYPES[extname(path.at(-1)!).toLowerCase()];
   if (!mime) return new Response(null, { status: 404 });
 
@@ -47,6 +49,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     if (!inside(root, candidate)) return new Response(null, { status: 404 });
     const target = await realpath(candidate);
     if (!inside(root, target)) return new Response(null, { status: 404 });
+    if (inside(resolve(root, "diagnostics"), target)) return new Response(null, { status: 404 });
     // Refuse a final-component symlink introduced between realpath and open, too.
     file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await file.stat();

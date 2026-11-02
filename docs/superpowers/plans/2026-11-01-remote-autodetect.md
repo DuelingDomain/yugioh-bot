@@ -270,3 +270,80 @@ removal, and unmeasured physical webcam/WebGPU hardware. The updated ignored
 worker bundle must be generated when merging. All owned isolated services were
 stopped by PID; protected ports were untouched. Code pushed through `d4208d92a`;
 closing report is a separate documentation commit, no PR or attribution lines.
+
+## Plain black pad follow-up
+
+The owner's latest instructions replace the old deck-only/reopening policy:
+one prompt per physical track, permanent dismissal during the camera session,
+bound twin identity changed only explicitly, ordinary annotated Best matches for
+non-low reads, and one guided calibration per seat/camera.
+
+- [x] Consolidate obsolete prompt cases into one fast lifecycle feature probe;
+  cover bound jitter/rotation, silent restart/face transitions, low-match
+  dismissal, capacity reuse, and silent face-down return. Two reads and spread/
+  new-pile safety remain; no-deck Best matches now settle normally.
+- [x] Keep the Best match marker in queued twin actions and public card details;
+  clear it on explicit correction. One GY integration scenario checks one ref,
+  normal placement and a physical move into GY without a prompt.
+- [x] Replay the three owner screenshots through actual detection and manual
+  quads; Nibiru ranks first in all three (.8752/.8859/.8467). Do not claim to
+  reproduce the failed native read or tune recognition from missing evidence.
+- [x] Add capped owner-local crop/top-five/quads/priors/runtime logging: 24 pairs,
+  32 KiB/crop, three-second nonblocking timeout; deny public asset access. Verify
+  the real Next normalized-host origin case saves with 201 while foreign origins reject.
+- [x] Guide startup with an adjustable perspective grid; persist per seat/camera,
+  retain Recalibrate and gate detection until saved. All 17 displayed zone centers
+  match the existing owner-oriented mapper. Screen worker owns virtual layout.
+- [x] Verify 153 vision / 195 web / 139 shared tests, three typechecks, shared build and
+  worker bundle. Four new feature probes replace obsolete per-case tests; total
+  count decreases by eight. Focused real-browser case passes 1/1 in 43.0 s, with
+  four requested guided-grid screenshots and 24 s of jitter without repeat prompts.
+
+Final browser slide samples: 654.8/967.9 ms; GY samples: 960.8/1009.0 ms (deck/no
+deck). Earlier 2.90 s / 1.44 s slides remain recorded speed misses. No new distribution
+or hand benchmark. Failed live Nibiru frame remains unreproduced; local capture
+is available for the next miss. Keep the feed-video pointer interception with the
+screen worker, and generate the ignored pad-v5 worker bundle when merging.
+All owned isolated services were stopped by PID; their ports are free and
+protected ports were untouched. The normalized-origin diagnostic saves with 201;
+public diagnostic assets return 404 and foreign origins return 403.
+
+## Vision quick wins: duel gallery, one-read settlement and projective setup
+
+Coordinator supplied `vision-stack-recommendation.md` and authorized these five
+bounded changes. Keep the current local models/index, action queue and conservative
+clear-mat removal policy; no training or protected-service changes.
+
+- [x] Reuse confirmed/sure and dismissed identity embeddings through a duel-local,
+  seat-scoped gallery with .84/.68 hysteresis, independent of physical copy refs.
+  Retain open/dismissed track metadata rather than deleting it after three seconds.
+  Persist gallery answers in sessionStorage across camera restart/reload; explicit
+  public identity corrections replace their gallery answer.
+- [x] Reserve two deck suggestions at raw score >=.55 in the final top-five list.
+  Keep confidence evidence separate; use a conservative deck limit and preserve
+  loaded webcam calibration thresholds and clear off-deck winners.
+- [x] Start the single-card read at 300ms stability, publish on the next clean
+  frame, remove the independent second read and unconditional 1.5 s hold, and prefer
+  the upright view while keeping uncertain/reverse rescue.
+- [ ] Finish all clean slides, quarter turns and GY entries with the same tracker ref
+  and no new read. Prioritize strong outlines; weak observations may retain a track
+  but cannot create/place one. Lost translated tracks require a clear old footprint
+  so a second copy under a hand cannot steal the first card's ref.
+- [x] Replace inverse bilinear mapping with cached homographies. Fit two full card
+  quads in M1/M5 and review the inferred grid before Save; keep draggable corners
+  and Recalibrate. Equal horizontal/vertical physical gaps remain an explicit
+  assumption because two cards in one row cannot observe unknown row spacing.
+- [ ] Finish matched before/after timing, hand/rotation/GY benchmark, targeted
+  checks and the existing isolated black-pad browser scenario, stop owned PIDs,
+  record limits and push small commits without a PR or attribution trailers.
+
+One existing feature probe covers each requested behavior; older mandatory
+second-read/long-hold probes were consolidated. No new per-case CI tests or model
+inference were added to CI.
+
+Coordinator stop: no further implementation or tests. Final native transfer run
+passes4/10 same-ref/no-read slide/GY sequences; overlapping old-footprint/halo needs
+an incoming-card mask. Hand-only276samples and30s tracked occlusion have zero false
+removals. Browser scenario changes remain unrun. Route fixture failures remain
+unverified. Quick touched-package types, commit/push and recorded-PID cleanup only.
+Zone mapping is DONE; owner test stack must rebundle the ignored vision worker.

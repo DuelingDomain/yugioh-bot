@@ -90,3 +90,18 @@ export function clearFieldBackground(inside?:number[],halo?:number[]):boolean {
   const tolerance=Math.max(.035,spread*1.5),patch=distances(inside);
   return patch.filter(d=>Number.isFinite(d)&&d<=tolerance).length/patch.length>=.95;
 }
+
+/** Quarter-turn comparison of the small8x12 RGB tracker patch; no model inference. */
+export function sameRotatedFieldAppearance(a?:number[],b?:number[]):boolean {
+  if(sameFieldAppearance(a,b))return true;
+  if(a?.length!==288||b?.length!==288)return false;
+  for(const clockwise of [false,true]){
+    const rotated=Array.from({length:288},(_,i)=>{
+      const pixel=Math.floor(i/3),x=pixel%8,y=Math.floor(pixel/8);
+      const sx=Math.round((clockwise?y/11:1-y/11)*7),sy=Math.round((clockwise?1-x/7:x/7)*11);
+      return a[(sy*8+sx)*3+i%3];
+    });
+    if(sameFieldAppearance(rotated,b))return true;
+  }
+  return false;
+}
