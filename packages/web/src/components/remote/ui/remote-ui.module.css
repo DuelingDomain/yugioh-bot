@@ -462,6 +462,37 @@
 .amath{position:absolute;z-index:7;display:none;padding:5px 10px;border:1px solid var(--gold);border-radius:8px;background:rgb(24 16 6/.95);box-shadow:0 8px 24px rgb(0 0 0/.55),0 0 20px rgb(232 185 79/.25);font:600 15px/1.1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink);white-space:nowrap;pointer-events:none}
 .amath.show{display:block}.amath em{font-style:normal;color:var(--gold-ink)}.amath s{text-decoration:none;color:var(--loss)}
 
+/* Field view: a viewer can swap the two big areas of their seat. The camera becomes a small strip and the virtual field takes the space.
+   --thumb is the camera strip height. It holds cqh tokens, so each rule that uses it reads the seat's height. */
+.vtog{flex:none;height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--line2);background:var(--p2);color:var(--ink2);white-space:nowrap;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.vtog:hover{border-color:var(--pen);color:var(--ink)}
+.vtog:focus-visible,.swapcam:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.swapcam{position:absolute;inset:0;z-index:2;padding:0;border:0;background:transparent;cursor:zoom-in}
+.seat[data-view="camera"] .fwrap{cursor:zoom-in}
+.seat[data-view="field"]{--thumb:clamp(64px,24cqh,160px)}
+.seat[data-view="field"] .feedcol{flex:0 0 var(--thumb);--cellw:calc(var(--thumb) * var(--vr))}
+.seat[data-view="field"] .feedcol:has(.camsel){flex-basis:calc(var(--thumb) + 34px)}
+.seat[data-view="field"] .fwrap{--fw:calc(100cqw - 16px);--fh:calc(100cqh - var(--thumb) - 150px)}
+.seat[data-view="field"] .fctl,.seat[data-view="field"] .ctag{display:none}
+.seat[data-view="field"] .nofeed button{position:relative;z-index:9}
+/* The swap runs only while data-swapping is set, so a window resize never animates. Reduced motion shortens every transition to nothing (see the rule near the end). */
+.seat[data-swapping] .feedcol,.seat[data-swapping] .feedcol>.cams,.seat[data-swapping] .fwrap{transition:flex-basis .32s var(--ease),max-height .32s var(--ease),width .32s var(--ease),height .32s var(--ease)}
+.seat[data-swapping] .sbody{transition:grid-template-columns .32s var(--ease)}
+@container seat (min-aspect-ratio:1.55){
+  .seat[data-view="field"] .sbody{grid-template-columns:minmax(0,1fr) minmax(0,1.7fr)}
+  .seat[data-view="field"] .feedcol{--cellw:calc((100cqw - 26px) * .37)}
+  .seat[data-view="field"] .fwrap{--fw:calc((100cqw - 26px) * .63);--fh:calc(100cqh - 128px)}
+}
+@container seat (min-aspect-ratio:1.55) and (max-height:330px){
+  .seat[data-view="field"] .fwrap{--fh:calc(100cqh - 112px)}
+}
+@media (max-width:900px){
+  .seat[data-view="field"] .feedcol{flex:none}
+  .seat[data-view="field"] .feedcol>.cams{width:46%;align-self:flex-start}
+  .seat[data-view="field"] .fwrap{height:240px}
+  .app[data-mode] .seat[data-view="field"] .fwrap:has([data-emz]){height:310px}
+}
+
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
