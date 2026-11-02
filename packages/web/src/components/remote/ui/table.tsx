@@ -26,6 +26,7 @@ import { RemoteLobbyRoom } from "./lobby";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import s from "./remote-ui.module.css";
+import {publicTrackedTwin} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import {trackedRereadTarget} from '@/lib/remote/field-track-cache';
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
@@ -172,8 +173,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
   /** Where a new card goes on a field: its row, the first free slot and a fresh ref. */
-  const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>) => {
-    const current = R.current.room;
+  const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>, current=R.current.room) => {
     const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = spellTrap && /field/i.test(found?.type ?? "");
     const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : "monster";
     const used = new Set(current.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
@@ -195,18 +195,18 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const bail = () => { layers.close("tray"); setTray(null); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
-    const owns = current.solo || seat === current.mySeat;
-    // A card that is already on the field is identified again by its ref. Only a new card is placed.
-    const same = owns ? (at.ref?current.state.seats[seat].twin.find(c=>c.ref===at.ref):copyOnField(seat, pick.cardId)) : undefined;
-    const spot = same ? { row: same.zone, slot: same.slot, ref: same.ref } : layoutFor(seat, pick.cardId, found);
-    const { row, slot, ref } = spot;
-    // The card goes on the virtual field first, so the sighting attaches to that same physical card.
-    if (owns && !same) {
-      const place = await act({ type: "twin.place", actorSeat: current.solo ? seat : current.mySeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
-      if (!place) { bail(); return; }
-    }
-    if (owns) setFresh(ref);
-    const updated = await act({ type: "card.identified", actorSeat: current.mySeat, seat, cardId: pick.cardId, name: pick.name, source, ...(owns ? { cardRef: ref, zone: row, ...(slot ? { slot } : {}) } : {}) });
+    const outcome=await ctl.transaction(async(current,apply)=>{
+      const owns = current.solo || seat === current.mySeat;
+      const same=owns?current.state.seats[seat].twin.find(c=>at.ref?c.ref===at.ref:cardCode(c)===pick.cardId&&c.faceUp&&!['hand','deck'].includes(c.zone)):undefined;
+      const spot=same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current);
+      const {row,slot,ref}=spot;
+      let updated:RemoteRoom|null=null;
+      if(owns&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:row,card:{ref,cardId:pick.cardId,name:pick.name,...(slot?{slot}:{}),faceUp:true,position:'attack'}});
+      else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(owns?{cardRef:ref,zone:row,...(slot?{slot}:{})}:{})});
+      return {updated,owns,ref};
+    });
+    const {updated,owns,ref}=outcome;
+    if(owns&&updated)setFresh(ref);
     if (!updated) { bail(); return; }
     saveSample(at.token, pick.cardId, pick.feedback);
     setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
@@ -216,7 +216,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
     setPopAt(at.at); layers.open("card");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [act, layers, hub, saveSample]);
+  }, [ctl.transaction, layers, hub, saveSample]);
 
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
   const anotherCopy = async () => {
@@ -240,14 +240,16 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [layers, name]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
-    const hit = found?.hit; const extra = hit ?? found?.point;
+    let hit = found?.hit; const extra = hit ?? found?.point;
+    const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
+    // A stale transport quad must not steer a fresh read or bind its old ref.
+    if(hit?.cached&&!cached)hit=undefined;
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
-    const at: PopAt = { anchor: hit?.anchor ?? found?.point?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
+    const at: PopAt = { anchor: extra?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
     ctx.current = { seat, x, y, quad: hit?.quad, at, id,ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
-    if(hit?.cached&&!found?.force){
-      const cached=hit.cached;
+    if(cached){
       setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,tier:'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
       setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
     }
@@ -257,7 +259,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     let result: Awaited<ReturnType<typeof hub.read>>;
-    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, extra?.frames,found?.force); }
+    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, (found?.hit?.cached&&!cached?undefined:extra?.frames),found?.force); }
     catch {
       // The read failed or was cut off. Never leave the popup on "Reading…".
       if (readCounter.current !== id) return;
@@ -561,7 +563,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   void draftPhase;
 
   return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-testid="remote-table" data-status={room.status}>
-    <AutoFieldWatcher room={room} action={act} />
+    <AutoFieldWatcher room={room} transaction={ctl.transaction} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}

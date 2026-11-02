@@ -1,4 +1,4 @@
-import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard} from '@yugidraft/shared/remote';
+import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type TwinCard} from '@yugidraft/shared/remote';
 import type {FieldSnapshot,KnownFieldCard} from '@yugidraft/vision';
 import {catalogCardId} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
@@ -38,11 +38,18 @@ export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<str
   const cards:RemoteFieldCard[]=[];
   if(snapshot.status==='watching'||snapshot.status==='budget'||snapshot.status==='busy')for(const track of snapshot.tracks){
     if(track.state!=='identified'||!track.visible||track.removed||track.faceDown||track.zone==='DECK'||track.card.kind!=='face-up'||track.card.covered||track.card.partial)continue;
-    const known=knownCards.find(k=>k.id===track.id);if(known?.faceDown)continue;
-    const entry=entries.get((known?known.cardId:track.cardId)??'');if(!entry)continue;
+    const known=knownCards.find(k=>k.id===track.id);if(!known||known.faceDown||!known.cardId||known.zone==='DECK')continue;
+    const entry=entries.get(known.cardId);if(!entry)continue;
     const cardId=catalogCardId(entry);if(!cardId)continue;
     cards.push({ref:track.id,cardId,name:entry.name,quad:track.card.quad.map(p=>({x:Math.round(p.x*10000)/10000,y:Math.round(p.y*10000)/10000}))});
   }
   const message=remoteFieldTracksSchema.safeParse({type:'field.tracks',cards:cards.slice(0,20)});
   return message.success?message.data:{type:'field.tracks',cards:[]};
+}
+
+/** Transport TTL alone does not establish current public identity. */
+export function publicTrackedTwin(cached:RemoteFieldCard,twins:readonly TwinCard[]) {
+  const twin=twins.find(card=>card.ref===cached.ref);
+  if(!twin?.faceUp||!twin.cardId||['hand','deck'].includes(twin.zone))return;
+  return {ref:twin.ref,cardId:twin.cardId,name:twin.name};
 }

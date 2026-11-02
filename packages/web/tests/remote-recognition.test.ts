@@ -128,18 +128,17 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   channels.forEach(channel => channel.close());
 });
 
-it("auto placement records source before placing, so Undo targets the added twin", async () => {
+it("new automatic placement records identity atomically with the twin for one Undo", async () => {
   const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
   const track = {id:"physical-1",zone:"M3",position:"defense",faceDown:false} as import("@yugidraft/vision").FieldTrack;
   const proposals = fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Dark Magician"});
-  expect(proposals.map(p=>p.type)).toEqual(["card.identified","twin.place"]);
-  expect(proposals[0]).toMatchObject({source:"auto",cardId:46986414});
-  expect(proposals[1]).toMatchObject({zone:"monster",card:{ref:"physical-1",slot:3,position:"defense"}});
+  expect(proposals.map(p=>p.type)).toEqual(["twin.place"]);
+  expect(proposals[0]).toMatchObject({source:"auto",zone:"monster",card:{ref:"physical-1",slot:3,position:"defense"}});
 });
 it("automatic face-down placement sends no identity and an existing physical ref is never placed twice", async () => {
   const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
   const track = {id:"physical-1",zone:"S2",position:"attack",faceDown:true} as import("@yugidraft/vision").FieldTrack;
-  expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Secret"})).toEqual([{type:"twin.place",actorSeat:0,seat:0,zone:"spell-trap",card:{ref:"physical-1",slot:2,faceUp:false,position:"attack"}}]);
+  expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Secret"})).toEqual([{type:"twin.place",source:"auto",actorSeat:0,seat:0,zone:"spell-trap",card:{ref:"physical-1",slot:2,faceUp:false,position:"attack"}}]);
   track.faceDown=false;
   expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Known",existing:true})).toHaveLength(1);
 });
@@ -161,7 +160,7 @@ it("rejects invalid geometry/pixels and exports only safe visible public tracks"
   const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}],cache=new FieldTrackCache();
   const track={id:'physical',cardId:'46986414',state:'identified',visible:true,faceDown:false,removed:false,zone:'M2',card:{kind:'face-up',confidence:.9,partial:false,quad}} as any;
   const entries=new Map([['46986414',{cardId:'46986414',passcode:46986414,name:'Dark Magician'}]]);
-  const project=(tracks:any[],status='watching')=>fieldTrackMessage({status,tracks} as any,entries);
+  const project=(tracks:any[],status='watching')=>fieldTrackMessage({status,tracks} as any,entries,[{id:'physical',zone:'M2',cardId:'46986414'}]);
   expect(project([track]).cards).toEqual([{ref:'physical',cardId:46986414,name:'Dark Magician',quad}]);
   expect(project([track],'busy').cards).toEqual(project([track]).cards);
   expect(project([{...track,visible:false}],'busy').cards).toEqual([]);
@@ -175,7 +174,7 @@ it("automatic placement preserves calibrated main, spell and EMZ slots and DEF o
   const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
   for(const [zone,expected,slot] of [['M4','monster',4],['S3','spell-trap',3],['EMZ1','extra-monster',1],['EMZ2','extra-monster',2]] as const){
     const track={id:'physical',zone,position:'defense',faceDown:false} as import('@yugidraft/vision').FieldTrack;
-    expect(fieldPlacementProposals({track,seat:1,cardId:46986414,name:'Dark Magician'})[1]).toMatchObject({actorSeat:1,seat:1,zone:expected,card:{ref:'physical',slot,position:'defense',faceUp:true}});
+    expect(fieldPlacementProposals({track,seat:1,cardId:46986414,name:'Dark Magician'})[0]).toMatchObject({actorSeat:1,seat:1,zone:expected,card:{ref:'physical',slot,position:'defense',faceUp:true}});
   }
 });
 
@@ -203,7 +202,7 @@ it('track snapshots use the canonical catalog ID for Tokens and alternate image 
   const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
   for(const passcode of [0,123]){
     const snapshot={status:'watching',tracks:[{id:'token',cardId:'100000001',state:'identified',visible:true,faceDown:false,removed:false,zone:'M2',card:{kind:'face-up',confidence:.9,quad}}]} as any;
-    expect(fieldTrackMessage(snapshot,new Map([['100000001',{cardId:'100000001',passcode,name:'Token'}]])).cards[0].cardId).toBe(100000001);
+    expect(fieldTrackMessage(snapshot,new Map([['100000001',{cardId:'100000001',passcode,name:'Token'}]]),[{id:'token',zone:'M2',cardId:'100000001'}]).cards[0].cardId).toBe(100000001);
   }
 });
 it('Wrong card reacquires the same physical ref or rereads its bound frozen pixels',async()=>{
@@ -214,4 +213,48 @@ it('Wrong card reacquires the same physical ref or rereads its bound frozen pixe
   expect(trackedRereadTarget('A',[replacement])).toBeUndefined();
   const frame={} as HTMLCanvasElement;
   expect(trackedRereadTarget('A',[replacement],{x:.3,y:.35,frame})).toEqual({x:.3,y:.35,frames:[frame]});
+});
+
+it('review S1/S3: piles never place either face; absent/private twins never broadcast after Undo',async()=>{
+ const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+ const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+ for(const zone of ['GY','BANISHED','DECK','EXTRA'])for(const faceDown of [false,true])expect(fieldPlacementProposals({track:{id:'a',zone,faceDown,position:'attack'} as any,seat:0,cardId:1})).toEqual([]);
+ const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+ const snapshot={status:'watching',tracks:[{id:'a',cardId:'1',state:'identified',visible:true,faceDown:false,zone:'M2',card:{kind:'face-up',quad}}]} as any;
+ const entries=new Map([['1',{cardId:'1',passcode:1,name:'A'}]]);
+ expect(fieldTrackMessage(snapshot,entries,[]).cards).toEqual([]);
+ expect(fieldTrackMessage(snapshot,entries,[{id:'a',zone:'DECK',cardId:'1'}]).cards).toEqual([]);
+});
+it('review S5: cached receiver checks present public face-up twin and uses its corrected identity',async()=>{
+ const {publicTrackedTwin}=await import('../src/lib/remote/field-track-cache');
+ const cached={ref:'a',cardId:1,name:'Stale',quad:[]} as any;
+ const twin={ref:'a',cardId:2,name:'Correct',faceUp:true,zone:'monster'} as any;
+ expect(publicTrackedTwin(cached,[twin])).toEqual({ref:'a',cardId:2,name:'Correct'});
+ for(const twins of [[],[{...twin,faceUp:false}],[{...twin,zone:'hand'}],[{...twin,zone:'deck'}],[{...twin,cardId:undefined}]])expect(publicTrackedTwin(cached,twins)).toBeUndefined();
+});
+it('review B3: manual and watcher transactions serialize copy checks against returned state before render',async()=>{
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ for(const [first,second] of [['manual','watcher'],['watcher','manual']]){
+ const stale={lastSeq:0,state:{seats:[{twin:[]}]}} as any;
+ let server=stale;const posts:string[]=[];
+ const queue=createRoomMutationQueue(()=>stale,async proposal=>{await Promise.resolve();posts.push(proposal.type);server={lastSeq:server.lastSeq+1,state:{seats:[{twin:[...(server.state.seats[0].twin),{ref:(proposal as any).card.ref,cardId:1}]}]}};return server;});
+ const place=(ref:string)=>queue.transaction(async(room,act)=>{if(room.state.seats[0].twin.some(c=>c.cardId===1))return room;return act({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref,cardId:1,faceUp:true,position:'attack'}});});
+ await Promise.all([place(first),place(second)]);
+ expect(posts).toEqual(['twin.place']);expect(server.state.seats[0].twin).toHaveLength(1);
+ await queue.transaction(async(room)=>{expect(room.lastSeq).toBe(1);});
+ }
+});
+
+it('queued evidence cannot apply or confirm an old name over replacement pixels',async()=>{
+ const {fieldEvidenceMatches}=await import('../src/lib/remote/field-proposals');
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ const event={type:'placed',track:{id:'physical',cardId:'A',state:'identified',visible:true,removed:false,revision:0}} as any;
+ let current={...event.track},release!:()=>void;const blocker=new Promise<void>(done=>{release=done;});const posts:any[]=[];
+ const queue=createRoomMutationQueue(()=>({lastSeq:0} as any),async proposal=>{posts.push(proposal);return null;});
+ const slow=queue.transaction(async()=>{await blocker;});
+ const placement=queue.transaction(async(_,act)=>{if(fieldEvidenceMatches(event,current))await act({type:'twin.place'} as any);});
+ current={...current,revision:1,state:'candidate',cardId:undefined,visible:false};release();await Promise.all([slow,placement]);expect(posts).toEqual([]);
+ for(const track of [undefined,{...event.track,visible:false},{...event.track,removed:true},{...event.track,revision:1},{...event.track,cardId:'B'}])expect(fieldEvidenceMatches(event,track)).toBe(false);
+ expect(fieldEvidenceMatches(event,{...event.track,zone:'M4'})).toBe(true);
+ expect(fieldEvidenceMatches({...event,type:'prompt'},{...event.track,state:'prompt'})).toBe(true);
 });
