@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, matchCardsByName, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, matchCardsByName, ygoBattleAllowed, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
+import { actionCardRefs, phaseBackAction, shortUndoLabel } from "./undo-ui";
 import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
@@ -176,6 +177,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     return updated;
   },[ctl.action,toast]);
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
+  const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
   const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
@@ -208,6 +210,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const canUndo = !!undo && left > 0 && (room.status === "active" || room.status === "ended");
   const undoEvent = undo ? room.events.find(event => event.id === undo.actionId) : undefined;
   const undoText = undoEvent ? undoLabel(describeEvent(undoEvent, name, nameOfCard)?.text ?? "last action") : "last action";
+  // Short label for the field Undo button ("Dark Magician → M3"). The dock keeps the longer log line.
+  const undoShort = undoEvent
+    ? undoLabel(shortUndoLabel(undoEvent, (seat, ref) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; }, name) ?? undoText)
+    : "last action";
   const history = [...room.events].sort((a, b) => b.seq - a.seq).flatMap(event => { const line = describeEvent(event, name, nameOfCard); return line?.undoable ? [{ id: event.id, label: undoLabel(line.text) }] : []; }).slice(0, 5);
   const doUndo = useCallback(async () => {
     const { state: current, room: now } = R.current; const u = current.undo; if (!u) return;
@@ -716,6 +722,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const block = subject ? attackBlock(subject.seat, subjectCard) : "";
   const flagOf = (seat: number) => deckFlag(room, seat);
   const flagActor = solo ? (seatIds.find(seat => !state.seats[seat]?.eliminated) ?? mySeat) : mySeat;
+  // "Undo last change to this card": the foundation undoes only the newest action, so this works when that action touched this card.
+  const touches = (event: { action: unknown }) => !!subject?.ref && actionCardRefs(event.action as Parameters<typeof actionCardRefs>[0]).includes(subject.ref);
+  const cardUndo: CardActions["undo"] = subject?.ref && live
+    ? undoEvent && canUndo && touches(undoEvent) ? { latest: true, label: undoShort, onUndo: () => { void doUndo(); layers.close(); } }
+    : [...room.events].sort((a, b) => b.seq - a.seq).filter(event => describeEvent(event, name, nameOfCard)?.undoable).slice(0, 5).some(touches)
+      ? { latest: false, label: "", onUndo: () => undefined, onHistory: (el: HTMLElement) => layers.toggle("hist", el) } : undefined
+    : undefined;
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
@@ -729,6 +742,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onActivate: subject && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
+    undo: cardUndo,
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
       faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, extraZones,
@@ -842,7 +856,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
-          onPhase={setPhase} onPass={passTurn} turnIn={turnIn} />
+          onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} battleOpen={ygoBattleAllowed(state)} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
@@ -869,7 +883,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
-            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}
+            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
+            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, secondsLeft: left, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}

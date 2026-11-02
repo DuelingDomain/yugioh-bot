@@ -65,6 +65,37 @@ test.describe("remote duels screen, solo", () => {
     await shot(page, "1v1-1920-played");
   });
 
+  test("Undo sits on my own field and phase back asks once", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    const seatUndo = page.getByTestId("seat-undo");
+    await expect(seatUndo).toBeDisabled(); await expect(seatUndo).toContainText("Nothing to undo");
+    await expect(async () => { await page.getByTestId("phase-main1").click(); await expect(page.getByTestId("phase-main1")).toHaveAttribute("aria-current", "step", { timeout: 1500 }); }).toPass({ timeout: 30_000 });
+    // Field Undo: the label names the last action, one click takes it back.
+    const lp = page.getByTestId("lp-value-0"); const before = Number((await lp.textContent())?.replace(/\D/g, ""));
+    await page.getByRole("button", { name: "E2E Alice minus 500" }).click();
+    await expect(lp).toContainText(String(before - 500));
+    await expect(seatUndo).toBeEnabled(); await expect(page.getByTestId("seat-undo-label")).toContainText("500 LP");
+    await shot(page, "seat-undo-1920");
+    await seatUndo.click(); await expect(lp).toContainText(String(before));
+    // Phase back: an earlier phase asks first. Cancel keeps the phase; Back goes one phase back after Go back.
+    await page.getByTestId("phase-standby").click();
+    await expect(page.getByTestId("phase-confirm")).toContainText("Go back to Standby Phase?");
+    await shot(page, "phase-back-confirm-1920");
+    await page.getByTestId("phase-confirm-no").click();
+    await expect(page.getByTestId("phase-main1")).toHaveAttribute("aria-current", "step");
+    await page.getByTestId("phase-back").click();
+    await expect(page.getByTestId("phase-confirm")).toContainText("Standby Phase");
+    await page.getByTestId("phase-confirm-yes").click();
+    await expect(page.getByTestId("phase-standby")).toHaveAttribute("aria-current", "step");
+    if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.getByRole("button", { name: "E2E Alice minus 100", exact: true }).click();
+      await page.getByTestId("phase-main1").click(); await page.getByTestId("phase-standby").click();
+      await shot(page, `seat-undo-${w}`); await page.getByTestId("phase-confirm-no").click();
+    }
+  });
+
   test("3-way and 4-way layouts", async ({ page, context }) => {
     for (const [count, mode] of [[3, "3"], [4, "4"]] as const) {
       const slug = await soloTable(context.request, count);
