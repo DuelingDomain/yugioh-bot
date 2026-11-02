@@ -613,7 +613,7 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
  const faceDown=scenario.startsWith('face-down'),secondCopy=scenario.includes('second copy'),automatic=scenario.startsWith('automatic'),unbound=scenario.startsWith('unbound'),moved=scenario.includes('moved');
  const old={ref:'old-twin',zone:'monster',slot:2,faceUp:!faceDown||scenario==='face-down restart needs flip',cardId:46986414,name:'Dark Magician',position:'attack' as const};
  let room:any={guildId:'g',slug:'round2',mySeat:0,lastSeq:0,status:'active',seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=[old];
- const track:any={id:'candidate',zone:secondCopy?'M3':'M2',card:quads[0],faceDown,position:'attack',state:automatic?'identified':'prompt',...(automatic?{cardId:cards[0].cardId}:{}),visible:true,removed:false,firstSeen:0,lastSeen:1000};
+ const track:any={id:faceDown?old.ref:'candidate',zone:secondCopy?'M3':'M2',card:quads[0],faceDown,position:'attack',state:automatic||faceDown?'identified':'prompt',...(automatic?{cardId:cards[0].cardId}:{}),visible:true,removed:false,firstSeen:0,lastSeen:1000};
  const tracks=secondCopy||unbound?[{...track,id:old.ref,zone:'M2',state:'identified',visible:false,cardId:'46986414'},track]:[track];
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>{const i=tracks.findIndex(t=>t.id===ref&&t.id!==id);if(i>=0)tracks.splice(i,1);Object.assign(track,{id:ref??id,cardId,state:'identified'});});
  const fixture:any={ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks,metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>tracks.find(t=>t.id===id),confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
@@ -624,15 +624,16 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
  try{
   render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
   const chosen=secondCopy?cards[0]:cards[1];
-  await act(async()=>fixture.onEvent({type:automatic?'placed':'prompt',track:{...track},...(!secondCopy&&!unbound?{bindRef:old.ref}:{}),source:'auto',reason:unbound?'changed':'restart',...(!faceDown?{result:{...result,candidates:[{cardId:chosen.cardId,score:.99}]}}:{})}));
+  if(faceDown&&moved)track.zone='M3';
+  await act(async()=>fixture.onEvent({type:automatic||faceDown?'placed':'prompt',track:{...track},...(!secondCopy&&!unbound?{bindRef:old.ref}:{}),source:'auto',reason:unbound?'changed':'restart',...(!faceDown?{result:{...result,candidates:[{cardId:chosen.cardId,score:.99}]}}:{})}));
   if(moved)track.zone='M3';
-  if(!automatic)fireEvent.click(await screen.findByRole('button',{name:new RegExp(faceDown?'Confirm face-down card':chosen.name)}));
+  if(!automatic&&!faceDown)fireEvent.click(await screen.findByRole('button',{name:new RegExp(chosen.name)}));
   await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
   expect(room.state.seats[0].twin).toHaveLength(1);
   const target=room.state.seats[0].twin.find((c:any)=>c.ref===old.ref);
   expect(target.faceUp).toBe(!faceDown);if(!faceDown)expect(target.cardId).toBe(Number(chosen.cardId));
-  expect(confirm).toHaveBeenCalledWith('candidate',faceDown?undefined:chosen.cardId,old.ref,!automatic);
-  expect(post.mock.calls.map(([p])=>p.type)).toEqual([...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(moved||secondCopy?['twin.move']:[])]);
+  expect(confirm).toHaveBeenCalledWith(faceDown?old.ref:'candidate',faceDown?undefined:chosen.cardId,old.ref,!automatic&&!faceDown);
+  expect(post.mock.calls.map(([p])=>p.type)).toEqual([...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...(faceDown||moved||secondCopy?['twin.move']:[])]);
   if(moved)expect(target.slot).toBe(3);
   if(secondCopy)expect(target.slot).toBe(3);
  }finally{cleanup();host.remove();state.fieldWatch=null;}
@@ -815,7 +816,13 @@ const physicalQuad=(row:'M'|'S'):DetectedQuad=>({kind:'face-up',confidence:.99,p
 async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:DetectedQuad)=>string){
  const {createFieldWatcher,yugioh}=await import('@yugidraft/vision');let at=0;
  const recognize=vi.fn(async(_frames:any,opts:any)=>({...result,tier:'sure' as const,candidates:[{cardId:winner(opts.card),score:.99}]}));
- const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
+ const crop={width:120,height:176,data:new Uint8ClampedArray(120*176*4)};
+ for(let py=0;py<crop.height;py++)for(let px=0;px<crop.width;px++){
+  const x=px/crop.width,y=py/crop.height;
+  const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+  crop.data.set([...rgb,255],(py*crop.width+px)*4);
+ }
+ const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({crop:()=>crop,motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
  const events:any[]=[];reader.subscribe(event=>events.push(event));try{for(let i=0;i<12;i++){at+=333;await reader.tick();}return {events,recognize};}finally{reader.dispose();}
 }
 describe('typed watcher zone projection',()=>{

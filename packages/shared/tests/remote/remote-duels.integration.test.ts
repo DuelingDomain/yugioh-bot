@@ -32,9 +32,9 @@ mkdirSync(join(deckData, "card-scripts"));
 writeFileSync(join(deckData, "strings.conf"), "");
 {
   const catalog = new Database(join(deckData, "cards.cdb"));
-  catalog.exec("create table datas(id integer primary key,ot integer,alias integer,setcode integer,type integer,race integer,attribute integer); create table texts(id integer primary key,name text,desc text)");
+  catalog.exec("create table datas(id integer primary key,ot integer,alias integer,setcode integer,type integer,race integer,attribute integer,atk integer default 0,def integer default 0,level integer default 1); create table texts(id integer primary key,name text,desc text)");
   const add = (id: number, name: string, type = 0x11, alias = 0) => {
-    catalog.prepare("insert into datas values(?,3,?,0,?,1,1)").run(id, alias, type);
+    catalog.prepare("insert into datas(id,ot,alias,setcode,type,race,attribute) values(?,3,?,0,?,1,1)").run(id, alias, type);
     catalog.prepare("insert into texts values(?,?, '')").run(id, name);
     writeFileSync(join(deckData, "card-scripts", "c" + id + ".lua"), "");
   };
@@ -855,7 +855,7 @@ describe("remote board and transactional edge cases", () => {
     expect(room.status).toBe("active");
     expect(() => service.act(table.slug, "g", users[2], { baseSeq: room.lastSeq,
       action: { type: "log.note", actorSeat: 2, idempotencyKey: "undo-win", text: "different" } }, 3001)).toThrow(/different action/);
-    expect(service.replay(table.slug, "g", users[0])).toEqual(room.state);
+    expect(service.replay(table.slug, "g", users[2])).toEqual(room.state);
   });
 });
 
