@@ -170,8 +170,11 @@ export function ThemedSelect<T extends string | number | boolean>({
     };
     // A scroll of the page or of a parent of the button closes the list (the button would move away from it). A phone sheet does not follow the page, so it stays.
     // A scroll elsewhere, such as a log that follows a live duel, leaves it open.
+    // A scroll that lands just after the click (the browser scrolled the button into view) does not count.
+    const openedAt = performance.now();
     const scrolled = (event: Event) => {
       const target = event.target as Node | null;
+      if (performance.now() - openedAt < 150) return;
       if (sheet || (target && popRef.current?.contains(target))) return;
       if (target && target !== document && !target.contains(triggerRef.current)) return;
       close();
