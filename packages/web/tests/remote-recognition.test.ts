@@ -15,6 +15,22 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
+it.each(['fetch','response body'] as const)('a hung catalog %s releases the shared action queue after ten seconds',async stage=>{
+  vi.useFakeTimers();
+  try {
+    const {loadCards,cardInfo}=await import('../src/components/remote/ui/catalog'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+    const id=stage==='fetch'?920000201:920000202,never=new Promise<never>(()=>{});let signal:AbortSignal|undefined,finished=false;
+    const response=Response.json({cards:[]});response.json=()=>never;
+    const fetcher=vi.fn(async(_url:string,options:RequestInit)=>{signal=options.signal??undefined;return stage==='fetch'?never:response;});vi.stubGlobal('fetch',fetcher);
+    const room={lastSeq:0} as any,post=vi.fn(async()=>room),queue=createRoomMutationQueue(()=>room,post);
+    const metadata=queue.transaction(async(_room,act)=>{await loadCards([id]);finished=true;if(cardInfo(id))await act({type:'phase.advance',actorSeat:0});});
+    const manual=queue.action({type:'phase.advance',actorSeat:0});
+    await vi.advanceTimersByTimeAsync(9_999);expect(fetcher).toHaveBeenCalledOnce();expect(finished).toBe(false);expect(post).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledExactlyOnceWith({type:'phase.advance',actorSeat:0});await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
+    fetcher.mockResolvedValueOnce(Response.json({cards:[{id,name:'Recovered catalog fixture',type:'Trap Card',frameType:'trap',effectText:''}]}));await loadCards([id]);expect(cardInfo(id)).toMatchObject({id,type:'Trap Card'});expect(fetcher).toHaveBeenCalledTimes(2);
+  }finally{vi.useRealTimers();}
+});
+
 it("reads a local frame and sends only the public passcode to the existing catalog", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ cards: [{ id: 46986414, name: "Dark Magician" }] })); vi.stubGlobal("fetch", fetcher);
   expect(await recognizeLocalCard(canvas, new AbortController().signal)).toEqual([{ id: 46986414, name: "Dark Magician" }]);

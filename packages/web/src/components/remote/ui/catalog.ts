@@ -18,9 +18,16 @@ function remember(cards: CardSummary[]) {
 export function cardInfo(id: number | undefined): CardInfo | undefined { return id === undefined ? undefined : cache.get(id); }
 
 async function post(body: unknown): Promise<CardSummary[]> {
-  const response = await fetch("/api/cards/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!response.ok) return [];
-  return ((await response.json()) as { cards?: CardSummary[] }).cards ?? [];
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  const deadline=new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Card details timed out after 10 seconds.'));},10_000);});
+  try {
+    // Include body decoding in the deadline so missing facts cannot hold the table queue.
+    return await Promise.race([deadline,(async()=>{
+      const response = await fetch("/api/cards/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),signal:controller.signal });
+      if (!response.ok) return [];
+      return ((await response.json()) as { cards?: CardSummary[] }).cards ?? [];
+    })()]);
+  }finally{clearTimeout(timer);}
 }
 
 const CHUNK = 80;
