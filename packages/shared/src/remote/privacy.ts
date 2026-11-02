@@ -4,6 +4,7 @@ import { remotePublicCard } from "./deck-checks.js";
 const hidden = (zone?:string,faceUp=true) => !faceUp || zone==="hand" || zone==="deck" || zone==="extra";
 function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<number>):T {
   const next=structuredClone(state);
+  if(next.twinConfirmation && !seats.has(next.twinConfirmation.seat)) delete next.twinConfirmation;
   next.deckChecks.registrations=Object.fromEntries(Object.entries(next.deckChecks.registrations).filter(([seat])=>seats.has(Number(seat))));
   next.deckChecks.flags=next.deckChecks.flags.filter(f=>!f.private || seats.has(f.seat));
   next.deckChecks.instances=next.deckChecks.instances.filter(i=>seats.has(i.seat) || (i.public && i.zone!=="extra"));

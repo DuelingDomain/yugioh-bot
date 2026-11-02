@@ -15,6 +15,8 @@ export type RemotePosition = {
   effectTracking?: RemoteEffectTracking;
   /** Older JSON snapshots omit this default-on table rule. */
   showCardsSetFromDeck?: boolean;
+  /** Soft manual-placement warning, delivered in the normal authoritative snapshot. */
+  twinConfirmation?: { seat: number; cardRef: string; existingRefs: string[]; message: string; anotherCopyAllowed: boolean };
 };
 export type RemoteState = RemotePosition & {
   updatedAt: number;

@@ -12,7 +12,7 @@ import {projectFieldZone} from '@/lib/remote/field-legality';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
-import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
+import {cardCode,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
@@ -148,6 +148,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
+        if(proposal.type==='twin.place'){
+          const canonical=placedTwin(updated.state.seats[seat].twin,{...proposal.card,zone:proposal.zone});
+          if(canonical && canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
+        }
       }
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;

@@ -1,5 +1,34 @@
 # Remote vision measurements — 2026-11-01
 
+## Branch 2: audit of the two reported table browser failures
+
+Checked the unchanged tests on `feat/remote-autodetect-2` at `63126fd2b`, after
+fetching origin. Neither reported failure reproduced: one initial run passed
+**2/2 in 45.4 s**, followed by three repetitions passing **6/6 in 1.9 minutes**.
+No retries were enabled and no tests, assertions, app code or timeouts changed.
+
+| Existing test | Finding | Evidence across four executions |
+| --- | --- | --- |
+| Owner table applies once and Undo removes the atomic placement | No current app bug or stale assertion established; retain the test. | **4/4 pass**. One automatic placement of Sacred Sword in S2, no separate identify event, atomic Undo empties the twin, no automatic re-placement, and the undone track no longer opens a cached popup. |
+| Camera follows EMZ/DEF moves and clear departure with destinations and Undo | No current app bug or stale assertion established; retain the test. | **4/4 pass**. Stardust retains one ref from EMZ1/DEF to EMZ2/ATK, then GY, Undo, return, a deliberately rejected removal and retry, all destination corrections and final Undo/log. Actual rendered DEF transform is checked at −90°. |
+
+Full-table DOM follow timings, including detector, app, HTTP and socket/render work:
+EMZ move **1282–1797 ms**; clear departure **2919–5515 ms** across four runs.
+These are not a new native tracker speed measurement and do not meet the 500 ms
+full-table follow target. Shared-machine build/browser work was running concurrently.
+
+Camera mapping/calibration already uses Field left / GY right / Banished by GY,
+Extra left / Deck right, with EMZ above M2/M4. Both audited cases select semantic
+zone keys rather than screen-cell indexes. The separate screen worker's HoloField
+layout change is absent from this checkout; these results do not certify that
+other branch's rendered layout. Its older rendering order was left untouched.
+
+Evidence: `/tmp/remote-e2e2-{before,repeat}.log`, with six finishing screenshots in
+`/tmp/remote-e2e2-repeat/`. The stack reused cached native models/index/images and
+an isolated fixture DB, on web 3449 / WS 3349+4349 / LiveKit 7889+7890. Its recorded
+PIDs and descendants were stopped after verification. No protected service was
+touched. This audit adds documentation only; no worker rebundle is needed.
+
 ## Branch 2: route fixtures and reliable tracked transfers
 
 Work continues from `d9e66f427` on **`feat/remote-autodetect-2` only**. This section

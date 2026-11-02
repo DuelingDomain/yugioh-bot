@@ -43,9 +43,16 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
       .refine(cards => new Set(cards.map(c => c.observationId)).size === cards.length, "Duplicate physical observation") }),
   z.strictObject({ ...meta, type: z.literal("deck.add"), seat: remoteSeatSchema, cardId }),
   z.strictObject({ ...meta, type: z.literal("deck.flag.dismiss"), flagId: z.string().min(1).max(250), reason: z.string().trim().min(1).max(200) }),
-  z.strictObject({ ...meta, type: z.literal("twin.merge"), seat: remoteSeatSchema, keepInstanceId: z.string().min(1).max(250),
-    removeInstanceId: z.string().min(1).max(250), reason: z.string().trim().min(1).max(200) }),
-  z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional() }),
+  z.strictObject({ ...meta, type: z.literal("twin.merge"), seat: remoteSeatSchema,
+    keepInstanceId: z.string().min(1).max(250).optional(), removeInstanceId: z.string().min(1).max(250).optional(),
+    keepRef: id.optional(), removeRef: id.optional(), reason: z.string().trim().min(1).max(200) })
+    .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
+      (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
+  z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** Same-identity physical cards visible together in one camera frame, in epoch milliseconds. */
+    copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
+    /** Player explicitly chose Another copy; ignored for automatic placements. */
+    anotherCopy: z.boolean().optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean() }),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id }),

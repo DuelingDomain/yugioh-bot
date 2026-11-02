@@ -100,6 +100,11 @@ export const cellKeyOf = (card: TwinCard, twin: readonly TwinCard[] = [card]): Z
 };
 
 export const cardCode = (card: Pick<TwinCard, "cardId" | "passcode">) => card.cardId ?? card.passcode;
+/** An automatic placement may move an existing twin and retain its authoritative ref. */
+export function placedTwin(twins:readonly TwinCard[], card:Pick<TwinCard,"ref"|"zone"|"slot"|"cardId"|"passcode"|"name">):TwinCard|undefined {
+  return twins.find(t=>t.ref===card.ref) ?? twins.find(t=>t.zone===card.zone && t.slot===card.slot &&
+    (cardCode(card)!==undefined ? cardCode(t)===cardCode(card) : !!card.name && t.name===card.name));
+}
 export function cardName(card: TwinCard, info?: CardInfo): string { return card.name ?? info?.name ?? (cardCode(card) ? `Card ${cardCode(card)}` : "Unknown card"); }
 /** The card frame kinds the field draws. They follow the online duel board, where the printed frame shows the type. */
 export type FrameKind = "normal" | "effect" | "ritual" | "fusion" | "synchro" | "xyz" | "link" | "pendulum" | "spell" | "trap" | "token";

@@ -241,7 +241,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck, ...(command.type === "twin.place" ? { twinPlacementGuard: 1 as const } : {})};
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
             const twin=card.cardRef ? before.seats[command.seat].twin.find(c=>c.ref===card.cardRef) : undefined;
@@ -262,7 +262,8 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
         const registrations = before.deckChecks.registrations;
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
-        effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes])]);
+        const twinCodes = before.seats.flatMap(s => s.twin.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []));
+        effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
         if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add") {
           const code = codes.at(-1); const fact = code ? effects.facts[code] : undefined;
           const registration = registrations[command.seat];
@@ -286,7 +287,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         }
         if (command.type === "deck.add") messages.unshift({ seat: command.actorSeat, text: " added " + effects.facts[command.cardId]?.name + " to their decklist" });
         if (command.type === "deck.flag.dismiss") messages.push({ seat: command.actorSeat, text: " dismissed flag " + command.flagId + " as wrong: " + command.reason });
-        if (command.type === "twin.merge") messages.push({ seat: command.actorSeat, text: " merged instances " + command.keepInstanceId + " and " + command.removeInstanceId + ": " + command.reason });
+        if (command.type === "twin.merge") messages.push({ seat: command.actorSeat, text: " merged instances " + (command.keepInstanceId ?? command.keepRef) + " and " + (command.removeInstanceId ?? command.removeRef) + ": " + command.reason });
         append(row, action, now, userId, command.actorSeat, true, effects, messages);
         syncDecks(row, state);
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")

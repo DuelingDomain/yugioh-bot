@@ -16,7 +16,7 @@ import { interpret, trySaying, type MoveIntent, type VoiceIntent } from "./gramm
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
@@ -267,9 +267,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const spot=same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current);
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined};}
       let updated:RemoteRoom|null=null;
-      if(owns&&spot&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
+      if(owns&&spot&&!same)updated=await apply({type:'twin.place',...(source==='auto'?{source}:{}),actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
-      return {updated,owns,ref:spot?.ref};
+      const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
+      return {updated,owns,ref};
     });
     const {updated,owns,ref}=outcome;
     if(owns&&updated)setFresh(ref);
@@ -434,8 +435,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
-        const ok = await act({ type: "twin.place", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
-        if (!ok) break; done.push(item);
+        const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
+        if (!ok) break;
+        const canonical=placedTwin(ok.state.seats[seat].twin,{ref:item.ref,zone:item.zone,slot:item.slot,cardId:item.card.cardId});
+        if(!canonical)break;
+        const previous=done.findIndex(value=>value.ref===canonical.ref);if(previous>=0)done.splice(previous,1);
+        done.push({...item,ref:canonical.ref,zone:canonical.zone,slot:canonical.slot});
       }
     }
     const seenNow = owns ? done : placed;
