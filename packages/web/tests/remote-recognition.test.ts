@@ -178,6 +178,18 @@ it("automatic placement preserves calibrated main, spell and EMZ slots and DEF o
     expect(fieldPlacementProposals({track,seat:1,cardId:46986414,name:'Dark Magician'})[1]).toMatchObject({actorSeat:1,seat:1,zone:expected,card:{ref:'physical',slot,position:'defense',faceUp:true}});
   }
 });
+
+it('departures leave field zones once with a named atomic move and retain physical refs for destinations',async()=>{
+  const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
+  const {describeEvent}=await import('../src/components/remote/ui/describe');
+  const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
+  const proposal=fieldDepartureProposal(card,0);
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',source:'auto',name:'Varudras'});
+  expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
+  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('graveyard');
+  for(const zone of ['graveyard','banished','hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
+  expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
+});
 it('a corrected public physical ref replaces the watcher identity in every exported snapshot',async()=>{
   const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
   const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];

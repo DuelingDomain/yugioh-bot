@@ -41,6 +41,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey]);
   return {enabled,setEnabled,calibration,setCalibration,snapshot,
+    isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string)=>watcher.current?.confirm(id,cardId),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),
     forget:useCallback((id:string)=>watcher.current?.forget(id),[])};
