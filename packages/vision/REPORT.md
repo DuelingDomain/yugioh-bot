@@ -2,6 +2,18 @@
 
 ## Branch 2: strict physical copies and GY round trips — 2026-11-02
 
+Coordinator scope split: only the duplicate watcher fix is published here.
+Second-copy camera placements now send `copyProof: {simultaneousQuads: 2, at}`,
+using the verified camera sample translated to server wall time. Both witnesses
+come from the running watcher because the React snapshot can lag the event.
+A real two-card browser capture emitted exactly one proof, **218 ms** old at the
+request, and retained two distinct twins. The isolated legacy server does not yet
+accept this field; the probe captured it, then stripped it solely for compatibility.
+No server-guard validation is claimed. `origin/feat/remote-dup-guard` was not yet
+published at the final fetch; the client uses the coordinator's specified shape.
+Face-state work is stashed and unwired, per the split. Existing 137 web checks and
+the web typecheck pass after this payload change; no new tests were added.
+
 The same identity reuses its existing physical ref when that track is lost,
 including returns from GY, banish or hand. Another automatic twin requires two
 distinct face-up, identified quads in the same detector frame. Cached bound

@@ -81,7 +81,10 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     if(!existing&&entry){
       const copies=twins.filter(c=>cardCode(c)===catalogCardId(entry));
       for(const copy of copies){
-        const other=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
+        const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
+        // Events precede the React snapshot render. Both witnesses must be read
+        // from the running watcher, rather than comparing a new frame to stale UI.
+        const other=watch.getTrack(copy.ref)??(cached?watch.getTrack(cached.id):undefined);
         if(other&&simultaneousFieldCopies(track,other))continue;
         // An occluded/lost copy or an existing pile/hand copy owns this read.
         // An unmatched visible outline is insufficient proof for another twin.
@@ -139,7 +142,10 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     try {
       let updated:RemoteRoom|null=null;
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
-      for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing})){
+      // The resolver has just required a distinct, same-frame witness for every
+      // existing copy. Timestamp the actual camera sample in the server clock.
+      const copyProof=!existing&&code&&twins.some(c=>cardCode(c)===code)?{simultaneousQuads:2 as const,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
+      for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
       }
       const currentTarget=()=>{
