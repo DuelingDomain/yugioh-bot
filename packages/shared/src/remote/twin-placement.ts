@@ -45,11 +45,10 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   const samePlace = matches.find(t => t.zone === action.zone && remotePhysicalSlot(t.zone, t.slot) === remotePhysicalSlot(action.zone, action.card.slot));
   // A repeated observation in its current slot is never a new origin question.
   const exact = matches.find(t => t.ref === action.card.ref);
-  const vacateAnsweredSlot=(keepRef?:string)=>{
+  const retireOtherFieldOrigins=(keepRef?:string)=>{
     const pending=[state.twinConfirmation,...(state.twinConfirmationQueue??[])].find(f=>f?.seat===action.seat&&f.cardRef===action.originRequestRef);
     if(!pending)return;
-    for(const card of twins)if(card.ref!==keepRef&&remoteFieldZone(card.zone)&&card.zone===action.zone&&
-      remotePhysicalSlot(card.zone,card.slot)===remotePhysicalSlot(action.zone,action.card.slot)&&
+    for(const card of twins)if(card.ref!==keepRef&&remoteFieldZone(card.zone)&&
       pending.options?.some(o=>o.ref===card.ref&&o.label.startsWith("Moved from "))){
       card.departedFrom={zone:card.zone,...(card.slot?{slot:card.slot}:{})};card.zone="hand";delete card.slot;
       const instance=state.deckChecks.instances.find(i=>i.seat===action.seat&&i.refs.includes(card.ref));
@@ -59,14 +58,14 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   if (action.fromRef) {
     const selected = matches.find(t => t.ref === action.fromRef);
     remoteAssert(selected, "The chosen card origin is no longer available", 409);
-    vacateAnsweredSlot(selected.ref);
+    retireOtherFieldOrigins(selected.ref);
     clearTwinConfirmation(state,action.seat,action.originRequestRef??action.card.ref);
     return { ref: selected.ref, card: selected };
   }
   if (exact && exact === samePlace && !action.anotherCopy) return { ref: exact.ref, card: exact };
   const proof = action.copyProof, at = action.at ?? state.updatedAt;
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
-  if (action.anotherCopy)vacateAnsweredSlot();
+  if (action.anotherCopy)retireOtherFieldOrigins();
   if (action.anotherCopy || simultaneous && matches.some(t => remoteFieldZone(t.zone))) {
     clearTwinConfirmation(state,action.seat,action.originRequestRef??action.card.ref);
     return;
