@@ -35,6 +35,8 @@ type Hub = {
   health(seat: number): Health;
   setFrozen(seat: number, frozen: boolean): void;
   enableCamera(): Promise<void>;
+  /** Leave manual or phone mode and start this device's webcam. */
+  useWebcam(): Promise<void>;
   disableCamera(): Promise<void>;
   selectCamera(id: string): Promise<void>;
   setMic(on: boolean): void;
@@ -55,7 +57,7 @@ type Hub = {
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   trackedAt:()=>undefined,trackedCards:()=>[],publishFieldTracks:()=>undefined,
-  sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
+  sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
@@ -130,7 +132,11 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const startLocal = useCallback(async (deviceId: string) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("The camera needs HTTPS or localhost and browser permission.");
     stopLocal();
-    const media = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } } : { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } }, audio: false });
+    const any = { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } };
+    // A remembered camera can be gone (unplugged, or the id changed). Fall back to the default camera instead of failing.
+    const media = deviceId
+      ? await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, ...any }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: any, audio: false }))
+      : await navigator.mediaDevices.getUserMedia({ video: any, audio: false });
     localRef.current = media; setLocal(media); setLocalCamera(media.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId);
     setLocalDevices((await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput"));
   }, [stopLocal]);
@@ -149,6 +155,15 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     await roster.mutate();
     if(localOnly)await startLocal(localCamera);else await controller?.connect();
   }), [guard, localOnly, phoneWanted, startLocal, localCamera, controller,roster.mutate]);
+  const useWebcam = useCallback(() => guard(async () => {
+    const slug = roomRef.current.slug;
+    // A paired phone is dropped first; its row would otherwise keep the table in phone mode.
+    if (phones.some(p => p.seat === roomRef.current.mySeat)) { const gone = await fetch(`/api/remote/${slug}/phone`, { method: "DELETE" }); if (!gone.ok) throw new Error("Could not leave phone mode"); setPhoneScan(null); }
+    const response = await fetch(`/api/remote/${slug}/phone`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "webcam" }) });
+    if (!response.ok) throw new Error("Could not select webcam mode");
+    await roster.mutate();
+    if (solo) await startLocal(localCamera); else await controller?.connect();
+  }), [guard, phones, solo, startLocal, localCamera, controller, roster.mutate]);
   const disableCamera = useCallback(() => guard(async () => { if (localOnly) stopLocal(); else await controller?.stop(); }), [guard, localOnly, stopLocal, controller]);
   const selectCamera = useCallback((id: string) => guard(() => localOnly ? startLocal(id) : controller ? controller.selectCamera(id) : Promise.resolve()), [guard, localOnly, startLocal, controller]);
   const setMic = useCallback((on: boolean) => { setMicOn(on); if (controller && connected) void controller.setMicrophone(on).catch(e => controller.fail(e)); }, [controller, connected]);
@@ -235,7 +250,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, setFrozen, trackedAt, trackedCards, publishFieldTracks,
-    enableCamera, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
+    enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
+  }), [solo, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
   return <Ctx value={value}>{children}</Ctx>;
 }

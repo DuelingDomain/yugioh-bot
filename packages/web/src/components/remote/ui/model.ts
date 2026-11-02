@@ -8,7 +8,8 @@ export const sg = (d: number) => (d < 0 ? MINUS : "+") + Math.abs(d);
 export const COLORS = ["167 139 255", "240 128 170", "121 217 168", "255 160 110"];
 
 /** The 14 cells of the holo field, in grid order (row 1 then row 2). */
-export const ZK = ["gy", "m1", "m2", "m3", "m4", "m5", "ex", "f", "s1", "s2", "s3", "s4", "s5", "deck"] as const;
+/** Master Rule layout from the owner's view. Top row: Field Zone, M1-M5, Graveyard. Bottom row: Extra Deck, S1-S5 (S1 and S5 are the Pendulum Zones), Deck. */
+export const ZK = ["f", "m1", "m2", "m3", "m4", "m5", "gy", "ex", "s1", "s2", "s3", "s4", "s5", "deck"] as const;
 /** The two Extra Monster Zones (Master Rule 5), drawn in their own row above the grid. */
 export const EK = ["e1", "e2"] as const;
 export type ZoneKey = (typeof ZK)[number] | (typeof EK)[number];
@@ -124,8 +125,9 @@ export function hasDeck(room: RemoteRoom, seat: number) { return !!room.seats.fi
 export function notInDecklist(room: RemoteRoom, seat: number, code: number | undefined) {
   return code !== undefined && hasDeck(room, seat) && !deckIdsOf(room, seat).includes(code);
 }
-/** The first live copy-limit flag for a seat. Dismissed flags do not warn. */
+/** The first live copy-limit flag for a seat. Dismissed flags do not warn. A seat with no registered deck has no deck to be invalid, so it gets no flag. */
 export function deckFlag(room: RemoteRoom, seat: number) {
+  if (!hasDeck(room, seat)) return undefined;
   return room.state.deckChecks?.flags.find(f => f.seat === seat && !f.dismissed);
 }
 export function seenCardIds(room: RemoteRoom): number[] {

@@ -197,6 +197,10 @@
 .field[data-emz] .zc.ez{grid-row:1;border-color:rgb(232 185 79/.4);background:rgb(232 185 79/.06)}
 .field[data-emz] .zc[data-z=e1]{grid-column:3}.field[data-emz] .zc[data-z=e2]{grid-column:5}
 .zc.ez .zl{color:#e8c66a}.zc.ez .zl small{color:#c9a85a}
+.field[data-rotated]{transform:rotate(180deg)}
+/* Text on a turned field stays upright so it can be read. */
+.field[data-rotated] .zl,.field[data-rotated] .cnt,.field[data-rotated] .pl,.field[data-rotated] .plate,.field[data-rotated] .originLabel,.field[data-rotated] .ban{transform:rotate(180deg)}
+.zc .ban{position:absolute;left:2px;top:2px;z-index:3;font:700 8px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:#e8c66a;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;pointer-events:none}
 .zc.taken{opacity:.55;border-style:dashed}
 .zc.drg{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
 .zc.dragSrc{opacity:.5}

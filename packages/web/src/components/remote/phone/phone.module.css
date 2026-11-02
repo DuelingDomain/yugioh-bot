@@ -6,3 +6,5 @@
 .lobbyPreviews{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}.lobbyPreview{width:min(100%,420px);display:grid;gap:8px;font-size:14px}.lobbyPreview>button{padding:0;aspect-ratio:16/9;width:100%;border:1px solid #a78bff55;border-radius:8px;overflow:hidden;background:#07040e;cursor:crosshair}.lobbyPreview video{display:block;width:100%;height:100%;object-fit:contain}.lobbyPreview small{color:#aaa1ba;font-size:12px}.lobbyPreview p{margin:0;color:#79d9a8;min-height:1.5em}
 
 .cbtn{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.cbtn svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.modes{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pairing>.modes>button,.modes>button{border:0;border-radius:0;background:transparent;color:var(--muted)}.modes>button+button{border-left:1px solid var(--line)}.modes>button.modeOn{background:rgb(232 185 79/.18);color:var(--gold);font-weight:700}
