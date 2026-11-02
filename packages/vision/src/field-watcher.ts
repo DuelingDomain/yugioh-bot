@@ -6,7 +6,7 @@ import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppeara
 import { fieldCenter, onMat, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
-  id:string; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
+  id:string; revision?:number; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
   state:'candidate'|'identified'|'prompt'|'dismissed'; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
 }
 export type FieldEvent = { type:'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'; source:'auto' };
@@ -165,14 +165,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const position=fieldOrientation(c,current.width,current.height);
         const pixels=appearance(c);
         const appearanceChanged=t.read?.appearance?.length&&pixels&&!sameFieldAppearance(t.read.appearance,pixels);
-        const changed=t.view.state==='identified'&&c.kind==='face-up'&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
-        if(changed){invalidateRead(t);t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
+        const changed=(t.view.state==='identified'||t.view.state==='prompt')&&c.kind==='face-up'&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
+        if(changed){invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
         const clean=!appearanceChanged&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
-        t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||sameFieldAppearance(t.identityAppearance,pixels))&&evidence.motion(c)<=.025&&t.view.state==='identified'&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards);
-        if(clean&&!t.appearance?.length)t.appearance=evidence.appearance?.(c);
+        t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||sameFieldAppearance(t.identityAppearance,pixels))&&evidence.motion(c)<=.025&&(t.view.state==='identified'||t.view.state==='prompt')&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards);
+        if(clean&&!t.appearance?.length)t.appearance=pixels;
         const still=quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012&&t.kind===c.kind&&t.position===position;
         if(!clean||!still||!Number.isFinite(t.stableSince)) {
           invalidateRead(t);
@@ -200,15 +200,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
           if(t.binding){
-            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.identityAppearance=pixels;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
-            else {t.view.state='prompt';emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
+            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
+            else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
             t.binding=undefined;
           }else if(winner&&!t.promptOnly&&!pile&&inDeck&&!t.verification){
             t.verification=winner;t.needsRead=true;t.best={frame:current,card:structuredClone(c),score};
           }else if(winner&&t.verification===winner&&!t.promptOnly&&!pile&&inDeck){
             if(sample.at-t.view.firstSeen<1500){t.read=pending;continue;}
             t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;metrics.placements++;emit('placed',t,{result,latencyMs:metrics.latencyMs});
-          }else {t.view.state='prompt';emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
+          }else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
 
         }
         if(!t.needsRead){t.best=undefined;continue;}
