@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Plus, Search } from "lucide-react";
 import type { CubeDraftType } from "@/lib/cube-type";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
 import { listAddedLine } from "@/lib/card-list-import";
 import { CubeListImportPanel, type ImportedCube } from "./cube-list-import-panel";
@@ -256,23 +257,20 @@ export function CubeDraftBuilder({
 
           {attachable.length > 0 && (
             <div>
-              <label className="label" htmlFor={`${ids}-att`}>Or use a saved cube</label>
+              <span className="label" aria-hidden="true">Or use a saved cube</span>
               <div className={styles.search}>
-                <select
-                  id={`${ids}-att`}
-                  aria-label="Attach an existing cube"
-                  className="input select"
+                <ThemedSelect
+                  className={styles.pick}
+                  label="Attach an existing cube"
+                  hideLabel
                   value={attachId}
-                  onChange={(e) => setAttachId(e.target.value)}
+                  onChange={setAttachId}
                   disabled={busy}
-                >
-                  <option value="">Choose a cube</option>
-                  {attachable.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}{c.archetype ? ` (${c.archetype})` : ""} — {c.mainCount} main, {c.extraCount} extra
-                    </option>
-                  ))}
-                </select>
+                  choices={[
+                    { value: "", label: "Choose a cube" },
+                    ...attachable.map((c) => ({ value: String(c.id), label: `${c.name}${c.archetype ? ` (${c.archetype})` : ""} — ${c.mainCount} main, ${c.extraCount} extra` })),
+                  ]}
+                />
                 <button type="button" className="btn btn-secondary" disabled={busy || !attachId} onClick={() => attachExisting(Number(attachId))}>
                   Attach
                 </button>

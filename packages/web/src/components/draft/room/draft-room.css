@@ -1308,17 +1308,7 @@
 .dr .fin-tour { display: grid; gap: 12px; width: min(420px, 100%); padding-top: 4px; text-align: left; }
 .dr .fin-tour label { display: grid; gap: 6px; }
 .dr .fin-tour label span { color: var(--ink-3); font-size: 13px; }
-.dr .fin-tour select {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  background: var(--panel-2);
-  color: var(--ink);
-  font: inherit;
-  font-size: 15px;
-}
-.dr .fin-tour select:hover:not(:disabled) { border-color: var(--rule-hi); }
+.dr .fin-tour button[role="combobox"] { height: 44px; font-size: 15px; }
 .dr .fin-tour-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 4px; }
 .dr .fin-tour-actions .pick-btn { width: auto; justify-content: center; }
 .dr .fin-tour-actions button:disabled { opacity: 0.5; cursor: wait; }

@@ -9,6 +9,7 @@ import { CubeListImportPanel, type ImportedCube } from "@/components/cubes/cube-
 import { nextCubeName } from "@/components/cubes/library-model";
 import { useEffectSearchEnabled } from "@/components/effect-search/capability-context";
 import { DescribeTheme } from "@/components/effect-search/describe-theme";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { StatusLine, svButtonClass } from "@/components/sheet";
 import { listAddedLine } from "@/lib/card-list-import";
 import type { CubeDraftType } from "@/lib/cube-type";
@@ -264,14 +265,20 @@ function BoxTools({ slug, cubes, table, controller, library, loadLibrary, onChan
 
       {attachable.length > 0 && (
         <div className={styles.toolRow}>
-          <label className="label" htmlFor={`${ids}-att`}>Or use a saved cube</label>
+          <span className="label" aria-hidden="true">Or use a saved cube</span>
           <div className={styles.toolIn}>
-            <select id={`${ids}-att`} aria-label="Attach an existing cube" className="input select" value={attachId} disabled={busy} onChange={(e) => setAttachId(e.target.value)}>
-              <option value="">Choose a cube</option>
-              {attachable.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.archetype ? ` (${c.archetype})` : ""} - {c.mainCount} main, {c.extraCount} extra</option>
-              ))}
-            </select>
+            <ThemedSelect
+              className={styles.toolSelect}
+              label="Attach an existing cube"
+              hideLabel
+              value={attachId}
+              disabled={busy}
+              onChange={setAttachId}
+              choices={[
+                { value: "", label: "Choose a cube" },
+                ...attachable.map((c) => ({ value: String(c.id), label: `${c.name}${c.archetype ? ` (${c.archetype})` : ""} - ${c.mainCount} main, ${c.extraCount} extra` })),
+              ]}
+            />
             <button
               type="button"
               className={cn(svButtonClass("ghost"), styles.smallBtn)}

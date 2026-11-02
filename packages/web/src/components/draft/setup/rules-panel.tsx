@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Info, TriangleAlert, Zap } from "lucide-react";
 import { Segmented, SvCheck } from "@/components/sheet";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import {
   DEFAULT_PICK_SECONDS_CHOICES,
   RULE_LIMITS,
@@ -352,10 +353,9 @@ export function RulesMetaFields({ name, onNameChange, namePlaceholder, channelId
       </div>
       {discordEnabled && (
       <div className={`${styles.fld} ${styles.stack}`}>
-        <label htmlFor="rules-channel">Discord channel</label>
-        <select id="rules-channel" className={styles.text} value={channelId} onChange={(e) => onChannelChange(e.target.value)}>
-          {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-        </select>
+        <span className={styles.lb} aria-hidden="true">Discord channel</span>
+        <ThemedSelect className={styles.chanSel} label="Discord channel" hideLabel value={channelId} onChange={onChannelChange}
+          choices={channels.map((c) => ({ value: c.id, label: `#${c.name}` }))} />
         <p className={styles.hh}>{channelHint ?? "The bot posts the lobby here. Players join from Discord."}</p>
       </div>
       )}

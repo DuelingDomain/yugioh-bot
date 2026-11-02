@@ -72,6 +72,7 @@ import {
   type PoolSortBy,
   type TributeFilter,
 } from "./pool-browser-model";
+import { ThemedSelect, type ThemedChoice } from "@/components/ui/themed-select";
 import styles from "./setup.module.css";
 
 export interface PoolBrowserHandle {
@@ -484,29 +485,29 @@ function LaneBody(props: LaneBodyProps) {
 
 /* ---------- the browser ---------- */
 
-const SHOW_OPTIONS: Array<[CopiesFilter, string]> = [
-  ["all", "All cards"],
-  ["single", "One copy"],
-  ["multi", "2+ copies"],
-  ["three", "3+ copies"],
+const SHOW_CHOICES: ThemedChoice<CopiesFilter>[] = [
+  { value: "all", label: "All cards" },
+  { value: "single", label: "One copy" },
+  { value: "multi", label: "2+ copies" },
+  { value: "three", label: "3+ copies" },
 ];
-const TRIBUTE_OPTIONS: Array<[TributeFilter, string]> = [
-  ["any", "Any tributes"],
-  ["none", "No tribute (Lv 1-4)"],
-  ["one", "One tribute (Lv 5-6)"],
-  ["two", "Two tributes (Lv 7+)"],
+const TRIBUTE_CHOICES: ThemedChoice<TributeFilter>[] = [
+  { value: "any", label: "Any tributes" },
+  { value: "none", label: "No tribute (Lv 1-4)" },
+  { value: "one", label: "One tribute (Lv 5-6)" },
+  { value: "two", label: "Two tributes (Lv 7+)" },
 ];
-const GROUP_OPTIONS: Array<[PoolGroupBy, string]> = [
-  ["type", "Group: Type"],
-  ["subtype", "Group: Card type"],
-  ["level", "Group: Level"],
-  ["none", "No groups"],
+const GROUP_CHOICES: ThemedChoice<PoolGroupBy>[] = [
+  { value: "type", label: "Group: Type" },
+  { value: "subtype", label: "Group: Card type" },
+  { value: "level", label: "Group: Level" },
+  { value: "none", label: "No groups" },
 ];
-const SORT_OPTIONS: Array<[PoolSortBy, string]> = [
-  ["added", "Newest first"],
-  ["name", "Name"],
-  ["level", "Level"],
-  ["copies", "Most copies"],
+const SORT_CHOICES: ThemedChoice<PoolSortBy>[] = [
+  { value: "added", label: "Newest first" },
+  { value: "name", label: "Name" },
+  { value: "level", label: "Level" },
+  { value: "copies", label: "Most copies" },
 ];
 
 export function PoolBrowser(props: PoolBrowserProps) {
@@ -717,36 +718,14 @@ export function PoolBrowser(props: PoolBrowserProps) {
         </label>
         {!compact && (
           <>
-            <select aria-label="Show" value={filters.copies} onChange={(e) => setFilters((f) => ({ ...f, copies: e.target.value as CopiesFilter }))}>
-              {SHOW_OPTIONS.map(([v, t]) => (
-                <option key={v} value={v}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <ThemedSelect className={styles.bSel} compact label="Show" hideLabel value={filters.copies} choices={SHOW_CHOICES}
+              onChange={(copies) => setFilters((f) => ({ ...f, copies }))} />
             {view !== "extra" && (
-              <select aria-label="Tributes" value={filters.tribute} onChange={(e) => setFilters((f) => ({ ...f, tribute: e.target.value as TributeFilter }))}>
-                {TRIBUTE_OPTIONS.map(([v, t]) => (
-                  <option key={v} value={v}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <ThemedSelect className={styles.bSel} compact label="Tributes" hideLabel value={filters.tribute} choices={TRIBUTE_CHOICES}
+                onChange={(tribute) => setFilters((f) => ({ ...f, tribute }))} />
             )}
-            <select aria-label="Group by" value={groupBy} onChange={(e) => setGroupBy(e.target.value as PoolGroupBy)}>
-              {GROUP_OPTIONS.map(([v, t]) => (
-                <option key={v} value={v}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <select aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value as PoolSortBy)}>
-              {SORT_OPTIONS.map(([v, t]) => (
-                <option key={v} value={v}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <ThemedSelect className={styles.bSel} compact label="Group by" hideLabel value={groupBy} choices={GROUP_CHOICES} onChange={setGroupBy} />
+            <ThemedSelect className={styles.bSel} compact label="Sort by" hideLabel value={sortBy} choices={SORT_CHOICES} onChange={setSortBy} />
           </>
         )}
       </div>

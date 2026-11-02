@@ -1633,6 +1633,8 @@
 .ms .ce-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ms .ce-tools .srch { flex: 1 1 220px; max-width: none; }
 .ms .ce-filt { display: flex; flex-wrap: wrap; gap: 10px; flex-basis: 100%; }
+.ms .ce-filt .ce-sel { flex: 0 1 auto; min-width: 150px; }
+.ms .ce-filt .ce-sel button[role="combobox"] { height: 40px; font-size: 14px; }
 .ms .cb-row[data-confirm] .cb-confirm { grid-column: 3 / -1; }
 .ms .cb-row > .cb-ready:has(> .sk:only-child), .ms .cb-row > .cb-acts:has(> .sk) { align-self: center; }
 @container (max-width: 800px) {

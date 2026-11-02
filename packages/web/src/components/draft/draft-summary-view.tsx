@@ -27,6 +27,7 @@ import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
 import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
 import styles from "./summary/summary.module.css";
 import { getPopupPosition } from "@/lib/card-popup-position";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { DangerConfirm } from "./danger-confirm";
 import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 import { useInlineConfirm } from "./use-inline-confirm";
@@ -528,28 +529,20 @@ export function DraftSummaryView({
               )}
               <div className={styles.tourFields}>
                 <div>
-                  <label className="label" htmlFor="tournament-format">Format</label>
-                  <select
-                    id="tournament-format"
-                    className="input select"
+                  <ThemedSelect
+                    label="Format"
                     value={tournament.format}
-                    onChange={(e) => tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin")}
-                  >
-                    <option value="round_robin">Round robin</option>
-                    <option value="single_elim">Single elimination</option>
-                  </select>
+                    onChange={tournament.setFormat}
+                    choices={[{ value: "round_robin", label: "Round robin" }, { value: "single_elim", label: "Single elimination" }]}
+                  />
                 </div>
                 <div>
-                  <label className="label" htmlFor="tournament-best-of">Match length</label>
-                  <select
-                    id="tournament-best-of"
-                    className="input select"
+                  <ThemedSelect
+                    label="Match length"
                     value={tournament.bestOf}
-                    onChange={(e) => tournament.setBestOf(e.target.value === "1" ? 1 : 3)}
-                  >
-                    <option value={3}>Best of 3</option>
-                    <option value={1}>Best of 1</option>
-                  </select>
+                    onChange={tournament.setBestOf}
+                    choices={[{ value: 3, label: "Best of 3" }, { value: 1, label: "Best of 1" }]}
+                  />
                 </div>
               </div>
               <SvButton variant="primary" wide className={styles.tourBtn} aria-disabled={tournament.creating || undefined} aria-busy={tournament.creating || undefined} onClick={() => { if (!tournament.creating) void tournament.create(); }}>

@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, expect } from "@playwright/test";
+import { pickSelect } from "../helpers/themed-select";
 
 test.skip(process.env.E2E_EFFECT_SEARCH === "0", "needs the effect-search E2E capability");
 
@@ -101,7 +102,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     // "Newest first" is a sort choice. The order button does not reverse it, so it is off while this sort is on.
     await search.fill("");
     const newestResponse = page.waitForResponse(response => response.url().endsWith("/api/decks/cards") && response.request().postDataJSON()?.sort === "newest");
-    await browser.getByLabel("Sort by").selectOption({ label: "Newest first" });
+    await pickSelect(page, "Sort by", { label: "Newest first" });
     const newest = (await (await newestResponse).json()).cards as { name: string; release?: { date?: string } }[];
     expect(newest.length).toBeGreaterThanOrEqual(2);
     expect(newest[0]!.release?.date).toBeTruthy();
