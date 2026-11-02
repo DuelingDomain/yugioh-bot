@@ -67,7 +67,7 @@ try {
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;document.body.append(canvas);const ctx=canvas.getContext('2d')!;let covered=false;
     const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);ctx.drawImage(covered?hand:bitmap,460,170,180,262);};paint();const painter=setInterval(paint,65);
     const video=document.createElement('video');video.muted=true;video.srcObject=canvas.captureStream(15);document.body.append(video);await video.play();
-    const buffer=api.createOwnFeedBuffer(video),events:any[]=[],watcher=api.createFieldWatcher({recognizer:reader,buffer,profile:api.yugioh});watcher.subscribe((e:any)=>events.push(e));watcher.start();
+    const buffer=api.createOwnFeedBuffer(video),events:any[]=[],watcher=api.createFieldWatcher({recognizer:reader,buffer,profile:api.yugioh,getPriors:()=>({decklist:['45725480']})});watcher.subscribe((e:any)=>events.push(e));watcher.start();
     const delay=(ms:number)=>new Promise(r=>setTimeout(r,ms));
     try{
       const deadline=performance.now()+15000;while(!events.some(e=>e.type==='placed')&&performance.now()<deadline)await delay(25);
