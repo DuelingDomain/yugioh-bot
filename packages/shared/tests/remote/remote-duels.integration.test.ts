@@ -547,6 +547,17 @@ describe("remote foundation", () => {
     expect(service.sweepIdle(1000 + 9 * 60_000)).toHaveLength(0);
     expect(service.sweepIdle(1000 + 10 * 60_000)[0].status).toBe("ended");
   });
+  it("keeps a table open while a seated player reports activity, and refuses others and ended tables", () => {
+    const { service, table, users } = setup();
+    expect(service.sweepIdle(1000 + 8 * 60_000)).toHaveLength(1);
+    const seq = service.get(table.slug, "g", users[0]).lastSeq;
+    service.touch(table.slug, "g", users[0], 1000 + 9 * 60_000);
+    const room = service.get(table.slug, "g", users[0]);
+    expect(room.lastEventAt).toBe(1000 + 9 * 60_000); expect(room.idleWarningAt).toBeNull(); expect(room.lastSeq).toBe(seq);
+    expect(service.sweepIdle(1000 + 10 * 60_000)).toHaveLength(0);
+    expect(service.sweepIdle(1000 + 19 * 60_000)[0].status).toBe("ended");
+    expect(() => service.touch(table.slug, "g", users[0], 1000 + 19 * 60_000 + 1)).toThrow(/ended/i);
+  });
 });
 
 describe("remote board and transactional edge cases", () => {

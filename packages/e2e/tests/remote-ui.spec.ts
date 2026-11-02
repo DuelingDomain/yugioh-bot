@@ -176,7 +176,8 @@ test.describe("remote duels screen, solo", () => {
     const room = await (await context.request.get(`/api/remote/${slug}`)).json();
     const ended = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
     expect(ended.status(), await ended.text()).toBe(200);
-    await expect(page.getByText("The table is closed.").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("table-ended")).toContainText("This table has ended.", { timeout: 15_000 });
+    await expect(page.getByTestId("new-table")).toHaveAttribute("href", "/duels/remote");
     await page.getByTestId("feed-0").hover();
     await page.waitForTimeout(500);
     const p = await video.evaluate((v: HTMLVideoElement) => {
@@ -187,6 +188,17 @@ test.describe("remote duels screen, solo", () => {
     await page.mouse.click(p.x, p.y);
     await expect(page.getByText("Cards cannot be read here.")).toBeVisible({ timeout: 5_000 });
     await expect(page.locator('[data-layer="tray"], [data-layer="card"]')).toHaveCount(0);
+  });
+
+  test("the activity ping keeps a table open and is refused once the table has ended", async ({ context }) => {
+    const slug = await soloTable(context.request, 2);
+    const ok = await context.request.post(`/api/remote/${slug}/activity`, { data: {} });
+    expect(ok.status(), await ok.text()).toBe(200);
+    const before = await (await context.request.get(`/api/remote/${slug}`)).json();
+    expect(before.lastEventAt).toBe((await ok.json()).lastEventAt);
+    await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: before.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+    const refused = await context.request.post(`/api/remote/${slug}/activity`, { data: {} });
+    expect(refused.status()).toBe(409);
   });
 
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
