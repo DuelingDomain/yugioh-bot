@@ -120,17 +120,15 @@
 .sbody{position:relative;z-index:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:0 8px 8px}
 
 /* ---- feed ---- */
-.cams{position:relative;display:flex;align-items:flex-end;gap:6px;padding:8px;flex:1 1 0;min-height:96px;border-radius:8px;overflow:hidden;background:#05030b;border:1px solid var(--line);container:feed/size}
+/* The feed column holds the video box and the camera row under it. The box takes the camera's real shape (--vr, width / height), so the video fills it exactly. */
+.feedcol{--vr:1.7778;--cellw:calc(100cqw - 18px);flex:1.1 1 0;min-height:96px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px}
+.cams{position:relative;flex:1 1 0;min-height:0;border-radius:8px;overflow:hidden;background:#05030b;border:1px solid var(--line);container:feed/size}
+.feedcol>.cams{align-self:center;aspect-ratio:var(--vr);max-width:100%;max-height:calc(var(--cellw) / var(--vr))}
 .fcam{position:absolute;inset:0;cursor:crosshair}
 .fcam canvas{position:absolute;inset:0;width:100%;height:100%;display:block;filter:blur(.4px) saturate(1.06) contrast(1.04)}
 .grain{position:absolute;inset:0;pointer-events:none;opacity:.10;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>")}
 .fcam::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 45%,transparent 60%,rgb(0 0 0/.5)),repeating-linear-gradient(0deg,rgb(0 0 0/.06) 0 1px,transparent 1px 3px)}
-.feedTagRow{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;min-width:0;pointer-events:none}
-.ctag{display:flex;flex:none;align-items:center;gap:6px;font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;color:var(--ink2);background:rgb(7 4 14/.75);padding:4px 7px;border-radius:4px;pointer-events:none}
-.watcherStatusSlot{display:block;min-width:0;max-width:140px}
-.watcherControlsSlot{display:flex;flex:none}
-@container feed (max-width:280px){.ctagText{display:none}.watcherStatusSlot{max-width:calc(100cqw - 54px)}}
-.cams:has(.camq) .feedTagRow{right:110px}
+.ctag{position:absolute;left:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;color:var(--ink2);background:rgb(7 4 14/.75);padding:4px 7px;border-radius:4px;pointer-events:none}
 .ctag i{width:6px;height:6px;border-radius:50%;background:var(--lossd);box-shadow:0 0 6px var(--lossd)}
 .camq{position:absolute;right:8px;top:8px;z-index:5;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:6px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);font-weight:600;font-size:12.5px}
 .camq:hover{border-color:var(--gold);color:var(--gold-ink)}
@@ -152,6 +150,9 @@
 .lk .nidc button{height:22px;padding:0 8px;border-radius:5px;border:1px solid var(--gold-ink);background:var(--gold);color:#1b1204;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .lk .nidc button:hover{filter:brightness(1.1)}
 .ret{position:absolute;z-index:6;pointer-events:none;border-radius:4px}
+.miss{position:absolute;z-index:7;transform:translate(-50%,12px);display:flex;align-items:center;gap:8px;padding:5px 6px 5px 10px;border:1px solid var(--line2);border-radius:8px;background:rgb(7 4 14/.94);box-shadow:0 8px 24px rgb(0 0 0/.55);font:600 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink);white-space:nowrap}
+.miss button{border:0;border-radius:5px;padding:5px 8px;background:rgb(255 255 255/.1);color:var(--gold-ink);font:inherit;cursor:pointer}
+.miss button:hover,.miss button:focus-visible{background:rgb(255 255 255/.18)}
 .ret::before,.ret::after{content:"";position:absolute;inset:-7px;border:2px solid var(--gold);border-radius:6px;-webkit-mask:linear-gradient(#000 0 0) top left/14px 14px no-repeat,linear-gradient(#000 0 0) top right/14px 14px no-repeat,linear-gradient(#000 0 0) bottom left/14px 14px no-repeat,linear-gradient(#000 0 0) bottom right/14px 14px no-repeat;mask:linear-gradient(#000 0 0) top left/14px 14px no-repeat,linear-gradient(#000 0 0) top right/14px 14px no-repeat,linear-gradient(#000 0 0) bottom left/14px 14px no-repeat,linear-gradient(#000 0 0) bottom right/14px 14px no-repeat}
 .ret::after{animation:retpulse 1s ease-in-out infinite;border-color:var(--gold-ink)}
 @keyframes retpulse{50%{inset:-12px;opacity:.4}}
@@ -185,9 +186,36 @@
 .fplate.pick{cursor:crosshair;border-color:var(--lossd);box-shadow:0 0 0 3px rgb(228 90 77/.25),0 0 18px rgb(228 90 77/.5)}
 .field{--gp:4px;--cw:min((100cqw - 6 * var(--gp)) / 7,(100cqh - var(--gp)) / 2.92);
   display:grid;grid-template-columns:repeat(7,var(--cw));grid-template-rows:repeat(2,calc(var(--cw) * 1.458));gap:var(--gp)}
-.field[data-emz=true]{--cw:min((100cqw - 6 * var(--gp)) / 7,(100cqh - 2 * var(--gp)) / 4.374);grid-template-rows:repeat(3,calc(var(--cw) * 1.458))}
 .zc{position:relative;border:1px solid rgb(167 139 255/.22);border-radius:4px;background:rgb(167 139 255/.05)}
 .zc[data-z=f],.zc[data-z=gy],.zc[data-z=deck],.zc[data-z=ex]{border-style:dashed}
+.zc .zl{flex-direction:column;gap:2px;text-align:center}.zc .zl small{display:block;font-size:7px;letter-spacing:.08em;color:#8f82c9;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zc[data-z=ex]{border-color:rgb(190 150 240/.5)}.zc[data-z=ex] .zl{color:#c9a9ff}
+.zc .pl{position:absolute;left:0;right:0;top:2px;z-index:2;text-align:center;font:700 7px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;color:#e8dcff;text-shadow:0 1px 3px #000;pointer-events:none}
+/* Master Rule 5 field: the two Extra Monster Zones sit in a row above Main Monster Zone 2 and 4 and are shared with the facing seat. */
+.field[data-emz]{--cw:min((100cqw - 6 * var(--gp)) / 7,(100cqh - 2 * var(--gp)) / 4.4);grid-template-rows:repeat(3,calc(var(--cw) * 1.458))}
+.field[data-emz] .zc[data-row="1"]{grid-row:2}.field[data-emz] .zc[data-row="2"]{grid-row:3}
+.field[data-emz] .zc.ez{grid-row:1;border-color:rgb(232 185 79/.4);background:rgb(232 185 79/.06)}
+.field[data-emz] .zc[data-z=e1]{grid-column:3}.field[data-emz] .zc[data-z=e2]{grid-column:5}
+.zc.ez .zl{color:#e8c66a}.zc.ez .zl small{color:#c9a85a}
+.field[data-rotated]{transform:rotate(180deg)}
+/* Text on a turned field stays upright so it can be read. */
+.field[data-rotated] .zl,.field[data-rotated] .cnt,.field[data-rotated] .pl,.field[data-rotated] .plate,.field[data-rotated] .originLabel,.field[data-rotated] .ban{transform:rotate(180deg)}
+.zc .ban{position:absolute;left:2px;top:2px;z-index:3;font:700 8px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:#e8c66a;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;pointer-events:none}
+.zc.taken{opacity:.55;border-style:dashed}
+.zc.drg{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
+.zc.dragSrc{opacity:.5}
+.zc.dropOk{border-color:rgb(121 217 168/.95);box-shadow:0 0 0 2px rgb(121 217 168/.45),0 0 14px rgb(121 217 168/.4)}
+.zc.dropAsk{border-color:rgb(232 185 79/.95);box-shadow:0 0 0 2px rgb(232 185 79/.45),0 0 14px rgb(232 185 79/.35)}
+.zc.dropNo{border-color:rgb(240 100 120/.9);box-shadow:0 0 0 2px rgb(240 100 120/.4)}
+.ghost{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-60%);width:64px;display:flex;flex-direction:column;align-items:center;gap:3px;filter:drop-shadow(0 8px 14px #000a)}
+.ghost img,.ghost .cd{width:64px;aspect-ratio:59/86;border-radius:3px;object-fit:cover;display:block}
+.ghost span{max-width:120px;padding:1px 5px;border-radius:3px;background:#0b0818e6;color:#efe8ff;font-size:10px;line-height:1.2;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ghost.dropOk{box-shadow:none}.ghost.dropOk span{outline:1px solid rgb(121 217 168/.9)}
+.ghost.dropAsk span{outline:1px solid rgb(232 185 79/.9)}.ghost.dropNo span{outline:1px solid rgb(240 100 120/.9)}
+.carryHint{margin-top:4px;padding:4px 8px;border-radius:4px;background:rgb(167 139 255/.14);color:#efe8ff;font-size:11px;line-height:1.35}
+.carryHint b{display:block;font-weight:600;color:#ffd98a}
+
+.zc.taken .zl small{white-space:normal;line-height:1.1}
 .zc .zl{position:absolute;inset:0;display:grid;place-items:center;font:700 9px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;color:#a994ee;pointer-events:none}
 .zc .cnt{position:absolute;right:2px;bottom:2px;z-index:2;font:700 11px/1 var(--font-duel-display),Oxanium,sans-serif;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;color:var(--ink2)}
 .zc>.cd,.zc>.wr{position:absolute;inset:0}
@@ -215,10 +243,26 @@
 .cd .st{display:flex;justify-content:space-between;font:700 10.5cqw/1 var(--font-duel-display),Oxanium,sans-serif;background:rgb(255 255 255/.22);border-radius:2px;padding:2% 5%}
 .cd .st b{font-weight:700}
 .tNormal{--f1:#dcbb62;--f2:#a47c2a}.tEffect{--f1:#d58446;--f2:#8f4a22}.tSpell{--f1:#3aa58f;--f2:#1c6556}.tTrap{--f1:#b4478a;--f2:#702a57}.tFusion{--f1:#9564cf;--f2:#5a328c}
+.tRitual{--f1:#6a98d8;--f2:#2f5896}.tSynchro{--f1:#f4f1ea;--f2:#b9b5aa}.tXyz{--f1:#33333a;--f2:#0d0d12;color:#f3efe6}.tLink{--f1:#3f8ed6;--f2:#17508c}
+.tPendulum{--f1:#d58446;--f2:#3aa58f}.tToken{--f1:#9a9a9a;--f2:#5c5c5c}
+.cd.tXyz .nm,.cd.tXyz .st{background:rgb(255 255 255/.14)}
+/* The printed card image covers the CSS frame once it has loaded. */
+.cd .fimg{position:absolute;inset:0;z-index:1;width:100%;height:100%;object-fit:fill;border-radius:inherit;opacity:0}
+.cd[data-art=ok] .fimg{opacity:1}
+.cd .plate{position:absolute;z-index:2;left:7%;right:7%;bottom:3%;display:flex;justify-content:center;align-items:baseline;gap:.3em;padding:1% 0;border-radius:2px;background:rgb(5 8 16/.9);color:#f1ecff;font:700 11cqw/1.2 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+.cd .plate i{font-style:normal;color:#9d94c4}
+.cd .rate{position:absolute;z-index:2;left:7%;bottom:15%;padding:1% 4%;border-radius:2px;background:rgb(5 8 16/.82);color:var(--gold-ink);font:700 10cqw/1.2 var(--font-duel-display),Oxanium,sans-serif;pointer-events:none}
+@container (max-width:44px){.cd .rate{display:none}}
+/* A card that lands on the field drops in with a ring, as on the online board. Reduced motion shortens it to a blink (see below). */
+.zc.land>.cd{animation:land .6s cubic-bezier(.2,.9,.25,1.12)}
+.zc.def.land>.cd{animation-name:landdef}
+.zc.land::after{content:"";position:absolute;inset:-2px;z-index:4;border-radius:6px;border:2px solid rgb(232 185 79/.9);box-shadow:0 0 18px rgb(232 185 79/.6);pointer-events:none;animation:landring .75s ease-out forwards}
+@keyframes land{0%{transform:translateY(-34%) scale(1.45);filter:brightness(1.9);opacity:0}55%{transform:none;opacity:1;filter:brightness(1.35)}100%{filter:none}}
+@keyframes landdef{0%{transform:translateY(-34%) rotate(-90deg) scale(1);filter:brightness(1.9);opacity:0}55%{transform:rotate(-90deg) scale(.686);opacity:1;filter:brightness(1.35)}100%{transform:rotate(-90deg) scale(.686);filter:none}}
+@keyframes landring{0%{opacity:.95;transform:scale(.88)}100%{opacity:0;transform:scale(1.35)}}
 @container (max-width:58px){.cd .nm{display:none}.cd .st{font-size:13cqw}}
-.cd.back{background:linear-gradient(145deg,#33215c,#150d2c);padding:0;display:grid;place-items:center}
-.cd.back::before{content:"";width:46%;aspect-ratio:1;background:linear-gradient(135deg,var(--gold-ink),var(--gold) 50%,#7d5410);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);filter:drop-shadow(0 0 5px rgb(232 185 79/.6))}
-.cd.back::after{content:"";position:absolute;inset:7%;border:1px solid rgb(232 185 79/.45);border-radius:3px}
+.cd.back{background:#120e0c url("/duel/card-back-main-hd.webp") center/cover no-repeat;padding:0;border:1px solid #b08a3e}
+.cd.back.backEx{background-image:url("/duel/card-back-extra-hd.webp");border-color:#8a6bb0}
 .cd.unk{background:repeating-linear-gradient(135deg,rgb(232 185 79/.10) 0 6px,rgb(232 185 79/.03) 6px 12px);box-shadow:none;border:1.5px dashed var(--gold);display:grid;place-items:center;color:var(--gold-ink);padding:0;animation:unkp 2s ease-in-out infinite}
 .cd.unk span{font:700 34cqw/1 var(--font-duel-display),Oxanium,sans-serif}
 @keyframes unkp{50%{border-color:rgb(232 185 79/.4)}}
@@ -238,36 +282,45 @@
 .lpbtn button{height:34px;border:1px solid var(--line2);border-radius:6px;background:var(--p0);font:600 14px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink2);padding:0}
 .lpbtn button.m:hover{border-color:var(--lossd);color:var(--loss)}.lpbtn button.p:hover{border-color:var(--gold);color:var(--gold-ink)}
 
-/* landscape seat (2x2 grid): feed left, field + LP right */
-/* stacked seats (1v1, 3-way): feed height follows its width, holo follows its width, LP block takes what is left */
-.sbody>.cams{flex:1.1 1 auto;aspect-ratio:2.35/1;min-height:90px}
-.fside{flex:1 1 auto;min-height:0}
-.fwrap{flex:0 1 auto;min-height:0;height:calc((100cqw - 56px) / 7 * 2.92 + 26px)}
-.lp{flex:1 1 auto;min-height:92px;max-height:210px;grid-template-rows:minmax(0,1fr) auto minmax(34px,auto)}
-.lpmain{min-height:0}
-.lpn{font-size:clamp(46px,min(14cqw,11cqh),140px)}
-.lpbtn{align-items:stretch}
-.lpbtn button{height:100%;min-height:34px;max-height:92px;font-size:clamp(14px,1.45cqw,24px)}
-.lpin{height:clamp(30px,3.4cqh,44px);width:clamp(100px,12cqw,150px);font-size:clamp(13px,1.2cqw,18px)}
+/* Seat layout: the camera comes first and takes all the spare height and the full width its shape allows.
+   The virtual field is a compact strip under it. Its frame hugs the zones (7 columns, 2 rows, or 3 with the Extra Monster Zone row),
+   so there is no empty side area. --fh is the most height the strip may take, --fw the most width. LP is one row. */
+.fside{flex:0 0 auto;min-height:0;align-items:stretch}
+.fwrap{--gp:4px;--fr:2;--fh:calc(100cqh * .3);--fw:calc(100cqw - 16px);
+  --fcw:max(24px,min((var(--fw) - 18px - 6 * var(--gp)) / 7,(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
+  flex:none;min-height:0;align-self:center;
+  width:calc(7 * var(--fcw) + 6 * var(--gp) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
+.fwrap:has([data-emz]){--fr:3}
+/* 3-way seats are narrow: the camera is limited by width, so the field takes the height the camera leaves (16:9 assumed), within 30% to 42% of the seat. */
+.app[data-mode="3"] .fwrap{--fh:max(calc(100cqh * .3),min(calc(100cqh * .42),calc(100cqh - 163px - (100cqw - 16px) * .5625)))}
+.field{--gp:4px}
+.lp{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:0;padding:2px 2px 5px}
+.lpmain{display:contents}
+.lpl{order:0;padding-bottom:0;align-self:center}
+.lpn{order:1;font-size:clamp(28px,min(4cqw,6cqh),40px);line-height:1}
+.lpd{order:2;font-size:14px}
+.lpbtn{order:3;flex:1 1 auto;min-width:0;display:flex;gap:4px}
+.lpbtn button{flex:1 1 0;min-width:0;height:30px;font-size:13px;max-height:none}
+.lpin{order:4;margin:0;flex:0 0 auto;width:84px;height:30px;font-size:13px}
+.lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
+@container seat (max-width:420px){
+  .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
+}
 @container seat (min-aspect-ratio:1.55){
-  .sbody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:8px}
-  .sbody>.cams{flex:none;min-height:0;aspect-ratio:auto}
-  .fside{flex:none;min-height:0}
-  .fwrap{flex:1 1 0;height:auto;min-height:0}
-  .lp{flex:none;min-height:0;max-height:none;grid-template-rows:none}
-  .lpbtn button{height:30px;max-height:none}
-  .lpin{height:30px;width:100px;font-size:13px}
-  .lpn{font-size:clamp(40px,8cqw,84px)}
-  .lpbtn button{height:30px;font-size:13px}
-  .lp{gap:5px}
-  .lpbar{display:none}
+  .sbody{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:8px}
+  .feedcol{--cellw:calc((100cqw - 26px) * .63);flex:none;min-height:0}
+  .camsel [data-lbl]{display:none}.camsel button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:100px}
+  .fside{flex:none;min-height:0;justify-content:center}
+  .fwrap{--fw:calc((100cqw - 26px) * .37);--fh:calc(100cqh - 128px)}
+  .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
 }
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
   .sh{min-height:30px;padding:4px 10px}.sh .nm{font-size:16px}
-  .lpn{font-size:clamp(38px,7.4cqw,60px)}
+  .lpn{font-size:30px}
   .lpin{height:26px;width:84px}
-  .lpbtn button{height:28px;font-size:12.5px}
-  .field{--gp:3px}.holo{padding:6px 6px 7px}
+  .lpbtn button{height:26px;font-size:12px}
+  .fwrap{--fh:calc(100cqh - 112px)}
+  .holo{padding:6px 6px 7px}
 }
 
 /* ============ dock: voice + undo ============ */
@@ -332,8 +385,10 @@
 @media (max-height:850px){
   .micb{width:40px;height:40px}.mlab{font-size:14px}.msub{font-size:12px}.mctl .btn{height:24px}.dk{padding:6px 10px}
   .ubtn .ul{font-size:18px}.ubtn .usub{display:none}
-  .samples{display:none;position:absolute;left:0;bottom:calc(100% + 8px);z-index:46;flex-wrap:wrap;padding:10px;border:1px solid var(--line2);border-radius:10px;background:linear-gradient(180deg,#1a1030,#0d0819);box-shadow:0 20px 50px rgb(0 0 0/.6);width:min(520px,92vw);overflow:visible}
+  /* In the dock only: the open list replaces the transcript line and scrolls sideways. It never floats over the field. */
+  .samples{display:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;min-height:0}
   .samples.open{display:flex}
+  .vox.sopen .tr{display:none}
   .trybtn{display:inline-flex}
   .tr{min-height:26px;padding:3px 10px}.prop{padding:3px 6px 3px 10px}.prop .btn{height:28px}.prop .ps{display:none}
 }
@@ -429,6 +484,37 @@
 .amath{position:absolute;z-index:7;display:none;padding:5px 10px;border:1px solid var(--gold);border-radius:8px;background:rgb(24 16 6/.95);box-shadow:0 8px 24px rgb(0 0 0/.55),0 0 20px rgb(232 185 79/.25);font:600 15px/1.1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink);white-space:nowrap;pointer-events:none}
 .amath.show{display:block}.amath em{font-style:normal;color:var(--gold-ink)}.amath s{text-decoration:none;color:var(--loss)}
 
+/* Field view: a viewer can swap the two big areas of their seat. The camera becomes a small strip and the virtual field takes the space.
+   --thumb is the camera strip height. It holds cqh tokens, so each rule that uses it reads the seat's height. */
+.vtog{flex:none;height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--line2);background:var(--p2);color:var(--ink2);white-space:nowrap;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.vtog:hover{border-color:var(--pen);color:var(--ink)}
+.vtog:focus-visible,.swapcam:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.swapcam{position:absolute;inset:0;z-index:2;padding:0;border:0;background:transparent;cursor:zoom-in}
+.seat[data-view="camera"] .fwrap{cursor:zoom-in}
+.seat[data-view="field"]{--thumb:clamp(64px,24cqh,160px)}
+.seat[data-view="field"] .feedcol{flex:0 0 var(--thumb);--cellw:calc(var(--thumb) * var(--vr))}
+.seat[data-view="field"] .feedcol:has(.camsel){flex-basis:calc(var(--thumb) + 34px)}
+.seat[data-view="field"] .fwrap{--fw:calc(100cqw - 16px);--fh:calc(100cqh - var(--thumb) - 150px)}
+.seat[data-view="field"] .fctl,.seat[data-view="field"] .ctag{display:none}
+.seat[data-view="field"] .nofeed button{position:relative;z-index:9}
+/* The swap runs only while data-swapping is set, so a window resize never animates. Reduced motion shortens every transition to nothing (see the rule near the end). */
+.seat[data-swapping] .feedcol,.seat[data-swapping] .feedcol>.cams,.seat[data-swapping] .fwrap{transition:flex-basis .32s var(--ease),max-height .32s var(--ease),width .32s var(--ease),height .32s var(--ease)}
+.seat[data-swapping] .sbody{transition:grid-template-columns .32s var(--ease)}
+@container seat (min-aspect-ratio:1.55){
+  .seat[data-view="field"] .sbody{grid-template-columns:minmax(0,1fr) minmax(0,1.7fr)}
+  .seat[data-view="field"] .feedcol{--cellw:calc((100cqw - 26px) * .37)}
+  .seat[data-view="field"] .fwrap{--fw:calc((100cqw - 26px) * .63);--fh:calc(100cqh - 128px)}
+}
+@container seat (min-aspect-ratio:1.55) and (max-height:330px){
+  .seat[data-view="field"] .fwrap{--fh:calc(100cqh - 112px)}
+}
+@media (max-width:900px){
+  .seat[data-view="field"] .feedcol{flex:none}
+  .seat[data-view="field"] .feedcol>.cams{width:46%;align-self:flex-start}
+  .seat[data-view="field"] .fwrap{height:240px}
+  .app[data-mode] .seat[data-view="field"] .fwrap:has([data-emz]){height:310px}
+}
+
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
@@ -452,20 +538,23 @@
   .seat.turn{overflow:hidden}
   .sbody{padding:0 8px 8px;display:flex;flex-direction:column;gap:8px}
   .seat .lp{order:-1}
-  .sbody>.cams{flex:none;height:190px;min-height:0;aspect-ratio:auto}
+  .feedcol{flex:none;min-height:0;width:100%}
+  .camsel [data-lbl]{display:none}.camsel button{width:36px;padding:0;justify-content:center}.camsel select{flex-basis:110px}
+  .feedcol>.cams{flex:none;width:100%;max-height:none}
   .fside{flex:none}
   .lp{flex:none;min-height:0;max-height:none;grid-template-rows:none}
   .dwarn{font-size:12px;padding:4px 8px;gap:6px;bottom:6px;left:6px;right:6px}
   .mctl,.msub{display:none}
   .fside{display:contents}
-  .fwrap{height:150px;order:2}
-  .lp{padding:0 2px}
-  .lpmain{gap:10px}.lpn{font-size:46px}
+  .fwrap{width:auto;align-self:stretch;height:150px;order:2}
+  .app[data-mode] .fwrap:has([data-emz]){height:215px}
+  .lp{display:grid;padding:0 2px}
+  .lpmain{display:flex;gap:10px}.lpn{font-size:46px}
   .lpl{display:none}
   .lpin{display:none}
   .lpbar{display:none}
   .lpbtn{position:absolute;right:10px;top:4px;display:flex;gap:4px}
-  .lpbtn button{width:46px;height:44px;font-size:13px}
+  .lpbtn button{flex:none;width:46px;height:44px;font-size:13px}
   .lpbtn button.x{display:none}
   .lp{position:relative;min-height:52px}
   .lpmain{min-height:50px}
@@ -540,9 +629,7 @@
 .qnums{position:absolute;z-index:3;pointer-events:none}
 .qn{position:absolute;transform:translate(-30%,-120%);min-width:18px;height:18px;padding:0 5px;display:grid;place-items:center;border-radius:9px;background:rgb(7 4 14/.86);border:1px solid var(--gold);color:var(--gold-ink);font:700 11px/1 var(--font-duel-display),Oxanium,sans-serif}
 .qnOn{background:var(--gold);color:#1b1204;border-color:var(--gold-ink)}
-.fctl{position:relative;z-index:7;display:flex;flex:1 1 auto;min-width:0;gap:6px;align-items:center;overflow-x:auto;scrollbar-width:none;opacity:0;transition:opacity .15s;pointer-events:none}
-.fctl::-webkit-scrollbar,.camsel::-webkit-scrollbar{display:none}
-.fctl>*{flex:none;white-space:nowrap}
+.fctl{position:absolute;left:8px;bottom:8px;z-index:7;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:calc(100% - 16px);opacity:0;transition:opacity .15s;pointer-events:none}
 .cams:hover .fctl,.cams:focus-within .fctl,.fctlOn{opacity:1;pointer-events:auto}
 @media (hover:none){.fctl{opacity:1;pointer-events:auto}}
 .fzchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--gold);color:var(--gold-ink);font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em}
@@ -550,11 +637,13 @@
 .fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
 /* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
-.camsel{position:relative;z-index:7;display:flex;flex:0 1 auto;min-width:0;align-items:center;gap:6px;max-width:42%;overflow-x:auto;scrollbar-width:none;opacity:0;pointer-events:none;transition:opacity .15s}
-.camsel>*{flex:none;white-space:nowrap}
-.cams:hover .camsel,.cams:focus-within .camsel{opacity:1;pointer-events:auto}
-.camsel select{min-width:0;max-width:200px;height:26px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
-@media (hover:none){.camsel{opacity:1;pointer-events:auto}}
+/* One row under the video box: it never covers the video and never wraps. Labels drop out (icons stay, with a title) when the row is narrow. */
+.camsel{flex:none;width:100%;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:28px}
+.camsel>div{display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0}
+.camsel select{min-width:0;flex:0 1 180px;max-width:200px;height:28px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.camsel button{flex:none;height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;white-space:nowrap}
+.camsel [role=alert]{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--loss)}
+@container seat (max-width:760px){.camsel [data-lbl]{display:none}.camsel button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:120px}}
 .fzauto[aria-pressed=true]{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .fzbtn kbd{padding:1px 4px}
 .cams:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
@@ -566,7 +655,10 @@
 .cb.w{color:var(--warn);border-color:rgb(240 178 79/.6)}
 .cb.ok{color:var(--ok);border-color:rgb(121 217 168/.45)}
 .statline{font-size:12px;color:var(--ink3)}
-.ended{grid-column:1 / -1;text-align:center;padding:6px;color:var(--gold-ink);font-weight:700}
+.ended{grid-column:1 / -1;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 14px;text-align:center;padding:8px 10px;color:var(--gold-ink);font-weight:700;border:1px solid var(--line2);border-radius:8px;background:var(--p2)}
+.ended b{font-weight:800}
+.ended span{font-weight:600;color:var(--ink2,var(--ink))}
+.ended a{text-decoration:none}
 
 /* Hover peek, covered guard and board read */
 .qcov{stroke-dasharray:3 4;stroke:var(--warn);fill:rgb(240 178 79/.06)}
@@ -575,7 +667,7 @@
 .peek2 em{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
 .peek2Wait b{color:var(--ink2);font-weight:600}
 .peek2Cov{border-color:var(--warn)}.peek2Cov em:last-child{color:var(--warn)}
-.boardbar{position:absolute;left:8px;right:8px;top:34px;z-index:8;display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 9px;border-radius:7px;background:rgb(7 4 14/.92);border:1px solid var(--gold);color:var(--gold-ink);font:600 12px/1.25 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;overflow:hidden}
+.boardbar{position:absolute;left:8px;right:8px;top:8px;z-index:8;display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 9px;border-radius:7px;background:rgb(7 4 14/.92);border:1px solid var(--gold);color:var(--gold-ink);font:600 12px/1.25 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;overflow:hidden}
 .boardbar span{flex:1;min-width:0}
 .boardbar button{display:grid;place-items:center;width:20px;height:20px;border:0;background:none;color:var(--ink2);border-radius:4px}
 .boardbar button:hover{color:var(--ink)}
@@ -671,5 +763,28 @@
 .effectPicker { display: flex; flex-direction: column; gap: 12px; padding: 20px; max-height: min(650px, 85dvh); overflow: auto; }
 .effectPicker h3, .effectPicker p { margin: 0; }
 .effectCandidates { display: flex; flex-wrap: wrap; gap: 8px; }
-.knownDown { opacity: .5; filter: saturate(.55); width: 100%; height: 100%; }
+.zc>.knownDown{position:absolute;inset:0;opacity:.55;filter:saturate(.55)}
+.knownDown>.cd{position:absolute;inset:0}
+.zc.def>.knownDown{transform:rotate(-90deg) scale(.686)}
 .originLabel { position: absolute; bottom: 1px; left: 1px; right: 1px; font-size: 9px; line-height: 1.15; padding: 2px; color: var(--ink); background: #151822e8; text-overflow: ellipsis; overflow: hidden; }
+
+/* Automatic card detection shares the feed status and existing control overlay. */
+.feedTagRow{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;min-width:0;pointer-events:none}
+.feedTagRow .ctag{position:static;flex:none}
+.watcherStatusSlot{display:block;min-width:0;max-width:140px}
+.watcherControlsSlot{display:flex;flex:none}
+@container feed (max-width:280px){.ctagText{display:none}.watcherStatusSlot{max-width:calc(100cqw - 54px)}}
+.cams:has(.camq) .feedTagRow{right:110px}
+
+/* Zone grid over a camera feed: a skeleton playmat, never a mask. */
+.zgrid{position:absolute;z-index:2;pointer-events:none;overflow:hidden}
+.zgcell{fill:none;stroke:rgb(232 200 120/.34);stroke-width:1;vector-effect:non-scaling-stroke}
+.zgcell[data-glow="true"]{fill:rgb(232 185 79/.16);stroke:rgb(255 226 150/.95);stroke-width:2;animation:zgGlow 1.4s ease-out both}
+@keyframes zgGlow{0%{fill:rgb(232 185 79/.34)}100%{fill:rgb(232 185 79/0);stroke:rgb(232 200 120/.34);stroke-width:1}}
+.zglabels{position:absolute;z-index:2;pointer-events:none;overflow:hidden}
+.zglabels>span{position:absolute;transform:translate(-50%,-50%);font:600 9.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;color:rgb(255 240 205/.62);text-shadow:0 0 3px rgb(9 5 18/.95),0 0 1px rgb(9 5 18/1);white-space:nowrap}
+.zglabels>span[data-glow="true"]{color:#fff2cd}
+.zglabels>.zghint{transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:rgb(60 30 8/.88);border:1px solid rgb(255 190 90/.8);color:#ffe3b0;font-size:10.5px;letter-spacing:0}
+.zglabels>.zgcal{position:absolute;left:50%;top:6px;bottom:auto;transform:translateX(-50%);pointer-events:auto;height:22px;padding:0 9px;border-radius:5px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--gold-ink);font:600 11px/1 var(--font-duel-ui),system-ui,sans-serif;cursor:pointer}
+.zglabels>.zgcal:hover{border-color:var(--gold)}
+@media(prefers-reduced-motion:reduce){.zgcell[data-glow="true"]{animation:none}}

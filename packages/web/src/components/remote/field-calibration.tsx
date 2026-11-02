@@ -3,6 +3,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { createFieldCalibration, createTwoCardCalibration, fieldMatPoint, hasExtraMonsterZones, type DetectedQuad, type FieldCalibration, type FieldFormat } from '@yugidraft/vision';
+import { fieldGridCells } from '@/lib/remote/zone-grid';
 import { duelFontClasses } from '@/components/duel/fonts';
 import table from './ui/remote-ui.module.css';
 import s from './field-watcher-ui.module.css';
@@ -39,10 +40,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     }catch(e){if(request===generation.current)setError(e instanceof Error?e.message:'Could not capture both cards. Adjust the grid instead.');}
     finally{if(request===generation.current)setBusy(false);}
   }
-  const cells=[{zone:'FIELD',label:'Field',x:0,y:0,w:.18,h:.56},{zone:'EXTRA',label:'Extra',x:0,y:.56,w:.18,h:.44},{zone:'BANISHED',label:'Banished',x:.82,y:0,w:.18,h:.25},{zone:'GY',label:'GY',x:.82,y:.25,w:.18,h:.31},{zone:'DECK',label:'Deck',x:.82,y:.56,w:.18,h:.44},
-    ...Array.from({length:5},(_,i)=>({zone:`M${i+1}`,label:`M${i+1}`,x:.18+.128*i,y:hasExtraMonsterZones(format)?.2:0,w:.128,h:hasExtraMonsterZones(format)?.36:.56})),
-    ...Array.from({length:5},(_,i)=>({zone:`S${i+1}`,label:`S${i+1}`,x:.18+.128*i,y:.56,w:.128,h:.44})),
-    ...(hasExtraMonsterZones(format)?[{zone:'EMZ1',label:'EMZ',x:.308,y:0,w:.128,h:.2},{zone:'EMZ2',label:'EMZ',x:.564,y:0,w:.128,h:.2}]:[])];
+  const cells=fieldGridCells(format);
   const move=(original:Point[],corner:number|null,dx:number,dy:number)=>{
     if(corner===null){dx=Math.max(-Math.min(...original.map(p=>p.x)),Math.min(1-Math.max(...original.map(p=>p.x)),dx));dy=Math.max(-Math.min(...original.map(p=>p.y)),Math.min(1-Math.max(...original.map(p=>p.y)),dy));}
     setPoints(original.map((point,i)=>corner===null||corner===i?{x:clamp(point.x+dx),y:clamp(point.y+dy)}:point));setError('');

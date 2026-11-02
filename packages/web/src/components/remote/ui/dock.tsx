@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import type { MicState } from "./use-voice";
 import s from "./remote-ui.module.css";
@@ -39,7 +39,16 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
   transcript: Transcript; proposal: Proposal | null; samples: string[]; onConfirm: () => void; onCancel: () => void; onSample: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  return <section className={`${s.dk} ${s.vox} ${proposal ? s.has : ""}`} aria-label="Voice commands">
+  const root = useRef<HTMLElement>(null);
+  // The list floats over the field on small screens. Any press or key outside it closes it, and the press still reaches the field.
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away, true); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
+  }, [open]);
+  return <section ref={root} className={`${s.dk} ${s.vox} ${proposal ? s.has : ""} ${open ? s.sopen : ""}`} aria-label="Voice commands">
     {proposal ? null : <div className={`${s.chip} ${s.tr}`} data-testid="transcript">
       <span className={s.who}><Icon name="mic" />YOU</span>
       <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase, an LP change or an attack."}</q>

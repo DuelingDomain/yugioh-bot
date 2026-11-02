@@ -5,7 +5,7 @@ export async function GET(request: Request) {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const scope = new URL(request.url).searchParams.get("scope") ?? "mine";
-    remoteAssert(scope === "mine" || scope === "open", "Invalid table scope");
+    remoteAssert(scope === "mine" || scope === "open" || scope === "live", "Invalid table scope");
     return remoteJson({ tables: actor.remote.list(actor.guildId, actor.userId, scope) });
   } catch (error) { return remoteError(error); }
 }

@@ -7,8 +7,10 @@ import {hitTrackedCards} from '@/lib/remote/field-track-cache';
 import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
-import { hitTest, neighbour, toFeedCards, type FeedCard, type Pt } from "./quads";
+import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
+import { ZoneGridOverlay } from "./zone-grid";
+import { readGridPref, writeGridPref } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
@@ -36,6 +38,7 @@ export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
+const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
@@ -73,23 +76,33 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, below, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
   onBegin: (seat: number, start: FeedStart) => void;
   /** A click that found no outlined card. The table reads at that point. */
   onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
+  /** A click found no card (live or on a frozen frame). The table drops the popup it opened at once. */
+  onMiss: (seat: number) => void;
+  /** The "Search card" link on the no-card note: opens the popup for a manual search at that point. */
+  onSearch: (seat: number, start: FeedStart) => void;
   onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
+  /** The outlines and labels on this feed are stale (camera off or changed, freeze changed, video shape changed). The table drops them. */
+  onReset: (seat: number) => void;
   /** Called with the cards read from the whole frame. Resolves to a short summary for the feed. */
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
-  holdSelection: boolean; extra?: ReactNode; emptyText: string; emptyAction?: ReactNode;
+  holdSelection: boolean; extra?: ReactNode;
+  /** A strip under the video box (camera controls). It never covers the video. */
+  below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
 }) {
   const hub = useVideoHub();
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null); const wrap = useRef<HTMLDivElement>(null); const cam = useRef<HTMLDivElement>(null); const holder = useRef<HTMLDivElement>(null);
   const maskId = useId().replace(/:/g, "");
   const [box, setBox] = useState<Box | null>(null);
+  // The box has the camera's real shape (4:3 or 16:9 webcams, a phone), so the whole video fills it with no bars and no crop.
+  const [ratio, setRatio] = useState(DEFAULT_RATIO);
   const [frozen, setFrozenState] = useState<Frozen | null>(null);
   const [active, setActive] = useState(-1); const [hover, setHover] = useState(-1); const [selected, setSelected] = useState<string | null>(null);
   const [peekLabel, setPeekLabel] = useState<PeekLabel | null>(null); const [board, setBoard] = useState<BoardState | null>(null);
@@ -98,10 +111,18 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const [flash, setFlash] = useState<{ quad: Pt[]; key: number } | null>(null); const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ring = useRef<{ canvas: HTMLCanvasElement; at: number }[]>([]); const scratch = useRef<HTMLCanvasElement | null>(null);
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
+  // "No card here" note at the click, with a link to search by hand. It fades after a few seconds.
+  const [miss, setMiss] = useState<Pt | null>(null); const missTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showMiss = (p: Pt) => { setMiss(p); setSay("No card here."); if (missTimer.current) clearTimeout(missTimer.current); missTimer.current = setTimeout(() => setMiss(null), 4200); };
+  useEffect(() => () => { if (missTimer.current) clearTimeout(missTimer.current); }, []);
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
+  const phonePointerHandled=useRef(false);
   const setFrozenHealth = hub.setFrozen;
 
   useEffect(() => { setAuto(readAuto()); }, []);
+  // "Show zone grid": on by default for my own feed, off for opponents, remembered on this device.
+  const [gridOn, setGridOn] = useState(you); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
+  const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
     const detach = source.attach(element);
@@ -109,11 +130,14 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     return () => { stopWatching(); detach(); setFrozenHealth(seat, false); };
   }, [source, seat, setFrozenHealth]);
 
+  useEffect(() => { if (!source) setRatio(DEFAULT_RATIO); }, [source]);
   useEffect(() => {
     const element = video.current; const area = cam.current; if (!element || !area) return;
     const measure = () => {
       const w = area.clientWidth; const h = area.clientHeight; const vw = element.videoWidth; const vh = element.videoHeight;
       if (!w || !h || !vw || !vh) { setBox(null); return; }
+      const real = Math.min(MAX_RATIO, Math.max(MIN_RATIO, vw / vh));
+      setRatio(previous => Math.abs(previous - real) < 0.002 ? previous : real);
       const scale = Math.min(w / vw, h / vh); const width = vw * scale; const height = vh * scale;
       setBox({ left: (w - width) / 2, top: (h - height) / 2, width, height });
     };
@@ -178,6 +202,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
   }, []);
   useEffect(() => { if (!source) unfreeze(); }, [source, unfreeze]);
+  // Outlines and labels are short-lived. They go when the camera turns off or changes, when the feed freezes or resumes, and when the video changes shape.
+  const isFrozenNow = !!frozen;
+  useEffect(() => { onReset(seat); }, [seat, source, isFrozenNow, ratio, onReset]);
   useEffect(() => () => { if (dwell.current) clearTimeout(dwell.current); }, []);
   // The table closed its popover: the outline stays frozen, only the highlight goes.
   const hadHold = useRef(false);
@@ -238,7 +265,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (!frozen || frozen.status === "detecting" || !frozen.pending || !box) return;
     const p = frozen.pending; setFrozenState(f => f && { ...f, pending: null });
     const hit = hitTest(frozen.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(frozen.canvas)] });
+    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
   }, [frozen, box, choose, onPoint, seat, around, feedRect]);
 
   /**
@@ -247,20 +274,28 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
    */
   async function liveClick(p: Pt) {
     if (!box) return;
-    const token = ++run.current; const feed = feedRect();
+    if(hub.phones.some(phone=>phone.seat===seat&&phone.paired)) {
+      ++run.current;const feed=feedRect();
+      onBegin(seat,{x:p.x,y:p.y,anchor:around(p),feed});setSay("Reading card.");
+      onPoint(seat,p.x,p.y,{anchor:around(p),feed,live:true});return;
+    }
+    const token = ++run.current; const feed = feedRect(); setMiss(null);
     onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
     const frames = await sharpest(p); if (token !== run.current) return;
     const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
     const found = bitmap ? await detectCards(bitmap) : null;
     if (token !== run.current) return;
-    const cards = found?.status === "ready" ? toFeedCards(found.cards) : [];
+    // Only a quad that is shaped, sized and confident like a card can be read. Hands, mice and shadows get "No card here".
+    const frame = frames[0] ? { w: frames[0].width, h: frames[0].height } : { w: box.width, h: box.height };
+    const cards = found?.status === "ready" ? readableCards(toFeedCards(found.cards), frame) : [];
     const hit = hitTest(cards, p, { w: box.width, h: box.height });
-    if (!hit) { onPoint(seat, p.x, p.y, { anchor: around(p), feed, frames, live: true }); return; }
+    if (!hit) { onMiss(seat); showMiss(p); return; }
     flashQuad(hit.quad);
     onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length, anchor: anchorOf(hit.quad), feed, frames, live: true });
   }
   function click(event: React.MouseEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
+    if(event.detail>0 && phonePointerHandled.current){phonePointerHandled.current=false;return;}
     const p = point(event.clientX, event.clientY); if (!p || !box) return;
     wrap.current?.focus({ preventScroll: true });
     const f = frozenRef.current;
@@ -274,9 +309,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
     const hit = hitTest(f.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(f.canvas)] });
+    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
   }
   function move(event: ReactPointerEvent<HTMLDivElement>) {
+    if(phonePointerHandled.current && event.buttons!==0)return;
     const p = point(event.clientX, event.clientY);
     const f = frozenRef.current;
     if (f) {
@@ -385,16 +421,20 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     : frozen.status === "ready" ? (frozen.cards.length ? `${frozen.cards.length} ${frozen.cards.length === 1 ? "card" : "cards"} outlined` : "No cards found. Click one to read it anyway.")
     : frozen.status === "unavailable" ? "Outlines need the card reader. Click a card to read it here." : "Outlines failed. Click a card to read it here.";
 
-  return <div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
+  return <div className={s.feedcol} data-testid={`feed-col-${seat}`} style={{ "--vr": ratio } as CSSProperties}><div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
-    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} data-testid={`feed-${seat}`} data-remote-seat={seat}
+    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
+      onPointerDown={event=>{phonePointerHandled.current=false;if(event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
+      onPointerCancel={()=>{phonePointerHandled.current=false;}}
+      data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
       {source ? <video ref={video} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
         <Icon name="cam" /><span>{emptyText}</span>{emptyAction}
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
+      {source && gridOn && !frozen ? <ZoneGridOverlay seat={seat} box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
       {frozen && frozen.status === "ready" ? <svg className={s.quads} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="quads">
@@ -416,7 +456,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       {board ? <div className={`${s.boardbar} ${board.state === "reading" ? s.boardbarWait : ""} ${board.state === "fail" ? s.boardbarFail : ""}`} role="status" data-testid="board-status" data-state={board.state}>
         <span>{board.text}</span>{board.state === "reading" ? <i aria-hidden="true" /> : <button type="button" onClick={() => setBoard(null)} aria-label="Dismiss"><Icon name="x" /></button>}
       </div> : null}
-      {marks.map(mark => {
+      {source && !frozen ? marks.map(mark => {
         const r = rect(mark.x, mark.y, mark.quad); const rh = typeof r.height === "number" ? r.height : 0; const rt = typeof r.top === "number" ? r.top : 0;
         const flip = box ? rt + rh + (mark.notInDecklist ? 62 : 30) > (wrap.current?.clientHeight ?? 0) : false;
         return <div key={mark.id} className={`${s.lk} ${mark.notInDecklist ? s.nid : ""} ${mark.show ? s.show : ""}`} style={r} data-testid="lock">
@@ -425,8 +465,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
             <Icon name="warn" />Not in decklist{mark.canAdd ? <button type="button" onClick={() => onAdd(mark)}>Add to decklist</button> : null}
           </span> : null}
         </div>;
-      })}
-      {reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>)}
+      }) : null}
+      {source && miss && box ? <div className={s.miss} style={{ left: box.left + Math.min(0.88, Math.max(0.12, miss.x)) * box.width, top: box.top + miss.y * box.height }} role="status" data-testid="no-card">
+        <span>No card here</span>
+        <button type="button" onClick={() => { const at = miss; setMiss(null); onSearch(seat, { x: at.x, y: at.y, anchor: around(at), feed: feedRect() }); }} data-testid="no-card-search">Search card</button>
+      </div> : null}
+      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
     </div>
     <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
@@ -437,11 +481,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
+        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn} onClick={toggleGrid} data-testid="zone-grid-toggle" title={you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>
     {extra}
-  </div>;
+  </div>{below}</div>;
 }

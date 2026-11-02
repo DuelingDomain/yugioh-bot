@@ -15,6 +15,7 @@ vi.mock("livekit-client", () => ({
     emit(event: string,...args: unknown[]) { for(const fn of this.handlers.get(event)??[])fn(...args); }
     localParticipant = { publishData: media.publish, connectionQuality: "excellent", publishTrack: vi.fn(async () => {}), setMicrophoneEnabled: vi.fn(async () => {}) };
     on(event: string,fn: Function) { this.handlers.set(event,[...(this.handlers.get(event)??[]),fn]);return this; }
+    off() { return this; }
     async connect() { this.state = "connected"; }
     async disconnect() { this.state = "disconnected"; }
   },
@@ -62,14 +63,19 @@ it("broadcasts safe owner tracks and resolves observer clicks only for the authe
   await video.publishFieldTracks(message);
   expect(video.trackedAt(0,.3,.3)?.ref).toBe('own');
   expect(media.publish).toHaveBeenCalledWith(expect.any(Uint8Array),{reliable:true,topic:FIELD_TRACKS_TOPIC});
-  const peer={identity:'remote-user-2',metadata:JSON.stringify({guildId:'g',tableId:'t',seat:1,userId:2}),getTrackPublication:()=>({track:{kind:'video'},videoTrack:{kind:'video'},isMuted:false})};
+  const peer={identity:'remote-user-2',trackPublications:new Map(),metadata:JSON.stringify({guildId:'g',tableId:'t',seat:1,userId:2}),getTrackPublication:()=>({track:{kind:'video'},videoTrack:{kind:'video'},isMuted:false})};
   video.setMembers([{seat:0,userId:1},{seat:1,userId:2}]);room.remoteParticipants.set(peer.identity,peer);room.emit('ParticipantConnected');
   const encoded=(data:unknown)=>new TextEncoder().encode(JSON.stringify(data));
   room.emit('DataReceived',encoded({...message,cards:[{...message.cards[0],ref:'peer'}]}),peer,undefined,FIELD_TRACKS_TOPIC);
   expect(video.trackedAt(1,.3,.3)?.ref).toBe('peer');expect(video.trackedAt(0,.3,.3)?.ref).toBe('own');
   room.emit('DataReceived',encoded({type:'field.tracks',cards:[]}),{...peer,identity:'forged'},undefined,FIELD_TRACKS_TOPIC);
   expect(video.trackedAt(1,.3,.3)?.ref).toBe('peer');
-  room.remoteParticipants.delete(peer.identity);room.emit('ParticipantDisconnected');expect(video.trackedAt(1,.3,.3)).toBeUndefined();
+  // The SFU authenticates the sixth argument even when its OSS roster omits a data sender.
+  room.emit('DataReceived',encoded({...message,cards:[{...message.cards[0],ref:'sfu-peer'}]}),undefined,undefined,FIELD_TRACKS_TOPIC,undefined,peer.identity);
+  expect(video.trackedAt(1,.3,.3)?.ref).toBe('sfu-peer');
+  room.emit('DataReceived',encoded({type:'field.tracks',cards:[]}),undefined,undefined,FIELD_TRACKS_TOPIC,undefined,'remote-user-999');
+  expect(video.trackedAt(1,.3,.3)?.ref).toBe('sfu-peer');
+  room.remoteParticipants.delete(peer.identity);room.emit('ParticipantDisconnected',peer);expect(video.trackedAt(1,.3,.3)).toBeUndefined();
   await video.stop();expect(video.trackedAt(0,.3,.3)).toBeUndefined();
 });
 

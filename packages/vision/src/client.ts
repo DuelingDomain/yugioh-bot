@@ -11,6 +11,8 @@ export interface RecognizerConfig {
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
+  /** Load the worker, index and model sessions before a person asks to read a card. Safe to call repeatedly. */
+  warmup(): Promise<void>;
   /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
   prepare():Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
@@ -71,11 +73,15 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       return await request({type,frame,opts:workerOptions},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]);
     } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
   }
+  // Both table-open warmup and camera startup need the full recognition pipeline.
+  // The worker's init now loads only the detector so outlines can survive index failures.
+  function prepare(): Promise<void> {
+    if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
+    return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
+  }
   return {
-    prepare(){
-      if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
-      return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
-    },
+    warmup: prepare,
+    prepare,
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
     async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },
     async recognize(frames, opts = {}) {

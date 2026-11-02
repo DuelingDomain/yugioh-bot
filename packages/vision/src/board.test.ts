@@ -52,6 +52,11 @@ test('client exposes both worker operations and abort releases its worker for an
   globalThis.Worker=FakeWorker as unknown as typeof Worker;
   const reader=createRecognizer({backend:'wasm'});
   try {
+    await Promise.all([reader.warmup(),reader.warmup()]);
+    assert.equal(workers.length,1);
+    assert.equal(messages.filter(m=>m.type==='init').length,1);
+    // Table-open warmup must also load the resident index/embedder after lazy detector startup.
+    assert.equal(messages.filter(m=>m.type==='prepare').length,1);
     await Promise.all([reader.prepare(),reader.prepare()]);
     assert.equal(messages.filter(m=>m.type==='prepare').length,1);
     assert.equal((await reader.peek(frame as ImageData,{card:card(.1,.1)})).name,'Alpha');
@@ -65,6 +70,7 @@ test('client exposes both worker operations and abort releases its worker for an
     assert.equal(workers.length,2);
     await reader.prepare();assert.equal(messages.filter(m=>m.type==='prepare').length,2);
     assert.equal('signal' in (messages.find(m=>m.type==='readAll')!.opts as object),false);
+    reader.dispose();await assert.rejects(reader.warmup(),/disposed/);
   } finally {reader.dispose();globalThis.Worker=original;}
 });
 test('peek returns the best local name without exporting pixels and covered answers cannot be sure', async () => {

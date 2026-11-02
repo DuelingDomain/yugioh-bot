@@ -83,7 +83,7 @@ it('rejects invalid image/vector/metadata before writing and keeps ownership del
   expect(s.learning().references).toHaveLength(0);
 });
 it('exports only approved labelled crops and gates metric or dataset regressions',async()=>{
-  const {exportApprovedFeedback,regressionFailures}=await import('../../../../scripts/vision/feedback.js');
+  const {exportApprovedFeedback,regressionFailures}=await import(new URL('../../../../scripts/vision/feedback.js', import.meta.url).href);
   const s=service();s.setPreference(1,true);const sampleId=(await s.record(1,sample())).id;
   const empty=await exportApprovedFeedback(s,join(directory,'empty-export'),[{cardId:'B'}]);expect(empty.approved).toBe(0);
   s.review(sampleId,'approved',2);const out=join(directory,'approved-export');expect((await exportApprovedFeedback(s,out,[{cardId:'B'}])).approved).toBe(1);

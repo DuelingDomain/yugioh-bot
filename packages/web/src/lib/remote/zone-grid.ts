@@ -1,0 +1,73 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+import { createFieldCalibration, fieldMatPoint, hasExtraMonsterZones, onMat, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
+
+type Point = { x: number; y: number };
+/** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
+export interface GridCell { zone: string; label: string; x: number; y: number; w: number; h: number }
+
+/** Master Rule zones: Field, M1-M5, Banished/GY on top; Extra, S1-S5, Deck below; two EMZ above M2 and M4 when the format has them. */
+export function fieldGridCells(format: FieldFormat = "normal"): GridCell[] {
+  const emz = hasExtraMonsterZones(format);
+  return [
+    { zone: "FIELD", label: "Field", x: 0, y: 0, w: .18, h: .56 }, { zone: "EXTRA", label: "Extra", x: 0, y: .56, w: .18, h: .44 },
+    { zone: "BANISHED", label: "Banished", x: .82, y: 0, w: .18, h: .25 }, { zone: "GY", label: "GY", x: .82, y: .25, w: .18, h: .31 }, { zone: "DECK", label: "Deck", x: .82, y: .56, w: .18, h: .44 },
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: .18 + .128 * i, y: emz ? .2 : 0, w: .128, h: emz ? .36 : .56 })),
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: .18 + .128 * i, y: .56, w: .128, h: .44 })),
+    ...(emz ? [{ zone: "EMZ1", label: "EMZ", x: .308, y: 0, w: .128, h: .2 }, { zone: "EMZ2", label: "EMZ", x: .564, y: 0, w: .128, h: .2 }] : []),
+  ];
+}
+
+/** The grid shown before the player calibrates: most of the picture, as in the calibration dialog's first guess. */
+export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
+let defaultGrid: FieldCalibration | undefined;
+export const defaultGridCalibration = () => defaultGrid ??= createFieldCalibration(DEFAULT_GRID_CORNERS);
+
+/** Cell corners and centre in normalized picture coordinates, through the calibration's homography. */
+export function projectCell(cell: GridCell, calibration: FieldCalibration) {
+  const at = (x: number, y: number) => fieldMatPoint({ x, y }, calibration);
+  return { corners: [at(cell.x, cell.y), at(cell.x + cell.w, cell.y), at(cell.x + cell.w, cell.y + cell.h), at(cell.x, cell.y + cell.h)], center: at(cell.x + cell.w / 2, cell.y + cell.h / 2) };
+}
+
+/**
+ * The two zones a card lies across, or null when it sits in one zone.
+ * A 5 by 5 sample inside the card outline is mapped onto the mat; a second zone holding a quarter or more of the samples counts.
+ */
+export function straddledZones(quad: readonly Point[], calibration: FieldCalibration, cells: readonly GridCell[]): [string, string] | null {
+  if (quad.length !== 4) return null;
+  const counts = new Map<string, number>(); let inside = 0;
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+    const u = .1 + .2 * i, v = .1 + .2 * j;
+    const top = { x: quad[0].x + (quad[1].x - quad[0].x) * u, y: quad[0].y + (quad[1].y - quad[0].y) * u };
+    const bottom = { x: quad[3].x + (quad[2].x - quad[3].x) * u, y: quad[3].y + (quad[2].y - quad[3].y) * u };
+    const mat = onMat({ x: top.x + (bottom.x - top.x) * v, y: top.y + (bottom.y - top.y) * v }, calibration);
+    const cell = cells.find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h);
+    if (!cell) continue; inside++; counts.set(cell.zone, (counts.get(cell.zone) ?? 0) + 1);
+  }
+  if (inside < 12) return null;
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return ranked.length > 1 && ranked[1][1] >= inside * .25 ? [ranked[0][0], ranked[1][0]] : null;
+}
+
+/** What the field watcher shares with the camera feeds: the saved calibration and the cards it sees. */
+export interface ZoneGridState {
+  ownSeat: number | null; format: FieldFormat; calibration?: FieldCalibration;
+  tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];
+  /** Opens the calibration dialog. Missing when the watcher is not running. */
+  calibrate?: () => void;
+}
+const empty: ZoneGridState = { ownSeat: null, format: "normal", tracks: [] };
+let current = empty; const listeners = new Set<() => void>();
+export function publishZoneGrid(next: ZoneGridState) { current = next; for (const listener of listeners) listener(); }
+export const clearZoneGrid = () => publishZoneGrid(empty);
+export function useZoneGrid(): ZoneGridState {
+  return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => current, () => empty);
+}
+
+/** "Show zone grid": on by default for the player's own feed, off for opponents, remembered per device. */
+const prefKey = (own: boolean) => `dd-zone-grid:${own ? "own" : "opponent"}`;
+export function readGridPref(own: boolean): boolean {
+  try { const value = localStorage.getItem(prefKey(own)); return value === null ? own : value === "1"; } catch { return own; }
+}
+export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }

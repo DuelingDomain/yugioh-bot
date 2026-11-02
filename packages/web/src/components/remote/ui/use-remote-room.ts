@@ -4,32 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
+import { remoteApi } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
-
-/** Server clock minus browser clock, from the HTTP Date header (whole seconds, so it leans to the later second). */
-let clockSkew = 0;
-/** Best guess of the server time now. Used for the undo window, which the server measures with its own clock. */
-export const serverNow = () => Date.now() + clockSkew;
-
-export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
-  const signal=AbortSignal.timeout(10_000);
-  try {
-    const response = await fetch(`/api/remote${path}`, { cache: "no-store", signal, ...(body === undefined ? {} : {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    }) });
-    const date = Date.parse(response.headers.get("date") ?? "");
-    if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Could not update the table");
-    return data;
-  } catch(error) {
-    if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');
-    throw error;
-  }
-}
-
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
 /** Loads one table, keeps it fresh from the socket (5 s poll as backup) and posts actions. */
@@ -99,24 +77,26 @@ export function useRemoteRoom(slug: string) {
   },[slug,mutate]);
 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
-  const postAction = useCallback(async (payload: RemoteActionProposal): Promise<RemoteRoom | null> => {
-    const current = roomRef.current; if (!current||current.slug!==slug) return null;
-    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey: crypto.randomUUID() } as RemoteAction };
+  const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
+    const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
+    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey } as RemoteAction };
     setError("");
     try {
       const updated = await remoteApi<RemoteRoom>(`/${slug}/actions`, input);
+      if(tableKey.current!==slug)return updated;
       lastSeq.current = Math.max(lastSeq.current, updated.lastSeq);
       roomRef.current = updated;
       await mutate(old => old && old.lastSeq > updated.lastSeq ? old : updated, { revalidate: false });
       return updated;
     } catch (e) {
+      if(tableKey.current!==slug)return null;
       setError((e as Error).message);
       try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
     }
   }, [slug, mutate, refresh]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>roomRef.current,postAction),[postAction]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction),[postAction,slug]);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);
   const onData = useCallback((handler: (payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void) => {

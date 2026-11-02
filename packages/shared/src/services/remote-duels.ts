@@ -159,10 +159,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     get(slug: string, guildId: string, userId: number, afterSeq?: number): RemoteRoom {
       return db.transaction(() => room(load(slug, guildId), userId, afterSeq))();
     },
-    list(guildId: string, userId: number, scope: "mine" | "open" = "mine"): RemoteTable[] {
+    list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {
       const rows = db.prepare(`select t.* from remote_tables t where t.guild_id=? and ${scope === "open"
         ? "t.solo=0 and t.status='lobby' and (select count(*) from remote_seats s where s.table_id=t.id)<t.seat_count"
-        : "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)"} order by t.created_at desc,t.id desc limit 100`)
+        : `exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)${scope === "live" ? " and t.status!='ended'" : ""}`} order by t.created_at desc,t.id desc limit 100`)
         .all(...(scope === "open" ? [guildId] : [guildId, userId])) as Row[];
       return rows.map(row => projectRemoteTable(table(row)));
     },
@@ -314,7 +314,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           if (remoteActionSchema.safeParse(action).success) {
             const effects:RemoteReductionContext|undefined=e.effects_json ? JSON.parse(e.effects_json) : undefined;
             if(effects?.showCardsSetFromDeck!==undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
-            state = game.reduce(state, action as RemoteAction, { ...effects, replay: true });
+            state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
           }
           else if (action.type === "table.created") {
             if(action.format) state = applyRemoteFormat(state, action.format);
@@ -330,13 +330,26 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         return projectRemoteState(applyTableRule(state,row),privateSeats(row,userId));
       })();
     },
+    /**
+     * A seated player is still here (camera on, or recent input). Resets the idle clock and clears a pending warning.
+     * It adds no event and does not move last_seq, so no client has to resync for it.
+     */
+    touch(slug: string, guildId: string, userId: number, now = Date.now()): { lastEventAt: number } {
+      return transaction(() => {
+        const row = load(slug, guildId); member(row, userId); assertOpen(row, now);
+        db.prepare("update remote_tables set last_event_at=?,idle_warning_at=null where id=?").run(now, row.id);
+        return { lastEventAt: now };
+      });
+    },
     /** Warnings append an event but deliberately leave last_event_at unchanged. Presence never calls this service's writes. */
     sweepIdle(now = Date.now()): RemoteTable[] {
       return transaction(() => {
         const due = db.prepare("select * from remote_tables where status!='ended' and last_event_at<=?").all(now - REMOTE_IDLE_WARNING_MS) as Row[];
         const changed: RemoteTable[] = [];
         for (const row of due) {
-          if (now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS) {
+          // A table that started less than the close time ago is never closed as idle, whatever its last event says.
+          const startedRecently = row.started_at !== null && now - row.started_at < REMOTE_IDLE_CLOSE_MS;
+          if (now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS && !startedRecently) {
             append(row, { type: "table.ended", reason: "idle" }, now, null, null, false);
             db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where id=?").run(now, row.id);
           } else if (row.idle_warning_at === null) {

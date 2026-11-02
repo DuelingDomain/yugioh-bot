@@ -12,8 +12,3 @@ export default defineConfig({
     actionTimeout: 20_000, screenshot: "only-on-failure", trace: "retain-on-failure",
   },
   webServer: {
-    command: "node stack/remote-ui.mjs", url: "http://localhost:3310/api/auth/session",
-    timeout: process.env.E2E_PROD === "1" ? 900_000 : 120_000, reuseExistingServer: !!process.env.E2E_REUSE,
-    gracefulShutdown: { signal: "SIGTERM", timeout: 15_000 },
-  },
-});

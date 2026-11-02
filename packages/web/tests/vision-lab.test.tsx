@@ -3,6 +3,14 @@ import React from "react";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
+import { SWRConfig } from "swr";
+import type { RemoteRoom } from "@yugidraft/shared/remote";
+
+vi.mock("next/navigation",()=>({useRouter:()=>({push:vi.fn()})}));
+vi.mock("socket.io-client",()=>({io:()=>{
+  const socket={connected:false,on:()=>socket,connect:()=>{},disconnect:()=>{},emit:()=>{}};
+  return socket;
+}}));
 
 const state = vi.hoisted(() => ({
   initialSource: null as "photo" | "camera" | null, feedHub: null as any, feedDetect: vi.fn(), fieldWatch:null as any, roomHook:null as any,
@@ -43,19 +51,19 @@ const quads: DetectedQuad[] = [
   { quad: [{ x: .6, y: .2 }, { x: .9, y: .2 }, { x: .9, y: .8 }, { x: .6, y: .8 }], kind: "face-down", confidence: .87, partial: true },
 ];
 const cards = [
-  { cardId: "46986414", passcode: 46986414, name: "Dark Magician" },
-  { cardId: "89631139", passcode: 89631139, name: "Blue-Eyes White Dragon" },
-  { cardId: "83764718", passcode: 83764718, name: "Monster Reborn" },
-  { cardId: "55144522", passcode: 55144522, name: "Pot of Greed" },
-  { cardId: "12580477", passcode: 12580477, name: "Raigeki" },
+  { cardId: "46986414", passcode: 46986414, frameClass: "Normal", name: "Dark Magician" },
+  { cardId: "89631139", passcode: 89631139, frameClass: "Normal", name: "Blue-Eyes White Dragon" },
+  { cardId: "83764718", passcode: 83764718, frameClass: "Spell", name: "Monster Reborn" },
+  { cardId: "55144522", passcode: 55144522, frameClass: "Spell", name: "Pot of Greed" },
+  { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
 const zoneEntries=[
-  {cardId:'41420027',passcode:41420027,name:'Solemn Judgment'},
-  {cardId:'76375913',passcode:76375913,name:'Mystic Mine'},
-  {cardId:'23995346',passcode:23995346,name:'Blue-Eyes Ultimate Dragon'},
-  {cardId:'16178681',passcode:16178681,name:'Odd-Eyes Pendulum Dragon'},
-  {cardId:'900000101',passcode:900000101,name:'Extra Deck Pendulum fixture'},
-  {cardId:'900000102',passcode:900000102,name:'Unknown full type fixture'},
+  {cardId:'41420027',passcode:41420027,frameClass:'Normal',name:'Solemn Judgment'},
+  {cardId:'76375913',passcode:76375913,frameClass:'Normal',name:'Mystic Mine'},
+  {cardId:'23995346',passcode:23995346,frameClass:'Normal',name:'Blue-Eyes Ultimate Dragon'},
+  {cardId:'16178681',passcode:16178681,frameClass:'Normal',name:'Odd-Eyes Pendulum Dragon'},
+  {cardId:'900000101',passcode:900000101,frameClass:'Normal',name:'Extra Deck Pendulum fixture'},
+  {cardId:'900000102',passcode:900000102,frameClass:'Normal',name:'Unknown full type fixture'},
 ];
 const catalogFacts=[
   ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),
@@ -106,7 +114,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("createImageBitmap", createBitmap);
   fetcher.mockReset().mockImplementation(async (url,init) => {
-    if(String(url).endsWith('/api/cards/resolve')){const ids=JSON.parse(init.body).customCardIds??[];return Response.json({cards:catalogFacts.filter(card=>ids.includes(card.id))});}
+    if(String(url).endsWith('/api/cards/resolve')){const body=JSON.parse(init.body),ids=body.lookupIds??body.customCardIds??[];return Response.json({cards:catalogFacts.filter(card=>ids.includes(card.id))});}
     return Response.json(String(url).includes("remote-vision/feedback")?{enabled:false,askedAt:1,collectionEnabled:true}:{entries:cards});
   });
   vi.stubGlobal("fetch", fetcher);
@@ -535,22 +543,37 @@ it('desktop outlined clicks read the exact held frame once without resampling or
   }finally{disposeRecognizer();}
 });
 import { HoloField } from "../src/components/remote/ui/holo-field";
-import { cellsFor, foundationZone } from "../src/components/remote/ui/model";
+import { cellsFor, foundationZone, hasExtraZones } from "../src/components/remote/ui/model";
 it('renders two interactive EMZ above the main row only for Advanced and Domain',()=>{
   const twin=[{ref:'extra-right',zone:'extra-monster',slot:2,faceUp:false,position:'attack' as const}];
   const onRv=vi.fn(),onAttack=vi.fn();
   const props={seat:0,name:'Owner',twin,info:()=>undefined,rv:'m4' as const,onRv,picking:true,warnRefs:new Set<string>(),onActivate:vi.fn(),onAttack,onInspect:vi.fn()};
-  const view=render(<HoloField {...props} format="normal"/>);
-  expect(screen.getByRole('button',{name:/Extra Monster Zone, left: empty/i})).toBeVisible();
-  const right=screen.getByRole('button',{name:/Extra Monster Zone, right: face-down/i});
-  expect(right).toHaveAttribute('data-zone','emz2');
+  const view=render(<HoloField {...props} extraZones={hasExtraZones("normal")}/>);
+  expect(screen.getByRole('button',{name:/Extra Monster zone left: empty/i})).toBeVisible();
+  const right=screen.getByRole('button',{name:/Extra Monster zone right: face-down/i});
+  expect(right).toHaveAttribute('data-zone','e2');
   fireEvent.keyDown(screen.getByRole('button',{name:/Monster zone 4: empty/i}),{key:'ArrowUp'});
-  expect(onRv).toHaveBeenCalledWith('emz2');fireEvent.keyDown(right,{key:'a'});expect(onAttack).toHaveBeenCalledWith('emz2',twin[0]);
-  expect(cellsFor(twin).emz2.card?.ref).toBe('extra-right');
-  expect(foundationZone('emz2')).toEqual({zone:'extra-monster',slot:2});
+  expect(onRv).toHaveBeenCalledWith('e2');fireEvent.keyDown(right,{key:'a'});expect(onAttack).toHaveBeenCalledWith('e2',twin[0]);
+  expect(cellsFor(twin, true).e2.card?.ref).toBe('extra-right');
+  expect(foundationZone('e2')).toEqual({zone:'extra-monster',slot:2});
   for(const format of ['domain','genesys','genesys-domain'] as const) {
-    view.rerender(<HoloField {...props} format={format}/>);
-    expect(screen.queryAllByRole('button',{name:/Extra Monster Zone,/i})).toHaveLength(format==='domain'?2:0);
+    view.rerender(<HoloField {...props} extraZones={hasExtraZones(format)}/>);
+    expect(screen.queryAllByRole('button',{name:/Extra Monster zone/i})).toHaveLength(format==='domain'?2:0);
+  }
+});
+it('automatic zone proposals draw defense cards in the existing main, spell and EMZ cells',async()=>{
+  const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+  const {default:styles}=await import('../src/components/remote/ui/remote-ui.module.css');
+  for(const [zone,key] of [['M4','m4'],['S3','s3'],['EMZ1','e1'],['EMZ2','e2']] as const) {
+    const track={id:`auto-${zone}`,zone,position:'defense',faceDown:false} as import('@yugidraft/vision').FieldTrack;
+    const placed=fieldPlacementProposals({track,seat:0,cardId:46986414,name:'Dark Magician'}).find(p=>p.type==='twin.place')!;
+    const twin=[{...placed.card,zone:placed.zone,faceUp:true,position:'defense' as const}];
+    expect(cellsFor(twin,true)[key].card?.ref).toBe(track.id);
+    const view=render(<HoloField seat={0} name="Owner" twin={twin} extraZones info={()=>undefined} rv={key} onRv={()=>{}} picking={false} warnRefs={new Set()} onActivate={()=>{}} onAttack={()=>{}} onInspect={()=>{}}/>);
+    const cell=view.getByTestId('field-0').querySelector(`[data-zone="${key}"]`)!;
+    expect(cell).toHaveAttribute('aria-label',expect.stringContaining('Dark Magician'));
+    expect(cell).toHaveClass(styles.def);
+    view.unmount();
   }
 });
 it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
@@ -656,7 +679,7 @@ it('owner and observer feed clicks select an identified physical ref without cap
     capture.mockClear();capture.mockImplementation(()=>{throw Error('cached click must not capture');});state.feedDetect.mockClear();
     const select=vi.fn(),begin=vi.fn(),point=vi.fn();
     state.feedHub={sourceFor:()=>source,setFrozen:()=>{},trackedAt:vi.fn(()=>card),trackedCards:()=>[card]};
-    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onPoint={point} onSelect={select} onAdd={()=>{}} holdSelection={false} emptyText=""/>);
+    const view=render(<Feed seat={0} name="Owner" you={you} health={{q:'good',label:'Live',detail:''}} marks={[]} reticles={[]} onBegin={begin} onMiss={()=>{}} onSearch={()=>{}} onPoint={point} onSelect={select} onAdd={()=>{}} onReset={()=>{}} holdSelection={false} emptyText=""/>);
     fireEvent.click(view.getByTestId('feed-0'),{clientX:192,clientY:108});
     expect(select).toHaveBeenCalledWith(0,expect.objectContaining({cached:card,quad:card.quad}));
     expect(begin).not.toHaveBeenCalled();expect(point).not.toHaveBeenCalled();expect(state.feedDetect).not.toHaveBeenCalled();expect(capture).not.toHaveBeenCalled();
@@ -671,6 +694,43 @@ it('owner and observer feed clicks select an identified physical ref without cap
     expect(select.mock.calls.at(-1)?.[1].frozenFrame).toBe(view.getByTestId('frozen-frame').querySelector('canvas'));
     view.unmount();
   }}finally{width.mockRestore();height.mockRestore();rect.mockRestore();capture.mockRestore();}
+});
+
+describe('remote room navigation',()=>{
+  it.each(['action response','failed action refresh'])('does not reuse an old room sequence after a late %s',async phase=>{
+    const {useRemoteRoom}=await import('../src/components/remote/ui/use-remote-room');
+    const {ygoModule}=await import('@yugidraft/shared/remote');
+    const room=(slug:string,lastSeq:number):RemoteRoom=>({
+      slug,lastSeq,guildId:'test',gameId:'ygo',seatCount:2,status:'active',solo:true,createdBy:1,createdAt:1,
+      startedAt:1,endedAt:null,lastEventAt:1,endReason:null,idleWarningAt:null,seats:[],mySeat:0,
+      state:ygoModule.initialState({seatCount:2}),events:[],
+    });
+    const old=room('old',50),current=room('current',2),late=deferred<Response>(),posts:{path:string;baseSeq:number}[]=[];
+    fetcher.mockImplementation(async(path:string,options?:RequestInit)=>{
+      if(options?.method==='POST'){
+        posts.push({path,baseSeq:JSON.parse(options.body as string).baseSeq});
+        if(path==='/api/remote/old/actions')return phase==='action response'?late.promise:Response.json({error:'stale action'},{status:409});
+        return Response.json({...current,lastSeq:3});
+      }
+      if(path==='/api/remote/old')return late.promise;
+      throw new Error(`Unexpected request ${path}`);
+    });
+    const cache=new Map(),fallback={'remote:old':old,'remote:current':current};
+    const wrapper=({children}:{children:React.ReactNode})=><SWRConfig value={{provider:()=>cache,fallback,revalidateOnMount:false,revalidateOnFocus:false,revalidateOnReconnect:false}}>{children}</SWRConfig>;
+    const hook=renderHook(({slug})=>useRemoteRoom(slug),{initialProps:{slug:'old'},wrapper});
+    const proposal={type:'phase.set',actorSeat:0,phase:'main1'} as const;
+    let pending!:Promise<RemoteRoom|null>;
+    act(()=>{pending=hook.result.current.action(proposal,'old-action');});
+    await waitFor(()=>expect(posts).toEqual([{path:'/api/remote/old/actions',baseSeq:50}]));
+    if(phase==='failed action refresh')await waitFor(()=>expect(fetcher.mock.calls.some(([path,options])=>path==='/api/remote/old'&&!options?.method)).toBe(true));
+    hook.rerender({slug:'current'});
+    expect(hook.result.current.room?.slug).toBe('current');
+    await act(async()=>{late.resolve(Response.json({...old,lastSeq:51}));await pending;});
+    await act(async()=>{await hook.result.current.action(proposal,'current-action');});
+    expect(posts.at(-1)).toEqual({path:'/api/remote/current/actions',baseSeq:2});
+    expect(hook.result.current.room?.slug).toBe('current');
+    hook.unmount();
+  });
 });
 
 async function typedWatcherFixture(entry:typeof cards[number],zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>){
@@ -711,13 +771,13 @@ describe('typed watcher zone projection',()=>{
  });
  it('waits for an already-started catalog prefetch before committing the legal row',async()=>{
   const {loadCards}=await import('../src/components/remote/ui/catalog'),ready=deferred<Response>();
-  const entry={cardId:'900000103',passcode:900000103,name:'Prefetched trap fixture'};
+  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched trap fixture'};
   fetcher.mockImplementation(async(url,init)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const prefetch=loadCards([entry.passcode]),fixture=await typedWatcherFixture(entry,'M4');
   try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
  });
  it('uses the latest physical column when a card moves during full-type loading',async()=>{
-  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,name:'Moving trap fixture'};
+  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Normal',name:'Moving trap fixture'};
   fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});}finally{fixture.dispose();}
  });
@@ -754,7 +814,7 @@ describe('typed watcher zone projection',()=>{
  });
  it('corrects a live move while keeping the bound ref independent of its physical row',async()=>{
   const old={ref:'bound-spell',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
-  const fixture=await typedWatcherFixture(zoneEntries[0],'M5',[old],'moved');try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:5}));expect(fixture.room().state.seats[0].twin).toHaveLength(1);}finally{fixture.dispose();}
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M5',[old],'moved');try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post.mock.calls[0][0]).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:5});expect(fixture.room().state.seats[0].twin).toHaveLength(1);}finally{fixture.dispose();}
  });
  it('resolves an old illegal same-spot twin before projecting the corrected destination',async()=>{
   const old={ref:'reserved-spell',zone:'monster',slot:4,cardId:46986414,name:'Old mistaken identity',faceUp:true,position:'attack'};

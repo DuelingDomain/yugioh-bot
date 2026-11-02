@@ -19,7 +19,7 @@ it('catalog display lookups opt in to full Extra Deck card facts',async()=>{
   const {loadCards,cardInfo}=await import('../src/components/remote/ui/catalog');
   const card={id:44508094,name:'Stardust Dragon',type:'Dragon / Synchro Effect Monster',frameType:'synchro',race:'Dragon',effectText:'Synchro fixture'};
   const fetcher=vi.fn().mockResolvedValue(Response.json({cards:[card]}));vi.stubGlobal('fetch',fetcher);await loadCards([44508094]);
-  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({customCardIds:[44508094],includeExtra:true});expect(cardInfo(44508094)).toMatchObject(card);
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({lookupIds:[44508094]});expect(cardInfo(44508094)).toMatchObject(card);
 });
 
 it.each(['fetch','response body'] as const)('a hung catalog %s releases the shared action queue after ten seconds',async stage=>{
@@ -33,7 +33,7 @@ it.each(['fetch','response body'] as const)('a hung catalog %s releases the shar
     const metadata=queue.transaction(async(_room,act)=>{await loadCards([id]);finished=true;if(cardInfo(id))await act({type:'phase.advance',actorSeat:0});});
     const manual=queue.action({type:'phase.advance',actorSeat:0});
     await vi.advanceTimersByTimeAsync(9_999);expect(fetcher).toHaveBeenCalledOnce();expect(finished).toBe(false);expect(post).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledExactlyOnceWith({type:'phase.advance',actorSeat:0});await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledOnce();expect((post.mock.calls[0] as unknown[])[0]).toEqual({type:'phase.advance',actorSeat:0});await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
     fetcher.mockResolvedValueOnce(Response.json({cards:[{id,name:'Recovered catalog fixture',type:'Trap Card',frameType:'trap',effectText:''}]}));await loadCards([id]);expect(cardInfo(id)).toMatchObject({id,type:'Trap Card'});expect(fetcher).toHaveBeenCalledTimes(2);
   }finally{vi.useRealTimers();}
 });
@@ -42,7 +42,7 @@ it("reads a local frame and sends only the public passcode to the existing catal
   const fetcher = vi.fn().mockResolvedValue(Response.json({ cards: [{ id: 46986414, name: "Dark Magician" }] })); vi.stubGlobal("fetch", fetcher);
   expect(await recognizeLocalCard(canvas, new AbortController().signal)).toEqual([{ id: 46986414, name: "Dark Magician" }]);
   expect(ocr.post).toHaveBeenCalledWith({ image: expect.any(Blob) });
-  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ customCardIds: [46986414] });
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ lookupIds: [46986414] });
   expect(ocr.terminate).toHaveBeenCalledOnce();
 });
 
@@ -149,6 +149,15 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   expect(recognizers[1]).toHaveBeenCalledOnce();
   for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }], tier: "sure", faceDown: false, covered: false }, 1);
   channels.forEach(channel => channel.close());
+});
+
+it("parses activation with a named source and activation after identifying a card", async()=>{
+  const {interpret}=await import("../src/components/remote/ui/grammar");
+  const {ygoModule}=await import("@yugidraft/shared/remote");
+  const state=ygoModule.initialState({seatCount:2}); state.identified={seat:0,cardId:70825459,name:"Trap Tracks",source:"voice",addErrors:[]};
+  const ctx={state,players:[{seat:0,displayName:"Alice"}],me:0,trayOpen:false};
+  expect(interpret("I activate Trap Tracks",ctx)).toMatchObject({kind:"effect",proposal:{type:"effect.activated",source:{name:"Trap Tracks"}}});
+  expect(interpret("activate",ctx)).toMatchObject({kind:"effect",proposal:{source:{cardId:70825459}}});
 });
 
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {
@@ -272,6 +281,18 @@ it('review B3: manual and watcher transactions serialize copy checks against ret
  expect(posts).toEqual(['twin.place']);expect(server.state.seats[0].twin).toHaveLength(1);
  await queue.transaction(async(room)=>{expect(room.lastSeq).toBe(1);});
  }
+});
+
+it('queued phone retries preserve the caller idempotency key through action and transaction',async()=>{
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ const room={lastSeq:0} as any,post=vi.fn(async()=>room);
+ const queue=createRoomMutationQueue(()=>room,post);
+ const proposal={type:'card.identified',actorSeat:0,seat:0,cardId:46986414,source:'camera'} as any;
+ const key='phone-scan-physical-1';
+ await queue.action(proposal,key);
+ await queue.action(proposal,key);
+ await queue.transaction(async(_,act)=>act(proposal,'phone-transaction-1'));
+ expect(post.mock.calls).toEqual([[proposal,key],[proposal,key],[proposal,'phone-transaction-1']]);
 });
 
 it('queued evidence cannot apply or confirm an old name over replacement pixels',async()=>{

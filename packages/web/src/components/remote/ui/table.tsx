@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, matchCardsByName, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
@@ -12,29 +12,36 @@ import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Tier } from "./popup";
-import { interpret, trySaying, type VoiceIntent } from "./grammar";
-import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, foundationZone, hasDeck, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
+import { interpret, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
+import type { FieldDrag } from "./holo-field";
+import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
+import { announceManualMove } from "@/lib/remote/manual-moves";
+import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
-import { setFeedbackCapture, type FeedbackSource } from "./recognizer";
+import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import { useLayers } from "./use-layers";
-import { serverNow, useRemoteRoom, type RoomController } from "./use-remote-room";
+import { remoteApi, serverNow } from "./api";
+import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { RemoteLobbyRoom } from "./lobby";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
+import { Icon } from "./icons";
+import { PhonePairing } from "../phone/pairing";
+import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
-import {publicTrackedTwin} from '@/lib/remote/field-track-cache';
+import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
-import {trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation} from '@yugidraft/vision';
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const UNDO_MS = 5000;
+const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
@@ -50,19 +57,25 @@ export function RemoteTableScreen({ slug }: { slug: string }) {
     <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
-  if (room.status === "lobby") return <RemoteLobbyRoom ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}><Table ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
-function CameraControl() {
+/** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
+function CameraControl({room}: {room:RemoteRoom}) {
   const hub = useVideoHub();
-  // Joining is the button inside the empty feed. This control only appears once the camera is on.
-  if (!hub.cameraOn) return null;
-  return <div className={s.camsel}>
-    {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
+  const leave = hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off";
+  return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
+    {hub.cameraOn && hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>Camera off</button>
+    {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
+}
+
+/** One plain sentence on why a table ended. */
+function endedWhy(room: RemoteRoom, winner: string | null) {
+  if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
+  if (room.endReason === "creator-left") return "The host left the lobby.";
+  return winner ? `${winner} won.` : "The game is over.";
 }
 
 function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
@@ -75,6 +88,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const name = useCallback((seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`, [room.seats]);
   const lpOf = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const startingLp = room.format?.settings.startingLP ?? 8000;
+  const extraZones = hasExtraZones(room.format?.id);
   const turnActor = solo ? state.turnSeat : mySeat;
   const myTurn = solo || mySeat === state.turnSeat;
   const [feedbackPref, setFeedbackPref] = useState<FeedbackPreference | null>(null);
@@ -137,6 +151,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [unread, setUnread] = useState(false); const lastSeq = useRef(room.lastSeq);
   useEffect(() => { if (room.lastSeq !== lastSeq.current) { lastSeq.current = room.lastSeq; if (layers.layer !== "log") setUnread(true); } }, [room.lastSeq, layers.layer]);
   useEffect(() => { if (layers.layer === "log") setUnread(false); }, [layers.layer]);
+  // The popup for a card closed: its outline on the feed goes with it.
+  const heldBefore = useRef(false);
+  useEffect(() => {
+    const held = layers.layer === "card" || layers.layer === "tray";
+    popupHeld.current = held ? ctx.current?.seat ?? null : null;
+    if (heldBefore.current && !held) { setMarks({}); setReticles({}); }
+    heldBefore.current = held;
+  }, [layers.layer]);
   const addVoiceLog = useCallback((text: string) => setVoiceLog(list => [...list.slice(-30), { id: `vx:${Date.now()}`, time: fmtTime(Date.now()), kind: "VX" as const, text, fresh: true }]), []);
 
   // ---- actions ----
@@ -161,6 +183,23 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const idleOn = room.idleWarningAt !== null;
   useEffect(() => { if (!undo && !idleOn) return; const timer = setInterval(() => setClock(n => n + 1), 250); return () => clearInterval(timer); }, [undo, idleOn]);
   void clock;
+  // The server closes a table after 10 minutes without activity. Playing with the camera on makes no table actions,
+  // so tell the server once a minute that a seated player is still here: camera or phone video on, or recent input.
+  const cameraLive = hub.cameraOn || hub.phones.some(p => p.seat === mySeat);
+  const cameraLiveRef = useRef(cameraLive); cameraLiveRef.current = cameraLive;
+  const slugOfTable = room.slug;
+  useEffect(() => {
+    if (!live || mySeat < 0) return;
+    let lastInput = Date.now();
+    const mark = () => { lastInput = Date.now(); };
+    window.addEventListener("pointerdown", mark, true); window.addEventListener("keydown", mark, true);
+    const ping = () => {
+      if (!cameraLiveRef.current && Date.now() - lastInput > 5 * 60_000) return;
+      void remoteApi(`/${slugOfTable}/activity`, {}).catch(() => {});
+    };
+    const timer = setInterval(ping, 60_000);
+    return () => { clearInterval(timer); window.removeEventListener("pointerdown", mark, true); window.removeEventListener("keydown", mark, true); };
+  }, [live, mySeat, slugOfTable]);
   // The server decides the window from its own clock (undo.at + 5 s), so count down from that time, not from first sight.
   const left = undo ? Math.ceil((undo.at + UNDO_MS - serverNow()) / 1000) : 0;
   const canUndo = !!undo && left > 0 && (room.status === "active" || room.status === "ended");
@@ -176,7 +215,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [act, toast, undoText]);
 
   // ---- feed marks, recognition ----
-  const [marks, setMarks] = useState<Record<number, FeedMark[]>>({}); const [reticles, setReticles] = useState<Record<number, FeedReticle[]>>({});
+  const [marks, setMarks] = useState<Record<number, FeedMark[]>>({});
+  const popupHeld = useRef<number | null>(null);
+  const resetFeed = useCallback((seat: number) => {
+    setMarks(all => (all[seat]?.length ? { ...all, [seat]: [] } : all)); setReticles(all => (all[seat]?.length ? { ...all, [seat]: [] } : all));
+  }, []); const [reticles, setReticles] = useState<Record<number, FeedReticle[]>>({});
   const [tray, setTray] = useState<TrayState | null>(null); const ctx = useRef<ReadCtx | null>(null); const readCounter = useRef(0);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null }); const beginId = useRef(0); const [adding, setAdding] = useState(false); const [fresh, setFresh] = useState<string | undefined>();
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
@@ -192,9 +235,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const location=fieldZoneLocation(projected.zone);
     return {row:location.zone,slot:location.slot,ref:`c${seat}-${cardId}-${Date.now().toString(36)}`};
   };
-  /** A public copy of this card already on the field. The same physical card must not be put there twice. */
-  const copyOnField = (seat: number, cardId: number) =>
-    R.current.room.state.seats[seat].twin.find(card => cardCode(card) === cardId && card.faceUp && card.zone !== "hand" && card.zone !== "deck");
+  /** A free Extra Monster Zone for this seat: not used by its own cards and not taken by the facing seat, which shares the row (my zone 1 is their zone 2). */
+  const freeEmzSlot = (seat: number, seats: readonly { twin: readonly TwinCard[] }[], also: ReadonlySet<number> = new Set()) => {
+    const other = facingSeat(seat, seatCount);
+    const used = new Set<number>(also);
+    for (const card of seats[seat]?.twin ?? []) if (card.zone === "extra-monster" && card.slot) used.add(card.slot);
+    if (other !== null) for (const card of seats[other]?.twin ?? []) if (card.zone === "extra-monster" && card.slot) used.add(mirrorEmz(card.slot));
+    return [1, 2].find(n => !used.has(n));
+  };
   const saveSample = useCallback((token: number | undefined, cardId: number, source: FeedbackSource | undefined) => {
     if (token === undefined || !source) return;
     void hub.recordFeedback(token, cardId, source).then(result => { if (result.ok && R.current.feedbackAdmin) toast("Saved to the training set"); else if (result.note) toast(result.note); });
@@ -202,15 +250,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   const identify = useCallback(async (pick: Pick, source: "click" | "auto" | "voice" | "typed") => {
     const at = ctx.current; if (!at) return;
-    const { seat } = at; const current = R.current.room;
+    const { seat } = at;
     // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
-    const bail = () => { layers.close("tray"); setTray(null); };
+    // The table refused the card (for example it closed meanwhile). Say so: a popup that only vanishes looks like a bug.
+    const bail = () => { layers.close("tray"); setTray(null); toast("The table did not accept this card. Nothing was placed.", 4200); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
     const outcome=await ctl.transaction(async(current,apply)=>{
       const owns = current.solo || seat === current.mySeat;
-      const revealRef=at.ref??at.cardRef??(owns?remoteRecognitionRef(current.state,seat,pick.cardId):undefined);
-      const same=owns?current.state.seats[seat].twin.find(c=>revealRef?c.ref===revealRef:cardCode(c)===pick.cardId&&c.faceUp&&!['hand','deck'].includes(c.zone)):undefined;
+      // Keep explicit private-origin targeting inside the shared mutation queue.
+      const targetRef = at.ref ?? at.cardRef;
+      const revealRef = owns ? remoteRecognitionRef(current.state, seat, pick.cardId, targetRef) : undefined;
+      const same = owns ? current.state.seats[seat].twin.find(card => card.ref === targetRef)
+        ?? current.state.seats[seat].twin.find(card => card.ref === revealRef)
+        ?? current.state.seats[seat].twin.find(card => cardCode(card) === pick.cardId && card.faceUp && !['hand', 'deck'].includes(card.zone)) : undefined;
       const spot=owns?(same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current)):undefined;
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined};}
       let updated:RemoteRoom|null=null;
@@ -226,12 +279,16 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
     const not = identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
-    setMarks(all => ({ ...all, [seat]: [...(all[seat] ?? []).slice(-7), { id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(identified?.addErrors?.length) }] }));
+    // One outline per card, and one active selection at a time: a new read replaces the older outlines on this feed.
+    setMarks(all => ({ ...all, [seat]: [{ id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(identified?.addErrors?.length) }] }));
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
+    // The outline expires after a few seconds, unless the popup for this card is still open.
+    const expire = () => { if (popupHeld.current === seat) { setTimeout(expire, 2000); return; } setMarks(all => (all[seat] ?? []).some(mark => mark.id === markId) ? { ...all, [seat]: (all[seat] ?? []).filter(mark => mark.id !== markId) } : all); };
+    setTimeout(expire, MARK_LIFE_MS);
     setPopAt(at.at); layers.open("card");
     if(ctx.current) delete ctx.current.cardRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctl.transaction, layers, hub, saveSample]);
+  }, [ctl.transaction, layers, hub, saveSample, toast]);
 
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
   const anotherCopy = async () => {
@@ -248,12 +305,29 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   /** A click landed on a live feed: the popup opens at once with its skeleton, before the card is found. */
   const beginRead = useCallback((seat: number, start: FeedStart) => {
+    // On a closed table no card can be placed, so a read would end with a popup that closes by itself. Say it at once.
+    const now = R.current.room;
+    if (now.status !== "active" || now.state.ended) { readCounter.current++; toast("The table is closed. Cards cannot be read here.", 4200); return; }
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
     ctx.current = { seat, x: start.x, y: start.y, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}) };
     setTray({ seat, ownerName: name(seat), status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layers, name, toast]);
+
+  /** A click found no card. Drop the popup that opened at once; the feed shows a small "No card here" note. */
+  const noCard = useCallback((seat: number) => {
+    if (ctx.current?.seat === seat) delete ctx.current.cardRef;
+    readCounter.current++; setTray(null); layers.close("tray");
+  }, [layers]);
+  /** "Search card" on that note: the popup with only the search box, at the click. */
+  const searchHere = useCallback((seat: number, start: FeedStart) => {
+    const id = ++readCounter.current; beginId.current = id;
+    const at: PopAt = { anchor: start.anchor, feed: start.feed };
+    ctx.current = { seat, x: start.x, y: start.y, at, id };
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card or say its name.", reader: "none", at });
+    layers.open("tray");
   }, [layers, name]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
@@ -261,6 +335,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
     // A stale transport quad must not steer a fresh read or bind its old ref.
     if(hit?.cached&&!cached)hit=undefined;
+    { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     if(hit?.kind==="face-down") {
       const origins=R.current.state.effectTracking?.origins.filter(o=>o.seat===seat && o.destination==="set" && R.current.state.seats[seat].twin.some(c=>c.ref===o.ref && !c.faceUp)) ?? [];
       if(origins.length && (R.current.room.solo || seat===R.current.room.mySeat)) {
@@ -306,11 +381,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       void identify({ cardId: top.cardId, name: top.name || cardInfo(top.cardId)?.name || `Card ${top.cardId}`, via: "click" }, "auto");
       return;
     }
-    reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
+    // Not sure, but the frame is sharp and the top guess clearly leads: show it as the answer. Others still see "not sure".
+    const best = isBestMatch(result) && !hit?.covered;
+    if (best) await loadCards([top.cardId]);
+    if (readCounter.current !== id) return;
+    reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: best ? "Best match" : result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
     setTimeout(() => reticle(seat, null, rid), 1800);
-    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
+    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(best ? { best: true } : {}), ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hub, identify, layers, name]);
+  }, [hub, identify, layers, name, toast]);
   const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
   useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); } }, [layers.layer, tray]);
 
@@ -376,7 +455,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
     if (!live) return "The table is closed."; if (!card) return "No card selected.";
-    if (card.zone !== "monster"&&card.zone!=="extra-monster") return "Only monsters in a monster zone can attack.";
+    if (card.zone !== "monster" && card.zone !== "extra-monster") return "Only monsters in a monster zone can attack.";
     if (seat !== state.turnSeat) return `Only ${name(state.turnSeat)}'s monsters can attack this turn.`;
     if (!myTurn) return "Wait for your turn.";
     if (state.phase !== "battle") return "Move to the Battle Phase first.";
@@ -445,6 +524,72 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attack, state.seats]);
 
+  // ---- moving cards by hand: drag, keyboard, voice ----
+  /** One twin.move, one Undo. The auto-detect watcher is told first so the camera keeps the new place. */
+  const moveCard = useCallback((seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}) => {
+    const { room: now } = R.current;
+    announceManualMove({ slug: now.slug, seat, ref: card.ref });
+    const label = card.faceUp ? card.name ?? cardInfo(cardCode(card))?.name : undefined;
+    return act({ type: "twin.move", actorSeat: now.solo ? seat : now.mySeat, seat, zone: land.zone, cardRef: card.ref, ...(land.slot ? { slot: land.slot } : {}),
+      ...(extra.position ? { position: extra.position } : {}), ...(extra.faceUp !== undefined ? { faceUp: extra.faceUp } : {}), ...(label ? { name: label } : {}) });
+  }, [act]);
+  const judgeFor = (seat: number, card: TwinCard, land: Landing) => {
+    const { state: cur, room: now } = R.current; const other = facingSeat(seat, now.seatCount);
+    return judgeMove({ card, info: cardInfo(cardCode(card)), land, twin: cur.seats[seat]?.twin ?? [], extraZones: hasExtraZones(now.format?.id),
+      facing: other === null || !cur.seats[other] ? null : { name: name(other), twin: cur.seats[other].twin } });
+  };
+  /** Drag, keyboard and voice share this: refuse says why, confirm asks once on the dock chip, ok moves with Undo. */
+  const tryMove = (seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}, requestId?: string, direct = false): { done: boolean; text: string } => {
+    const verdict = direct ? { kind: "ok" as const } : judgeFor(seat, card, land);
+    const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
+    if (verdict.kind === "refuse") { toast(verdict.message); return { done: false, text: verdict.message }; }
+    if (verdict.kind === "same" && extra.faceUp === undefined && !extra.position) return { done: false, text: "Already there" };
+    if (verdict.kind === "confirm") {
+      propose(`${who} to ${landingLabel(land)}`, verdict.message, "Place", () => void moveCard(seat, card, land, extra), requestId);
+      return { done: true, text: "Needs a confirm" };
+    }
+    void moveCard(seat, card, land, extra);
+    return { done: true, text: `${who} to ${landingLabel(land)}` };
+  };
+  const fieldDrag = (seat: number): FieldDrag | undefined => !live || !(solo || seat === mySeat) ? undefined : {
+    can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum"].includes(card.zone),
+    judge: (card, key) => judgeFor(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)),
+    drop: (card, key) => { tryMove(seat, card, landingForCell(key, cardInfo(cardCode(card)), extraZones)); },
+  };
+  /** The card this seat placed or moved last, if it is still on the field. */
+  const recentCard = (seat: number): TwinCard | undefined => {
+    const { room: now, state: cur } = R.current; const twin = cur.seats[seat]?.twin ?? [];
+    for (const event of [...now.events].sort((a, b) => b.seq - a.seq)) {
+      const a = event.action as { type: string; seat?: number; cardRef?: string; card?: { ref: string } };
+      const ref = a.type === "twin.place" ? a.card?.ref : a.type === "twin.move" || a.type === "card.identified" ? a.cardRef : undefined;
+      if (!ref || a.seat !== seat) continue;
+      const found = twin.find(card => card.ref === ref && ["monster", "spell-trap", "field", "extra-monster", "pendulum"].includes(card.zone));
+      if (found) return found;
+    }
+    return undefined;
+  };
+  const spokenMove = (move: MoveIntent, requestId: string): { text: string; ignored?: boolean } => {
+    const { room: now, state: cur } = R.current; const seat = now.solo ? cur.turnSeat : now.mySeat; const twin = cur.seats[seat]?.twin ?? [];
+    if (now.status !== "active" || cur.ended) return { text: "The table is not live", ignored: true };
+    let card: TwinCard | undefined;
+    if (move.query) {
+      const matches = matchCardsByName(twin, move.query, item => item.name ?? cardInfo(cardCode(item))?.name);
+      if (!matches.length) return { text: `No card named “${move.query}”`, ignored: true };
+      if (matches[1] && matches[1].score >= matches[0].score - 0.05 && matches[1].card.zone === matches[0].card.zone) return { text: `Which ${cardName(matches[0].card, cardInfo(cardCode(matches[0].card)))}? ${matches.length} match`, ignored: true };
+      card = matches[0].card;
+    } else card = recentCard(seat);
+    if (!card) return { text: "No card to move. Place one first.", ignored: true };
+    const dest = move.dest;
+    const emz = dest?.zone === "extra-monster" && !dest.slot ? freeEmzSlot(seat, cur.seats) : dest?.slot;
+    const land: Landing = dest ? { zone: dest.zone, ...(dest.zone === "extra-monster" ? (emz ? { slot: emz } : {}) : dest.slot ? { slot: dest.slot } : {}) } : { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
+    if (dest?.zone === "extra-monster" && !land.slot) return { text: "Both Extra Monster Zones are taken.", ignored: true };
+    // A card set to a Monster Zone goes in defense, face down. A move by voice never needs the card to be face up.
+    const faceUp = move.faceUp;
+    const position = move.position ?? (faceUp === false && land.zone === "monster" ? "defense" : undefined);
+    const result = tryMove(seat, card, land, { ...(faceUp !== undefined ? { faceUp } : {}), ...(position ? { position } : {}) }, requestId, !dest);
+    return { text: result.text, ignored: !result.done };
+  };
+
   // ---- voice ----
   const [muted, setMuted] = useState(false); const [ptt, setPtt] = useState(false); const [held, setHeld] = useState(false);
   const [wake, setWake] = useState(0); const [, setWakeTick] = useState(0);
@@ -477,11 +622,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => void act(best.proposal), requestId);
         break;
       }
+      case "move": { const result = spokenMove(intent.move, requestId); set(result.text, result.ignored); break; }
       case "pick": set("Picked"); document.dispatchEvent(new CustomEvent("remote-tray-pick", { detail: intent.index })); break;
       default: set("Not understood", true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [act, doUndo]);
+  }, [act, doUndo, moveCard]);
   const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
@@ -571,8 +717,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onPin: () => layers.open("insp"),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
-      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone,
-      onMove: (zone: string) => void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref }),
+      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, extraZones,
+      onMove: (zone: string) => {
+        // A move into the Extra Monster Zones picks a slot the facing seat has not taken. Pendulum Zones use the outer Spell/Trap cells.
+        const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
+        if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
+        announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
+        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}) });
+      },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
     } } : {}),
@@ -594,6 +746,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
+  const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
   const draftPhase = PHASES.length;
   void draftPhase;
@@ -609,7 +762,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
           onPhase={setPhase} onPass={passTurn} turnIn={turnIn} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || state.ended ? <div className={s.ended} role="status">The table is closed.{state.winnerSeat !== null && state.winnerSeat !== undefined ? ` ${name(state.winnerSeat)} won.` : ""}</div> : null}
+        {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
+          <b>This table has ended.</b>
+          <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
+          <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
+        </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
@@ -622,17 +779,17 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
-            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
-            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReadBoard={readBoardInto}
-            twin={twin} info={info} format={format.id} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
+            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
+            twin={twin} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} pickPlate={plate}
-            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster"||card.zone==='extra-monster')) void declare(seat, card.ref); else if (card) openSubject(card); }}
-            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
+            warnRefs={warnRefs(seat)} pickPlate={plate} viewScope={String(seatCount)}
+            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
+            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
-            cameraControl={seat === mySeat ? <CameraControl /> : undefined} turnIn={turnIn && seat === state.turnSeat}
-            emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void hub.enableCamera(); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
-            emptyFeedText={bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
+            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}
+            emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
+            emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
       <footer className={s.dock} aria-label="Voice and undo">
