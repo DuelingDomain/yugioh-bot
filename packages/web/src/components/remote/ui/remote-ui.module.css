@@ -16,6 +16,10 @@
 .app{position:fixed;inset:0;z-index:100;background:var(--ground);color:var(--ink);font-family:var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;font-size:15px;line-height:1.25;overflow:hidden}
 .app button{font:inherit;color:inherit;cursor:pointer}
 .app input,.app select{font:inherit;color:inherit}
+/* Native select lists: an opaque dark background and light text on every option (a see-through select background makes Chrome and Edge paint a white list). */
+.app select{color-scheme:dark}
+.app select option,.app select optgroup{background:var(--p1);color:var(--ink)}
+.app select option:disabled{color:var(--ink3)}
 .app kbd{font:600 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;padding:2px 5px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--ink2);background:rgb(0 0 0/.25)}
 .ic{width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-.2em}
 .num{font-family:var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums}
@@ -553,7 +557,7 @@
 .camsel{position:relative;z-index:7;display:flex;flex:0 1 auto;min-width:0;align-items:center;gap:6px;max-width:42%;overflow-x:auto;scrollbar-width:none;opacity:0;pointer-events:none;transition:opacity .15s}
 .camsel>*{flex:none;white-space:nowrap}
 .cams:hover .camsel,.cams:focus-within .camsel{opacity:1;pointer-events:auto}
-.camsel select{min-width:0;max-width:200px;height:26px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.camsel select{min-width:0;max-width:200px;height:26px;border-radius:6px;background:var(--p0);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 @media (hover:none){.camsel{opacity:1;pointer-events:auto}}
 .fzauto[aria-pressed=true]{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .fzbtn kbd{padding:1px 4px}
@@ -661,6 +665,7 @@
 .fnote{margin:0 0 10px;color:var(--ink3);font-size:12.5px}
 .fact{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fact label{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:13px;min-width:0}
+.effectPicker select{max-width:100%;background:var(--p0);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:4px 6px;font-size:13px}
 .fact select{max-width:220px;background:var(--p0);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:4px 6px;font-size:13px}
 @media (max-width:700px){.fpop{right:8px;left:8px;transform:none;width:auto;bottom:140px}}
 .dedit{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%}

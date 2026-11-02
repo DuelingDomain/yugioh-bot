@@ -62,7 +62,7 @@ function CameraControl() {
   return <div className={s.camsel}>
     {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
-    <RecognitionSetting />
+    <RecognitionSetting variant="menu" />
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>Camera off</button>
   </div>;
 }
