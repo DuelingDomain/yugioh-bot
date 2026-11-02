@@ -231,14 +231,16 @@ test.describe("remote duels screen, two players on LiveKit", () => {
 
 // Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
-async function appearingCamera(page:Page) {
-  const data=readFileSync(AUTO_CARD).toString('base64');
+const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
+const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
+async function appearingCamera(page:Page,cardFile=AUTO_CARD) {
+  const data=readFileSync(cardFile).toString('base64');
   await page.addInitScript(async data=>{
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let visible=false,x=460,y=170,defense=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible){ctx.save();if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as unknown as {fieldTest:{appear():void;place(left:number,top:number,defense?:boolean):void;move():void;clear():void;many(points:{x:number;y:number}[]):void}}).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},clear:()=>{visible=false;others=[];paint();},many:points=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let visible=false,x=460,y=170,defense=false,jitter=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);ctx.drawImage(image,-90,-131,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},clear:()=>{visible=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');return canvas.captureStream(15);};
     navigator.mediaDevices.enumerateDevices=async()=>[];
@@ -281,6 +283,7 @@ test('field watcher automatic: owner table applies once and Undo removes the ato
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
   await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.length;},{timeout:30_000}).toBe(1);
   const placed=await room();expect(placed.state.seats[0].twin[0].cardId).toBe(45725480);
+  expect(placed.state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:2});
   expect(placed.events.filter((e:any)=>e.action.type==='twin.place'&&e.action.source==='auto')).toHaveLength(1);
   expect(placed.events.some((e:any)=>e.action.type==='card.identified')).toBe(false);
   await page.getByTestId('undo').click();await expect.poll(async()=>(await room()).state.seats[0].twin.length).toBe(0);
@@ -381,7 +384,7 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
 async function measuredFieldChange(page:Page,kind:'move'|'remove') {
   return page.evaluate(kind=>new Promise<number>((resolve,reject)=>{
     const started=performance.now(),observer=new MutationObserver(()=>{
-      const done=kind==='move'?document.querySelector('[data-testid="field-0"] [data-zone="emz2"]')?.textContent?.includes('Sacred Sword'):document.querySelector('[data-testid="field-departure-toast"]')?.textContent?.includes('left the field');
+      const done=kind==='move'?document.querySelector('[data-testid="field-0"] [data-zone="emz2"]')?.textContent?.includes('Stardust'):document.querySelector('[data-testid="field-departure-toast"]')?.textContent?.includes('left the field');
       if(done){clearTimeout(timer);observer.disconnect();resolve(performance.now()-started);}
     }),timer=setTimeout(()=>{observer.disconnect();reject(Error('Camera field update timed out: '+kind));},15000);
     observer.observe(document.body,{childList:true,subtree:true});
@@ -391,20 +394,20 @@ async function measuredFieldChange(page:Page,kind:'move'|'remove') {
 test('field watcher automatic: camera follows EMZ/DEF moves and clear departure with destinations and Undo',async({page,context})=>{
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2,true);await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
-  await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await appearingCamera(page,EXTRA_CARD);await page.goto(`/duels/remote/${slug}`);await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
   await page.evaluate(()=>((window as any).fieldTest).place(345,8,true));
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:45725480,zone:'extra-monster',slot:1,position:'defense'});
-  const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="emz1"]')).toContainText('Sacred Sword');
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:30_000}).toMatchObject({cardId:44508094,zone:'extra-monster',slot:1,position:'defense'});
+  const first=(await room()).state.seats[0].twin[0];await expect(page.getByTestId('field-0').locator('[data-zone="emz1"]')).toContainText('Stardust');
   await expect.poll(()=>page.getByTestId('field-0').locator('[data-zone="emz1"]').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el.firstElementChild!).transform);return Math.round(Math.atan2(m.b,m.a)*180/Math.PI);})).toBe(-90);
   const moveMs=await measuredFieldChange(page,'move');
   await expect.poll(async()=>(await room()).state.seats[0].twin[0],{timeout:20_000}).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2,position:'attack'});
   expect((await room()).state.seats[0].twin).toHaveLength(1);
   const removalMs=await measuredFieldChange(page,'remove');
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'graveyard'});
-  const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Sacred Sword of Seven Stars left the field');
-  await expect(page.getByTestId('field-0').locator('[data-zone="emz2"]')).not.toContainText('Sacred Sword');
-  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Sacred Sword of Seven Stars'});
+  const toast=page.getByTestId('field-departure-toast');await expect(toast).toContainText('Stardust Dragon left the field');
+  await expect(page.getByTestId('field-0').locator('[data-zone="emz2"]')).not.toContainText('Stardust');
+  const departed=await room();expect(departed.events.at(-1).action).toMatchObject({type:'twin.move',source:'auto',cardRef:first.ref,zone:'graveyard',name:'Stardust Dragon'});
   await toast.getByRole('button',{name:'Undo',exact:true}).click();
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]).toMatchObject({ref:first.ref,zone:'extra-monster',slot:2});
   await page.waitForTimeout(3200);expect((await room()).events.length).toBe(departed.events.length+1);
@@ -421,8 +424,46 @@ test('field watcher automatic: camera follows EMZ/DEF moves and clear departure 
     await toast.getByRole('button',{name:label,exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe(zone);
   }
   await toast.getByRole('button',{name:'Undo',exact:true}).click();await expect.poll(async()=>(await room()).state.seats[0].twin[0].zone).toBe('extra');
-  await page.getByTestId('log-button').click();await expect(page.getByTestId('log-drawer')).toContainText('Sacred Sword of Seven Stars left the field');
+  await page.getByTestId('log-button').click();await expect(page.getByTestId('log-drawer')).toContainText('Stardust Dragon left the field');
   console.log('Table camera follow',JSON.stringify({moveMs,removalMs}));mkdirSync(new URL('../../../data/vision/benchmark/field-watcher/',import.meta.url),{recursive:true});writeFileSync(new URL('../../../data/vision/benchmark/field-watcher/table-follow.json',import.meta.url),JSON.stringify({moveMs,removalMs,ref:first.ref},null,2));
+});
+
+test('field watcher automatic: Solemn Judgment uses the legal row and confirmed prompts stay quiet through jitter and moves',async({page,context})=>{
+  test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
+  const records:{registeredDeck:boolean;moveMs:number}[]=[];
+  for(const registeredDeck of [true,false]){
+    const slug=await soloTable(context.request,2,registeredDeck),room=()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
+    await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
+    await context.request.post('/api/cards/resolve',{data:{customCardIds:[41420027]}});
+    await appearingCamera(page,TRAP_CARD);await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId('camera-on-feed').click();await page.getByLabel('Auto-detect cards',{exact:true}).check();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await page.evaluate(()=>((window as any).fieldTest).place(650,170,false));
+    const prompt=page.getByTestId('field-watcher-prompt');
+    if(!registeredDeck){
+      await expect(prompt).toBeVisible({timeout:30_000});
+      await prompt.getByRole('button',{name:/Solemn Judgment.*To Spell\/Trap Zone 4/}).click();
+    }
+    await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:30_000}).toMatchObject([{cardId:41420027,zone:'spell-trap',slot:4}]);
+    await expect(prompt).toHaveCount(0);const first=(await room()).state.seats[0].twin[0];
+    const moveMs=await page.evaluate(()=>new Promise<number>((resolve,reject)=>{
+      const start=performance.now(),observer=new MutationObserver(()=>{
+        if(document.querySelector('[data-testid="field-0"] [data-zone="s2"]')?.textContent?.includes('Solemn Judgment')){
+          clearTimeout(timer);observer.disconnect();resolve(performance.now()-start);
+        }
+      }),timer=setTimeout(()=>{observer.disconnect();reject(Error('Trap did not follow its legal column'));},10000);
+      observer.observe(document.body,{subtree:true,childList:true});(window as any).fieldTest.place(360,170,false);
+    }));
+    await expect.poll(async()=>(await room()).state.seats[0].twin).toMatchObject([{ref:first.ref,cardId:41420027,zone:'spell-trap',slot:2}]);
+    await expect(prompt).toHaveCount(0);const eventCount=(await room()).events.length;
+    await page.evaluate(()=>((window as any).fieldTest).jitter(true));await page.waitForTimeout(12_000);
+    await expect(prompt).toHaveCount(0);const stable=await room();expect(stable.events).toHaveLength(eventCount);
+    expect(stable.state.seats[0].twin).toMatchObject([{ref:first.ref,cardId:41420027,zone:'spell-trap',slot:2}]);
+    records.push({registeredDeck,moveMs});expect(moveMs).toBeLessThan(1000);
+    await page.evaluate(()=>((window as any).fieldTest).jitter(false));await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();
+  }
+  console.log('Solemn Judgment legal row and quiet prompts',JSON.stringify(records));
+  writeFileSync(new URL('../../../data/vision/benchmark/field-watcher/solemn-follow.json',import.meta.url),JSON.stringify({records,jitterSecondsPerMode:12,repeatedPrompts:0,illegalPlacements:0},null,2));
 });
 
 test('field watcher automatic: a manual feed read before settling keeps exactly one physical twin',async({page,context})=>{
@@ -449,7 +490,7 @@ test('field watcher automatic: a manual feed read before settling keeps exactly 
 for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive prompt and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
   test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
-  const slug=await soloTable(context.request,seatCount),directory=new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
+  const slug=await soloTable(context.request,seatCount),directory=process.env.E2E_FIELD_SHOTS??new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
   mkdirSync(directory,{recursive:true});await appearingCamera(page);await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
   await page.evaluate(()=>((window as any).fieldTest).many([{x:300,y:440},{x:800,y:440}]));
