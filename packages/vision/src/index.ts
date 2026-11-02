@@ -25,3 +25,6 @@ export type {FieldZone,FieldCalibration,FieldFormat} from './field-zones';
 
 export {createFieldIdentityGallery} from './field-gallery';
 export type {FieldIdentityGallery,FieldIdentityEntry} from './field-gallery';
+
+export {classifyFaceState,isLikelyFaceDown,createFaceStateHysteresis} from './face-state';
+export type {FaceState,FaceStateResult,FaceStateEmbedding,FaceStateOptions} from './face-state';
