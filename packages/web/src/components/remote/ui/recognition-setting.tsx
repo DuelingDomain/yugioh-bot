@@ -20,7 +20,7 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   if (variant === "menu") {
-    return <ThemedSelect variant="menu" label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
+    return <ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />;
   }
   return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>

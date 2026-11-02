@@ -71,7 +71,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
   const hub = useVideoHub();
   const leave = hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off";
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
-    {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" value={hub.cameraId} testId="camera-choice"
+    {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
     <RecognitionSetting variant="menu" />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
