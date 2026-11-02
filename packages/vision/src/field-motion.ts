@@ -1,9 +1,9 @@
 import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
-import type { DetectedQuad } from './types';
+import type { DetectedQuad, FractionalBox } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { motionRegion?:FractionalBox; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -20,6 +20,17 @@ export function createFieldAnalyzer() {
       context.drawImage(frame,0,0,width,height);image=context.getImageData(0,0,width,height);
     }
     const before=previous;previous=image;
+    let motionRegion:FractionalBox|undefined;
+    if(before&&before.width===image.width&&before.height===image.height){
+      let left=image.width,top=image.height,right=0,bottom=0,changed=0;
+      for(let y=0;y<image.height;y+=2)for(let x=0;x<image.width;x+=2){
+        const i=(y*image.width+x)*4;
+        const delta=(Math.abs(image.data[i]-before.data[i])+Math.abs(image.data[i+1]-before.data[i+1])+Math.abs(image.data[i+2]-before.data[i+2]))/(3*255);
+        if(delta<=.08)continue;
+        left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x+2);bottom=Math.max(bottom,y+2);changed++;
+      }
+      if(changed>=4)motionRegion={x:left/image.width,y:top/image.height,w:(Math.min(right,image.width)-left)/image.width,h:(Math.min(bottom,image.height)-top)/image.height};
+    }
     let native:RGBAImage|undefined;
     const nativeImage=()=>{
       if(native)return native;
@@ -32,6 +43,7 @@ export function createFieldAnalyzer() {
     };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     return {
+      motionRegion,
       crop(card) {
         // Detector corners are portrait ordered even for a card in Defense Position.
         const source=nativeImage();

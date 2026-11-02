@@ -27,7 +27,7 @@ type VisionRecognizer = {
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
-  detectCards(frame: ImageBitmap): Promise<ReadCard[]>;
+  detectCards(frame: ImageBitmap, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   recordFeedback(result: RawResult, chosenCardId: string, source: FeedbackSource): Promise<unknown>;
   dispose(): void;
@@ -219,13 +219,13 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
 
 export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
 /** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
-export function detectCards(frame: ImageBitmap): Promise<Detection> {
+export function detectCards(frame: ImageBitmap, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">): Promise<Detection> {
   return enqueue(async () => {
     const vision = await loadRecognizer(); const found = await loadMeta();
     if (!vision || !found) { frame.close(); return { status: "unavailable" as const, cards: [] as [], note: "The card reader is not installed here." }; }
     const start = performance.now();
     try {
-      const cards = await vision.detectCards(frame);
+      const cards = await vision.detectCards(frame,opts);
       return { status: "ready" as const, cards: cards.map(card => ({ ...card, refined: !card.partial })), ms: Math.round(performance.now() - start) };
     } catch (error) { return { status: "error" as const, cards: [] as [], note: error instanceof Error ? error.message : "The card detector failed." }; }
   });
@@ -248,8 +248,14 @@ let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = 
 export function attachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo === video) return;
   ownBuffer?.stop(); ownBuffer = null; ownVideo = video;
-  void loadRecognizer().then(reader=>reader?.prepare()).catch(()=>undefined);
+  void prepareOwnReader().catch(()=>undefined);
   void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(() => undefined);
+}
+
+/** Shared by the table and its lobby preview; the resident worker warms once. */
+export async function prepareOwnReader(priors?:Priors) {
+  const [reader,found]=await Promise.all([loadRecognizer(),loadMeta()]);
+  if(reader&&found)await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors)}:undefined));
 }
 export function detachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo !== video) return;
@@ -267,7 +273,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
   return {
     recognizer: {
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})),
-      detectCards: (frame: ImageBitmap | ImageData) => enqueue(() => reader.detectCards(frame as ImageBitmap)),
+      detectCards: (frame: ImageBitmap | ImageData, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">) => enqueue(() => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
     buffer: { sample: () => ownBuffer ? ownBuffer.sample() : Promise.reject(new Error("Waiting for the own camera buffer")) },

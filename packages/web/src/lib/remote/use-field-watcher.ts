@@ -31,15 +31,21 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
   const setCalibration=useCallback((grid?:FieldCalibration)=>{setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
   useEffect(()=>{
-    if(!options.owner||!options.active||!enabled||loaded!==storageKey||!calibration){setSnapshot(initial);return;}
+    if(!options.owner||!options.active||!enabled||loaded!==storageKey){setSnapshot(initial);return;}
     let cancelled=false,reader:FieldWatcher|null=null;
-    void latest.current.create().then(config=>{
+    void latest.current.create().then(async config=>{
       if(cancelled)return;
       if(!config){setSnapshot({...initial,status:'error',error:'Card reader assets are unavailable on this deployment.'});return;}
       if(gallery.current?.key!==galleryKey){
         let saved:unknown=[];try{saved=JSON.parse(sessionStorage.getItem(galleryKey)??'[]');}catch{/* Memory-only in private mode. */}
         const value=createFieldIdentityGallery(saved,()=>{try{sessionStorage.setItem(galleryKey,JSON.stringify(value.entries()));}catch{/* Memory-only fallback. */}});
         gallery.current={key:galleryKey,value};
+      }
+      // Preload confirmed appearances and the seat deck while calibration is
+      // open, before the first watcher sample can request recognition.
+      if(!calibration){
+        await config.recognizer.prepare?.({priors:config.getPriors?.(),sessionGallery:gallery.current.value.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===config.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
+        return;
       }
       reader=createFieldWatcher({...config,calibration,gallery:gallery.current.value});watcher.current=reader;
       reader.subscribe(event=>{if(!cancelled)latest.current.onEvent(event);});

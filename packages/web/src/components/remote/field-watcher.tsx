@@ -9,7 +9,7 @@ import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEv
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {projectFieldZone} from '@/lib/remote/field-legality';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
-import {ownFieldResources,detectCards} from './ui/recognizer';
+import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
@@ -37,6 +37,11 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   const current=useRef({room,active:false});
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
   current.current.active=!!source?.local&&hub.cameraOn;
+  const deckKey=deckIdsOf(room,seat).join(',');
+  useEffect(()=>{
+    if(!source?.local||!hub.cameraOn)return;
+    void prepareOwnReader({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}).catch(()=>undefined);
+  },[room.slug,seat,source?.local,hub.cameraOn,deckKey]);
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
@@ -254,7 +259,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     });
   }
   const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:source,
-    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.08,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
   useEffect(()=>{
     const abandoned=[...placeholders.current.keys()].filter(id=>{const track=watch.getTrack(id);return !track||track.state==='dismissed'||track.removed;});
