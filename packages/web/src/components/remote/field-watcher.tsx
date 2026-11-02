@@ -1,7 +1,7 @@
 "use client";
 
-import {useEffect,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard} from '@yugidraft/vision';
+import {useCallback,useEffect,useRef,useState} from 'react';
+import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
 import type {RemoteRoom,TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
@@ -36,9 +36,12 @@ const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['e
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
 export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction:RoomTransaction}) {
   const hub=useVideoHub(),seat=room.mySeat,source=hub.sourceFor(seat);
+  const phone=hub.phones.find(p=>p.seat===seat&&p.paired);
+  const ownsSource=!!source&&(source.local||!!phone&&phone.mode!=='scan');
+  const cameraKey=phone?`phone:${phone.id}`:hub.cameraId;
   const current=useRef({room,active:false});
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
-  current.current.active=!!source?.local&&hub.cameraOn;
+  current.current.active=ownsSource&&hub.cameraOn;
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const manual=useRef(new Map<string,{zone:string;slot?:number;position?:string}>());
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
@@ -238,9 +241,18 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
     });
   }
-  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:hub.cameraId,sourceKey:source,
+  const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:cameraKey,sourceKey:source,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
-  enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
+  const updateCalibration=useCallback((grid:FieldCalibration)=>{
+    watch.setCalibration(grid);
+    // Keep an unanswered identity prompt, but require fresh visibility at the
+    // new revision before accepting it. Already queued actions keep the old revision.
+    setPrompts(list=>list.map(event=>{
+      const track=watch.getTrack(event.track.id);
+      return track?.state==='prompt'?{...event,track}:event;
+    }));
+  },[watch.setCalibration,watch.getTrack]);
+  enabledRef.current=watch.enabled&&!watch.calibrationNeeded;tracks.current=watch.snapshot.tracks;
   useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
   useEffect(()=>{
     const timer=setInterval(()=>{
@@ -268,7 +280,6 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     return()=>clearInterval(timer);
   },[room.slug,seat,watch.enabled]);
   const video=host?.querySelector('video')??null;
-  useEffect(()=>{if(!watch.calibrationNeeded||!video)return;const open=()=>{if(video.videoWidth)setCalibrating(true);};open();video.addEventListener('loadedmetadata',open);return()=>video.removeEventListener('loadedmetadata',open);},[watch.calibrationNeeded,video]);
   useEffect(()=>{
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
@@ -299,18 +310,18 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
     });
   }
   useEffect(()=>{
-    const message=fieldTrackMessage(watch.snapshot,entries.current,known()),key=JSON.stringify(message);lastMessage.current=message;
+    const message=fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
-  },[watch.snapshot,hub.publishFieldTracks,room.state]);
+  },[watch.snapshot,watch.calibration,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
   const gridFormat=room.format?.id??room.state.deckChecks.format.id;
   const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
   useEffect(()=>{
-    publishZoneGrid({ownSeat:seat,format:gridFormat,calibration:watch.calibration,calibrate:()=>{if(host?.querySelector('video')?.videoWidth)setCalibrating(true);},
+    publishZoneGrid({ownSeat:seat,format:gridFormat,calibration:watch.calibration,setCalibration:updateCalibration,calibrate:()=>{if(host?.querySelector('video')?.videoWidth)setCalibrating(true);},
       tracks:watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>({id:t.id,zone:t.zone,quad:t.card.quad}))});
     // The key stands for the visible cards without republishing on every sample.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[seat,gridFormat,watch.calibration,gridKey,host,watch.snapshot.tracks.length]);
+  },[seat,gridFormat,watch.calibration,updateCalibration,gridKey,host,watch.snapshot.tracks.length]);
   useEffect(()=>clearZoneGrid,[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
@@ -328,7 +339,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  const label=watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const label=watch.calibrationNeeded?'Choose your side · auto-placement paused':!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   return <>
     <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={promptViews}
@@ -338,6 +349,6 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
-    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
+    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
   </>;
 }

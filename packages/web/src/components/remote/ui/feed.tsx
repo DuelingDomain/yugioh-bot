@@ -434,7 +434,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
-      {source && gridOn && !frozen ? <ZoneGridOverlay seat={seat} box={box} /> : null}
+      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
       {frozen && frozen.status === "ready" ? <svg className={s.quads} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="quads">

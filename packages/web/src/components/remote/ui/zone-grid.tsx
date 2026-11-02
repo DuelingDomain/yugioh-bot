@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { fieldGridCells, defaultGridCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
+import { FieldOrientationControls } from "../field-orientation";
+import { useVideoHub } from "./video-hub";
+import type { FieldCalibration } from "@yugidraft/vision";
 import s from "./remote-ui.module.css";
 
 interface Box { left: number; top: number; width: number; height: number }
@@ -13,10 +16,17 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
  * It sits on the video's own box, so it follows every resize and every swap of the video with the field.
  * Uncalibrated, the player sees a default grid with a link to calibrate.
  */
-export function ZoneGridOverlay({ seat, box }: { seat: number; box: Box | null }) {
+export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box: Box | null; visible?:boolean }) {
   const grid = useZoneGrid();
   const own = grid.ownSeat === seat;
-  const calibration = own ? grid.calibration : undefined;
+  const hub=useVideoHub();
+  const [remoteCalibration,setRemoteCalibration]=useState<FieldCalibration>();
+  useEffect(()=>{
+    if(own)return;
+    const refresh=()=>{const next=hub.trackedCalibration?.(seat);setRemoteCalibration(old=>JSON.stringify(old)===JSON.stringify(next)?old:next);};
+    refresh();const timer=setInterval(refresh,500);return()=>clearInterval(timer);
+  },[own,seat,hub.trackedCalibration]);
+  const calibration = own ? grid.calibration : remoteCalibration;
   const calibrated = !!calibration;
   const cells = useMemo(() => fieldGridCells(grid.format), [grid.format]);
   const shown = calibration ?? defaultGridCalibration();
@@ -41,7 +51,7 @@ export function ZoneGridOverlay({ seat, box }: { seat: number; box: Box | null }
     return [{ id: track.id, pair, x, y: top }];
   }).slice(0, 3), [tracks, calibrated, calibration, cells]);
 
-  if (!box) return null;
+  if (!box || (!visible && (!own || calibration?.orientation))) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
   return <>
     <svg className={s.zgrid} style={frame} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="zone-grid" data-calibrated={calibrated} data-seat={seat}>
@@ -53,8 +63,12 @@ export function ZoneGridOverlay({ seat, box }: { seat: number; box: Box | null }
         <span key={cell.zone} style={{ left: `${center.x * 100}%`, top: `${center.y * 100}%` }} data-glow={!!glow[cell.zone]}>{cell.label}</span>)}
       {hints.map(hint => <span key={hint.id} className={s.zghint} style={{ left: `${Math.min(88, Math.max(12, hint.x * 100))}%`, top: `${Math.max(4, hint.y * 100 - 3)}%` }}
         data-testid="zone-straddle" title={`Across ${hint.pair[0]} and ${hint.pair[1]}`}>Move into one zone</span>)}
-      {own && !calibrated && grid.calibrate ? <button type="button" className={s.zgcal} data-testid="zone-grid-calibrate"
-        onClick={event => { event.stopPropagation(); grid.calibrate?.(); }} onPointerDown={event => event.stopPropagation()}>Default grid · Calibrate</button> : null}
+
     </div>
+    {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
+    {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36,maxWidth:Math.max(0,box.width-16)}}>
+      <FieldOrientationControls calibration={shown} onChange={grid.setCalibration}/>
+      {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
+    </div>:null}
   </>;
 }

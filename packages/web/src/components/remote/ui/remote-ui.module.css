@@ -788,3 +788,5 @@
 .zglabels>.zgcal{position:absolute;left:50%;top:6px;bottom:auto;transform:translateX(-50%);pointer-events:auto;height:22px;padding:0 9px;border-radius:5px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--gold-ink);font:600 11px/1 var(--font-duel-ui),system-ui,sans-serif;cursor:pointer}
 .zglabels>.zgcal:hover{border-color:var(--gold)}
 @media(prefers-reduced-motion:reduce){.zgcell[data-glow="true"]{animation:none}}
+
+.zgcontrols{position:absolute;z-index:4;pointer-events:auto;max-height:calc(100% - 48px);overflow:auto}

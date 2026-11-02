@@ -14,6 +14,8 @@ import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBo
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
 /** Something a <video> element can show. Local previews and LiveKit tracks look the same to the tile. */
+import type { FieldCalibration } from '@yugidraft/vision';
+
 export type FeedSource = { attach: (el: HTMLVideoElement) => () => void; local: boolean };
 
 type Hub = {
@@ -44,6 +46,7 @@ type Hub = {
   selectCamera(id: string): Promise<void>;
   setMic(on: boolean): void;
   trackedAt(seat:number,x:number,y:number):RemoteFieldCard|undefined;
+  trackedCalibration?(seat:number):FieldCalibration|undefined;
   trackedCards(seat:number):RemoteFieldCard[];
   publishFieldTracks(message:RemoteFieldTracks):void;
   /** Reads the card at a normalized point of a seat's feed. */
@@ -101,6 +104,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     void controller?.publishFieldTracks(message).catch(error=>controller.fail(error));
   },[controller,mySeat]);
   const trackedAt=useCallback((seat:number,x:number,y:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.hit(seat,x,y):undefined):controller?.trackedAt(seat,x,y),[controller,mySeat,solo]);
+  const trackedCalibration=useCallback((seat:number)=>solo&&seat===mySeat?localTracks.current.calibration(seat):controller?.trackedCalibration(seat),[controller,mySeat,solo]);
   const trackedCards=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.snapshot(seat):[]):controller?.trackedCards(seat)??[],[controller,mySeat,solo]);
   useEffect(()=>()=>{localTracks.current.clear();},[room.slug,mySeat]);
 
@@ -255,8 +259,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen, trackedAt, trackedCards, publishFieldTracks,
+    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedCalibration, publishFieldTracks,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, publishFieldTracks]);
+  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedCalibration, publishFieldTracks]);
   return <Ctx value={value}>{children}</Ctx>;
 }
