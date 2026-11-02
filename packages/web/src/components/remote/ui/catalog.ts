@@ -27,9 +27,10 @@ const CHUNK = 80;
 
 /** Loads missing card ids, 80 per request. Safe to call often. */
 export function loadCards(ids: Iterable<number>): Promise<void> {
-  const missing = [...new Set(ids)].filter(id => id > 0 && !cache.has(id) && !inflight.has(id));
-  if (!missing.length) return Promise.resolve();
-  const jobs: Promise<void>[] = [];
+  const needed=[...new Set(ids)].filter(id=>id>0&&!cache.has(id));
+  const jobs=[...new Set(needed.map(id=>inflight.get(id)).filter((work):work is Promise<void>=>!!work))];
+  const missing=needed.filter(id=>!inflight.has(id));
+  if(!missing.length)return Promise.all(jobs).then(()=>undefined);
   for (let i = 0; i < missing.length; i += CHUNK) {
     const chunk = missing.slice(i, i + CHUNK);
     const work = post({ customCardIds: chunk }).then(remember).catch(() => undefined)

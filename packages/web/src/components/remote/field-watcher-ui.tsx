@@ -9,7 +9,7 @@ import s from './field-watcher-ui.module.css';
 
 export type FieldWatcherPrompt={
   id:string;zone:string;title?:string;quad?:readonly {x:number;y:number}[];
-  candidates:readonly {id:string;label:string}[];emptyMessage?:string;
+  candidates:readonly {id:string;label:string;disabled?:boolean}[];emptyMessage?:string;
 };
 export type FieldWatcherUIProps={
   host:HTMLElement|null;enabled:boolean;onEnabledChange(enabled:boolean):void;
@@ -77,7 +77,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
     {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt}`} style={promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
       <header><strong>{prompt.title??'New card?'}</strong>{prompts.length>1?<span className={s.queue}>+{prompts.length-1} more</span>:null}</header>
       <p id={description} className={s.zone}>Detected in {zoneName(prompt.zone)}. Choose a card or dismiss.</p>
-      <div className={s.choices}>{prompt.candidates.slice(0,5).map(candidate=><button type="button" className={table.btn} key={candidate.id} disabled={pending} onClick={()=>onChoose(prompt.id,candidate.id)}>{candidate.label}</button>)}</div>
+      <div className={s.choices}>{prompt.candidates.slice(0,5).map(candidate=><button type="button" className={table.btn} key={candidate.id} disabled={pending||candidate.disabled} onClick={()=>onChoose(prompt.id,candidate.id)}>{candidate.label}</button>)}</div>
       {!prompt.candidates.length?<p className={s.zone}>{prompt.emptyMessage??'Use the feed reader to confirm this card.'}</p>:null}
       <button type="button" className={`${table.btn} ${table.q} ${s.dismiss}`} disabled={pending} onClick={()=>onDismiss(prompt.id)}>Dismiss</button>
     </div>,document.body):null}
