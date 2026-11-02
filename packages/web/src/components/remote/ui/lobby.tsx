@@ -76,8 +76,13 @@ function CopyInvite({ slug }: { slug: string }) {
 /** The camera step. It mounts only after the room's saved camera choice has loaded, so no camera starts by mistake. */
 function CameraStep({ room }: { room: RemoteRoom }) {
   const hub = useVideoHub();
-  const [mode, setMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
   if (!hub.rosterReady) return <p className={ui.hint} role="status" data-testid="lobby-camera-loading">Loading camera choice…</p>;
+  return <ReadyCameraStep room={room} />;
+}
+
+function ReadyCameraStep({ room }: { room: RemoteRoom }) {
+  const hub = useVideoHub();
+  const [mode, setMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
   return <LobbyCameraPreview room={room} mode={mode} onModeChange={setMode} />;
 }
 

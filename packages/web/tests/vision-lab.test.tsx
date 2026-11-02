@@ -748,6 +748,23 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+it.each([false,true])('flips a projected Trap in place even when the physical monster row is full: %s',async full=>{
+ const old={ref:'projected-trap',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+ const others=full?Array.from({length:5},(_,i)=>({ref:`monster-${i}`,zone:'monster',slot:i+1,cardId:46986414,faceUp:true,position:'attack'})):[];
+ sessionStorage.setItem(physicalHintsKey,JSON.stringify({[old.ref]:'M4'}));
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old,...others],'moved');
+ try{
+  Object.assign(fixture.track,{faceDown:true,cardId:undefined,revision:1});
+  await fixture.emit({type:'flipped'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject({...old,faceUp:false}));
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip']);
+  Object.assign(fixture.track,{faceDown:false,cardId:'41420027',revision:2});
+  await fixture.emit({type:'placed'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject(old));
+  expect(fixture.room().state.seats[0].twin).toHaveLength(1+others.length);
+  expect(fixture.post.mock.calls.some(([proposal])=>proposal.type==='twin.move'||proposal.type==='twin.place')).toBe(false);
+ }finally{fixture.dispose();}
+});
 it.each([
  ['graveyard',undefined],['hand',undefined],['deck',undefined],['extra',undefined],['banished',undefined],
  ['spell-trap',3],['spell-trap',undefined],

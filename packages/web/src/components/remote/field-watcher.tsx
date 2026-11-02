@@ -60,6 +60,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const rememberPhysical=(ref:string,zone:FieldZone)=>{if(physicalZonePattern.test(zone)&&current.current.room.state.seats[seat].twin.some(c=>c.ref===ref&&publicField(c.zone))&&physical.current!.zones.get(ref)!==zone){physical.current!.zones.set(ref,zone);savePhysical();}};
   // A physical hint reserves a ref only. Omitting the quad forces a fresh identity read.
   const knownZone=(card:TwinCard)=>publicField(card.zone)?physical.current!.zones.get(card.ref)??toZone(card.zone,card.slot):toZone(card.zone,card.slot);
+  const projectObserved=(track:Pick<FieldTrack,'zone'|'faceDown'>,twins:readonly TwinCard[],card:TwinCard|undefined,facts:ReturnType<typeof cardInfo>,wasHidden=false):ReturnType<typeof projectFieldZone>=>{
+    // Turning a bound card over retains its virtual destination until it physically moves.
+    const saved=card&&(track.faceDown||!card.faceUp||wasHidden)&&knownZone(card)===track.zone?toZone(card.zone,card.slot):undefined;
+    return saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+  };
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>!event.track.faceDown&&setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
@@ -151,7 +156,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const freshBinding=resolveExisting(event,track,entry,twins);
     if(freshBinding.blocked){abstain(event,'Another physical card owns this ref. Check the field.');return;}
     existing=freshBinding.existing;if(existing)track={...track,id:existing.ref};
-    const projected=projectFieldZone({zone:track.zone,facts:entry?cardInfo(catalogCardId(entry)):undefined,twins,ref:existing?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+    const projected=projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
     const physicalAtSave={zone:track.zone,position:track.position};
     track={...track,zone:projected.zone};location=fieldZoneLocation(projected.zone);
@@ -177,7 +182,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!fieldEvidenceMatches(event,observed))return;
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
-        const target=projectFieldZone({zone:observed!.zone,facts:cardInfo(code),twins,ref:card.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+        const target=projectObserved(observed!,twins,card,cardInfo(code),!!existing&&!existing.faceUp);
         if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
@@ -229,14 +234,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         if(keepsManual(card.ref,fieldZoneLocation(observed.zone),observed.position))return;
         const code=cardCode(card);if(code)await loadCards([code]);
         observed=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!observed?.visible||observed.removed||observed.state!=='identified')return;
-        const projected=projectFieldZone({zone:observed.zone,facts:cardInfo(code),twins:current.current.room.state.seats[seat].twin,ref:card.ref,faceDown:observed.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+        const projected=projectObserved(observed,current.current.room.state.seats[seat].twin,card,cardInfo(code));
         if(!projected.zone){setNotice(projected.reason??'Choose a legal zone manually.');return;}
         const location=fieldZoneLocation(projected.zone);
         if(keepsManual(card.ref,location,observed.position))return;
         if(card.zone!==location.zone||card.slot!==location.slot||card.position!==fieldTwinPosition({...observed,zone:projected.zone})){if(!await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition({...observed,zone:projected.zone})}))return;if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}}
         const after=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!live()||!fieldEvidenceMatches(event,after))return;
         const twins=current.current.room.state.seats[seat].twin,persisted=twins.find(c=>c.ref===card.ref);if(!persisted)return;
-        const target=projectFieldZone({zone:after!.zone,facts:cardInfo(code),twins,ref:card.ref,faceDown:after!.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+        const target=projectObserved(after!,twins,persisted,cardInfo(code));
         if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&persisted.position===fieldTwinPosition({...after!,zone:target.zone}))rememberPhysical(card.ref,after!.zone);}
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
     });
