@@ -413,6 +413,24 @@ import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
 import { FieldCalibrationControl } from "../src/components/remote/field-calibration";
 
 describe('field calibration modal',()=>{
+  it('guides first-run grid adjustment and restores saved calibration for each seat and camera',async()=>{
+    localStorage.clear();const {createFieldCalibration,mapFieldZone}=await import('@yugidraft/vision'),create=vi.fn(async()=>null),video=document.createElement('video');Object.defineProperties(video,{videoWidth:{value:1280},videoHeight:{value:720}});
+    const capture=vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,fixture');
+    function Guided({seat='guided-seat',device='camera-a'}:{seat?:string;device?:string}){
+      const watch=useFieldWatcher({owner:true,active:true,seatKey:seat,deviceKey:device,create,onEvent:()=>{}}),[open,setOpen]=React.useState(false);
+      return <><button onClick={()=>setOpen(true)}>Recalibrate</button><output data-testid="saved-grid">{JSON.stringify(watch.calibration)}</output>{watch.calibrationNeeded||open?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} onSave={grid=>{watch.setCalibration(grid);setOpen(false);}} onCancel={()=>{if(!watch.calibration)watch.setEnabled(false);setOpen(false);}}/>:null}</>;
+    }
+    try{
+      const view=render(<Guided/>),modal=await screen.findByRole('dialog',{name:'Calibrate field zones'});expect(create).not.toHaveBeenCalled();expect(within(modal).getByText('Drag the field grid over your mat')).toBeVisible();
+      const image=within(modal).getByTestId('field-calibration-image');vi.spyOn(image,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:800,height:450,right:800,bottom:450,x:0,y:0,toJSON:()=>({})});
+      const corner=within(modal).getByRole('button',{name:'Top-left grid corner'}),before=corner.style.left;fireEvent.pointerDown(corner,{pointerId:1,clientX:64,clientY:36});fireEvent.pointerMove(corner,{pointerId:1,clientX:100,clientY:60});fireEvent.pointerUp(corner,{pointerId:1});expect(corner.style.left).not.toBe(before);fireEvent.keyDown(corner,{key:'ArrowRight'});
+      const polygons=Array.from(modal.querySelectorAll<SVGPolygonElement>('polygon[data-zone]'));expect(polygons.map(node=>node.dataset.zone)).toEqual(expect.arrayContaining(['FIELD','EXTRA','GY','BANISHED','DECK','EMZ1','EMZ2','M1','M2','M3','M4','M5','S1','S2','S3','S4','S5']));
+      const gridHeight=Number(modal.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[3]),centers=polygons.map(node=>({zone:node.dataset.zone,quad:node.getAttribute('points')!.trim().split(/\s+/).map(pair=>{const [x,y]=pair.split(',').map(Number);return {x:x/1000,y:y/gridHeight};})}));fireEvent.click(within(modal).getByRole('button',{name:'Save calibration'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+      const saved=JSON.parse(screen.getByTestId('saved-grid').textContent!),grid=createFieldCalibration(saved.corners);for(const cell of centers)expect(mapFieldZone({kind:'face-up',confidence:1,partial:false,quad:cell.quad},grid).zone).toBe(cell.zone);
+      view.unmount();const again=render(<Guided/>);await waitFor(()=>expect(create).toHaveBeenCalledTimes(2));expect(screen.queryByRole('dialog')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Recalibrate'}));expect(screen.getByRole('dialog')).toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Cancel calibration'}));
+      again.rerender(<Guided device="camera-b"/>);await screen.findByRole('dialog');expect(create).toHaveBeenCalledTimes(2);again.rerender(<Guided device="camera-a"/>);await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());again.rerender(<Guided seat="another-seat"/>);await screen.findByRole('dialog');
+    }finally{capture.mockRestore();localStorage.clear();}
+  });
   it('escapes feed containment, traps focus, closes with Escape and restores its opener',()=>{
     function CalibrationHarness(){
       const [open,setOpen]=React.useState(false);
@@ -529,7 +547,7 @@ it('renders two interactive EMZ above the main row only for Advanced and Domain'
   }
 });
 it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
-  localStorage.clear();const create=vi.fn(async()=>null),onEvent=vi.fn();
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:test-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const create=vi.fn(async()=>null),onEvent=vi.fn();
   const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});
   await act(async()=>undefined);expect(create).not.toHaveBeenCalled();expect(hook.result.current.enabled).toBe(true);
   hook.rerender({owner:true});await waitFor(()=>expect(create).toHaveBeenCalledOnce());
@@ -538,7 +556,7 @@ it('the watcher hook only starts for an active feed owner and persists its defau
   expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
 });
 it('the watcher hook discards resource setup that resolves after unmount',async()=>{
-  localStorage.clear();const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:late-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
   const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
   hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
 });

@@ -5,7 +5,7 @@ import { createFieldCalibration, createFieldWatcher, type FieldCalibration, type
 
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
 export interface UseFieldWatcherOptions {
-  owner:boolean; active:boolean; seatKey:string; sourceKey?:unknown;
+  owner:boolean; active:boolean; seatKey:string; sourceKey?:unknown; deviceKey?:string;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
 /** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
@@ -15,7 +15,9 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const [enabled,setOn]=useState(true),[loaded,setLoaded]=useState('');
   const [calibration,setGrid]=useState<FieldCalibration|undefined>();
   const [snapshot,setSnapshot]=useState<FieldSnapshot>(initial);
-  const storageKey=`dd-field-watcher:v1:${options.seatKey}`;
+  const storageKey=`dd-field-watcher:v1:${options.seatKey}${options.deviceKey?`:device:${encodeURIComponent(options.deviceKey)}`:''}`;
+  const hasCalibration=!!calibration;
+  const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!hasCalibration;
   useEffect(()=>{
     let value:{enabled?:boolean;calibration?:FieldCalibration}={};
     try {const stored=JSON.parse(localStorage.getItem(storageKey)??'{}');if(stored&&typeof stored==='object')value=stored;}catch{/* Private mode/storage unavailable. */}
@@ -27,7 +29,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
   const setCalibration=useCallback((grid?:FieldCalibration)=>{setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
   useEffect(()=>{
-    if(!options.owner||!options.active||!enabled||loaded!==storageKey){setSnapshot(initial);return;}
+    if(!options.owner||!options.active||!enabled||loaded!==storageKey||!calibration){setSnapshot(initial);return;}
     let cancelled=false,reader:FieldWatcher|null=null;
     void latest.current.create().then(config=>{
       if(cancelled)return;
@@ -39,8 +41,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     return()=>{cancelled=true;reader?.dispose();if(watcher.current===reader)watcher.current=null;};
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey]);
-  return {getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,snapshot,
+  },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration]);
+  return {getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string)=>watcher.current?.confirm(id,cardId,ref),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),
