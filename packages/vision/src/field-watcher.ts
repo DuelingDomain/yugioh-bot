@@ -9,7 +9,7 @@ export interface FieldTrack {
   id:string; revision?:number; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
   state:'candidate'|'identified'|'prompt'|'dismissed'; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
 }
-export type FieldEvent = { type:'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'; source:'auto' };
+export type FieldEvent = { type:'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; bindRef?:string; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'; source:'auto' };
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number }
 export interface FieldSnapshot { status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; metrics:FieldMetrics; error?:string }
 export interface FieldBuffer { sample():Promise<{frame:FieldFrame;at:number}> }
@@ -40,7 +40,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   const notify=()=>{for(const listener of updates)listener();};
-  const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{const event:FieldEvent={type,track:copy(t.view),source:'auto',...extra};for(const listener of listeners)listener(event);};
+  const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{const event:FieldEvent={type,track:copy(t.view),...(type==='prompt'&&t.binding?{bindRef:t.binding.id}:{}),source:'auto',...extra};for(const listener of listeners)listener(event);};
   function pruneFrames() {
     const used=new Set(tracks.flatMap(t=>t.best?[t.best.frame]:[]));
     for(const frame of retained)if(!used.has(frame)){closeFieldFrame(frame);retained.delete(frame);}
@@ -110,7 +110,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
-        const needsLook=t.view.state==='identified'&&t.view.card.kind==='face-up'&&(d>.02||overlap<.84||(t.missed&&c.kind==='face-up'));
+        // A light tick may hide changed pixels without a detector miss. Preserve
+        // that physical ref at the same spot; the changed path below rereads it.
+        const sameSpot=overlap>=.84&&d<.012;
+        const needsLook=t.view.state==='identified'&&t.view.card.kind==='face-up'&&!sameSpot&&(d>.02||overlap<.84||t.missed);
         const looks=c.kind==='face-up'&&((!t.identityAppearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.identityAppearance,appearance(c)));
         return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind==='face-up'&&c.kind==='face-up'&&sameFieldAppearance(t.identityAppearance,appearance(c))))&&(!needsLook||looks)};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
@@ -204,9 +207,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
           if(t.binding){
-            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
+            if(winner&&winner===t.binding.cardId&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=winner;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.binding=undefined;emit('placed',t,{result,latencyMs:metrics.latencyMs});}
             else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
-            t.binding=undefined;
           }else if(winner&&!t.promptOnly&&!pile&&inDeck&&!t.verification){
             t.verification=winner;t.needsRead=true;t.best={frame:current,card:structuredClone(c),score};
           }else if(winner&&t.verification===winner&&!t.promptOnly&&!pile&&inDeck){

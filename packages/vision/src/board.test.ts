@@ -391,6 +391,28 @@ test('review B4: a zone-only restart reads Y before binding known X and prompts 
   const r=fieldRig();r.known=[{id:'old-X',zone:'M2',cardId:'X'}];r.identity='Y';for(let i=0;i<7;i++)await r.tick();
   assert.equal(r.reads,1);assert.equal(r.watcher.getSnapshot().tracks.some(t=>t.id==='old-X'),false);assert.equal(r.events.at(-1)?.type,'prompt');r.watcher.dispose();
 });
+test('round 2 NB1 R2: a restart replacement prompt retains its reserved ref through confirmation',async()=>{
+ const r=fieldRig();r.known=[{id:'old-X',zone:'M2',cardId:'X'}];r.identity='Y';for(let i=0;i<8;i++)await r.tick();
+ const prompt=r.events.find(e=>e.type==='prompt')!;assert.equal(prompt.reason,'restart');assert.equal(prompt.bindRef,'old-X');
+ assert.equal(prompt.track.cardId,undefined);assert.equal(r.reads,1);r.watcher.confirm(prompt.track.id,'Y',prompt.bindRef);
+ const tracks=r.watcher.getSnapshot().tracks;assert.equal(tracks.length,1);assert.equal(tracks[0].id,'old-X');assert.equal(tracks[0].cardId,'Y');assert.equal(tracks[0].visible,true);r.watcher.dispose();
+});
+test('round 2 NB1 R3: a face-down restart prompt retains its reserved ref without embedding',async()=>{
+ const r=fieldRig();r.known=[{id:'old-set',zone:'M2',faceDown:true}];r.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await r.tick();
+ const prompt=r.events.find(e=>e.type==='prompt')!;assert.equal(prompt.bindRef,'old-set');assert.equal(prompt.track.cardId,undefined);assert.equal(r.reads,0);
+ r.watcher.confirm(prompt.track.id,undefined,prompt.bindRef);for(let i=0;i<5;i++)await r.tick();const tracks=r.watcher.getSnapshot().tracks;
+ assert.equal(tracks.length,1);assert.equal(tracks[0].id,'old-set');assert.equal(tracks[0].faceDown,true);assert.equal(tracks[0].state,'identified');r.watcher.dispose();
+});
+test('round 2 NB1 A4/A5: light-tick replacements keep one same-spot track and ref',async()=>{
+ for(const handFirst of [false,true]){
+  const r=fieldRig();for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id,before=r.reads,detects=r.detects;
+  r.busy=true;if(handFirst){r.motion=.2;await r.tick(750);r.motion=0;}
+  r.appearance=Array(12).fill(.8);r.identity='B';await r.tick(750);assert.equal(r.detects,detects);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);
+  r.busy=false;for(let i=0;i<8;i++)await r.tick();const prompt=r.events.at(-1)!;
+  assert.equal(prompt.type,'prompt');assert.equal(prompt.reason,'changed');assert.equal(prompt.track.id,id);assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.reads,before+1);
+  r.watcher.confirm(id,'B');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'B');assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);r.watcher.dispose();
+ }
+});
 test('review S4: auto placement requires two independent agreeing reads and deck membership',async()=>{
   const r=fieldRig();for(let i=0;i<3;i++)await r.tick();assert.equal(r.events.length,0);await r.tick();assert.equal(r.events.length,0);
   for(let i=0;i<3;i++)await r.tick();assert.equal(r.reads,2);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.notEqual(r.inputs[0].frame,r.inputs[1].frame);r.watcher.dispose();
