@@ -15,6 +15,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
+it('catalog display lookups opt in to full Extra Deck card facts',async()=>{
+  const {loadCards,cardInfo}=await import('../src/components/remote/ui/catalog');
+  const card={id:44508094,name:'Stardust Dragon',type:'Dragon / Synchro Effect Monster',frameType:'synchro',race:'Dragon',effectText:'Synchro fixture'};
+  const fetcher=vi.fn().mockResolvedValue(Response.json({cards:[card]}));vi.stubGlobal('fetch',fetcher);await loadCards([44508094]);
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({customCardIds:[44508094],includeExtra:true});expect(cardInfo(44508094)).toMatchObject(card);
+});
+
 it.each(['fetch','response body'] as const)('a hung catalog %s releases the shared action queue after ten seconds',async stage=>{
   vi.useFakeTimers();
   try {

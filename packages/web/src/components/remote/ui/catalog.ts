@@ -40,7 +40,7 @@ export function loadCards(ids: Iterable<number>): Promise<void> {
   if(!missing.length)return Promise.all(jobs).then(()=>undefined);
   for (let i = 0; i < missing.length; i += CHUNK) {
     const chunk = missing.slice(i, i + CHUNK);
-    const work = post({ customCardIds: chunk }).then(remember).catch(() => undefined)
+    const work = post({ customCardIds: chunk,includeExtra:true }).then(remember).catch(() => undefined)
       .finally(() => { for (const id of chunk) inflight.delete(id); });
     for (const id of chunk) inflight.set(id, work);
     jobs.push(work);

@@ -129,6 +129,16 @@ describe("POST /api/cards/resolve", () => {
     expect(response.status).toBe(200);expect((await response.json()).cards[0]).toMatchObject({id:76375913,type:'Spell Card',race:'Field'});
   });
 
+  it('returns explicitly requested Extra Deck facts only with includeExtra, preserving main and extra quantities',async()=>{
+    await setupDb();const Database=(await import('better-sqlite3')).default,db=new Database(process.env.DATABASE_PATH!);
+    seedCard(db,44508094,'Stardust Dragon');db.prepare("update card_catalog set type='Dragon / Synchro Effect Monster',frame_type='synchro',race='Dragon',attribute='WIND',level=8,atk=2500,def=2000,card_sets_json=? where ygoprodeck_id=?").run(JSON.stringify([{set_name:'Metal Raiders'}]),44508094);db.close();
+    const {POST}=await import('../app/api/cards/resolve/route');
+    const resolve=async(options:Record<string,unknown>)=>{const response=await POST(new Request('http://localhost/api/cards/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({setNames:['Metal Raiders'],customCardIds:[46986414,46986414,44508094,44508094,99999999],...options})}));expect(response.status).toBe(200);return response.json();};
+    for(const options of [{},{includeExtra:false}]){const body=await resolve(options);expect(body.cards).toEqual([expect.objectContaining({id:46986414,qty:3})]);expect(body.unknownIds).toEqual([44508094,44508094,99999999]);}
+    const body=await resolve({includeExtra:true});expect(body.cards).toHaveLength(2);expect(body.cards.find((card:any)=>card.id===46986414).qty).toBe(3);expect(body.cards.find((card:any)=>card.id===44508094)).toMatchObject({name:'Stardust Dragon',type:'Dragon / Synchro Effect Monster',frameType:'synchro',race:'Dragon',attribute:'WIND',level:8,atk:2500,def:2000,qty:2});expect(body.unknownIds).toEqual([99999999]);
+    const setOnly=await resolve({includeExtra:true,customCardIds:[]});expect(setOnly.cards).toEqual([expect.objectContaining({id:46986414,qty:1})]);expect(setOnly.unknownIds).toEqual([]);
+  });
+
   it("syncs a requested set before resolving it, so an unsynced set returns its cards", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-sets-"));
     tempDirs.push(tempDir);

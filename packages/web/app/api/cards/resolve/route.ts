@@ -230,10 +230,13 @@ async function handlePOST(request: Request) {
     }
   }
 
-  const resolvedIds = createDraftService(db).resolvePoolCardIds({
+  const drafts=createDraftService(db);
+  const resolvedIds = drafts.resolvePoolCardIds({
     setNames,
     customCardIds,
   });
+  // Display callers may request explicit Extra Deck facts without widening the cube's main pool.
+  if(body.includeExtra===true)resolvedIds.push(...drafts.resolveExtraCardIds({customExtraCardIds:customCardIds},env.discordGuildId??''));
   // resolvedIds is the materialized-cube multiset (baseline + additive custom).
   // Collapse to one entry per distinct card but keep the copy count as qty so
   // the preview shows the true number of copies the draft will use.
