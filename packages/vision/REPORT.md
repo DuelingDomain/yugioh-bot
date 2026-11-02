@@ -1,5 +1,187 @@
 # Remote vision measurements — 2026-11-01
 
+## Review r1 remediation and current measurements
+
+The coordinator's review of `511ea54fb` was read in full. All four blockers,
+all eight should-fix items and all eight small follow-ups are addressed. This
+section supersedes the older measurements below. Source changes remain on
+`feat/remote-autodetect`; no model/index rebuild or download was needed.
+
+| Review item | Result and regression evidence |
+| --- | --- |
+| B1: same-position replacement | Identity appearance is immutable between confirmed reads. Changed pixels immediately hide the old identity, including during another read, and require a fresh **Card changed?** confirmation. Probe A also covers a replacement hidden by a face-down flip. |
+| B2: adjacent replacement | Every spatial move checks identity appearance, even without a detector miss. A different neighboring card becomes a new candidate; the original retains its absence checks. Probe B forbids a false move. |
+| B3: duplicate physical twins | Lost/retired matching cards move with their existing ref. Unbound matching manual twins are adopted. Manual reads, watcher actions, prompt choices, Undo and destination corrections share one queue using returned room state. Server rejects occupied numbered slots and Field placement/movement. Probe E and the browser manual-read race retain one twin. |
+| B4: restart identity | A zone-only reservation must read and agree before adopting a known ref; reservations cannot claim the same ref twice. Stored matching quads retain the existing fast path. A known-X/physical-Y probe produces a prompt, never cached X. |
+| S1: pile placement | New automatic placement is disabled in Deck, Extra, GY and Banished, for both faces. Existing verified cards may move there; unmatched outlines require confirmation. Probes C/D/E cover piles and ref reuse. |
+| S2: deck spreads | Three new outlines in 1.5 seconds, positive overlap, outside-mat corners or an oversized held card prevent automatic placement. A 1.5-second scene window includes staggered spreads and unverified restart reservations. Five-card fan probes produce no placement. |
+| S3: Undo | New placement is one atomic `twin.place`, including its sighting. One Undo removes both. Forget/suppression stops rebroadcast and automatic reapplication for unchanged physical evidence; manual removal has the same effect. |
+| S4: automatic confidence | New face-up placement requires membership in the registered deck **and two sure reads agreeing on distinct decoded clean frames**. No decklist means an identification prompt, not automatic placement. Face-down new cards require explicit confirmation and never invoke embedding. |
+| S5: receiver validation | Both sender and receiver require a current public face-up twin ref. Popup identity comes from that twin; stale/missing/hidden refs fall through to a fresh read. Owner-bound normalized snapshots contain no pixels. |
+| S6: clipped dialog/prompts | Calibration is a body modal with focus, Tab/Esc and focus return. One measured, viewport-clamped prompt is shown with a remaining-count indicator and status/zone announcements. All 16 requested screenshot combinations pass. |
+| S7: feed controls | Watcher controls share the feed footer; the status chip sits beside the camera tag. Frozen-frame controls remain accessible. Normal notices expire after five seconds; actionable failed rollback recovery persists. |
+| S8: uncalibrated columns | Absolute frame columns replace left-to-right ranks. Probe F maps physical M2/M4 correctly; calibration guidance appears once. |
+| N1 | Publish only changes plus a one-second heartbeat; receiver expires after three seconds. |
+| N2 | Compute appearance once per outline, then reuse across matching pairs. |
+| N3 | Prompt status and zone description are announced. |
+| N4 | Prompt buttons use table tokens and fonts. |
+| N5 | Departure offers require a current twin; retries revalidate the ref. |
+| N6 | Temporary missing camera frames show Starting rather than an error. |
+| N7 | CPU guard has 650/450 ms hysteresis. |
+| N8 | README documents six shared native frames, two transient copies and lower-resolution guidance for mobile. |
+
+Asynchronous evidence has an explicit revision. A queued result rechecks current
+pixels, identity and visibility before mutation. If evidence changes while the
+HTTP request is in flight, the new placement is undone. If a concurrent action
+prevents that rollback, a persistent recovery offers removal of the exact created
+ref after revalidation. This prevents a silent stale placement while preserving
+intervening player actions. Current prompt choices and manual verdicts also use
+the shared queue and current evidence.
+
+Advanced/Domain retain two EMZ above the main row; both Genesys formats have none.
+Rendering, calibration and mapping use the table format. Real-worker browser tests
+verify EMZ1 DEF (**−90°**) → EMZ2 ATK with the same physical ref. Departure still
+requires **2,500 ms of continuous clear absence plus five full detector samples**,
+low motion, an unchanged halo and footprint pixels matching the saved uniform mat.
+Hands, unknown/patterned backgrounds, face-down flips, hidden tabs and CPU pauses
+abstain/reset absence. Verified departure moves the twin to GY, including Extra
+Deck monsters, with a named persistent log, five-second Undo and one-tap
+GY/Banish/Hand/Extra Deck corrections. There is no second automatic pile instance.
+
+### Identification, fresh clicks and catalog search
+
+Warm desktop trials use a native 1280×720 synthetic canvas camera, one existing
+indexed card on a plain mat, Node **22.23.3**, Chromium **153.0.8010.12**, an AMD
+Ryzen 7 9800X3D host and eight exposed logical CPUs. GPU is disabled for repeatable
+CPU measurements: actual runtime is cross-origin-isolated SIMD **WASM, four
+threads**. Production still prefers WebGPU when available. These results do not
+measure WebGPU hardware, mobile devices or physical webcam accuracy. Percentiles
+use nearest rank; timing ends at the local watcher result, before table transport.
+
+| Workload | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Placement → identified, 60-card registered deck | 20 | **1,769.2 ms** | **1,977.0 ms** | 2,754.2 ms |
+| Placement → identification prompt, no decklist | 20 | **1,011.7 ms** | **1,320.0 ms** | 1,393.9 ms |
+| Fresh untracked click, registered deck | 20 | 179.0 ms | 260.3 ms | 293.2 ms |
+| Fresh untracked click, no decklist | 20 | 161.4 ms | 284.1 ms | 306.2 ms |
+| Resident full-catalog top-10 search | 120 | **2.855 ms** | **3.130 ms** | 5.625 ms |
+| Resident 60-card search | 120 | 0.025 ms | 0.055 ms | 0.320 ms |
+
+All **40/40** identifications and **40/40** fresh clicks were correct sure results.
+The registered-deck condition auto-placed **20/20**; no-deck auto-placed **0/20**
+and instead offered the correct identification for confirmation. The full catalog
+has **14,652 int8 vectors, 14,488 cards and 384 dimensions**. Resident flat dot
+products, precomputed norms and bounded top-k reduced full-scan p50/p95 from
+**6.745/7.725 ms** to **2.855/3.130 ms**, with **zero mismatched top-10 lists**
+and maximum score delta **1.11e−16**. Index, metadata, detector and embedder each
+loaded **once**, never per read. Reader ready time was **785.3 ms**. Browser errors:
+**zero**. One explicit AI crop request was mocked after timing; no provider call.
+
+Recognition begins after 400–600 ms of stability while tracking continues. Cheap
+empty-mat motion sampling wakes detection promptly; active settling samples and
+on-demand fresh native frames use a 100 ms budget, with passive capture at 200 ms.
+The spread guard and independent-read requirements remain enabled during timing.
+
+The primary p95 goals passed, but the requested hard upper bounds are **not
+guaranteed**: one primary placement took **2.75 s**, one fresh click **306 ms**,
+and the separate follow workload below reached **2.85 s** for placement. Earlier
+slow/failed runs remain in the latency directory (`review-r1-priors-error.log`,
+`review-r1-before-cue.*`, `review-r1-cue150.*`, `review-r1-capture100.*`). They
+record the absent-priors fix and capture/settling tradeoffs rather than being
+silently discarded. No physical-camera false-identification rate is established.
+
+### Cached clicks, camera following and removal safety
+
+The final focused two-player browser run verified authenticated `remote:changed`
+WebSocket snapshots containing the real placed twin in **both** pages before
+timing cached clicks. Actual field-track quads travel over the authenticated
+LiveKit data channel and are hit-tested locally. One placement-to-WebSocket-twin
+sample was **1,999 ms owner / 1,998 ms observer**; this is not a distribution.
+
+| Click → popup DOM contains cached card name | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Owner feed | 20 | **14.200 ms** | **19.515 ms** | 29.030 ms |
+| Other player's view | 20 | **14.160 ms** | **16.870 ms** | 19.620 ms |
+
+All **40/40** cached clicks resolved correctly with **zero additional recognition
+calls or table actions**. Explicit Wrong card invokes a fresh read. Image download,
+decode and paint are outside the popup-DOM timing. The full nine-case run is also
+retained: owner p50/p95 **14.395/19.905 ms**, observer **15.035/17.740 ms**.
+
+| Camera change → watcher event, separate follow workload | n | p50 | p95 / max |
+| --- | ---: | ---: | ---: |
+| Initial placement → identified | 10 | 1,785.2 ms | **2,851.6 ms** |
+| Move → same-ref updated zone | 10 | **1,016.3 ms** | **2,163.2 ms** |
+| Clear removal → departed | 10 | **3,144.1 ms** | **6,454.5 ms** |
+
+All ten follow trials identified correctly and retained the same ref for move and
+departure. With n=10, p95 is the maximum; two initial placements exceeded two
+seconds. The actual table integration, including action/network/rendering, measured
+**1,043.4 ms** move→EMZ update and **3,283.2 ms** removal→GY/toast (one sample each).
+It verifies named log, all four correction destinations, Undo, continued absence
+without repeated removal, verified return, injected 409/retry and the manual-read
+race. The 2.5-second clear window is a minimum, not a removal deadline.
+
+| Real hand-clip condition | Duration | False removals |
+| --- | ---: | ---: |
+| Original hand-only scene, 125 detector samples | 30 s | **0** |
+| Covers an identified card; 22 s moving then 8 s frozen | 30 s | **0** |
+
+The occlusion condition produced only its initial control placement and no further
+placements, prompts or removals. Total: **zero false removals in 60 seconds**.
+This replays the same cached 3.4-second
+[IPN Hand sample](https://gibranbenitez.github.io/IPN_Hand/), CC BY 4.0, and a
+synthetic composite; it is not a general webcam false-removal rate. Full-scene
+browser CPU was **6.60% of the eight-core machine**. No uncaught browser errors.
+
+### Verification and artifacts
+
+**132 vision + 106 targeted web + 133 shared remote integration + 9 browser cases
+= 380 passing cases.** Vision, web and e2e typechecks, shared source build and
+worker bundling pass. The final WebSocket assertion was rerun in the existing
+cached-click case and e2e typechecked. A broad shared-project typecheck still has
+pre-existing `vision-feedback`/`scripts/vision/feedback.ts` root-directory and
+extension-resolution errors; the remote integration suite and shared build pass.
+Probe-style cases extend the existing files, with no new unit-test files.
+
+The isolated stack used web **3449**, WS **3349/4349** and LiveKit **7889** with
+an ignored fixture database. Those services are stopped and their ports are free;
+protected services were untouched. Screenshot matrix:
+**1v1 and four seats × 1920×1080, 2560×1440, 1366×768, 390×844 × bottom-edge
+prompt and calibration = 16 PNGs**. Native dimensions and modal/prompt bounds are
+asserted; representative desktop/mobile images were also inspected visually.
+
+Raw local artifacts (ignored generated data, retained in this worktree):
+
+- `data/vision/benchmark/latency/review-r1.json` and `.log`: 20+20 placements,
+  20+20 fresh clicks, full raw samples and resident catalog comparison.
+- `data/vision/benchmark/field-watcher/review-r1.json` and `.log`: ten
+  placement/move/removal trials, both 30-second hand checks and CPU data.
+- `data/vision/benchmark/field-watcher/r1-performance-suite-timings.json`:
+  nine-case run and actual table move/removal evidence.
+- `data/vision/benchmark/field-watcher/r1-realtime-timings.json` and
+  `data/vision/benchmark/cache/clicks.json`: final forty cached clicks and real
+  WebSocket arrival evidence. Earlier `r1-suite-timings.json` and
+  `r1-clean-timings.json` remain available, including slower samples.
+- `data/vision/benchmark/field-watcher/r1-shots/`: all sixteen screenshots,
+  named `{1v1|4seat}-{width}x{height}-{prompt|calibration}.png`.
+
+Reproduce against an isolated authenticated table/WS/LiveKit stack:
+
+```bash
+LATENCY_LABEL=review-r1 LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts
+FIELD_LABEL=review-r1 FIELD_TRIALS=10 FIELD_NEGATIVE_SECONDS=30 \
+  npx tsx scripts/vision/benchmark-field-watcher.ts
+VISION_LAB_ORIGIN=http://127.0.0.1:3449 \
+  npx playwright test -c packages/e2e/playwright.vision.config.ts
+```
+
+## Earlier measurements (before review r1)
+
+The following sections retain prior evidence and describe the corresponding older
+revisions. In particular, their one-read/no-deck automatic-placement timings do
+not describe the current stricter confirmation policy.
+
 ## Camera follows moves and departures
 
 This follow-up explicitly replaces suggestion-only removal. Stable moves update

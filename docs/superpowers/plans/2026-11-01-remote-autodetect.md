@@ -135,3 +135,53 @@ frozen: zero false removals and no new placements/prompts. The 2.5 s clear windo
 a minimum; slower guarded trials are retained in the report. Both actual table
 and lab automatic removal/Undo pass; named log, four destination controls, Undo
 while absent, verified return, injected 409/retry and cached clicks are covered.
+
+## Review r1 remediation (coordinator authorized)
+
+Read the full review at `data/briefs/remote-duels/review-remote-autodetect-r1.md`
+from the main checkout, read-only. Starting point 7bea11bde includes auto departure
+with Undo. Keep that behavior and preserve protected services/ports.
+
+- [x] B1/B2: immutable identity appearance; immediate invalidation on same-place
+  swaps; appearance gate on every move. Changed identities require a prompt.
+- [x] B4/S4: zone-only restart candidates must read; adopt a known ref only after
+  sure identity agreement. New auto placements require two independent clean
+  reads agreeing and membership in a registered deck. Without a decklist,
+  recognition prompts for explicit confirmation (latest coordinator instruction).
+- [x] B3/S1/S2/S8: no new automatic pile placements, including GY; match a uniquely
+  lost/removed identity for pile moves only. Detect fans/overlap/large held cards
+  and outside-mat candidates; prompt once. Use absolute uncalibrated columns.
+- [x] B3/S3: serialize all actions/prompt choices through one queue, carry returned
+  room state, bind unowned matching manual twins instead of duplicating, and send
+  only twin.place for a new card. Reject occupied field slots server-side.
+- [x] S3/S5: publish only public current twin refs; receiver independently validates
+  twin ref/face/card ID. Undo/manual removal suppress re-auto-placement and stale
+  cache; explicit confirmation can rebind the same physical evidence.
+- [x] S6/S7: body modal with focus/Esc/return, one accessible prompt at a time in
+  unclipped layer, integrate controls into feed toolbar, transient notices.
+- [x] N1–N8: bounded change/heartbeat publishing, once-per-outline appearance,
+  status announcements/styles, live-ref removal offers, camera warmup recovery,
+  CPU-status hysteresis, document native-frame memory limit.
+- [x] Extend EXISTING tests with named probes A–F and race/restart/Undo cases.
+  Run isolated e2e plus screenshots for 1v1 and 4 seats at 1920x1080, 2560x1440,
+  1366x768, 390x844, calibration and bottom-edge prompt visible. Use 3449/7889
+  only if free; do not touch 3000,3002,4002,4003,3417,4010,4020,7880–7882.
+- [x] Review, relevant tests/typechecks/benchmarks, per-item report, small commits,
+  push feat/remote-autodetect, no PR, no attribution trailers.
+
+Review r1 result: **380 passing cases**, including all nine browser cases and
+sixteen screenshots. A focused rerun verifies actual WebSocket twin delivery
+before forty cached clicks: owner p50/p95 **14.200/19.515 ms**, observer
+**14.160/16.870 ms**, zero extra recognition/actions. Registered-deck placement
+p50/p95 **1,769.2/1,977.0 ms**; no-deck identification prompt
+**1,011.7/1,320.0 ms** (20 trials each; no-deck never auto-places). Full-catalog
+search p50/p95 **2.855/3.130 ms**, resident index fetched once. Ten follow trials:
+move **1,016.3/2,163.2 ms**, removal **3,144.1/6,454.5 ms**; hand checks had zero
+false removals in 60 seconds. The hard maximum speed targets are not guaranteed:
+placement reached 2.85 s in the separate follow workload and one fresh click
+306 ms. Per-item fixes, raw evidence, historical results and the unrelated broad
+shared-typecheck limitation are recorded in `packages/vision/REPORT.md`.
+
+Implementation and test commits pushed through `eae55a4bc`; report/plan follow in
+a final documentation commit. Isolated web/WS/LiveKit services are stopped, their
+ports are free, and protected services were untouched.
