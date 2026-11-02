@@ -56,6 +56,9 @@ const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-d
 const typing = isTypingTarget;
 
 type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number };
+const pendingOriginAt=(room:RemoteRoom,seat:number,card:{cardId?:number;name?:string|null},zone:string,slot?:number)=>
+  [room.state.twinConfirmation,...(room.state.twinConfirmationQueue??[])].find(flag=>flag?.seat===seat&&flag.placement?.zone===zone&&
+    flag.placement.card.slot===slot&&sameObservedCard(flag.placement.card,card));
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -298,6 +301,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
       const spot=owns?(same?{row:same.zone,slot:same.slot,ref:same.ref}:mapped?{row:mapped.zone,slot:mapped.slot,ref:crypto.randomUUID()}:layoutFor(seat,pick.cardId,found,current)):undefined;
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
+      const pending=spot?pendingOriginAt(current,seat,{cardId:pick.cardId,name:pick.name},spot.row,spot.slot):undefined;
+      if(pending)return {updated:current,owns,ref:undefined,row:spot?.row,slot:spot?.slot,requestRef:pending.cardRef};
       let updated:RemoteRoom|null=null;
       const witnesses=verifiedWitnesses?.filter(w=>sameObservedCard(w,{cardId:pick.cardId,name:pick.name})&&current.state.seats[seat].twin.some(c=>c.ref===w.ref&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)))??[];
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
@@ -485,6 +490,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
+        if(pendingOriginAt(R.current.room,seat,item.card,item.zone,item.slot))break;
         const acceptedWitnesses=done.filter(previous=>previous.card!==item.card&&sameObservedCard(previous.card,item.card)&&distinctFieldQuads(previous.card.quad,item.card.quad)&&['monster','spell-trap','extra-monster','field','pendulum'].includes(previous.zone));
         const copies=Math.max(item.copyProof?.simultaneousQuads??1,acceptedWitnesses.length+1);
         const copyProof=copies>=2?{simultaneousQuads:copies,at:Math.floor(serverNow()-999)}:undefined;
