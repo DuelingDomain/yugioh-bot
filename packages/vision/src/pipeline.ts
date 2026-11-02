@@ -14,7 +14,7 @@ import { validateOptions } from './options';
 import { embedImages, type TensorCtor } from './embed';
 import type { ModelSession } from './runtime';
 import { rotate180, type RGBAImage } from './pixels';
-import { type Quad } from './geometry';
+import { clipToConvex, polygonArea, type Quad } from './geometry';
 import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
@@ -104,8 +104,19 @@ export class RecognitionPipeline {
       const selected=frames.length===1?opts.card:undefined;
       const clickPoint=opts.clickPoint ?? (opts.card?{x:opts.card.quad.reduce((sum,p)=>sum+p.x,0)/4,y:opts.card.quad.reduce((sum,p)=>sum+p.y,0)/4}:undefined);
       let t = performance.now();
-      let scene=selected?[]:await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
+      const fastClick=frames.length===1 && !selected && Boolean(opts.clickPoint) && Math.min(this.profile.detector.longSide,Math.max(frame.width,frame.height))>640;
+      let scene=selected?[]:await detect(this.detector,this.Tensor,frame,fastClick?640:this.profile.detector.longSide,CARD_DETECTOR.minScore);
       let card = selected ? undefined : chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence), frame, clickPoint);
+      if(fastClick) {
+        const quad=card?.pts.map(([x,y])=>({x,y}))??[];
+        // Only a strong, wholly visible, isolated click target can skip the original scene pass.
+        // Keep weak neighbouring outlines in the scene for overlap and covered-card checks.
+        if(!card || card.conf<.9 || card.pts.some(([x,y])=>!(x>0 && y>0 && x<frame.width && y<frame.height)) ||
+          scene.some(other=>other!==card && (chooseCard([other],frame,clickPoint) || polygonArea(clipToConvex(quad,other.pts.map(([x,y])=>({x,y}))))>0))) {
+          scene=await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
+          card=chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence),frame,clickPoint);
+        }
+      }
       // Upstream's crop-scale detection catches large close-ups outside its trained size range.
       if (!card && !selected && this.profile.detector.longSide > 448) {
         scene=await detect(this.detector,this.Tensor,frame,448,CARD_DETECTOR.minScore);

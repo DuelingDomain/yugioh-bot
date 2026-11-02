@@ -173,6 +173,85 @@ test('a first clean sure frame stops before subsequent detector/embed runs',asyn
   const counter={detect:0};const result=await temporalFixture(counter).recognize([frame,frame,frame],{includeRaw:true});
   assert.equal(result.tier,'sure');assert.equal(counter.detect,1);assert.equal(result.quality.framesUsed,1);assert.equal(result.raw?.earlyExit,true);
 });
+type ClickOutline={x:number;y?:number;w?:number;h?:number;confidence?:number};
+function clickFixture(scene:(width:number)=>ClickOutline[]) {
+  const image={width:1280,height:720,data:new Uint8ClampedArray(1280*720*4).fill(120)};
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  class Tensor {constructor(public type:unknown,public data:unknown,public dims:number[]) {}}
+  const calls:number[][]=[];
+  const detector={backend:'wasm',run:async(feeds:Record<string,Tensor>)=>{
+    const dims=feeds.image.dims;calls.push(dims.slice());
+    const [, ,height,width]=dims,gh=height/4,gw=width/4,plane=gh*gw;
+    const heat=new Float32Array(plane*2),box=new Float32Array(plane*6);
+    const contentHeight=Math.round(image.height*width/image.width);
+    for(const outline of scene(width)) {
+      const cx=outline.x*width,cy=(outline.y??.5)*contentHeight,col=Math.floor(cx/4),row=Math.floor(cy/4),cell=row*gw+col;
+      heat[cell]=outline.confidence??.99;
+      box[cell]=cx/4-col-.5;box[plane+cell]=cy/4-row-.5;
+      box[2*plane+cell]=Math.log((outline.w??.14)*width/4);box[3*plane+cell]=Math.log((outline.h??.36)*contentHeight/4);box[5*plane+cell]=1;
+    }
+    return {heat:{dims:[1,2,gh,gw],data:heat},box:{dims:[1,6,gh,gw],data:box}};
+  }} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([.95,.3])}})} as unknown as ModelSession;
+  const pipeline=new RecognitionPipeline(profile,searchIndex(['1','2'],[1,0,0,1]),detector,embedder,Tensor as unknown as TensorCtor);
+  return {pipeline,image,calls};
+}
+test('an explicit one-frame click first detects the full scene at 640 and picks the clicked card',async()=>{
+  const f=clickFixture(()=>[{x:.2,confidence:1},{x:.7,confidence:.98}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.7,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640]]);
+  assert.ok(Math.abs(result.detectedCard!.quad.reduce((sum,p)=>sum+p.x,0)/4-.7)<.001);
+  assert.equal(result.quality.covered,false);assert.equal(result.quality.fallback,false);assert.equal(result.tier,'sure');
+});
+for(const scenario of ['missing','weak'] as const) test(`a ${scenario} clicked outline at 640 retries the original 960 detector`,async()=>{
+  const f=clickFixture(width=>width===640?(scenario==='missing'?[{x:.2}]:[{x:.7,confidence:.89}]):[{x:.7}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.7,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960]]);
+  assert.ok(Math.abs(result.detectedCard!.quad.reduce((sum,p)=>sum+p.x,0)/4-.7)<.001);
+  assert.equal(result.detectedCard!.confidence,.99);
+});
+for(const outline of [{x:.04},{x:.07},{x:.96},{x:.5,y:.1},{x:.5,y:.9}]) test(`a clipped or edge-touching click at ${JSON.stringify(outline)} retries 960`,async()=>{
+  const f=clickFixture(()=>[outline]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:outline.x,y:outline.y??.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960]]);
+  if(outline.x!==.07){assert.equal(result.quality.partial,true);assert.notEqual(result.tier,'sure');}
+});
+test('weak overlapping outlines trigger 960 and remain in the covered-card scene',async()=>{
+  const f=clickFixture(()=>[{x:.55},{x:.64,confidence:.25}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.53,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960]]);
+  assert.equal(result.quality.covered,true);assert.notEqual(result.tier,'sure');
+});
+test('multiple outlines under a click trigger 960 before choosing the smaller card',async()=>{
+  const f=clickFixture(()=>[{x:.48,w:.22,h:.4},{x:.54,w:.1,h:.2,confidence:.95}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.5,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960]]);
+  assert.ok(Math.abs(result.detectedCard!.quad.reduce((sum,p)=>sum+p.x,0)/4-.54)<.001);
+  assert.equal(result.quality.covered,true);assert.notEqual(result.tier,'sure');
+});
+test('a click on two touching card edges retries 960 even without overlap area',async()=>{
+  const f=clickFixture(()=>[{x:.43},{x:.57,confidence:.95}]);
+  await f.pipeline.recognize([f.image],{clickPoint:{x:.5,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960]]);
+});
+test('a missed click keeps the existing 448 close-up rescue after both scene passes',async()=>{
+  const f=clickFixture(width=>width===448?[{x:.7}]:[{x:.2}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.7,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960],[1,3,256,448]]);
+  assert.equal(result.quality.fallback,false);
+});
+test('unrelated outlines never turn a missed explicit click into a different detected target',async()=>{
+  const f=clickFixture(()=>[{x:.2}]);
+  const result=await f.pipeline.recognize([f.image],{clickPoint:{x:.7,y:.5}});
+  assert.deepEqual(f.calls,[[1,3,384,640],[1,3,544,960],[1,3,256,448]]);
+  assert.equal(result.detectedCard,undefined);assert.equal(result.quality.fallback,true);assert.notEqual(result.tier,'sure');
+});
+test('explicit quads, temporal reads and reads without a click retain their detector paths',async()=>{
+  const f=clickFixture(()=>[{x:.5}]);
+  await f.pipeline.recognize([f.image],{card:selected,clickPoint:{x:.5,y:.5}});assert.deepEqual(f.calls,[]);
+  await f.pipeline.recognize([f.image,f.image],{clickPoint:{x:.5,y:.5},earlyExit:false});assert.deepEqual(f.calls,[[1,3,544,960],[1,3,544,960]]);
+  f.calls.length=0;await f.pipeline.recognize([f.image]);assert.deepEqual(f.calls,[[1,3,544,960]]);
+});
 import {tuneThresholds,realsetMetrics,type RealsetSample} from './calibration';
 test('threshold tuner keeps zero wrong sure on cards and negatives with a safety gap',async()=>{
   const result=await fixture(false).recognize([frame],{card:selected,includeRaw:true});
