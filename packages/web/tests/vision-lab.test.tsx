@@ -426,8 +426,8 @@ describe('field calibration modal',()=>{
     const tilt=({x,y}:{x:number;y:number})=>({x:(.12+.78*x+.06*y)/(1+.12*x+.28*y),y:(.08+.06*x+.85*y)/(1+.12*x+.28*y)}),aspect=86/59,pitch=1.25,halfW=.128/(2*pitch),halfH=.4*aspect/(2*(aspect+pitch-1));
     const {onMat}=await import('../../vision/src/field-zones'),projected=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(tilt)),roundtrip=onMat(tilt({x:.5,y:.78}),projected);expect(roundtrip.x).toBeCloseTo(.5,7);expect(roundtrip.y).toBeCloseTo(.78,7);
     const {createTwoCardCalibration,fieldMatPoint}=await import('@yugidraft/vision');
-    const markers=[.244,.756].map((x,i)=>{const quad=[{x:x-halfW,y:.38-halfH},{x:x+halfW,y:.38-halfH},{x:x+halfW,y:.38+halfH},{x:x-halfW,y:.38+halfH}].map(tilt);return {kind:i?'face-up':'face-down',confidence:.99,partial:false,quad:[...quad.slice(i?3:1),...quad.slice(0,i?3:1)]} as DetectedQuad;});
-    const inferred=createTwoCardCalibration(markers);for(const point of [{x:.244,y:.38},{x:.5,y:.78},{x:.09,y:.28},{x:.91,y:.4}]){const actual=fieldMatPoint(point,inferred),expected=tilt(point);expect(actual.x).toBeCloseTo(expected.x,7);expect(actual.y).toBeCloseTo(expected.y,7);}expect(()=>createTwoCardCalibration([...markers,markers[0]])).toThrow(/two/i);expect(()=>createTwoCardCalibration(markers.map(card=>({...card,quad:[card.quad[0]]})))).toThrow(/corner|quad|card/i);
+    const markers=[.244,.756].map((x,i)=>{const y=i?.78:.38,quad=[{x:x-halfW,y:y-halfH},{x:x+halfW,y:y-halfH},{x:x+halfW,y:y+halfH},{x:x-halfW,y:y+halfH}].map(tilt);return {kind:i?'face-up':'face-down',confidence:.99,partial:false,quad:[...quad.slice(i?3:1),...quad.slice(0,i?3:1)]} as DetectedQuad;});
+    const inferred=createTwoCardCalibration(markers,0);for(const point of [{x:.244,y:.38},{x:.5,y:.78},{x:.09,y:.28},{x:.91,y:.4}]){const actual=fieldMatPoint(point,inferred),expected=tilt(point);expect(actual.x).toBeCloseTo(expected.x,7);expect(actual.y).toBeCloseTo(expected.y,7);}expect(()=>createTwoCardCalibration([...markers,markers[0]])).toThrow(/two/i);expect(()=>createTwoCardCalibration(markers.map(card=>({...card,quad:[card.quad[0]]})))).toThrow(/corner|quad|card/i);
     const detect=vi.fn(async(frame:HTMLCanvasElement)=>{expect([frame.width,frame.height]).toEqual([1280,720]);return markers;});
     const capture=vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,fixture');
     function Guided({seat='guided-seat',device='camera-a'}:{seat?:string;device?:string}){
@@ -437,11 +437,12 @@ describe('field calibration modal',()=>{
     try{
       const view=render(<Guided/>),modal=await screen.findByRole('dialog',{name:'Calibrate field zones'});expect(create).not.toHaveBeenCalled();expect(within(modal).getByText('Drag the field grid over your mat')).toBeVisible();
       const image=within(modal).getByTestId('field-calibration-image');vi.spyOn(image,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:800,height:450,right:800,bottom:450,x:0,y:0,toJSON:()=>({})});
+      expect(within(modal).getByRole('button',{name:'Save calibration'})).toBeDisabled();fireEvent.click(within(modal).getByRole('button',{name:/^Bottom$/}));
       const corner=within(modal).getByRole('button',{name:'Top-left grid corner'}),before=corner.style.left;fireEvent.pointerDown(corner,{pointerId:1,clientX:64,clientY:36});fireEvent.pointerMove(corner,{pointerId:1,clientX:100,clientY:60});fireEvent.pointerUp(corner,{pointerId:1});expect(corner.style.left).not.toBe(before);fireEvent.keyDown(corner,{key:'ArrowRight'});
-      fireEvent.click(within(modal).getByRole('button',{name:'Use cards in M1 and M5'}));await waitFor(()=>expect(detect).toHaveBeenCalledOnce());await waitFor(()=>expect(corner.style.left).toBe(`${inferred.corners[0].x*100}%`));
+      fireEvent.click(within(modal).getByRole('button',{name:'Use cards in M1 and S5'}));await waitFor(()=>expect(detect).toHaveBeenCalledOnce());fireEvent.click(await within(modal).findAllByRole('button',{name:'This is the monster'}).then(buttons=>buttons[0]));await waitFor(()=>expect(corner.style.left).toBe(`${inferred.corners[0].x*100}%`));
       const polygons=Array.from(modal.querySelectorAll<SVGPolygonElement>('polygon[data-zone]'));expect(polygons.map(node=>node.dataset.zone)).toEqual(expect.arrayContaining(['FIELD','EXTRA','GY','BANISHED','DECK','EMZ1','EMZ2','M1','M2','M3','M4','M5','S1','S2','S3','S4','S5']));
       const gridHeight=Number(modal.querySelector('svg')!.getAttribute('viewBox')!.split(' ')[3]),centers=polygons.map(node=>({zone:node.dataset.zone,quad:node.getAttribute('points')!.trim().split(/\s+/).map(pair=>{const [x,y]=pair.split(',').map(Number);return {x:x/1000,y:y/gridHeight};})}));fireEvent.click(within(modal).getByRole('button',{name:'Save calibration'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());await waitFor(()=>expect(create).toHaveBeenCalledOnce());
-      const saved=JSON.parse(screen.getByTestId('saved-grid').textContent!),grid=createFieldCalibration(saved.corners);for(const cell of centers)expect(mapFieldZone({kind:'face-up',confidence:1,partial:false,quad:cell.quad},grid).zone).toBe(cell.zone);
+      const saved=JSON.parse(screen.getByTestId('saved-grid').textContent!),grid=createFieldCalibration(saved.corners,saved.orientation);for(const cell of centers)expect(mapFieldZone({kind:'face-up',confidence:1,partial:false,quad:cell.quad},grid).zone).toBe(cell.zone);
       view.unmount();const again=render(<Guided/>);await waitFor(()=>expect(create).toHaveBeenCalledTimes(2));expect(screen.queryByRole('dialog')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Recalibrate'}));expect(screen.getByRole('dialog')).toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Cancel calibration'}));
       again.rerender(<Guided device="camera-b"/>);await screen.findByRole('dialog');expect(create).toHaveBeenCalledTimes(2);again.rerender(<Guided device="camera-a"/>);await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());again.rerender(<Guided seat="another-seat"/>);await screen.findByRole('dialog');
     }finally{capture.mockRestore();localStorage.clear();}
@@ -457,7 +458,7 @@ describe('field calibration modal',()=>{
     expect(screen.getByTestId('small-calibration-feed')).not.toContainElement(modal);
     expect(modal).toHaveAttribute('aria-modal','true');expect(modal).toHaveFocus();
     const cancel=within(modal).getByRole('button',{name:'Cancel calibration'});
-    cancel.focus();fireEvent.keyDown(cancel,{key:'Tab'});expect(cancel).toHaveFocus();
+    cancel.focus();fireEvent.keyDown(cancel,{key:'Tab'});expect(within(modal).getAllByRole('button')[0]).toHaveFocus();
     modal.focus();fireEvent.keyDown(modal,{key:'Tab',shiftKey:true});expect(cancel).toHaveFocus();
     fireEvent.keyDown(modal,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();expect(opener).toHaveFocus();
   });
@@ -577,7 +578,7 @@ it('automatic zone proposals draw defense cards in the existing main, spell and 
   }
 });
 it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
-  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:test-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const create=vi.fn(async()=>null),onEvent=vi.fn();
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:test-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}}}));const create=vi.fn(async()=>null),onEvent=vi.fn();
   const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});
   await act(async()=>undefined);expect(create).not.toHaveBeenCalled();expect(hook.result.current.enabled).toBe(true);
   hook.rerender({owner:true});await waitFor(()=>expect(create).toHaveBeenCalledOnce());
@@ -586,7 +587,7 @@ it('the watcher hook only starts for an active feed owner and persists its defau
   expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
 });
 it('the watcher hook discards resource setup that resolves after unmount',async()=>{
-  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:late-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]}}));const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
+  localStorage.clear();localStorage.setItem('dd-field-watcher:v1:late-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}}}));const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
   const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
   hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
 });
@@ -617,7 +618,7 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
  const tracks=secondCopy||unbound?[{...track,id:old.ref,zone:'M2',state:'identified',visible:false,cardId:'46986414'},track]:[track];
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>{const i=tracks.findIndex(t=>t.id===ref&&t.id!==id);if(i>=0)tracks.splice(i,1);Object.assign(track,{id:ref??id,cardId,state:'identified'});});
  const fixture:any={ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks,metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>tracks.find(t=>t.id===id),confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
- const source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ const source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
  const post=vi.fn(async(proposal:any)=>{room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`r2-${room.lastSeq+1}`})};return room;});
  const queue=createRoomMutationQueue(()=>room,post);
  const host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
@@ -740,7 +741,7 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,lastSeen:1000};
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
- let source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ let source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
  const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
