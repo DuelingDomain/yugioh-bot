@@ -7,6 +7,7 @@ import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation,StaleFieldPlacementError} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
+import {onManualMove} from '@/lib/remote/manual-moves';
 import {ownFieldResources} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
@@ -27,6 +28,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
   current.current.active=!!source?.local&&hub.cameraOn;
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
+  const manual=useRef(new Map<string,{zone:string;slot?:number;position?:string}>());
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
   calibrationBusy.current=calibrating;
@@ -38,6 +40,20 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=toZone(c.zone,c.slot);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>setPrompts(list=>[...list.filter(p=>p.track.id!==event.track.id).slice(-5),event]);
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
+  /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
+  const keepsManual=(ref:string,location:{zone:string;slot?:number},position?:string)=>{
+    const kept=manual.current.get(ref);if(!kept)return false;
+    if(kept.zone===location.zone&&kept.slot===location.slot&&kept.position===position)return true;
+    manual.current.delete(ref);return false;
+  };
+  useEffect(()=>onManualMove(move=>{
+    if(move.slug!==current.current.room.slug||move.seat!==seat)return;
+    const id=[...bindings.current.entries()].find(([,ref])=>ref===move.ref)?.[0]??move.ref;
+    const track=watch.getTrack(id);
+    if(track?.visible&&!track.removed&&track.state==='identified')manual.current.set(move.ref,{...fieldZoneLocation(track.zone),position:track.position});
+    else manual.current.delete(move.ref);
+  }),[seat]);
+  useEffect(()=>{manual.current.clear();},[room.slug,seat]);
   function queue(work:(act:RoomMutation)=>Promise<void>) {
     return transaction(async(latest,act)=>{
       current.current.room=latest;
@@ -78,7 +94,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
       }
       if(existing&&!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
-      if(existing&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position)){updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});if(!updated){offer({...event,type:'prompt',reason:'recognition-error'});return;}}
+      if(existing&&!keepsManual(existing.ref,location,track.position)&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position)){updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:existing.ref,...location,position:track.position});if(!updated){offer({...event,type:'prompt',reason:'recognition-error'});return;}}
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
       watch.confirm(event.track.id,track.cardId,existing?.ref);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
@@ -107,6 +123,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       if(event.type==='moved') {
         const observed=watch.getTrack(ref);if(!observed?.visible||observed.removed||observed.state!=='identified')return;
         const location=fieldZoneLocation(observed.zone);
+        if(keepsManual(card.ref,location,observed.position))return;
         if(card.zone!==location.zone||card.slot!==location.slot||card.position!==observed.position){await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...location,position:observed.position});if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}}
       }else if(event.type==='flipped'&&card.faceUp===event.track.faceDown)await act({type:'twin.flip',actorSeat:seat,seat,cardRef:card.ref,faceUp:!event.track.faceDown});
     });
