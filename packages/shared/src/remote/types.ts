@@ -18,8 +18,15 @@ export type RemotePosition = {
   /** Older JSON snapshots omit this default-on table rule. */
   showCardsSetFromDeck?: boolean;
 };
+export type RemoteUndoEntry = {
+  actionId: string; actorSeat: number; at: number; turn: number; order: number; action: RemoteAction; cards: string[];
+  /** Server-only snapshots and dependency tracking; omitted from client history. */
+  before?: RemotePosition; after?: RemotePosition; blockedBy?: string[]; blocked?: boolean;
+  undone?: boolean; reason?: string;
+};
 export type RemoteState = RemotePosition & {
   updatedAt: number;
+  undoHistory?: RemoteUndoEntry[];
   undo: { actionId: string; at: number; before: RemotePosition } | null;
 };
 export interface GameModule {

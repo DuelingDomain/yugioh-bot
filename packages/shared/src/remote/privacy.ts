@@ -1,3 +1,4 @@
+import { remoteUndoHistory } from "./undo.js";
 import type { RemoteEvent, RemotePosition, RemoteState, RemoteTable } from "./types.js";
 import type { RemoteSnapshot } from "./realtime.js";
 import { remotePublicCard } from "./deck-checks.js";
@@ -29,6 +30,7 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
 export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>):RemoteState {
   const next=projectPosition(state,seats);
   if(next.undo) next.undo.before=projectPosition(next.undo.before,seats);
+  if(state.undoHistory) next.undoHistory=[...seats].flatMap(seat=>remoteUndoHistory(state,seat)).sort((a,b)=>b.order-a.order);
   return next;
 }
 export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=new Set()):RemoteTable {

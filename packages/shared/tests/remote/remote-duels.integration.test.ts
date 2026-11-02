@@ -573,7 +573,7 @@ describe("solo remote tables", () => {
     act(1, { type: "lp.change", seat: 1, delta: -500, reason: "Solo correction" });
     const key = room.state.undo!.actionId;
     act(1, { type: "log.note", text: "Bot field adjusted" });
-    act(0, { type: "undo", targetActionId: key });
+    act(1, { type: "undo", targetActionId: key });
     expect(room.state.seats[1].resources.lp).toBe(8000);
     for (let seat = 0; seat < seatCount; seat++) act(seat, { type: "turn.end" });
     act(0, { type: "phase.set", phase: "battle" });
@@ -661,7 +661,7 @@ describe("remote foundation", () => {
     expect(state.turnSeat).toBe(2); expect(state.phase).toBe("battle"); expect(initial.turn).toBe(1);
     const hit = ygoModule.reduce(state, { type: "lp.change", actorSeat: 1, idempotencyKey: "hit", seat: 0, delta: -9000, reason: "damage", at: 2000 });
     expect(hit.seats[0].eliminated).toBe(true);
-    expect(ygoModule.reduce(hit, { type: "undo", actorSeat: 0, idempotencyKey: "undo", targetActionId: "hit", at: 7000 }).seats[0].resources.lp).toBe(8000);
+    expect(ygoModule.reduce(hit, { type: "undo", actorSeat: 1, idempotencyKey: "undo", targetActionId: "hit", at: 70000 }).seats[0].resources.lp).toBe(8000);
     expect(() => ygoModule.reduce(hit, { type: "undo", actorSeat: 0, idempotencyKey: "late", targetActionId: "hit", at: 7001 })).toThrow(/undo/i);
   });
   it("scopes admission, starts a ready table, deduplicates retries and replays events", () => {
@@ -743,7 +743,7 @@ describe("remote board and transactional edge cases", () => {
     state = ygoModule.reduce(state, { type: "phase.set", actorSeat: 3, idempotencyKey: "battle", phase: "battle" });
     expect(state.seats.map(s => s.seat)).toEqual([0, 1, 2, 3]); expect(state.phase).toBe("battle");
   });
-  it("guards readiness, occupied seats and key reuse, and allows a five-second undo of a winning action", () => {
+  it("guards readiness, occupied seats and key reuse, and allows undo of a winning action", () => {
     const { service, table, users, db } = setup();
     expect(() => service.start(table.slug, "g", users[0], 1100)).toThrow(/ready/);
     service.join(table.slug, "g", users[1], "B", 1, 1100);
@@ -1439,4 +1439,60 @@ it('persists one named automatic departure with destination correction and norma
   s.act({type:'undo',targetActionId:corrected});expect(s.room.state.seats[0].twin[0].zone).toBe('graveyard');
   expect(()=>s.act({...departure,actorSeat:1})).toThrow(/owner/);
   expect(remoteActionSchema.safeParse({...departure,idempotencyKey:'bounded',actorSeat:0,name:'x'.repeat(201)}).success).toBe(false);
+});
+
+
+it("retains each actor's last twenty actions across this and the previous turn without a clock limit", () => {
+  let state = ygoModule.initialState({seatCount:2});
+  const act = (input: Record<string, unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0,at:100000,idempotencyKey:"unused",...input}));
+  for(let i=0;i<21;i++) act({type:"lp.change",seat:0,delta:-10,reason:"cost",idempotencyKey:`cost-${i}`});
+  expect(ygoModule.parseCommand({text:"undo",actorSeat:0,state})).toMatchObject({type:"undo",targetActionId:"cost-20"});
+  expect(() => act({type:"undo",targetActionId:"cost-20",actorSeat:1})).toThrow(/own/i);
+  expect(() => act({type:"undo",targetActionId:"cost-0"})).toThrow(/20|recent/i);
+  for(let i=20;i>=1;i--) act({type:"undo",targetActionId:`cost-${i}`,idempotencyKey:`undo-${i}`,at:200000});
+  expect(state.seats[0].resources.lp).toBe(7990);
+  act({type:"lp.change",seat:0,delta:-100,reason:"cost",idempotencyKey:"previous",at:200000});
+  act({type:"turn.end",idempotencyKey:"pass",at:200000});
+  act({type:"lp.change",actorSeat:1,seat:1,delta:-200,reason:"cost",idempotencyKey:"opponent",at:200000});
+  act({type:"undo",targetActionId:"pass",at:200000});
+  expect(state.turn).toBe(1); expect(state.seats[1].resources.lp).toBe(7800);
+  act({type:"undo",targetActionId:"previous",at:200000});
+  expect(state.seats[0].resources.lp).toBe(7990);
+  act({type:"turn.end",idempotencyKey:"pass-again",at:200000});
+  act({type:"turn.end",actorSeat:1,idempotencyKey:"pass-back",at:200000});
+  expect(() => act({type:"undo",targetActionId:"pass-again",at:200000})).toThrow(/turn|recent/i);
+  state = ygoModule.initialState({seatCount:3});
+  act({type:"player.concede",idempotencyKey:"first-loss"});
+  act({type:"player.concede",actorSeat:1,idempotencyKey:"last-loss"});
+  act({type:"undo",targetActionId:"first-loss"});
+  expect(state.ended).toBe(false); expect(state.winnerSeat).toBeNull();
+  expect(state.seats.map(s=>s.eliminated)).toEqual([false,true,false]);
+});
+
+it("targets an untouched card after LP changes, rejects dependencies, and preserves retries, broadcast privacy and replay", () => {
+  const s=deckSession(); s.select(s.save().id); s.start();
+  s.place("magician","monster",1,46986414);
+  s.act({type:"twin.move",seat:0,cardRef:"magician",zone:"monster",slot:3,name:"Dark Magician"});
+  const move=s.room.state.undo!.actionId;
+  s.act({type:"lp.change",seat:0,delta:-500,reason:"cost"});
+  expect(s.room.state.undoHistory?.map(e=>e.actionId).slice(0,2)).toEqual([s.room.state.undo!.actionId,move]);
+  expect(s.room.state.undoHistory?.find(e=>e.actionId===move)).toMatchObject({action:{type:"twin.move",cardRef:"magician",slot:3}});
+  expect(s.room.state.undoHistory?.find(e=>e.actionId===move)?.before).toBeUndefined();
+  const input={baseSeq:s.room.lastSeq,action:remoteActionSchema.parse({type:"undo",actorSeat:0,targetActionId:move,idempotencyKey:"targeted"})};
+  const undone=s.service.act(s.room.slug,"g",s.users[0],input,12000);
+  expect(undone.state.seats[0].twin[0].slot).toBe(1);
+  expect(undone.state.seats[0].resources.lp).toBe(7500);
+  expect(undone.events.at(-1)?.messages?.join(" ")).toContain("Undone: Dark Magician → M3");
+  expect(s.service.act(s.room.slug,"g",s.users[0],input,12001).lastSeq).toBe(undone.lastSeq);
+  expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(undone.state);
+  const broadcast=s.service.snapshot(s.room.slug,"g");
+  expect(broadcast.state.seats[0].twin[0].slot).toBe(1);
+  expect(JSON.stringify(broadcast)).not.toContain('"changes"');
+  const act=(input:Record<string,unknown>)=>s.service.act(s.room.slug,"g",s.users[0],{baseSeq:s.service.get(s.room.slug,"g",s.users[0]).lastSeq,action:remoteActionSchema.parse({actorSeat:0,...input})},13000);
+  act({type:"twin.move",seat:0,cardRef:"magician",zone:"monster",slot:3,idempotencyKey:"move-again"});
+  act({type:"twin.flip",seat:0,cardRef:"magician",faceUp:true,idempotencyKey:"touch"});
+  expect(()=>act({type:"undo",targetActionId:"move-again",idempotencyKey:"blocked"})).toThrow(/later action.*card/i);
+  act({type:"undo",targetActionId:"touch",idempotencyKey:"undo-touch"});
+  act({type:"twin.place",seat:0,zone:"monster",card:{ref:"occupied",slot:1},idempotencyKey:"occupied"});
+  expect(()=>act({type:"undo",targetActionId:"move-again",idempotencyKey:"occupied-undo"})).toThrow(/occupied/i);
 });
