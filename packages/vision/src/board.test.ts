@@ -451,3 +451,7 @@ test('full detector samples hide mismatching identity even while motion prevents
 test('an old prompt loses its evidence revision when replacement pixels arrive',async()=>{
  const r=fieldRig('not sure');for(let i=0;i<8;i++)await r.tick();const old=r.events.at(-1)!.track;assert.equal(old.state,'prompt');r.appearance=Array(12).fill(.8);await r.tick();const current=r.watcher.getSnapshot().tracks[0];assert.equal(current.state,'candidate');assert.equal(current.visible,false);assert.equal(current.revision,(old.revision??0)+1);r.watcher.dispose();
 });
+
+test('an optional priors provider returning undefined still recognizes full catalog and prompts',async()=>{
+ let at=0;const events:field.FieldEvent[]=[];const watcher=field.createFieldWatcher({profile:yugioh,getPriors:()=>undefined as any,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(event=>events.push(event));for(let i=0;i<8;i++){at+=333;await watcher.tick();}assert.equal(watcher.getSnapshot().error,undefined);assert.equal(events.at(-1)?.type,'prompt');watcher.dispose();
+});
