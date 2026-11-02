@@ -279,7 +279,7 @@ test('recognition starts after 500 ms and publishes only after the next clean de
 });
 test('a new card gets a short sampling burst even while placement motion is clearing',async()=>{
   const r=fieldRig();r.motion=.2;await r.tick(250);
-  assert.equal(r.watcher.getSnapshot().metrics.intervalMs,200);assert.equal(r.reads,0);
+  assert.equal(r.watcher.getSnapshot().metrics.intervalMs,150);assert.equal(r.reads,0);
   r.motion=0;for(let i=0;i<7;i++)await r.tick(250);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
 test('tracking continues during a slow read and motion invalidates the late identity',async()=>{
@@ -454,4 +454,8 @@ test('an old prompt loses its evidence revision when replacement pixels arrive',
 
 test('an optional priors provider returning undefined still recognizes full catalog and prompts',async()=>{
  let at=0;const events:field.FieldEvent[]=[];const watcher=field.createFieldWatcher({profile:yugioh,getPriors:()=>undefined as any,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(event=>events.push(event));for(let i=0;i<8;i++){at+=333;await watcher.tick();}assert.equal(watcher.getSnapshot().error,undefined);assert.equal(events.at(-1)?.type,'prompt');watcher.dispose();
+});
+
+test('quiet empty-mat pixel checks skip inference but new motion starts detection before the idle budget',async()=>{
+ const r=fieldRig();r.outlines=[];await r.tick(100);const before=r.detects;await r.tick(100);assert.equal(r.detects,before);r.motion=.2;r.outlines=[card(.3,.3)];await r.tick(50);assert.equal(r.detects,before+1);assert.equal(r.watcher.getSnapshot().tracks.length,1);r.watcher.dispose();
 });

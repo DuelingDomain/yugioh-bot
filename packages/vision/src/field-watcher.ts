@@ -25,6 +25,7 @@ export interface FieldWatcherOptions {
 interface PendingRead { at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean }
 interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; verification?:string; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
+const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
 /** Owner-only caller, native frame buffer. One detector/read at a time; no AI or uploads. */
 export function createFieldWatcher(options:FieldWatcherOptions) {
@@ -64,9 +65,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   async function tick() {
     if(disposed||inFlight)return;
     if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
-    const busy=idle(),tracked=tracks.some(t=>t.view.state==='identified'&&!t.view.removed);
+    const busy=idle(),tracked=tracks.some(t=>t.view.state==='identified'&&!t.view.removed),empty=!tracks.some(t=>!t.view.removed);
     if(busy&&!tracked){status='busy';metrics.skipped++;interruptWindow();notify();return;}
-    const light=busy||(tracked&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
+    const light=busy||((tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
     const generation=epoch;inFlight=true;const start=now();const samplesBefore=metrics.samples;let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const sample=await options.buffer.sample();current=sample.frame;
@@ -76,10 +77,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
       if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
       const evidence=analyze(current);
-      if(light) {
+      if(light&&(!empty||busy||evidence.motion(mat)<=.004)) {
         // Keep cached clicks fresh during input pressure and long detector gaps.
         // Pixel evidence can retain an outline, but only the detector restores one.
-        if(busy)interruptWindow(true);status=busy?'busy':'budget';metrics.skipped++;
+        if(busy)interruptWindow(true);status=busy?'busy':guarded?'budget':'watching';metrics.skipped++;
         for(const t of tracks){
           t.view.visible=!!t.view.visible&&t.view.state==='identified'&&!t.view.removed&&evidence.motion(t.view.card)<=.025&&sameFieldAppearance(t.identityAppearance,evidence.appearance?.(t.view.card));
           if(!t.view.visible){t.missed=true;t.stableSince=NaN;t.observations=0;}
@@ -242,11 +243,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
       const settling=Boolean(reading)||tracks.some(t=>t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&now()-t.stableSince<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
-      metrics.intervalMs=settling?200:Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
+      metrics.intervalMs=settling?150:Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
       if(metrics.intervalMs>650)guarded=true;else if(metrics.intervalMs<450)guarded=false;if(status==='watching'&&guarded)status='budget';inFlight=false;notify();
     }
   }
-  function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();const interval=tracks.some(t=>t.view.state==='identified'&&!t.view.removed)?Math.min(750,metrics.intervalMs):metrics.intervalMs;if(active)scheduleAfter(Math.max(0,interval-(now()-start)));},0);}
+  function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();const interval=!tracks.some(t=>!t.view.removed)?Math.min(100,metrics.intervalMs):tracks.some(t=>t.view.state==='identified'&&!t.view.removed)?Math.min(750,metrics.intervalMs):metrics.intervalMs;if(active)scheduleAfter(Math.max(0,interval-(now()-start)));},0);}
   function scheduleAfter(delay:number) {if(active)timer=setTimeout(()=>schedule(),delay);}
   function stop() {active=false;epoch++;clearTimeout(timer);observer?.disconnect();observer=undefined;interruptWindow();status='stopped';notify();}
   return {
