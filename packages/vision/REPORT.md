@@ -1524,3 +1524,144 @@ npx tsx scripts/vision/benchmark.ts --label review-paired \
 Small commits: `317c51d8b` core safety, `6c2b35894` AI candidate validation,
 `6dd70e15e` raw replay/calibration, `620c752df` native lab capture. The final
 follow-up/documentation commit and pushed head are reported in the final answer.
+
+
+## Recognition engine speed work — 2026-11-02
+
+Branch `feat/remote-speed-engine`, based on `717006191` from
+`origin/feat/remote-autodetect-2`. Main checkout, watcher/motion/track-cache,
+field proposals and calibration/zone files were not edited.
+
+Measured locally on Ryzen 7 9800X3D, WSL2, Chromium 153.0.8010.12, eight visible logical
+CPUs, cross-origin isolation, WASM SIMD and four ONNX threads. The active physical
+index has 14,652 rows (the raw file has 14,817). No hardware GPU adapter is
+available in this environment.
+
+### Paired before/after timings
+
+30 warm reads per path and version, after two unmeasured warm iterations.
+Versions alternate order on the same 1280×720 indexed synthetic card scene.
+Both return the diagnostic JPEG with the larger AI source crop deferred.
+Before is the bundled worker from `717006191`; the same harness and frame capture
+serve both versions. The old worker ignores the new region option and follows
+its normal click path. All 180 measured reads identify the correct card as sure.
+Values are milliseconds. Stage medians do not sum to the median total.
+
+| Stage | Tracked before | Tracked after | ROI request before | ROI after |
+| --- | ---: | ---: | ---: | ---: |
+| Sharpness | 0.67 | 0.57 | 0.63 | 0.56 |
+| Detect | 0.00 | 0.00 | 41.42 | 23.62 |
+| Refine / warp / art crops | 4.61 | 3.29 | 13.07 | 11.54 |
+| Embed (preprocess + inference) | 108.67 | 104.38 | 109.17 | 108.72 |
+| Search / decision | 6.51 | 1.53 | 6.64 | 1.62 |
+| Pipeline total | 121.72 | 109.61 | 176.85 | 152.75 |
+| API wall p50 | 127.41 | 115.06 | 184.20 | 165.04 |
+| API wall p95 | 277.85 | 219.00 | 317.23 | 281.40 |
+
+Tracked median meets the 150 ms target; its 219 ms p95 does **not** meet a strict
+150 ms tail target. ROI median and p95 meet 300 ms. Shared-host CPU load remained
+variable because other workers were active; these are measurements, not a
+Windows Chrome latency guarantee. Embedding weights/CPU inference are unchanged,
+so small embed-time differences are scheduling variance. The original 20-read
+unpaired baseline had tracked wall p50/p95 194.9/571.2 ms; it is retained locally
+but is **not** used to claim the paired speedup above.
+
+Ordinary clicks improve from 170.6/347.7 ms p50/p95 to 152.0/263.6 ms. New
+instrumentation measures tracked worker readback at 1.22 ms and JPEG encoding at
+1.79 ms median; ROI readback/encoding are 1.22/3.54 ms. The old worker did not
+expose those stages separately. Initial `prepare()` took 1,277.8 ms in this run,
+outside read timing, including resident index/SIMD preparation and both dummy
+inferences. No repeated model loading occurs during warm reads.
+
+### Changes and measured decisions
+
+- Tracked quads continue to bypass detection. Added explicit normalized ROI
+  detection on a 448 px crop, source-coordinate remapping, one detector pass,
+  region-centered selection/fallback, and partial-edge confidence guards.
+- Reused OffscreenCanvas with replacement compositing, added opt-in transferable
+  ImageData, removed sharpness-region and singleton tensor copies, and made
+  reverse artwork crops lazy. Existing deferred AI warping remains intact.
+- Owner-feed attachment starts preparation. Watcher preparation supplies its
+  deck; `prepare({priors, sessionGallery})` can preload caller-owned session
+  references. Existing watcher/gallery ownership is unchanged. Prepared defaults
+  apply consistently to recognize, peek and readAll; callers may override them.
+- Deck subset search runs first, is cached per query, and keeps its existing
+  conservative confidence behavior. Raw catalog dots are reused across ranking
+  passes for unchanged query values. A new exact Float64-lane WASM SIMD kernel
+  reduces full catalog search from roughly 3.09 ms to 0.96 ms median. The 60-card
+  subset takes 0.025 ms. All 150 ranking comparisons match, maximum score delta
+  1.11e-16. Scalar fallback remains available; index bytes stay Int8. SIMD expands
+  them once to about 22 MiB of Float32 matrix storage.
+- Full-catalog verification is retained for a new embedding: a strong deck
+  match alone cannot rule out a stronger off-deck match. This intentionally
+  preserves the existing confidence and off-deck safety rules rather than
+  treating a smaller candidate set as new certainty.
+- A paired two-thread experiment during a large host-load spike produced no
+  consistent overall improvement, so the existing capped four-thread policy
+  remains the default. Its raw results are retained as `threads-two.json`.
+
+### GPU exports and detector quantization
+
+The q8 embedder's MatMulNBits weights are expanded with the specified uint8
+zero point, then converted to fp16; this preserves the indexed trained weights
+without needing a checkpoint or rebuilding the index. The detector's constant
+weight casts are folded before conversion. Both exports keep Float32 IO.
+Reproducible export commands and pinned dependencies/checksums are in README.md.
+
+| Export | Size | Native parity corpus | Minimum output cosine |
+| --- | ---: | ---: | ---: |
+| Embedder fp16 | 43,539,194 bytes | 30 actual pipeline crops | 0.999999069 |
+| Detector fp16 | 6,185,781 bytes | 30 detector tensors | 0.999999422 |
+
+Fp16 detector outlines match 15/15 held-out baseline outlines at IoU ≥ .8
+(minimum IoU .99827). These are native CPU parity checks, **not** measured GPU
+execution. The automatic browser path rejects the available SwiftShader software
+adapter and reports WASM/four threads. There are no RX 7900 XTX WebGPU latency
+numbers. The lab's **Check WebGPU** button checks hardware/fp16 capability; the
+recognition result reports actual execution backend. GPU create/run failures
+load the original CPU graph, and missing fp16 assets also fall back safely.
+
+Static per-channel Conv int8 QDQ matches 15/15 held-out outlines (minimum IoU
+.91446), with 15 separate calibration inputs. It fails the speed gate: paired
+click detection median is 169.41 ms versus 43.57 ms for the original detector;
+ROI detection is 34.73 versus 33.45 ms. QDQ is **rejected**, is not configured,
+and its exported file is deleted. The experimental export command remains for
+future evaluation. No model/index inference was sent to a service.
+
+### Validation and artifacts
+
+The existing 30-photo benchmark preserves top-1/top-5 at 30/30, sure at 30/30,
+and wrong-sure at zero, with no winner changes. Paired whole-read corpus wall
+p50/p95 improves from 189.98/346.35 ms to 176.12/245.04 ms. Native/browser q8
+embedding cosine is .9999999979. Transfer detachment, prepared deck/gallery
+reads, ordinary copied ImageData, temporal selection and off-card fallback were
+exercised by the existing benchmark harnesses. No new tests were added.
+
+Vision and web typechecks pass (after building this worktree's shared package).
+Existing vision tests have 97 passes and 57 failures; the exact same 57 failures
+occur on the base revision, all in the unchanged watcher test file. Existing
+pipeline/client/search/runtime tests pass. The existing lab suite has 84 passes and five watcher-related failures, identical
+to its baseline result. No new failure names remain in either comparison.
+
+Reproduce the paired timing run without binding an application port:
+
+```sh
+mkdir -p data/vision/baseline-src
+git archive 717006191 packages/vision/src | tar -x -C data/vision/baseline-src
+npx esbuild data/vision/baseline-src/packages/vision/src/worker.ts --bundle \
+  --format=esm --platform=browser --target=es2022 --minify \
+  --outfile=data/vision/benchmark/baseline-worker.js
+LATENCY_ENGINE=1 LATENCY_LABEL=engine-final LATENCY_TRIALS=30 \
+  LATENCY_COMPARE_WORKER=/dev/vision-lab/assets/benchmark/baseline-worker.js \
+  npx tsx scripts/vision/benchmark-latency.ts
+npx tsx scripts/vision/prepare.ts --bundle-only
+npx tsx scripts/vision/benchmark.ts --backend wasm --label speed-corpus \
+  --compare-worker /dev/vision-lab/assets/benchmark/baseline-worker.js
+```
+
+Local ignored evidence: `data/vision/benchmark/latency/engine-{before,roi,simd,paired,final}.json`,
+`qdq-paired.json`, `threads-two.json`, `data/vision/benchmark/results-speed-corpus.json`,
+`results-speed-auto.json`, `detector-variants.json`, and `data/vision/models/variants.json`.
+All benchmark servers used OS-assigned ephemeral ports. Generated input tensors,
+temporary source/export files and the rejected QDQ model are removed after use.
+The retained fp16 models are reproducible ignored runtime assets, not Git binaries.

@@ -1,7 +1,7 @@
 import type { GameProfile, IndexMeta } from './types';
 /** Change when pixel preprocessing changes. Embedded in metadata to reject incompatible indexes. */
 export function layoutKey(profile: GameProfile): string {
-  const { thresholds: _thresholds, maxBatch: _maxBatch, ...embedding } = profile.embedding;
+  const { thresholds: _thresholds, maxBatch: _maxBatch, webgpu: _webgpu, ...embedding } = profile.embedding;
   return JSON.stringify({ version: 'triangle-rgb-chw-v1', card: profile.card, artWindow: profile.artWindow, alternate: profile.alternateArtWindows, embedding });
 }
 export function validateIndexProfile(meta: IndexMeta, profile: GameProfile): void {

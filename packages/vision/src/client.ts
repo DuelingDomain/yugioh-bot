@@ -1,7 +1,7 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
+import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions } from './types';
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
@@ -12,7 +12,7 @@ export interface RecognizerConfig {
 }
 export interface Recognizer {
   /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
-  prepare():Promise<void>;
+  prepare(opts?:PrepareOptions):Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
@@ -42,7 +42,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-field-gallery-v6', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-speed-engine-v1', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
@@ -72,8 +72,9 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
   }
   return {
-    prepare(){
+    prepare(opts){
       if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
+      if(opts)return initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare',opts});});
       return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
     },
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
@@ -87,8 +88,10 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       try {
         await initialize();
         if (disposed) throw new Error('Recognizer is disposed');
-        const bitmaps = frames.filter(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap);
-        return await request({ type: 'recognize', frames, opts }, bitmaps) as RecognitionResult;
+        const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
+        const start=performance.now();
+        const result=await request({ type: 'recognize', frames, opts }, [...new Set(transfers)]) as RecognitionResult;
+        if(result.timingsMs)result.timingsMs.roundTrip=performance.now()-start;return result;
       } finally { inFlight = false; }
     },
     async detectCards(frame) {

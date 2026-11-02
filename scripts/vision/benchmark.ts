@@ -136,7 +136,7 @@ async function main() {
     const image=await sharp(file).ensureAlpha().raw().toBuffer({resolveWithObject:true});
     expectedSharpness.push(sharpness({data:image.data,width:image.info.width,height:image.info.height}, photos[0].clickPoint));
   }
-  await build({ entryPoints: [path.join(root,'packages/vision/src/client.ts')], outfile: path.join(directory,'client.js'), bundle: true, format: 'esm', platform: 'browser', target: 'es2022' });
+  await build({ entryPoints: [path.join(root,'packages/vision/src/index.ts')], outfile: path.join(directory,'client.js'), bundle: true, format: 'esm', platform: 'browser', target: 'es2022' });
   await build({ stdin: { contents: `import { createModelSession, Tensor } from ${JSON.stringify(path.join(root,'packages/vision/src/runtime.ts'))}; import {embedImages} from ${JSON.stringify(path.join(root,'packages/vision/src/embed.ts'))}; onmessage=async e=>{try{const {url,profile}=e.data;const bitmap=await createImageBitmap(await (await fetch(url)).blob());const canvas=new OffscreenCanvas(bitmap.width,bitmap.height),ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();const im=ctx.getImageData(0,0,canvas.width,canvas.height);const session=await createModelSession(profile.embedding.url,profile.embedding.sha256,'wasm');const vectors=await embedImages(session,Tensor,profile.embedding,[im]);await session.release();postMessage({vector:Array.from(vectors[0])});}catch(e){postMessage({error:String(e)})}};`, resolveDir: root }, outfile: path.join(directory,'parity-worker.js'), bundle:true, format:'esm', platform:'browser', target:'es2022', minify:true });
   const mime: Record<string,string> = { '.js':'text/javascript', '.mjs':'text/javascript', '.wasm':'application/wasm', '.json':'application/json', '.jpg':'image/jpeg' };
   const server = createServer(async (request, response) => {
@@ -176,10 +176,10 @@ async function main() {
       return {crossOriginIsolated,sharedArrayBuffer:typeof SharedArrayBuffer !== 'undefined',hardwareConcurrency:navigator.hardwareConcurrency,webgpu:!!gpu,adapter};
     });
     await page.evaluate(async ({backend,compareWorker}) => {
-      const { createRecognizer } = await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/client.js'));
+      const { createRecognizer, yugioh } = await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/client.js'));
       const state = window as unknown as { recognizer: ReturnType<typeof createRecognizer>;reference?:ReturnType<typeof createRecognizer> };
       state.recognizer = createRecognizer({ game:'yugioh', backend });
-      if(compareWorker)state.reference=createRecognizer({game:'yugioh',backend,workerUrl:compareWorker});
+      if(compareWorker){const profile=structuredClone(yugioh);delete profile.embedding.webgpu;delete profile.detector.webgpu;state.reference=createRecognizer({profile,backend,workerUrl:compareWorker});}
     }, {backend,compareWorker:values['compare-worker']});
     const recognize = async (photo: Photo, copies = 1, clickPoint = photo.clickPoint, reference=false) => page.evaluate(async ({photo,copies,clickPoint,reference}) => {
       const state = window as unknown as Record<string,{recognize(frames:ImageBitmap[],opts:unknown):Promise<RecognitionResult>}>;

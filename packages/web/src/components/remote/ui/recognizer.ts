@@ -23,7 +23,7 @@ type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure"
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
-  prepare():Promise<void>;
+  prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<void>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
@@ -248,6 +248,7 @@ let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = 
 export function attachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo === video) return;
   ownBuffer?.stop(); ownBuffer = null; ownVideo = video;
+  void loadRecognizer().then(reader=>reader?.prepare()).catch(()=>undefined);
   void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(() => undefined);
 }
 export function detachOwnFeed(video: HTMLVideoElement) {
@@ -265,7 +266,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
   if (!reader || !found) return null;
   return {
     recognizer: {
-      prepare:()=>enqueue(()=>reader.prepare()),
+      prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})),
       detectCards: (frame: ImageBitmap | ImageData) => enqueue(() => reader.detectCards(frame as ImageBitmap)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },

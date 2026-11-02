@@ -1,13 +1,14 @@
 // Cosine search adapted from Duel Lens src/shared/search.ts (Apache-2.0).
 // Modified: game-neutral ids, priors, renormalized quantized vectors, border hint.
 // See licenses/duel-lens.LICENSE.
+import {createSimdSearch} from './search-simd';
 import type { Candidate, LoadedIndex, RecognitionPriors, ConfidenceThresholds, RecognitionTier } from './types';
 export function normalize(v: Float32Array): Float32Array {
   const norm = Math.hypot(...v);
   if (!Number.isFinite(norm) || norm === 0) throw new Error('Invalid embedding');
   return Float32Array.from(v, x => x / norm);
 }
-interface SearchData { inverseNorms:Float64Array; rowsByCard:Map<string,number[]>; order:Map<string,number> }
+interface SearchData { dots?:ReturnType<typeof createSimdSearch>; inverseNorms:Float64Array; rowsByCard:Map<string,number[]>; order:Map<string,number> }
 const prepared=new WeakMap<LoadedIndex,SearchData>();
 /** Immutable loaded indexes live for the worker lifetime; norms never depend on a query. */
 export function prepareSearch(index:LoadedIndex):SearchData {
@@ -21,16 +22,17 @@ export function prepareSearch(index:LoadedIndex):SearchData {
     if(rows)rows.push(row);else rowsByCard.set(id,[row]);
     if(norm&&!order.has(id))order.set(id,row);
   }
-  const value={inverseNorms,rowsByCard,order};prepared.set(index,value);return value;
+  const value={inverseNorms,rowsByCard,order,dots:createSimdSearch(index)};prepared.set(index,value);return value;
 }
 export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: RecognitionPriors, frameClass?: string, cardIds?: ReadonlySet<string>): Candidate[] {
   const { dim, count, entries } = index.meta;
   if (query.length !== dim || !query.every(Number.isFinite)) throw new Error('Embedding dimension/value mismatch');
-  const {inverseNorms,rowsByCard,order}=prepareSearch(index),vectors=index.vectors;
+  const {inverseNorms,rowsByCard,order,dots}=prepareSearch(index),vectors=index.vectors;
   const limit=Math.max(1,Math.min(100,Math.floor(k)));
   const seen = new Set(priors?.seen), voice = new Set(priors?.voiceMentioned);
   const filter = priors?.frameClasses?.length ? new Set(priors.frameClasses) : null;
   const rows=cardIds?Array.from(cardIds).flatMap(id=>rowsByCard.get(id)??[]):undefined;
+  const products=!cardIds?dots?.(query):undefined;
   const best:(Candidate & {rank:number;order:number})[]=[];
   for (let r = 0; r < (rows?.length??count); r++) {
     const row=rows?rows[r]:r;
@@ -39,8 +41,8 @@ export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: Re
     const inverse=inverseNorms[row];if(!inverse)continue;
     let a=0,b=0,c=0,d=0,j=0,offset=row*dim;
     // Flat int8/float32 dot product: no row slices, allocations or per-query norms.
-    for(;j+3<dim;j+=4,offset+=4){a+=query[j]*vectors[offset];b+=query[j+1]*vectors[offset+1];c+=query[j+2]*vectors[offset+2];d+=query[j+3]*vectors[offset+3];}
-    let dot=a+b+c+d;for(;j<dim;j++,offset++)dot+=query[j]*vectors[offset];
+    for(;!products&&j+3<dim;j+=4,offset+=4){a+=query[j]*vectors[offset];b+=query[j+1]*vectors[offset+1];c+=query[j+2]*vectors[offset+2];d+=query[j+3]*vectors[offset+3];}
+    let dot=products?products[row]:a+b+c+d;for(;!products&&j<dim;j++,offset++)dot+=query[j]*vectors[offset];
     const raw = Math.max(-1, Math.min(1, dot * inverse));
     // Priors only reorder plausible visual matches; scores are ranking similarities, not probabilities.
     const boost = raw >= 0.5 ? Math.min(0.06, (seen.size&&seen.has(entry.cardId) ? 0.015 : 0) + (voice.size&&voice.has(entry.cardId) ? 0.04 : 0)) : 0;
