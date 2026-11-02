@@ -205,3 +205,22 @@ export function resolveAttack(state: RemoteState, input: string | AttackHints, a
     || compare(a.attacker.cardRef, b.attacker.cardRef) || compare(a.target?.cardRef ?? "", b.target?.cardRef ?? ""));
   return { status: candidates.length === 0 ? "none" : candidates.length === 1 ? "unique" : "ambiguous", candidates };
 }
+
+/**
+ * Fuzzy card-name lookup for voice commands. Uses the same word scoring as attacks (prefixes, sound-alikes, typos).
+ * `nameOf` gives the name to match. A face-down card without a public name never matches. Best match first.
+ */
+export function matchCardsByName<T extends { ref: string; faceUp: boolean }>(cards: readonly T[], query: string, nameOf: (card: T) => string | undefined): { card: T; score: number }[] {
+  const words = tokens(query).filter(word => !filler.has(word));
+  if (!words.length || query.length > 500) return [];
+  const out: { card: T; score: number }[] = [];
+  for (const card of cards) {
+    const name = card.faceUp ? tokens(nameOf(card) ?? "") : [];
+    if (!name.length) continue;
+    const scores = words.map(word => Math.max(0, ...name.map(part => wordScore(word, part))));
+    if (scores.some(score => score === 0)) continue;
+    const exact = words.join(" ") === name.join(" ");
+    out.push({ card, score: Math.min(1, scores.reduce((sum, score) => sum + score, 0) / scores.length * 0.85 + (exact ? 0.15 : 0)) });
+  }
+  return out.sort((a, b) => b.score - a.score || (a.card.ref < b.card.ref ? -1 : 1));
+}
