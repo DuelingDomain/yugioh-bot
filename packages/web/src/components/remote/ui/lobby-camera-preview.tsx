@@ -8,7 +8,7 @@ import { cx, SheetButton, SheetSegmented, SheetSelect, sheetRoot } from "@/compo
 import ui from "@/components/duel/sheet-ui.module.css";
 import { loadFieldCalibration, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
 import { FieldOrientationControls } from "../field-orientation";
-import { defaultGridCalibration, fieldGridCells, projectCell } from "@/lib/remote/zone-grid";
+import { defaultSideFor, displayCalibration, fieldGridCells, projectCell } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
 import { detectCards, prewarmRecognizer } from "./recognizer";
@@ -67,8 +67,8 @@ function useQr(url: string) {
  * One seat's live feed from table video. Click a face-up card to test the reader on that seat's camera.
  * The test ids are the ones the phone e2e uses.
  */
-function PreviewGrid({calibration,format}:{calibration?:FieldCalibration;format:FieldFormat}){
-  const grid=calibration??defaultGridCalibration();
+function PreviewGrid({calibration,format,kind}:{calibration?:FieldCalibration;format:FieldFormat;kind:"webcam"|"phone"}){
+  const grid=displayCalibration(calibration,defaultSideFor(kind));
   return <svg className={s.fieldGrid} viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden>
     {fieldGridCells(format).map(cell=>{const {corners,center}=projectCell(cell,grid);return <g key={cell.zone}>
       <polygon points={corners.map(p=>`${p.x*1000},${p.y*1000}`).join(' ')}/>
@@ -117,10 +117,10 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
         <video ref={video} className={s.video} autoPlay playsInline muted
           onLoadedMetadata={event => { const el = event.currentTarget; if (el.videoWidth && el.videoHeight) setRatio(el.videoWidth / el.videoHeight); }} />
       </button>
-      {room?<PreviewGrid calibration={calibration} format={formatOf(room)}/>:null}
+      {room?<PreviewGrid calibration={calibration} format={formatOf(room)} kind="phone"/>:null}
       <span className={s.chip}><i aria-hidden /> {name} · {hub.health(seat).label}</span>
     </div>
-    {room?<><FieldOrientationControls calibration={calibration??defaultGridCalibration()} onChange={saveCalibration}/>
+    {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={saveCalibration}/>
       <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
       {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
         onSave={grid=>{saveCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
@@ -290,7 +290,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       <div className={s.view} style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties} data-found={check === "found" || undefined}>
         <video ref={attach} className={s.video} autoPlay muted playsInline data-testid="lobby-cam-video"
           onLoadedMetadata={event => { const el = event.currentTarget; if (el.videoWidth && el.videoHeight) setSize({ w: el.videoWidth, h: el.videoHeight }); }} />
-        {live?<PreviewGrid calibration={calibration} format={formatOf(room)}/>:null}
+        {live?<PreviewGrid calibration={calibration} format={formatOf(room)} kind="webcam"/>:null}
         {outlines.length ? <svg className={s.outlines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
           {outlines.map((quad, i) => <polygon key={i} points={quad.map(p => `${p.x},${p.y}`).join(" ")} />)}
         </svg> : null}
@@ -322,7 +322,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Crosshair size={13} strokeWidth={1.6} aria-hidden /> Field zones</span>
         <p className={ui.hint}>{zonesLine}</p>
-        <FieldOrientationControls calibration={calibration??defaultGridCalibration()} onChange={saveCalibration} disabled={!live}/>
+        <FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("webcam")} onChange={saveCalibration} disabled={!live}/>
         <SheetButton size="sm" disabled={!live} onClick={() => setCalibrating(true)} data-testid="lobby-cam-calibrate">{calibrated ? "Calibrate again" : "Calibrate now"}</SheetButton>
       </div>
     </div>

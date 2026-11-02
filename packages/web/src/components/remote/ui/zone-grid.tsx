@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { fieldGridCells, defaultGridCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
+import { fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration } from "@yugidraft/vision";
@@ -29,7 +29,8 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
   const calibration = own ? grid.calibration : remoteCalibration;
   const calibrated = !!calibration;
   const cells = useMemo(() => fieldGridCells(grid.format), [grid.format]);
-  const shown = calibration ?? defaultGridCalibration();
+  const defaultSide = own ? grid.defaultSide : undefined;
+  const shown = displayCalibration(calibration, defaultSide);
   const projected = useMemo(() => cells.map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
   const tracks = own ? grid.tracks : [];
 
@@ -67,7 +68,7 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
     </div>
     {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
     {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36,maxWidth:Math.max(0,box.width-16)}}>
-      <FieldOrientationControls calibration={shown} onChange={grid.setCalibration}/>
+      <FieldOrientationControls calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration}/>
       {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
     </div>:null}
   </>;

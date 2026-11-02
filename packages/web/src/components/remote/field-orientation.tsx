@@ -1,21 +1,34 @@
 "use client";
 
-import { createFieldCalibration, DEFAULT_FIELD_ORIENTATION, mirrorFieldCalibration, rotateFieldCalibration, type FieldCalibration, type PlayerSide } from '@yugidraft/vision';
+import { createFieldCalibration, DEFAULT_FIELD_ORIENTATION, mirrorFieldCalibration, type FieldCalibration, type PlayerSide } from '@yugidraft/vision';
+import { DEFAULT_GRID_CORNERS, displayCalibration } from '@/lib/remote/zone-grid';
 import s from './field-orientation.module.css';
 
-/** Every camera surface edits the same persisted transform; no CSS-only rotation. */
-export function FieldOrientationControls({ calibration, onChange, disabled=false }: { calibration:FieldCalibration; onChange(value:FieldCalibration):void; disabled?:boolean }) {
-  const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
-  // "Flipped" = the player sits at the top of the image (the camera faces them across the table). Pressing again rotates back.
-  const flipped=!!calibration.orientation&&orientation.playerSide==='top';
-  return <div className={s.controls} data-testid="field-orientation" data-flipped={flipped} onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
-    <button type="button" className={s.flip} data-testid="flip-field" disabled={disabled} aria-pressed={flipped}
-      title="Camera faces you from across the table? Flip the field 180 degrees. Press again to return." onClick={()=>onChange(rotateFieldCalibration(calibration,180))}>Flip field</button>
-    <div role="group" aria-label="Your side of the image"><span>Side</span>
-      {(['top','bottom','left','right'] as PlayerSide[]).map(side=><button key={side} type="button" disabled={disabled} aria-pressed={!!calibration.orientation&&orientation.playerSide===side}
-        onClick={()=>onChange(createFieldCalibration(calibration.corners,{...orientation,playerSide:side}))}>{side[0].toUpperCase()+side.slice(1)}</button>)}
+/**
+ * Every camera surface edits the same persisted transform; no CSS-only rotation.
+ * "Camera faces me" = the player sits at the top of the image (flipped); "Camera from my view" = at the bottom (normal).
+ * Without a saved side the control shows a guess and asks "Is this right?"; auto-placement stays paused until the player answers.
+ */
+export function FieldOrientationControls({ calibration, defaultSide='bottom', confirmHint=true, onChange, disabled=false }: { calibration?:FieldCalibration; defaultSide?:PlayerSide; confirmHint?:boolean; onChange(value:FieldCalibration):void; disabled?:boolean }) {
+  const shown=displayCalibration(calibration,defaultSide);
+  const orientation=shown.orientation??DEFAULT_FIELD_ORIENTATION;
+  const corners=calibration?.corners??DEFAULT_GRID_CORNERS;
+  const unconfirmed=!calibration?.orientation;
+  const set=(side:PlayerSide)=>onChange(createFieldCalibration(corners,{...orientation,playerSide:side}));
+  const flipped=orientation.playerSide==='top';
+  return <div className={s.controls} data-testid="field-orientation" data-flipped={flipped} data-confirmed={!unconfirmed} onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+    <div role="group" aria-label="Where is the camera?" className={s.segment}>
+      <button type="button" data-testid="camera-faces-me" disabled={disabled} aria-pressed={flipped} onClick={()=>set('top')}>Camera faces me</button>
+      <button type="button" data-testid="camera-my-view" disabled={disabled} aria-pressed={orientation.playerSide==='bottom'} onClick={()=>set('bottom')}>Camera from my view</button>
     </div>
-    <button type="button" disabled={disabled} aria-pressed={orientation.mirrored} title="Swap the player's left and right for mirrored video" onClick={()=>onChange(mirrorFieldCalibration(calibration))}>Mirror</button>
-    {!calibration.orientation?<small role="status">Pick your side to start auto-placement</small>:null}
+    <details className={s.more}>
+      <summary>More</summary>
+      <div role="group" aria-label="Your side of the image"><span>Side</span>
+        {(['top','bottom','left','right'] as PlayerSide[]).map(side=><button key={side} type="button" disabled={disabled} aria-pressed={orientation.playerSide===side} onClick={()=>set(side)}>{side[0].toUpperCase()+side.slice(1)}</button>)}
+      </div>
+      <button type="button" disabled={disabled} aria-pressed={orientation.mirrored} title="Swap the player's left and right for mirrored video" onClick={()=>onChange(mirrorFieldCalibration(createFieldCalibration(corners,orientation)))}>Mirror</button>
+    </details>
+    {unconfirmed&&confirmHint?<span className={s.hint} role="status" data-testid="orientation-hint">Is this right? <small>Auto-placement paused</small>
+      <button type="button" disabled={disabled} data-testid="orientation-confirm" onClick={()=>set(orientation.playerSide)}>Yes</button></span>:null}
   </div>;
 }
