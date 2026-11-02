@@ -4,15 +4,20 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 344px;
-  grid-template-areas: "seats rules" "camera rules" "actions rules";
-  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "seats side" "camera side";
+  grid-template-rows: auto 1fr;
   gap: 20px clamp(20px, 2.6vw, 32px);
   align-items: start;
 }
 .seatsPanel { grid-area: seats; }
 .cameraPanel { grid-area: camera; }
-.rulesPanel { grid-area: rules; position: sticky; top: 24px; }
-.actions { grid-area: actions; }
+/* Ready and Start sit on top of the sticky column, so they stay on screen while the camera step scrolls. */
+.side { grid-area: side; position: sticky; top: 24px; display: grid; gap: 16px; min-width: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 16px 18px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
+.primary { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions > :nth-child(2) { margin-left: auto; }
+.startHint { flex-basis: 100%; margin: 0; color: var(--duel-ink-3); font-size: 13.5px; }
+.seatsPanel ul > li { align-content: start; }
 
 /* ---------- seats and decks ---------- */
 .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; vertical-align: 0.5px; }
@@ -36,7 +41,9 @@
 
 @media (max-width: 1040px) {
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "seats" "rules" "camera" "actions"; grid-template-rows: none; }
-  .rulesPanel { position: static; }
+  .side { display: contents; }
+  .rulesPanel { grid-area: rules; }
+  .actions { grid-area: actions; }
 }
 
 /* ---------- header ---------- */

@@ -49,7 +49,7 @@ export function SheetButton({
 
 /** Native select (keeps keyboard and screen-reader behaviour) with the sheet's slim styling. */
 export function SheetSelect<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId,
+  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel,
 }: {
   label: string;
   value: T;
@@ -63,12 +63,14 @@ export function SheetSelect<T extends string | number | boolean>({
   describedBy?: string;
   /** Test id of the native select element. */
   testId?: string;
+  /** Accessible name that replaces the visible label for screen readers, such as when several selects share one label. */
+  ariaLabel?: string;
 }) {
   return (
     <label className={className} style={{ display: "block", minWidth: 0 }}>
       <span className={hideLabel ? ui.srOnly : ui.label}>{label}</span>
       <span className={cx(ui.selectWrap, compact && ui.selectSm)}>
-        <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} aria-describedby={describedBy} data-testid={testId} onChange={(event) => {
+        <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} aria-label={ariaLabel} aria-describedby={describedBy} data-testid={testId} onChange={(event) => {
           const selected = choices.find((choice) => String(choice.value) === event.target.value);
           if (selected && !selected.disabled) onChange?.(selected.value);
         }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
 import { REMOTE_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTable } from "@yugidraft/shared/remote";
@@ -57,10 +57,12 @@ export function RemoteLobby() {
 function CopyInvite({ slug }: { slug: string }) {
   const [copied, setCopied] = useState(false);
   const [manual, setManual] = useState<string | null>(null);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   return <div className={r.invite}>
     <SheetButton size="sm" data-testid="copy-invite" onClick={async () => {
       const href = new URL(remoteTableHref(slug), window.location.origin).href;
-      try { await navigator.clipboard.writeText(href); setCopied(true); setManual(null); }
+      try { await navigator.clipboard.writeText(href); setCopied(true); setManual(null); window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setCopied(false), 2000); }
       catch { setCopied(false); setManual(href); }
     }}>
       {copied ? <Check size={15} strokeWidth={1.7} aria-hidden /> : <Link2 size={15} strokeWidth={1.7} aria-hidden />}
@@ -71,10 +73,17 @@ function CopyInvite({ slug }: { slug: string }) {
   </div>;
 }
 
+/** The camera step. It mounts only after the room's saved camera choice has loaded, so no camera starts by mistake. */
+function CameraStep({ room }: { room: RemoteRoom }) {
+  const hub = useVideoHub();
+  const [mode, setMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
+  if (!hub.rosterReady) return <p className={ui.hint} role="status" data-testid="lobby-camera-loading">Loading camera choice…</p>;
+  return <LobbyCameraPreview room={room} mode={mode} onModeChange={setMode} />;
+}
+
 /** The setup room of a table that has not started: seats, decks, rules, camera, ready, start. */
 export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const { operation, busy, error } = ctl;
-  const hub = useVideoHub();
   const saved = useSavedDecks();
   // The create screen leaves a note here when it made the room but could not seat the chosen deck.
   const [deckNote, setDeckNote] = useState("");
@@ -96,7 +105,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   const decks = saved.data?.decks ?? [];
   const blocked = !me?.ready && ((!room.solo && !me?.deck) || !!me?.deck?.validation.issues.length);
   const alert = error ?? (deckNote ? `Your deck was not seated: ${deckNote} Pick a deck below.` : saved.error?.message ?? null);
-  const [cameraMode, setCameraMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
+  const canStart = host && room.seats.length === room.seatCount && room.seats.every(seat => seat.ready);
   const open = room.seatCount - room.seats.length;
   const seatNames = ["Seat 1", "Seat 2", "Seat 3", "Seat 4"];
   return <div className={sheetPage} data-testid="remote-lobby-room">
@@ -112,7 +121,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
           </p>
         </div>
         <div className={room_.headActions}>
-          <CopyInvite slug={room.slug} />
+          {room.solo ? null : <CopyInvite slug={room.slug} />}
           <a href="/duels/remote" className={sheetButtonClass("quiet", "sm")}>All tables</a>
         </div>
       </header>
@@ -141,7 +150,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
               </span>
               <span className={room_.seatActions}><span className={cx(room_.status, seat.ready && room_.statusReady)}><Icon size={15} strokeWidth={1.7} aria-hidden />{seat.ready ? "Ready" : "Not ready"}</span></span>
               <div className={r.deck}>
-                <SheetSelect label="Deck" value={seat.deck?.savedDeckId ?? ""} disabled={busy || !editable} testId={`deck-${seat.seat}`}
+                <SheetSelect label="Deck" ariaLabel={`Deck for ${seat.displayName}`} value={seat.deck?.savedDeckId ?? ""} disabled={busy || !editable} testId={`deck-${seat.seat}`}
                   choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
@@ -154,40 +163,46 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
         </section>
 
         <section className={cx(room_.panel, r.cameraPanel)} aria-label="Camera setup">
-          <div className={r.camHead}><h2 className={ui.sectionTitle}>Field camera</h2><p className={ui.hint}>Use a phone, a webcam, or play with the board twin and log.</p></div>
-          <LobbyCameraPreview room={room} mode={cameraMode} onModeChange={setCameraMode} />
+          <div className={r.camHead}><h2 className={ui.sectionTitle}>Field camera</h2><p className={ui.hint}>Check your field camera before you get ready.</p></div>
+          <CameraStep room={room} />
         </section>
 
-        <div className={cx(room_.footer, r.actions)}>
-          <SheetButton kind={me?.ready ? "secondary" : "primary"} size="lg" disabled={busy || blocked} data-testid="ready" onClick={() => void operation("ready", { ready: !me?.ready })}>
-            {me?.ready ? "Not ready" : <>Ready<CheckCircle2 size={17} strokeWidth={1.6} aria-hidden /></>}
-          </SheetButton>
-          <SheetButton kind={me?.ready ? "primary" : "secondary"} size="lg" disabled={busy} data-testid="start" onClick={() => void operation("start")}>
-            Start table<Swords size={17} strokeWidth={1.6} aria-hidden />
-          </SheetButton>
-          <SheetButton kind="quiet" disabled={busy} onClick={() => void operation("leave")}>Leave table</SheetButton>
-          {blocked ? <p className={room_.startHint}>{me?.deck?.validation.issues.length ? "Fix the deck problems to get ready." : "Choose a saved deck to get ready."}</p> : null}
-        </div>
 
-        <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
-          void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
-          <h2 className={ui.sectionTitle}>Rules</h2>
-          <fieldset disabled={busy || !host} className={r.fieldset}>
-            <SheetSelect label="Duel format" value={format} testId="room-format"
-              choices={REMOTE_FORMATS.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
-              onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} />
-            {format.includes("genesys")
-              ? <label><span className={ui.label}>Genesys point cap</span><input className={ui.input} type="number" min={0} max={1000} value={points} onChange={e => setPoints(Number(e.target.value))} /></label>
-              : <SheetSelect label="Banlist" value={banlist} choices={DUEL_BANLIST_OPTIONS.map(item => ({ value: item.id as string, label: item.label }))} onChange={setBanlist} />}
-            <label><span className={ui.label}>Starting LP</span><input className={ui.input} type="number" min={1} max={100000} value={lp} onChange={e => setLp(Number(e.target.value))} /></label>
-            <div className={r.toggleRow}>
-              <label className={r.toggle}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e => setPublicityDraft(e.target.checked)} /><span>Cards Set from Deck are shown to all</span></label>
-              <p className={ui.hint}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
+        <div className={r.side}>
+          <div className={r.actions}>
+            <div className={r.primary}>
+              <SheetButton kind={me?.ready ? "secondary" : "primary"} size="lg" disabled={busy || blocked} data-testid="ready" onClick={() => void operation("ready", { ready: !me?.ready })}>
+                {me?.ready ? "Not ready" : <>Ready<CheckCircle2 size={17} strokeWidth={1.6} aria-hidden /></>}
+              </SheetButton>
+              {host ? <SheetButton kind={canStart ? "primary" : "secondary"} size="lg" disabled={busy || !canStart} data-testid="start" onClick={() => void operation("start")}>
+                Start table<Swords size={17} strokeWidth={1.6} aria-hidden />
+              </SheetButton> : null}
             </div>
-            {host ? <SheetButton type="submit" kind="secondary" block data-testid="apply-rules">Apply rules</SheetButton> : null}
-          </fieldset>
-          <p className={ui.hint}>{host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
-        </form>
+            <SheetButton kind="quiet" disabled={busy} onClick={() => void operation("leave")}>Leave table</SheetButton>
+            {blocked ? <p className={r.startHint}>{me?.deck?.validation.issues.length ? "Fix the deck problems to get ready." : "Choose a saved deck to get ready."}</p>
+              : !host ? <p className={r.startHint}>Waiting for the host to start the table.</p>
+              : !canStart ? <p className={r.startHint}>{room.seats.length < room.seatCount ? "Start unlocks when every seat is filled and ready." : "Start unlocks when every seat is ready."}</p> : null}
+          </div>
+          <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
+            void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
+            <h2 className={ui.sectionTitle}>Rules</h2>
+            <fieldset disabled={busy || !host} className={r.fieldset}>
+              <SheetSelect label="Duel format" value={format} testId="room-format"
+                choices={REMOTE_FORMATS.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
+                onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} />
+              {format.includes("genesys")
+                ? <label><span className={ui.label}>Genesys point cap</span><input className={ui.input} type="number" min={0} max={1000} value={points} onChange={e => setPoints(Number(e.target.value))} /></label>
+                : <SheetSelect label="Banlist" value={banlist} choices={DUEL_BANLIST_OPTIONS.map(item => ({ value: item.id as string, label: item.label }))} onChange={setBanlist} />}
+              <label><span className={ui.label}>Starting LP</span><input className={ui.input} type="number" min={1} max={100000} value={lp} onChange={e => setLp(Number(e.target.value))} /></label>
+              <div className={r.toggleRow}>
+                <label className={r.toggle}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e => setPublicityDraft(e.target.checked)} /><span>Cards Set from Deck are shown to all</span></label>
+                <p className={ui.hint}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
+              </div>
+              {host ? <SheetButton type="submit" kind="secondary" block data-testid="apply-rules">Apply rules</SheetButton> : null}
+            </fieldset>
+            <p className={ui.hint}>{host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
+          </form>
+        </div>
       </div>
     </div>
   </div>;
