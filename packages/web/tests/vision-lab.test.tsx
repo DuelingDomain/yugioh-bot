@@ -840,7 +840,7 @@ async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:
   const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
   crop.data.set([...rgb,255],(py*crop.width+px)*4);
  }
- const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({crop:()=>crop,motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
+ const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({crop:()=>crop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
  const events:any[]=[];reader.subscribe(event=>events.push(event));try{for(let i=0;i<12;i++){at+=333;await reader.tick();}return {events,recognize};}finally{reader.dispose();}
 }
 describe('typed watcher zone projection',()=>{
@@ -984,7 +984,7 @@ describe('typed watcher zone projection',()=>{
    await fixture.emit({type:placement?'placed':'removed'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());await act(async()=>{await fixture.post.mock.results[0].value;});fixture.room().state.undo.at=Date.now();fixture.refresh();fireEvent.click(await screen.findByRole('button',{name:'Undo'}));await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));expect(dismiss).not.toHaveBeenCalled();
    await act(async()=>{ready.resolve();await fixture.post.mock.results[1].value;});
    if(mode==='restored departure'){await waitFor(()=>expect(dismiss).toHaveBeenCalledExactlyOnceWith(old.ref));expect(fixture.track).toMatchObject({removed:true,visible:false});}
-   else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'graveyard'})]);}
+   else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  });
  it('retains physical hints in memory when session storage is unavailable',async()=>{

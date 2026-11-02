@@ -221,9 +221,9 @@ it('departures leave field zones once with a named atomic move and retain physic
   const {describeEvent}=await import('../src/components/remote/ui/describe');
   const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
   const proposal=fieldDepartureProposal(card,0);
-  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',source:'auto',name:'Varudras'});
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
-  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('graveyard');
+  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('hand');
   for(const zone of ['graveyard','banished','hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
 });
