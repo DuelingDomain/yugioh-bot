@@ -777,6 +777,7 @@ it('creates a third simultaneous physical copy with all three witnesses in copyP
  const twins=[1,2].map(slot=>({ref:`copy-${slot}`,zone:'spell-trap',slot,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'}));
  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',twins,'placed',undefined,async proposal=>{proposal.at=Date.now();});
  try{
+  fixture.track.lastSeen=performance.now();
   fixture.track.card={...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x*.3}))};
   const witnesses=twins.map((card,index)=>({...fixture.track,id:card.ref,zone:`S${card.slot}`,card:{...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x+(index+1)*.3}))}}));
   state.fieldWatch.watch.snapshot.tracks.push(...witnesses);
@@ -785,6 +786,30 @@ it('creates a third simultaneous physical copy with all three witnesses in copyP
   expect(fixture.post.mock.calls[0][0]).toMatchObject({type:'twin.place',source:'auto',copyProof:{simultaneousQuads:3}});
   expect(fixture.room().state.seats[0].twin).toHaveLength(3);
  }finally{fixture.dispose();}
+});
+it.each([1,2])('timestamps a new camera copy behind server time with %s existing copies and a rounded HTTP Date',async count=>{
+ const {remoteApi}=await import('../src/components/remote/ui/api');
+ const at=Math.floor(Date.now()/1000)*1000+200,clock=vi.spyOn(Date,'now').mockReturnValue(at);
+ fetcher.mockResolvedValueOnce(Response.json({}, {headers:{date:new Date(at).toUTCString()}}));
+ await remoteApi('/copy-proof-clock');
+ let fixture:Awaited<ReturnType<typeof typedWatcherFixture>>|undefined;
+ try{
+  const twins=Array.from({length:count},(_,i)=>({ref:`copy-${i+1}`,zone:'spell-trap',slot:i+1,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'}));
+  fixture=await typedWatcherFixture(zoneEntries[0],'M4',twins,'placed',undefined,async proposal=>{proposal.at=at;});
+  fixture.track.lastSeen=performance.now();
+  fixture.track.card={...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x*.3}))};
+  const track=fixture.track;
+  state.fieldWatch.watch.snapshot.tracks.push(...twins.map((card,index)=>({...track,id:card.ref,zone:`S${card.slot}`,card:{...track.card,quad:track.card.quad.map((point:any)=>({...point,x:point.x+(index+1)*.3}))}})));
+  state.fieldWatch.watch.getTrack=(id:string)=>state.fieldWatch.watch.snapshot.tracks.find((item:any)=>item.id===id);
+  fixture.refresh();await fixture.emit();await waitFor(()=>expect(fixture!.confirm).toHaveBeenCalledOnce());
+  const proof=fixture.post.mock.calls[0][0].copyProof;
+  expect(proof.simultaneousQuads).toBe(count+1);expect(proof.at).toBeLessThanOrEqual(at);expect(proof.at).toBeGreaterThanOrEqual(at-5000);
+  expect(fixture.room().state.seats[0].twin).toHaveLength(count+1);
+ }finally{
+  fixture?.dispose();clock.mockReturnValue(Math.floor(at/1000)*1000+999);
+  fetcher.mockResolvedValueOnce(Response.json({}, {headers:{date:new Date(at).toUTCString()}}));
+  await remoteApi('/copy-proof-clock-reset');clock.mockRestore();
+ }
 });
 const physicalQuad=(row:'M'|'S'):DetectedQuad=>({kind:'face-up',confidence:.99,partial:false,quad:[{x:.588,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.38:.8},{x:.588,y:row==='M'?.38:.8}]});
 async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:DetectedQuad)=>string){

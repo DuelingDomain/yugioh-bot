@@ -160,9 +160,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       let updated:RemoteRoom|null=null;
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
       // The resolver has just required a distinct, same-frame witness for every
-      // existing copy. Timestamp the actual camera sample in the server clock.
+      // existing copy. Undo's clock estimate rounds HTTP Date up; evidence must
+      // use its lower bound so the server never sees a future camera sample.
       const copyCount=code?twins.filter(c=>cardCode(c)===code).length:0;
-      const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
+      const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(proposal.type==='twin.place'){
