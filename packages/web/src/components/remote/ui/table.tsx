@@ -72,7 +72,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
     {hub.cameraOn && hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
-    <RecognitionSetting />
+    <RecognitionSetting variant="menu" />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
 }
