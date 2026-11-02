@@ -270,3 +270,40 @@ removal, and unmeasured physical webcam/WebGPU hardware. The updated ignored
 worker bundle must be generated when merging. All owned isolated services were
 stopped by PID; protected ports were untouched. Code pushed through `d4208d92a`;
 closing report is a separate documentation commit, no PR or attribution lines.
+
+## Plain black pad follow-up
+
+The owner's latest instructions replace the old deck-only/reopening policy:
+one prompt per physical track, permanent dismissal during the camera session,
+bound twin identity changed only explicitly, ordinary annotated Best matches for
+non-low reads, and one guided calibration per seat/camera.
+
+- [x] Consolidate obsolete prompt cases into one fast lifecycle feature probe;
+  cover bound jitter/rotation, silent restart/face transitions, low-match
+  dismissal, capacity reuse, and silent face-down return. Two reads and spread/
+  new-pile safety remain; no-deck Best matches now settle normally.
+- [x] Keep the Best match marker in queued twin actions and public card details;
+  clear it on explicit correction. One GY integration scenario checks one ref,
+  normal placement and a physical move into GY without a prompt.
+- [x] Replay the three owner screenshots through actual detection and manual
+  quads; Nibiru ranks first in all three (.8752/.8859/.8467). Do not claim to
+  reproduce the failed native read or tune recognition from missing evidence.
+- [x] Add capped owner-local crop/top-five/quads/priors/runtime logging: 24 pairs,
+  32 KiB/crop, three-second nonblocking timeout; deny public asset access. Verify
+  the real Next normalized-host origin case saves with 201 while foreign origins reject.
+- [x] Guide startup with an adjustable perspective grid; persist per seat/camera,
+  retain Recalibrate and gate detection until saved. All 17 displayed zone centers
+  match the existing owner-oriented mapper. Screen worker owns virtual layout.
+- [x] Verify 153 vision / 195 web / 139 shared tests, three typechecks, shared build and
+  worker bundle. Four new feature probes replace obsolete per-case tests; total
+  count decreases by eight. Focused real-browser case passes 1/1 in 43.0 s, with
+  four requested guided-grid screenshots and 24 s of jitter without repeat prompts.
+
+Final browser slide samples: 654.8/967.9 ms; GY samples: 960.8/1009.0 ms (deck/no
+deck). Earlier 2.90 s / 1.44 s slides remain recorded speed misses. No new distribution
+or hand benchmark. Failed live Nibiru frame remains unreproduced; local capture
+is available for the next miss. Keep the feed-video pointer interception with the
+screen worker, and generate the ignored pad-v5 worker bundle when merging.
+All owned isolated services were stopped by PID; their ports are free and
+protected ports were untouched. The normalized-origin diagnostic saves with 201;
+public diagnostic assets return 404 and foreign origins return 403.
