@@ -19,6 +19,14 @@ import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 const piles=new Set<FieldZone>(['GY','BANISHED','DECK','EXTRA']);
+const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
+function readPhysicalZones(key:string):Map<string,FieldZone> {
+  try {
+    const value=JSON.parse(sessionStorage.getItem(key)??'{}');
+    if(value&&typeof value==='object'&&!Array.isArray(value))return new Map(Object.entries(value).filter((pair):pair is [string,FieldZone]=>typeof pair[1]==='string'&&physicalZonePattern.test(pair[1])));
+  }catch{/* Storage is optional; current-camera reservations still work in memory. */}
+  return new Map();
+}
 type Entry={cardId:string;passcode:number;name:string};
 type Departure={ref:string;name:string;zone:string};
 const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['extra','Extra Deck']] as const;
@@ -30,6 +38,8 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   current.current.active=!!source?.local&&hub.cameraOn;
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
+  const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
+  if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
@@ -37,20 +47,25 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=toZone(c.zone,c.slot);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
+  const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
+  const prunePhysical=()=>{const refs=new Set(current.current.room.state.seats[seat].twin.map(c=>c.ref));let changed=false;for(const ref of physical.current!.zones.keys())if(!refs.has(ref)){physical.current!.zones.delete(ref);changed=true;}if(changed)savePhysical();};
+  const rememberPhysical=(ref:string,zone:FieldZone)=>{if(physicalZonePattern.test(zone)&&current.current.room.state.seats[seat].twin.some(c=>c.ref===ref&&publicField(c.zone))&&physical.current!.zones.get(ref)!==zone){physical.current!.zones.set(ref,zone);savePhysical();}};
+  // A physical hint reserves a ref only. Omitting the quad forces a fresh identity read.
+  const knownZone=(card:TwinCard)=>publicField(card.zone)?physical.current!.zones.get(card.ref)??toZone(card.zone,card.slot):toZone(card.zone,card.slot);
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>setPrompts(list=>[...list.filter(p=>p.track.id!==event.track.id).slice(-5),event]);
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   function queue(work:(act:RoomMutation)=>Promise<void>) {
     return transaction(async(latest,act)=>{
       current.current.room=latest;
-      const apply:RoomMutation=async proposal=>{const updated=await act(proposal);if(updated)current.current.room=updated;return updated;};
+      const apply:RoomMutation=async proposal=>{const updated=await act(proposal);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);
     }).catch(error=>{if(error instanceof StaleFieldPlacementError)setRecovery(error);else setNotice('Could not update the field. Try a card prompt.');});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
-    const location=fieldZoneLocation(track.zone);
     let existing=twins.find(c=>c.ref===track.id);
-    const sameSlot=(c:typeof twins[number])=>c.zone===location.zone&&c.slot===location.slot;
+    const sameSlot=(c:typeof twins[number])=>knownZone(c)===track.zone;
     const owns=(t:FieldTrack,ref:string)=>(bindings.current.get(t.id)??t.id)===ref;
     if(!existing&&event.type==='prompt'){
       // Explicit confirmation may correct the old twin at this physical spot,
@@ -137,7 +152,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
-      watch.confirm(event.track.id,track.cardId,existing?.ref);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+      watch.confirm(event.track.id,track.cardId,existing?.ref);rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
@@ -167,7 +182,11 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         const projected=projectFieldZone({zone:observed.zone,facts:cardInfo(code),twins:current.current.room.state.seats[seat].twin,ref:card.ref,faceDown:observed.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
         if(!projected.zone){setNotice(projected.reason??'Choose a legal zone manually.');return;}
         const location=fieldZoneLocation(projected.zone);
-        if(card.zone!==location.zone||card.slot!==location.slot||card.position!==observed.position){await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...location,position:observed.position});if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}}
+        if(card.zone!==location.zone||card.slot!==location.slot||card.position!==observed.position){if(!await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...location,position:observed.position}))return;if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}}
+        const after=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!live()||!fieldEvidenceMatches(event,after))return;
+        const twins=current.current.room.state.seats[seat].twin,persisted=twins.find(c=>c.ref===card.ref);if(!persisted)return;
+        const target=projectFieldZone({zone:after!.zone,facts:cardInfo(code),twins,ref:card.ref,faceDown:after!.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
+        if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&persisted.position===after!.position)rememberPhysical(card.ref,after!.zone);}
       }else if(event.type==='flipped'&&card.faceUp===event.track.faceDown)await act({type:'twin.flip',actorSeat:seat,seat,cardRef:card.ref,faceUp:!event.track.faceDown});
     });
   }
@@ -177,7 +196,8 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   useEffect(()=>{
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
-    for(const ref of previousRefs.current)if(!refs.has(ref))watch.forget(ref);
+    for(const ref of previousRefs.current)if(!refs.has(ref)){forgetPhysical(ref);watch.forget(ref);}
+    prunePhysical();
     previousRefs.current=refs;
     const value=departureRef.current;if(!value)return;
     const card=room.state.seats[seat].twin.find(c=>c.ref===value.ref);
@@ -190,7 +210,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===placement.card.ref);
       if(card&&(card.cardId!==placement.card.cardId||card.zone!==placement.zone||card.slot!==placement.card.slot||card.faceUp!==placement.card.faceUp)){setRecovery(null);setNotice('The placement changed. Check its card popup.');return;}
       if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:card.ref}))return;
-      watch.forget(placement.card.ref);setPrompts(list=>list.filter(p=>p.track.id!==placement.card.ref));setRecovery(null);setNotice('Stale placement removed');
+      forgetPhysical(placement.card.ref);watch.forget(placement.card.ref);setPrompts(list=>list.filter(p=>p.track.id!==placement.card.ref));setRecovery(null);setNotice('Stale placement removed');
     });
   }
   function redirect(zone:string) {

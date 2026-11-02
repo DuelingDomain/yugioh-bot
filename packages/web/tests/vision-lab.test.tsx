@@ -84,6 +84,7 @@ const deferred = <T,>() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   state.fieldWatch=null;state.roomHook=null;
   state.initialSource = "photo";
   snapshots.length = 0; clones.length = 0;
@@ -552,7 +553,7 @@ vi.mock('../src/lib/remote/use-field-watcher',async importOriginal=>{
  return {...original,useFieldWatcher:(options:Parameters<typeof original.useFieldWatcher>[0])=>{
   if(!state.fieldWatch)return original.useFieldWatcher(options);
   const fixture=state.fieldWatch;fixture.onEvent=options.onEvent;
-  react.useEffect(()=>{void options.create().then(()=>{fixture.ready=true;});},[]);
+  react.useEffect(()=>{void options.create().then(config=>{fixture.config=config;fixture.ready=true;});},[]);
   return fixture.watch;
  }};
 });
@@ -653,11 +654,20 @@ async function typedWatcherFixture(entry:typeof cards[number],zone:string,twins:
  const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,lastSeen:1000};
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
- const source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
+ let source={local:true};state.feedHub={cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
  const post=vi.fn(async(proposal:any)=>{await beforePost?.(proposal);room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
- const view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
- return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},track,post,confirm,room:()=>room,async emit(){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]}}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+ let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
+ return {refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+}
+
+const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+const physicalQuad=(row:'M'|'S'):DetectedQuad=>({kind:'face-up',confidence:.99,partial:false,quad:[{x:.588,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.38:.8},{x:.588,y:row==='M'?.38:.8}]});
+async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:DetectedQuad)=>string){
+ const {createFieldWatcher,yugioh}=await import('@yugidraft/vision');let at=0;
+ const recognize=vi.fn(async(_frames:any,opts:any)=>({...result,tier:'sure' as const,candidates:[{cardId:winner(opts.card),score:.99}]}));
+ const reader=createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>structuredClone(outlines),recognize},buffer:{sample:async()=>({at,frame:{width:200,height:200,data:new Uint8ClampedArray(160000)} as ImageData})},getKnownCards:known,getPriors:()=>({decklist:cards.map(c=>c.cardId)}),now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async frame=>frame});
+ const events:any[]=[];reader.subscribe(event=>events.push(event));try{for(let i=0;i<12;i++){at+=333;await reader.tick();}return {events,recognize};}finally{reader.dispose();}
 }
 describe('typed watcher zone projection',()=>{
  it.each([
@@ -697,6 +707,7 @@ describe('typed watcher zone projection',()=>{
    await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
    expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual([initialType,'twin.move']);
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:bound?old.ref:'physical-typed',zone:'spell-trap',slot:5,cardId:41420027})]);
+   expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({[bound?old.ref:'physical-typed']:'M5'});
   }finally{ready.resolve();fixture.dispose();}
  });
  it('chooses the nearest free Spell/Trap slot when the physical column is occupied',async()=>{
@@ -723,5 +734,57 @@ describe('typed watcher zone projection',()=>{
  it('resolves an old illegal same-spot twin before projecting the corrected destination',async()=>{
   const old={ref:'reserved-spell',zone:'monster',slot:4,cardId:46986414,name:'Old mistaken identity',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'prompt',old.ref);try{await fixture.emit();fireEvent.click(await screen.findByRole('button',{name:/Solemn Judgment/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toHaveLength(1);expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:old.ref,cardId:41420027,zone:'spell-trap',slot:4});expect(fixture.post.mock.calls.some(([proposal])=>proposal.type==='twin.place')).toBe(false);}finally{fixture.dispose();}
+ });
+ it('reserves a projected physical spot after camera restart and reload without trusting its old identity',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();await fixture.restart();
+   expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M4'});
+   expect(fixture.known()).toEqual([expect.objectContaining({id:'physical-typed',zone:'M4',cardId:'41420027'})]);expect(fixture.known()[0]).not.toHaveProperty('card');
+   const restarted=await readRestart(fixture.known,[physicalQuad('M')],()=>cards[2].cardId),prompt=restarted.events.find(event=>event.type==='prompt');
+   expect(restarted.events.some(event=>event.type==='placed')).toBe(false);expect(restarted.recognize).toHaveBeenCalledOnce();expect(prompt).toMatchObject({bindRef:'physical-typed',reason:'restart'});
+   Object.assign(fixture.track,prompt.track);await fixture.emit(prompt);fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn.*Spell\/Trap Zone 4/i}));
+   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:83764718,zone:'spell-trap',slot:4})]);expect(fixture.post.mock.calls.map(([p])=>p.type)).toEqual(['twin.place','card.identified']);
+  }finally{fixture.dispose();}
+ });
+ it('keeps actual M4 and S4 cards independent after both virtual destinations were projected',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'physical-s4',zone:'S4',cardId:cards[2].cardId,state:'identified'});await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));await fixture.restart();
+   expect(fixture.room().state.seats[0].twin.map((card:any)=>[card.ref,card.slot])).toEqual([['physical-typed',4],['physical-s4',3]]);
+   expect(fixture.known().map((card:any)=>[card.id,card.zone])).toEqual([['physical-typed','M4'],['physical-s4','S4']]);
+   const restarted=await readRestart(fixture.known,[physicalQuad('M'),physicalQuad('S')],card=>card.quad[0].y<.5?cards[3].cardId:cards[4].cardId);
+   expect(restarted.events.filter(event=>event.type==='prompt').map(event=>[event.track.zone,event.bindRef])).toEqual([['M4','physical-typed'],['S4','physical-s4']]);expect(restarted.events.some(event=>event.type==='placed')).toBe(false);
+  }finally{fixture.dispose();}
+ });
+ it('does not steal a projected M4 reference for an unrelated physical S4 prompt',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'new-s4',zone:'S4',cardId:undefined,state:'prompt'});await fixture.emit({type:'prompt',result:{...result,candidates:[{cardId:cards[2].cardId,score:.99}]}});
+   fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn.*Spell\/Trap Zone 3/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,slot:4}),expect.objectContaining({ref:'new-s4',cardId:83764718,slot:3})]);
+  }finally{fixture.dispose();}
+ });
+ it('updates physical hints when a real move projects to the same virtual slot',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.known()[0].zone).toBe('M4');fixture.track.zone='S4';await fixture.emit({type:'moved'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S4'}));expect(fixture.post).toHaveBeenCalledOnce();await fixture.restart();expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
+ });
+ it('saves the latest physical row after a live move HTTP returns the matching virtual destination',async()=>{
+  const ready=deferred<void>(),fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'placed',undefined,async proposal=>{if(proposal.type==='twin.move')await ready.promise;});try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.track.zone='M5';await fixture.emit({type:'moved'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));fixture.track.zone='S5';await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S5'}));expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});
+  }finally{ready.resolve();fixture.dispose();}
+ });
+ it('prunes removed refs and keeps pile hints dormant until the same ref returns to the field',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());const card=fixture.room().state.seats[0].twin[0];card.zone='graveyard';delete card.slot;fixture.refresh();expect(fixture.known()[0].zone).toBe('GY');expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M4'});
+   card.zone='spell-trap';card.slot=4;fixture.refresh();expect(fixture.known()[0].zone).toBe('M4');fixture.setTwins([]);await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({}));
+  }finally{fixture.dispose();}
+ });
+ it('prunes a physical hint immediately when Undo removes its placement',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.room().state.undo.at=Date.now();fixture.refresh();fireEvent.click(await screen.findByRole('button',{name:'Undo'}));await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([]));expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({});expect(fixture.known()).toEqual([]);}finally{fixture.dispose();}
+ });
+ it('retains physical hints in memory when session storage is unavailable',async()=>{
+  const blocked=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('Storage unavailable');});const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();expect(fixture.known()[0].zone).toBe('M4');expect(sessionStorage.getItem(physicalHintsKey)).toBeNull();}finally{blocked.mockRestore();fixture.dispose();}
+ });
+ it('does not reuse another room\'s hints for the same ref',async()=>{
+  sessionStorage.setItem('dd-field-physical:v1:g:another-room:0',JSON.stringify({old:'M4'}));const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'old',zone:'spell-trap',slot:4,cardId:41420027,faceUp:true,position:'attack'}]);try{expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
+ });
+ it.each(['{','[]','{"old":"M99"}','{"old":{"zone":"M4","cardId":"41420027"}}'])('ignores invalid physical-hint storage %s without inferring a cross-row binding',async stored=>{
+  sessionStorage.setItem(physicalHintsKey,stored);const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'old',zone:'spell-trap',slot:4,cardId:41420027,faceUp:true,position:'attack'}]);try{expect(fixture.known()[0]).toMatchObject({id:'old',zone:'S4'});expect(fixture.known()[0]).not.toHaveProperty('card');}finally{fixture.dispose();}
  });
 });
