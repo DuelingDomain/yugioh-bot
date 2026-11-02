@@ -3,7 +3,7 @@ import type { Recognizer } from './client';
 import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } from './types';
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
-import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, type FieldFrame, type FieldAnalysis } from './field-motion';
+import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, type FieldFrame, type FieldAnalysis } from './field-motion';
 import { fieldCenter, onMat, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
@@ -121,6 +121,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const appearances=new Map(cards.map(c=>[c,evidence.appearance?.(c)]));
       const appearance=(c:DetectedQuad)=>appearances.get(c);
       const matched=new Map<InternalTrack,DetectedQuad>(),taken=new Set<DetectedQuad>();
+      const followsAppearance=(t:InternalTrack,c:DetectedQuad)=>bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c));
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
@@ -129,7 +130,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const sameSpot=overlap>=.84&&d<.012;
         const needsLook=!bound(t)&&t.view.state==='identified'&&t.view.card.kind==='face-up'&&!sameSpot&&(d>.02||overlap<.84||t.missed);
         const looks=c.kind==='face-up'&&((!t.identityAppearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.identityAppearance,appearance(c)));
-        return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&sameFieldAppearance(t.identityAppearance,appearance(c))))&&(!needsLook||looks)};
+        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&sameFieldAppearance(t.identityAppearance,appearance(c))))&&(!needsLook||looks)};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
@@ -140,9 +141,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         sample.at-t.view.lastSeen<=removalMs));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
-        if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&sameFieldAppearance(lost[0].identityAppearance,appearance(incoming[0]))){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
+        if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
       }
-      for(const c of cards)if(!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
+      for(const c of cards)if(c.confidence>=.7&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         if(calibration&&c.quad.map(p=>onMat(p,calibration)).some(p=>p.x<0||p.x>1||p.y<0||p.y>1))continue;
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));

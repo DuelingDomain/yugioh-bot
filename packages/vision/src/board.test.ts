@@ -581,3 +581,18 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  restored.remember(vector,undefined);const b=fieldRig('low match',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
+
+test('tracker follows slides, quarter turns and GY entry without another identity read',async()=>{
+ const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+ const pixels=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255);
+ r.appearance=pixels;for(let i=0;i<8;i++)await r.tick();const original=r.events[0].track;r.watcher.confirm(original.id,'A');
+ const before=r.reads;
+ // Quarter-turn patch in the same canonical8x12 sampled coordinate system.
+ const turn=Array.from({length:288},(_,i)=>{const p=Math.floor(i/3),x=p%8,y=Math.floor(p/8),sx=Math.round(y/11*7),sy=Math.round((1-x/7)*11);return pixels[(sy*8+sx)*3+i%3];});
+ r.outlines=[card(.32,.3,.25,.15)];r.appearance=turn;r.motion=.2;await r.tick(100);r.motion=0;for(let i=0;i<4;i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='moved'&&e.track.position==='defense'));assert.equal(r.reads,before);
+ // Non-overlapping transfer: the old footprint is empty, exactly one incoming card.
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?turn:Array(288).fill(.2);r.outlines=[card(.84,.3,.14,.2)];
+ const from=r.at;for(let i=0;i<5&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
+ const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.ok(r.at-from<=500);assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+});
