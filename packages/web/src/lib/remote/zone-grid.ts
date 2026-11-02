@@ -75,7 +75,9 @@ export interface ZoneGridState {
   setCalibration?: (value:FieldCalibration) => void;
 }
 const empty: ZoneGridState = { ownSeat: null, format: "normal", tracks: [] };
-let current = empty; const listeners = new Set<() => void>();
+let current = empty;
+export const currentZoneGrid = () => current;
+const listeners = new Set<() => void>();
 export function publishZoneGrid(next: ZoneGridState) { current = next; for (const listener of listeners) listener(); }
 export const clearZoneGrid = () => publishZoneGrid(empty);
 export function useZoneGrid(): ZoneGridState {

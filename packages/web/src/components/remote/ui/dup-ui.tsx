@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useState } from "react";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
@@ -31,4 +32,21 @@ export function CopyAsk({ seat, message, place, busy, onMove, onCopy, onCancel }
     <button type="button" className={`${s.btn} ${s.sm}`} disabled={busy} onClick={onCopy} data-testid={`copy-another-${seat}`}>Another copy</button>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={onCancel} data-testid={`copy-cancel-${seat}`}>Cancel</button>
   </div>;
+}
+
+/** Only field/pile or pile/new origins are ambiguous. First option is the default. */
+export function OriginAsk({seat,message,options,busy,onChoose}:{
+  seat:number;message:string;options:readonly {ref?:string;label:string}[];busy:boolean;
+  onChoose(option:{ref?:string;label:string}):void;
+}) {
+  const group = useId(), [selected,setSelected] = useState(0);
+  return <form className={s.dupbar} aria-label={message} data-testid={`copy-ask-${seat}`}
+    onSubmit={event=>{event.preventDefault();if(!busy&&options[selected])onChoose(options[selected]);}}>
+    <Icon name="warn" /><span className={s.duptx}>{message}</span>
+    <div role="radiogroup" aria-label="Card origin">{options.map((option,index)=><label key={option.ref??'new'}>
+      <input type="radio" name={group} checked={selected===index} disabled={busy} autoFocus={index===0}
+        onChange={()=>setSelected(index)}/>{option.label}
+    </label>)}</div>
+    <button type="submit" className={`${s.btn} ${s.sm} ${s.go}`} disabled={busy}>Confirm</button>
+  </form>;
 }

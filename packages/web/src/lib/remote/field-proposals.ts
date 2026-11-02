@@ -2,9 +2,12 @@ import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 /** Copy evidence must come from distinct, identified quads in the same frame. */
-export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack):boolean {
-  if(a.id===b.id||!a.cardId||a.cardId!==b.cardId||!['identified','prompt'].includes(a.state)||b.state!=='identified'||!a.visible||!b.visible||a.removed||b.removed||a.faceDown||b.faceDown||a.card.kind!=='face-up'||b.card.kind!=='face-up'||a.lastSeen!==b.lastSeen)return false;
-  const box=(t:FieldTrack)=>({left:Math.min(...t.card.quad.map(p=>p.x)),right:Math.max(...t.card.quad.map(p=>p.x)),top:Math.min(...t.card.quad.map(p=>p.y)),bottom:Math.max(...t.card.quad.map(p=>p.y))});
+export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack,sameIdentity=a.cardId===b.cardId):boolean {
+  if(a.id===b.id||!a.cardId||!b.cardId||!sameIdentity||!['identified','prompt'].includes(a.state)||b.state!=='identified'||!a.visible||!b.visible||a.removed||b.removed||a.faceDown||b.faceDown||a.card.kind!=='face-up'||b.card.kind!=='face-up'||a.lastSeen!==b.lastSeen)return false;
+  return distinctFieldQuads(a.card.quad,b.card.quad);
+}
+export function distinctFieldQuads(a:readonly {x:number;y:number}[],b:readonly {x:number;y:number}[]):boolean {
+  const box=(quad:readonly {x:number;y:number}[])=>({left:Math.min(...quad.map(p=>p.x)),right:Math.max(...quad.map(p=>p.x)),top:Math.min(...quad.map(p=>p.y)),bottom:Math.max(...quad.map(p=>p.y))});
   const x=box(a),y=box(b),area=Math.max(0,Math.min(x.right,y.right)-Math.max(x.left,y.left))*Math.max(0,Math.min(x.bottom,y.bottom)-Math.max(x.top,y.top));
   return area/Math.min((x.right-x.left)*(x.bottom-x.top),(y.right-y.left)*(y.bottom-y.top))<.04;
 }
@@ -15,7 +18,7 @@ export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'posit
 /** A new placement records the sighting atomically, so one Undo removes both. */
 export function fieldPlacementProposals({track,seat,cardId,name,existing=false,copyProof}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;copyProof?:{simultaneousQuads:number;at:number}}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
-  if(['GY','BANISHED','DECK','EXTRA'].includes(track.zone))return [];
+  if(['DECK','EXTRA'].includes(track.zone))return [];
   if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(track.bestMatch?{bestMatch:true}:{}),...location}]:[];
   return [{type:'twin.place',source:'auto',actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{})}];
 }
@@ -38,14 +41,26 @@ export class StaleFieldPlacementError extends Error {
 /** A card may change during HTTP, after the preflight evidence check. */
 export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:RemoteActionProposal) {
   if(!fieldEvidenceMatches(event,current()))return null;
-  const updated=await act(proposal);
+  const actionId=crypto.randomUUID();
+  const updated=await act(proposal,actionId);
   if(!updated)return null;
+  // An origin request has no placement or undo entry to compensate.
+  if([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===(proposal.type==='twin.place'?proposal.seat:undefined)&&flag?.cardRef===(proposal.type==='twin.place'?proposal.card.ref:undefined)&&flag?.placement))return updated;
   if(!fieldEvidenceMatches(event,current())){
     if(proposal.type==='twin.place'){
-      let undone=false;try{if(updated.state.undo)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
+      let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
       if(!undone)throw new StaleFieldPlacementError(proposal);
     }
     return null;
   }
   return updated;
+}
+
+export type FieldOriginTarget = {zone:string;slot?:number;position:'attack'|'defense';faceUp:boolean};
+const originReaders = new Map<string,(ref:string)=>FieldOriginTarget|null|undefined>();
+/** Undefined is a manual observation; null is a tracked card without current evidence. */
+export function readFieldOrigin(slug:string,seat:number,ref:string) {return originReaders.get(`${slug}:${seat}`)?.(ref);}
+export function registerFieldOriginReader(slug:string,seat:number,reader:(ref:string)=>FieldOriginTarget|null|undefined) {
+  const key=`${slug}:${seat}`;originReaders.set(key,reader);
+  return ()=>{if(originReaders.get(key)===reader)originReaders.delete(key);};
 }
