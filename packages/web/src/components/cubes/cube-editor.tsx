@@ -22,9 +22,6 @@ import {
   SORT_OPTIONS,
   TRIBUTE_OPTIONS,
   viewPool,
-  type PoolFilter,
-  type PoolSort,
-  type PoolTribute,
   type PoolView,
 } from "./cube-grid-model";
 import { ArtworkPicker } from "@/components/artwork/artwork-picker";
@@ -34,6 +31,7 @@ import { parseAddTab } from "./library-model";
 import { clampCopies, poolTotals, type BoosterSettings } from "./readiness";
 import { CubeCheck } from "./cube-check";
 import { CUBE_TYPE_LABELS, cubeTypeHint, offeredCubeTypes, type CubeDraftType } from "@/lib/cube-type";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import styles from "./cubes.module.css";
 
 interface CubeDto {
@@ -678,42 +676,30 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEna
               />
             </div>
             <div className="ce-filt">
-              <select
-                className="input select"
-                aria-label="Card type"
+              <ThemedSelect
+                className="ce-sel"
+                label="Card type"
+                hideLabel
                 value={view.filter}
-                onChange={(e) => setView((v) => ({ ...v, filter: e.target.value as PoolFilter }))}
-              >
-                {FILTER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input select"
-                aria-label="Tributes"
+                onChange={(next) => setView((v) => ({ ...v, filter: next }))}
+                choices={FILTER_OPTIONS}
+              />
+              <ThemedSelect
+                className="ce-sel"
+                label="Tributes"
+                hideLabel
                 value={view.tribute}
-                onChange={(e) => setView((v) => ({ ...v, tribute: e.target.value as PoolTribute }))}
-              >
-                {TRIBUTE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input select"
-                aria-label="Sort"
+                onChange={(next) => setView((v) => ({ ...v, tribute: next }))}
+                choices={TRIBUTE_OPTIONS}
+              />
+              <ThemedSelect
+                className="ce-sel"
+                label="Sort"
+                hideLabel
                 value={view.sort}
-                onChange={(e) => setView((v) => ({ ...v, sort: e.target.value as PoolSort }))}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) => setView((v) => ({ ...v, sort: next }))}
+                choices={SORT_OPTIONS}
+              />
             </div>
           </div>
 

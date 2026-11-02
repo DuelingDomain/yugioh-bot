@@ -4,6 +4,7 @@ import * as React from "react";
 import { Check, Crown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DraftAllowedCube, LobbyPlayer, LobbySnapshot } from "@yugidraft/shared/types";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { Mono, YouPill, ringColour, svButtonClass } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { SeatControls, type LobbyController } from "../lobby/lobby-actions";
@@ -22,7 +23,6 @@ interface SeatThemeProps {
 
 /** The theme line of one seat: the claim controls for your own seat, the assign select for the host, plain text for the rest. */
 function SeatTheme({ player, table, cubes, isHost, controller, locked }: SeatThemeProps) {
-  const selectId = React.useId();
   const current = table.cubeOf(player.playerId);
   const cube = cubes.find((c) => c.id === current) ?? null;
   const busy = controller.pending !== null || locked;
@@ -52,25 +52,23 @@ function SeatTheme({ player, table, cubes, isHost, controller, locked }: SeatThe
   };
   return (
     <div className={styles.seatTheme} data-field="true">
-      <label className={styles.themeLabel} htmlFor={selectId}>{label}</label>
+      <span className={styles.themeLabel} aria-hidden="true">{label}</span>
       <div className={styles.themePick}>
-        <select
-          id={selectId}
-          className={cn("input", "select", styles.themeSelect)}
-          value={current ?? ""}
+        <ThemedSelect
+          className={styles.themeSelect}
+          label={label}
+          hideLabel
+          value={current === null ? "" : String(current)}
           disabled={busy}
-          onChange={(e) => change(e.target.value)}
-        >
-          <option value="">{cubes.length === 0 ? "No themes yet" : "Choose a theme"}</option>
-          {cubes.map((c) => {
-            const holder = table.unavailableFor(c.id, player.playerId);
-            return (
-              <option key={c.id} value={c.id} disabled={holder !== null}>
-                {c.name}{holder ? ` (taken by ${holder.displayName})` : ""}
-              </option>
-            );
-          })}
-        </select>
+          onChange={change}
+          choices={[
+            { value: "", label: cubes.length === 0 ? "No themes yet" : "Choose a theme" },
+            ...cubes.map((c) => {
+              const holder = table.unavailableFor(c.id, player.playerId);
+              return { value: String(c.id), label: `${c.name}${holder ? ` (taken by ${holder.displayName})` : ""}`, disabled: holder !== null };
+            }),
+          ]}
+        />
         {mine && current !== null && (
           <button type="button" className={cn(svButtonClass("quiet"), styles.smallBtn)} disabled={busy} onClick={() => void table.release()}>
             Clear

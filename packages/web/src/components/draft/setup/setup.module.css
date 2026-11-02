@@ -34,8 +34,8 @@
 .search input { width: 100%; height: 34px; padding: 0 12px 0 34px; border: 1px solid var(--rule-lo); border-radius: 9px; background: var(--panel); color: var(--ink); font-size: 14.5px; }
 .search input::placeholder { color: var(--ink-4); }
 .search input:hover { border-color: var(--rule); }
-.bFilters select { height: 34px; padding: 0 10px; border: 1px solid var(--rule-lo); border-radius: 9px; background: var(--panel); color: var(--ink-2); font-size: 14px; }
-.bFilters select:hover { border-color: var(--rule); color: var(--ink); }
+.bSel { flex: 0 1 auto; min-width: 120px; }
+.bFilters button[role="combobox"] { height: 34px; font-size: 14px; }
 
 /* ---- type chips, ratio bar, level curve ---- */
 .strip { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 20px; padding: 0 12px 10px; border-bottom: 1px solid var(--rule-lo); }

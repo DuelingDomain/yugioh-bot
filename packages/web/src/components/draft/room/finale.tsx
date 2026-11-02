@@ -3,7 +3,8 @@
 import { cardImageUrl } from "@/lib/card-image-url";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { inheritedVisibilityNote, type DraftTournament } from "../use-draft-tournament";
+import { ThemedSelect, type ThemedChoice } from "@/components/ui/themed-select";
+import { inheritedVisibilityNote, type DraftTournament, type TournamentFormat } from "../use-draft-tournament";
 import { FullscreenLayer } from "./layer";
 import { EASE_OUT, animate, motionLevel, popExitMs, stagger } from "./motion";
 import { KINDS, KIND_LABEL, countKinds, kindOf, type RoomCard } from "./room-model";
@@ -25,6 +26,15 @@ export interface FinaleProps {
   onExport: () => void;
   onClose: () => void;
 }
+
+const FORMAT_CHOICES: ThemedChoice<TournamentFormat>[] = [
+  { value: "round_robin", label: "Round robin" },
+  { value: "single_elim", label: "Single elimination" },
+];
+const BEST_OF_CHOICES: ThemedChoice<1 | 3>[] = [
+  { value: 3, label: "Best of 3" },
+  { value: 1, label: "Best of 1" },
+];
 
 /** Which element the viewer's last action asked to focus; null once focus moved or when nothing is wanted. */
 type FocusWant = "initial" | "format" | "primary" | null;
@@ -60,7 +70,7 @@ export function DraftFinale(p: FinaleProps) {
   const want = useRef<FocusWant>("initial");
   const focusInitial = useCallback((el: HTMLAnchorElement | null) => takeFocus(want, el, "initial"), []);
   const focusPrimary = useCallback((el: HTMLAnchorElement | HTMLButtonElement | null) => takeFocus(want, el, "initial", "primary"), []);
-  const focusFormat = useCallback((el: HTMLSelectElement | null) => takeFocus(want, el, "format"), []);
+  const focusFormat = useCallback((el: HTMLDivElement | null) => takeFocus(want, el?.querySelector<HTMLElement>("button") ?? null, "format"), []);
   const linked = tournament.linked;
   const tournamentHref = linked?.webSlug ? `/tournament/${linked.webSlug}` : "/tournaments";
   const showForm = p.canCreateTournament && !linked && formOpen;
@@ -172,33 +182,20 @@ export function DraftFinale(p: FinaleProps) {
                 void tournament.create();
               }}
             >
-              <label>
-                <span>Format</span>
-                <select
+              <div ref={focusFormat}>
+                <ThemedSelect
+                  label="Format"
                   value={tournament.format}
-                  onChange={(e) => {
-                    if (!tournament.creating) tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin");
-                  }}
-                  aria-disabled={tournament.creating || undefined}
-                  ref={focusFormat}
-                >
-                  <option value="round_robin">Round robin</option>
-                  <option value="single_elim">Single elimination</option>
-                </select>
-              </label>
-              <label>
-                <span>Match length</span>
-                <select
-                  value={tournament.bestOf}
-                  onChange={(e) => {
-                    if (!tournament.creating) tournament.setBestOf(e.target.value === "1" ? 1 : 3);
-                  }}
-                  aria-disabled={tournament.creating || undefined}
-                >
-                  <option value={3}>Best of 3</option>
-                  <option value={1}>Best of 1</option>
-                </select>
-              </label>
+                  onChange={(next) => { if (!tournament.creating) tournament.setFormat(next); }}
+                  choices={FORMAT_CHOICES}
+                />
+              </div>
+              <ThemedSelect
+                label="Match length"
+                value={tournament.bestOf}
+                onChange={(next) => { if (!tournament.creating) tournament.setBestOf(next); }}
+                choices={BEST_OF_CHOICES}
+              />
               {inheritedVisibilityNote(p.visibility) && <p className="fin-note">{inheritedVisibilityNote(p.visibility)}</p>}
               {tournament.error && (
                 <p className="fin-error" role="alert">

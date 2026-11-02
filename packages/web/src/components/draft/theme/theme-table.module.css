@@ -162,7 +162,7 @@
 .recoveryActs { display: flex; flex-wrap: wrap; gap: 8px; }
 .toolRow { display: grid; gap: 6px; min-width: 0; }
 .toolIn { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.toolIn > :global(.input), .toolIn > :global(select) { flex: 1 1 auto; min-width: 0; }
+.toolIn > :global(.input), .toolIn > :global(select), .toolSelect { flex: 1 1 auto; min-width: 0; }
 .search { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 .search > svg { position: absolute; left: 10px; color: var(--ink-3); pointer-events: none; }
 .search > :global(.input) { padding-left: 34px; }

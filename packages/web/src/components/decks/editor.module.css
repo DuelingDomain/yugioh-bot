@@ -86,7 +86,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-flagt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The points total stays in view while the deck scrolls. */
 .de-dbar[data-gx] { position: sticky; top: 0; z-index: 3; background: var(--ground); }
-.de-banf select:disabled { opacity: 1; color: var(--ink-2); font-size: 13px; }
+.de-banf button[role="combobox"]:disabled { opacity: 1; color: var(--ink-2); font-size: 13px; }
 .de-sec-b { display: grid; gap: 10px; }
 .de-sh { display: flex; align-items: center; gap: 12px; min-height: 38px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-lo); }
 .de-st { color: var(--ink); font: 600 19px/1 var(--f-display); }
@@ -180,7 +180,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-prow { display: contents; }
 .de-namef { min-width: 0; }
 .de-banf { display: block; }
-:global(.ms) .de-banf select { height: 38px; font-size: 14px; }
+:global(.ms) .de-banf button[role="combobox"] { height: 38px; font-size: 14px; }
 :global(.ms) .de-fmt button { min-height: 30px; padding: 0 9px; font-size: 13px; white-space: nowrap; }
 :global(.ms) .de-back { padding-inline: 8px; }
 .host[data-pool] .de-bar { grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr) auto auto; }

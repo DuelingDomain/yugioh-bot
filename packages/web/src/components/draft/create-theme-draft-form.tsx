@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { DraftConfig, DraftVisibility } from "@yugidraft/shared/types";
 import { StatusLine, SvButton, SvCheck } from "@/components/sheet";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { secondsText, themeSelectionText } from "./create/format";
 import { VisibilityChoice } from "./visibility/visibility-choice";
@@ -144,18 +145,12 @@ export function CreateThemeDraftForm({ discordEnabled = false, themeDraftsEnable
               </div>
               {discordEnabled && (
                 <div className="wide">
-                  <label className="label" htmlFor="theme-draft-channel">
-                    Channel
-                  </label>
-                  <select
-                    className="input select"
-                    id="theme-draft-channel"
+                  <ThemedSelect
+                    label="Channel"
                     value={channelId}
-                    onChange={(e) => setChannelId(e.target.value)}
-                  >
-                    <option value="">Default channel</option>
-                    {channels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
-                  </select>
+                    onChange={setChannelId}
+                    choices={[{ value: "", label: "Default channel" }, ...channels.map((ch) => ({ value: ch.id, label: `#${ch.name}` }))]}
+                  />
                   <p className="hint">The bot posts the draft here so people can join from Discord.</p>
                 </div>
               )}
