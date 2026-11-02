@@ -235,6 +235,25 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.seats[0].deck?.deck.main).toHaveLength(40);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
+  it("records one automatic placement sighting and undoes it atomically without orphaned recognition", () => {
+    const s = deckSession(); s.start();
+    const before = structuredClone(s.room);
+    const action = remoteActionSchema.parse({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", source: "auto",
+      idempotencyKey: "atomic-auto", card: { ref: "auto-card", cardId: 14558127, slot: 2 } });
+    expect(action).toMatchObject({ type: "twin.place", source: "auto" });
+    s.act(action);
+    expect(s.room.lastSeq).toBe(before.lastSeq + 1);
+    expect(s.room.events.slice(before.events.length)).toMatchObject([{ action: { type: "twin.place", source: "auto" },
+      effects: { facts: { 14558127: { code: 14558127, name: "Ash Blossom" } } } }]);
+    expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 14558127, zone: "monster", slot: 2 }]);
+    expect(s.room.state.deckChecks.instances).toMatchObject([{ code: 14558127, name: "Ash Blossom", refs: ["auto-card"], zone: "monster", slot: 2 }]);
+    expect(s.room.state.identified).toBeNull();
+    s.act({ type: "undo", targetActionId: s.room.state.undo!.actionId });
+    expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
+    expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
+    expect(s.room.state.identified).toEqual(before.state.identified);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {
     const { db, service, table, users } = setup();
     const events = service.get(table.slug,"g",users[0]).events;
