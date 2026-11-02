@@ -26,6 +26,7 @@ import { CardBrowser } from "@/components/decks/card-browser";
 import { getDeckCardFacets } from "@/components/decks/api";
 import type { BrowserView } from "@/components/decks/filter-model";
 import { cn } from "@/lib/utils";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { SandboxRequestError, defaultServices, pickByName, type BuilderServices } from "./api";
 import {
   DEFAULT_DECK_SIZE,
@@ -513,19 +514,19 @@ export function SandboxBuilder({
             </div>
           </fieldset>
 
-          <label className={styles.group}>
-            <span className={styles.legend}>Master Rule</span>
-            <select className="input select" value={state.board.masterRule ?? 5} onChange={(event) => act({ type: "setMasterRule", masterRule: Number(event.target.value) as DuelMasterRule })}>
-              {MASTER_RULES.map((rule) => <option key={rule} value={rule}>Master Rule {rule}</option>)}
-            </select>
-          </label>
+          <div className={styles.group}>
+            <span className={styles.legend} aria-hidden="true">Master Rule</span>
+            <ThemedSelect hideLabel compact label="Master Rule" value={state.board.masterRule ?? 5}
+              choices={MASTER_RULES.map((rule) => ({ value: rule, label: `Master Rule ${rule}` }))}
+              onChange={(masterRule) => act({ type: "setMasterRule", masterRule: masterRule as DuelMasterRule })} />
+          </div>
 
-          <label className={styles.group}>
-            <span className={styles.legend}>Turn player</span>
-            <select className="input select" value={state.board.turn ?? "p0"} onChange={(event) => act({ type: "setTurn", turn: event.target.value as SandboxDuelistId })}>
-              {seats.map((id) => <option key={id} value={id}>{id.toUpperCase()}</option>)}
-            </select>
-          </label>
+          <div className={styles.group}>
+            <span className={styles.legend} aria-hidden="true">Turn player</span>
+            <ThemedSelect hideLabel compact label="Turn player" value={state.board.turn ?? "p0"}
+              choices={seats.map((id) => ({ value: id, label: id.toUpperCase() }))}
+              onChange={(turn) => act({ type: "setTurn", turn })} />
+          </div>
 
           <label className={styles.group}>
             <span className={styles.legend}>Filler Deck</span>
@@ -549,20 +550,11 @@ export function SandboxBuilder({
           </label>
 
           <div className={styles.group}>
-            <label className={styles.legend} htmlFor="sbx-start-in">Start in</label>
-            <select
-              id="sbx-start-in"
-              className="input select"
-              value={state.board.startAt ?? "draw"}
-              aria-describedby={battleReason ? "sbx-start-hint" : undefined}
-              onChange={(event) => act({ type: "setStartAt", phase: event.target.value as SandboxStartPhase })}
-            >
-              {SANDBOX_START_PHASES.map((phase) => (
-                <option key={phase} value={phase} disabled={phase === "battle" && battleReason !== null}>
-                  {PHASE_LABEL[phase]} Phase
-                </option>
-              ))}
-            </select>
+            <span className={styles.legend} aria-hidden="true">Start in</span>
+            <ThemedSelect hideLabel compact label="Start in" value={state.board.startAt ?? "draw"}
+              describedBy={battleReason ? "sbx-start-hint" : undefined}
+              choices={SANDBOX_START_PHASES.map((phase) => ({ value: phase, label: `${PHASE_LABEL[phase]} Phase`, disabled: phase === "battle" && battleReason !== null }))}
+              onChange={(phase) => act({ type: "setStartAt", phase })} />
             {battleReason ? <span id="sbx-start-hint" className={extra.startHint}>{battleReason}</span> : null}
           </div>
 

@@ -42,29 +42,35 @@ describe("Start in", () => {
   it("lists the six phases, Draw first, and sets the board", async () => {
     const { user, last } = setup();
     const select = screen.getByRole("combobox", { name: "Start in" });
-    expect(select).toHaveValue("draw");
-    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Draw Phase", "Standby Phase", "Main 1 Phase", "Battle Phase", "Main 2 Phase", "End Phase"]);
-    await user.selectOptions(select, "main2");
+    expect(select).toHaveTextContent("Draw Phase");
+    await user.click(select);
+    expect(within(screen.getByRole("listbox", { name: "Start in" })).getAllByRole("option").map((o) => o.textContent)).toEqual(["Draw Phase", "Standby Phase", "Main 1 Phase", "Battle Phase", "Main 2 Phase", "End Phase"]);
+    await user.click(screen.getByRole("option", { name: "Main 2 Phase" }));
     expect(last().board.startAt).toBe("main2");
   });
 
   it("disables Battle on turn 1 with a hint, until Attack on turn 1 is on", async () => {
     const { user, last } = setup();
     const select = screen.getByRole("combobox", { name: "Start in" });
-    expect(screen.getByRole("option", { name: "Battle Phase" })).toBeDisabled();
+    await user.click(select);
+    expect(screen.getByRole("option", { name: "Battle Phase" })).toHaveAttribute("aria-disabled", "true");
     expect(select).toHaveAccessibleDescription(/Attack on turn 1/);
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("checkbox", { name: /attack on turn 1/i }));
-    expect(screen.getByRole("option", { name: "Battle Phase" })).toBeEnabled();
+    await user.click(select);
+    expect(screen.getByRole("option", { name: "Battle Phase" })).not.toHaveAttribute("aria-disabled", "true");
     expect(select).not.toHaveAccessibleDescription();
-    await user.selectOptions(select, "battle");
+    await user.click(screen.getByRole("option", { name: "Battle Phase" }));
     expect(last().board.startAt).toBe("battle");
   });
 
   it("opens Battle for a later turn player and says so when it falls back", async () => {
     const { user, last } = setup(stateOf("ffa3", { type: "setTurn", turn: "p1" }));
-    expect(screen.getByRole("option", { name: "Battle Phase" })).toBeEnabled();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Start in" }), "battle");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Turn player" }), "p0");
+    await user.click(screen.getByRole("combobox", { name: "Start in" }));
+    expect(screen.getByRole("option", { name: "Battle Phase" })).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(screen.getByRole("option", { name: "Battle Phase" }));
+    await user.click(screen.getByRole("combobox", { name: "Turn player" }));
+    await user.click(screen.getByRole("option", { name: "P0" }));
     expect(last().board.startAt).toBe("main1");
     expect(screen.getAllByRole("status").some((el) => /changed to Main 1/.test(el.textContent ?? ""))).toBe(true);
   });
@@ -117,7 +123,7 @@ describe("share code", () => {
     await user.click(screen.getByRole("button", { name: /^undo/i }));
     // Undo returns the first board object, which the builder does not report as a change. Check the page.
     await waitFor(() => expect(screen.queryByTestId("table-view")).toBeNull());
-    expect(screen.getByRole("combobox", { name: "Start in" })).toHaveValue("draw");
+    expect(screen.getByRole("combobox", { name: "Start in" })).toHaveTextContent("Draw Phase");
   });
 
   it("does not rename a board that has a name", async () => {

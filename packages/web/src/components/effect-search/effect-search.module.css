@@ -15,17 +15,8 @@
 /* The Exact text switch and the sort choice share one row; on a narrow screen the sort wraps below. */
 .opts { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 14px; }
 .sort { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12.5px; }
-.sort select {
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--rule-lo);
-  border-radius: 7px;
-  background: var(--panel-2);
-  color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-}
-.sort select:focus-visible { outline: none; border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
+/* The themed select (ui/themed-select) draws its own button; only its width is set here. */
+.sortSelect { width: 132px; }
 .eraSlot { min-height: 58px; }
 
 /* The era note: muted text only, no box, so nothing moves or overlaps. */
@@ -217,17 +208,8 @@
 }
 .barCount { color: var(--ink); font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .barCopies { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12.5px; }
-.barCopies select {
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--rule-lo);
-  border-radius: 7px;
-  background: var(--panel-2);
-  color: var(--ink);
-  font: inherit;
-  font-size: 13.5px;
-}
-.barCopies select:focus-visible { outline: none; border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
+.barSelect { width: 84px; }
+.sizeSelect { width: 120px; }
 .barActs { display: inline-flex; flex: 1 1 auto; justify-content: flex-end; gap: 8px; }
 .barNote { flex-basis: 100%; margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.45; }
 /* On a phone the floating "Report bug" button sits at the bottom right, over the Add button. Keep the actions to the left. */

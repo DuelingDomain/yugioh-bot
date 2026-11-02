@@ -187,7 +187,7 @@ for (const format of ['1v1', 'ffa3'] as const) {
           replayError: { code: 'REPLAY_TOO_LARGE', error: 'Move views exceed the size limit.' } } });
       });
       await alice.page.goto(link.href);
-      await expect(alice.page.getByRole('combobox', { name: 'Jump in at move' })).toHaveValue(frame.frameId);
+      await expect(alice.page.getByRole('combobox', { name: 'Jump in at move' }).locator('xpath=..').locator('select')).toHaveValue(frame.frameId);
       // The preview controller must not replace the requested moment in the URL.
       await expect.poll(() => new URL(alice.page.url()).searchParams.get('frame')).toBe(frame.frameId);
       const oversizedForked = alice.page.waitForResponse(r => r.url().endsWith(`/api/admin/duels/${slug}/replay/fork`) && r.request().method() === 'POST');

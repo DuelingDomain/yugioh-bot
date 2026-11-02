@@ -5,6 +5,7 @@ import { ClipboardPaste, Plus, Search, X } from "lucide-react";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { cardDetailsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { pickByName, type BuilderServices } from "./api";
 import { parseCardList, type PileZone } from "./board-model";
 import { ADD_TARGETS, zoneName, type AddTarget } from "./placement";
@@ -12,6 +13,7 @@ import { CardThumb, writeListDrag } from "./zone-slot";
 import styles from "./builder.module.css";
 
 const PASTE_ZONES: readonly PileZone[] = ["hand", "deck", "grave", "banished", "extra"];
+const PASTE_ZONE_CHOICES = PASTE_ZONES.map((zone) => ({ value: zone, label: zoneName(zone) }));
 const HITS = 8;
 const DEBOUNCE_MS = 140;
 
@@ -251,12 +253,9 @@ export function QuickAdd({ seatLabel, services, target, onTarget, armed, onArm, 
               onChange={(event) => setPasteText(event.target.value)}
             />
             <div className={styles.pasteRow}>
-              <label>
-                <span className="sr">Put the list in</span>
-                <select className="input select" value={pasteZone} onChange={(event) => setPasteZone(event.target.value as PileZone)}>
-                  {PASTE_ZONES.map((zone) => <option key={zone} value={zone}>{zoneName(zone)}</option>)}
-                </select>
-              </label>
+              <div className={styles.pasteZone}>
+                <ThemedSelect hideLabel compact label="Put the list in" value={pasteZone} choices={PASTE_ZONE_CHOICES} onChange={setPasteZone} />
+              </div>
               <div className="seg" role="group" aria-label="Paste mode">
                 <button type="button" aria-pressed={pasteMode === "append"} onClick={() => setPasteMode("append")}>Add</button>
                 <button type="button" aria-pressed={pasteMode === "replace"} onClick={() => setPasteMode("replace")}>Replace</button>

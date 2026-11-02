@@ -195,7 +195,7 @@ export function EdgeDrawer({
     if (!open || !closeOnOutside) return;
     const onDown = (event: PointerEvent) => {
       // A press on the tab of another drawer is a switch, not an outside press: that click closes this drawer and opens the other.
-      if (event.target instanceof Element && event.target.closest("[data-edge-drawer]")) return;
+      if (event.target instanceof Element && event.target.closest("[data-edge-drawer], [data-themed-select-layer]")) return;
       if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) request(false, "click", false);
     };
     document.addEventListener("pointerdown", onDown, true);

@@ -70,7 +70,7 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
       if ((event as PointerEvent).button === 2) return;
       const target = event.target as Element | null;
       // An edge drawer (its tab included) closes itself; a press on its tab must not close it first and let the click open it again.
-      if (target?.closest?.("[data-hud-keep], [data-edge-drawer]") || keep.current?.(target)) return;
+      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-themed-select-layer]") || keep.current?.(target)) return;
       close.current();
     };
     window.addEventListener("keydown", onKey, true);

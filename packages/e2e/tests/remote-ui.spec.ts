@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
+import { pickSelect } from "../helpers/themed-select";
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
@@ -1071,7 +1072,7 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
 test('field watcher automatic: a lab without a deck settles a best match and follows the card',async({page})=>{
   test.setTimeout(120_000);await appearingCamera(page);await page.goto('/dev/vision-lab');
   await page.getByRole('tab',{name:'Auto-detect',exact:true}).click();
-  await page.getByLabel('Auto-detect compute').selectOption('wasm');await page.getByRole('button',{name:'Start camera',exact:true}).click();
+  await pickSelect(page,'Auto-detect compute',{value:'wasm'});await page.getByRole('button',{name:'Start camera',exact:true}).click();
   await expect(page.getByTestId('auto-detect-status')).toContainText('Watching field');
   await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.videoWidth)).toBe(1280);
   await page.waitForTimeout(2000);await expect(page.getByTestId('auto-detect-twin').locator('li')).toHaveCount(0);

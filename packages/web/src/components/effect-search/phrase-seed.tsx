@@ -4,6 +4,7 @@ import * as React from "react";
 import { Check, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { cardImageUrl } from "@/lib/card-image-url";
 import type { CardSummary } from "@/lib/card-types";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { EraNote } from "./era-note";
 import { HowItPlays } from "./how-it-plays";
 import { EffectApiError, type BatchEntry, type SeedCategory, type SeedPreview, type SeedRole, type SeedRow } from "./effect-api";
@@ -24,6 +25,7 @@ const ROLE_LABEL: Record<SeedRole, string> = {
 };
 
 const SIZES = [60, 120, 180, 300] as const;
+const SIZE_OPTIONS = SIZES.map((value) => ({ value, label: `${value} cards` }));
 
 export interface SeedOutcome {
   added: number;
@@ -51,7 +53,6 @@ export function PhraseSeed({
   eraWarning?: string;
 }) {
   const inputId = React.useId();
-  const sizeId = React.useId();
   const [phrase, setPhrase] = React.useState("");
   const [size, setSize] = React.useState<number>(180);
   const [loading, setLoading] = React.useState(false);
@@ -160,16 +161,11 @@ export function PhraseSeed({
         <p className="hint">Type a theme. You see the cards and why each one is there before anything is added.</p>
       </div>
       <div className={styles.seedActs}>
-        <label className={styles.barCopies} htmlFor={sizeId}>
-          About
-          <select id={sizeId} value={size} onChange={(event) => setSize(Number(event.target.value))} disabled={loading || sending}>
-            {SIZES.map((n) => (
-              <option key={n} value={n}>
-                {n} cards
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className={styles.barCopies}>
+          <span aria-hidden="true">About</span>
+          <ThemedSelect hideLabel compact className={styles.sizeSelect} label="About" value={size} choices={SIZE_OPTIONS}
+            onChange={setSize} disabled={loading || sending} />
+        </div>
         <button type="button" className="btn btn-secondary" disabled={busy || loading || trimmed.length === 0} onClick={() => void load()} data-testid="phrase-preview">
           {loading ? "Reading..." : "Preview cards"}
         </button>

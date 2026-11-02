@@ -3,11 +3,12 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Flag, History, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { type DuelEngineView, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { useDuelPreferences } from "./preferences";
 import { useIsNarrow } from "./side-panel";
 import {
-  SPEEDS,
+  SPEED_CHOICES,
   stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
@@ -90,14 +91,12 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
   // The seat, card view and page links: in the header on a wide screen, in the transport bar on a narrow one.
   const viewControls = (
     <div className={styles.tools} role="group" aria-label="Replay view">
-      <label className={styles.field}>
-        <span>View from</span>
-        <select className={styles.select} value={camera} aria-label="View from seat" title="View from seat" onChange={(event) => controller.setCamera(Number(event.target.value))}>
-          {seats.map((seat) => (
-            <option key={seat} value={seat}>{nameOf(seat)} ({teamNames[seat % 2]})</option>
-          ))}
-        </select>
-      </label>
+      <div className={styles.field}>
+        <span aria-hidden="true">View from</span>
+        <ThemedSelect hideLabel compact className={styles.seatSelect} label="View from seat" title="View from seat" value={camera}
+          choices={seats.map((seat) => ({ value: seat, label: `${nameOf(seat)} (${teamNames[seat % 2]})` }))}
+          onChange={controller.setCamera} />
+      </div>
       {canSwitchCards ? (
         <div className={styles.segmented} role="group" aria-label="Card visibility">
           {(["mine", "public"] as const).map((value) => (
@@ -140,12 +139,8 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
         <input type="range" className={styles.slider} aria-label="Replay position" min={0} max={last} step={1} value={index}
           aria-valuetext={`Move ${index} of ${last}`} onChange={(event) => controller.seek(Number(event.target.value))} />
         <span className={styles.count}>{index} / {last}</span>
-        <label className={styles.speed}>
-          <span className="sr-only">Playback speed</span>
-          <select className={styles.select} value={speed} aria-label="Playback speed" onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </label>
+        <ThemedSelect hideLabel compact className={styles.speedSelect} label="Playback speed" value={speed}
+          choices={SPEED_CHOICES} onChange={controller.setSpeed} />
       </div>
       {narrow ? viewControls : null}
     </div>

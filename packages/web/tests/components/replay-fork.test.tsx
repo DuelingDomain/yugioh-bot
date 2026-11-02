@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom, ReplayForkControl } from "@yugidraft/shared/duels";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV2, session } from "./replay-fixtures";
+import { chooseThemed } from "../helpers/themed-select";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -408,7 +409,7 @@ describe("Jump in on the replay viewer", () => {
     server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
       ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() }) : json(oversized));
     await open(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Jump in at move" }), { target: { value: "f1" } });
+    chooseThemed("Jump in at move", "f1");
     expect(screen.getByText(/Final board preview/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
@@ -422,11 +423,11 @@ describe("Jump in on the replay viewer", () => {
       ? json({ slug: "fork-9", sourceFrameId: "f2", initialSeat: 0, room: forkRoom() })
       : json({ ...full, frames: [full.frames.at(-1)!], forkSteps, reveal: url.searchParams.get("reveal") === "1" }));
     await open(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Jump in at move" }), { target: { value: "f2" } });
+    chooseThemed("Jump in at move", "f2");
     fireEvent.click(screen.getByRole("button", { name: /Private view/ }));
     fireEvent.click(screen.getByLabelText("Reveal all hands"));
     await waitFor(() => expect(calls.some(call => call.url.searchParams.get("reveal") === "1")).toBe(true));
-    expect((await screen.findByRole("combobox", { name: "Jump in at move" }) as HTMLSelectElement).value).toBe("f2");
+    expect((await screen.findByRole("combobox", { name: "Jump in at move" })).parentElement!.querySelector("select")!.value).toBe("f2");
     fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
     expect(JSON.parse(String(calls.find(call => call.init?.method === "POST")!.init!.body)).cursor).toBe("c2");
@@ -437,7 +438,8 @@ describe("Jump in on the replay viewer", () => {
     server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
       ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() }) : json({ ...full, frames: [], forkSteps }));
     render(<DuelReplayView slug="game-1" canInspectSource />);
-    fireEvent.change(await screen.findByRole("combobox", { name: "Jump in at move" }), { target: { value: "f1" } });
+    await screen.findByRole("combobox", { name: "Jump in at move" });
+    chooseThemed("Jump in at move", "f1");
     fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
   });

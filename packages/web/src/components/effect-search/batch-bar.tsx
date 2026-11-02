@@ -3,11 +3,13 @@
 import * as React from "react";
 import { Plus } from "lucide-react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import type { Batch } from "./selection";
 import styles from "./effect-search.module.css";
 
 export const BATCH_COPY_CHOICES = [1, 2, 3] as const;
 export const DEFAULT_BATCH_COPIES = 3;
+const COPY_OPTIONS = BATCH_COPY_CHOICES.map((value) => ({ value, label: String(value) }));
 
 /**
  * The sticky bar under the list: how many cards are picked, how many copies each gets, and the one button that
@@ -34,7 +36,6 @@ export function BatchBar({
   onClear: () => void;
   onAdd: () => void;
 }) {
-  const id = React.useId();
   const n = batch.cards.size;
   if (n === 0 && !note) return null;
   return (
@@ -44,16 +45,19 @@ export function BatchBar({
           <span className={styles.barCount} role="status">
             {n} selected
           </span>
-          <label className={styles.barCopies} htmlFor={id}>
-            Copies each
-            <select id={id} value={copies} onChange={(event) => onCopies(Number(event.target.value))} disabled={busy}>
-              {BATCH_COPY_CHOICES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className={styles.barCopies}>
+            <span aria-hidden="true">Copies each</span>
+            <ThemedSelect
+              hideLabel
+              compact
+              className={styles.barSelect}
+              label="Copies each"
+              value={copies}
+              choices={COPY_OPTIONS}
+              onChange={onCopies}
+              disabled={busy}
+            />
+          </div>
           <span className={styles.barActs}>
             <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={onClear}>
               Clear

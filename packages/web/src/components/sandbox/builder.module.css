@@ -74,7 +74,7 @@
 .seatHead h3 span { color: var(--pen-ink); margin-left: 6px; font-size: 12px; }
 .lpField, .botField { display: flex; align-items: center; gap: 7px; font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
 .root .lpInput { width: 92px; height: 32px; font-size: 14px; text-align: right; }
-.botField :global(.select) { height: 32px; font-size: 13.5px; width: auto; }
+.botSelect { width: 150px; text-transform: none; letter-spacing: 0; }
 .botFixed { font-size: 13px; color: var(--ink-3); }
 .clearSeat { margin-left: auto; }
 
@@ -247,8 +247,7 @@
 .pasteBox { display: grid; gap: 8px; }
 .pasteBox textarea { height: auto; min-height: 110px; padding: 9px 12px; resize: vertical; line-height: 1.4; font-size: 13.5px; }
 .pasteRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.pasteRow label { flex: 1 1 110px; min-width: 0; }
-.root .pasteRow .input { height: 34px; font-size: 13.5px; }
+.pasteZone { flex: 1 1 110px; min-width: 0; }
 .pasteRow :global(.seg) button { min-height: 32px; padding: 0 12px; font-size: 13px; }
 
 /* ---- side panel: browse ------------------------------------------------------------------ */

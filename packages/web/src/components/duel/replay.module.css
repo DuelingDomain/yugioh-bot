@@ -26,13 +26,15 @@
 .iconButton:hover:not(:disabled):not([aria-disabled="true"]) { border-color: #d1ad6e; background: #2a2438; }
 .iconButton:disabled, .iconButton[aria-disabled="true"] { color: #6d7a8a; cursor: default; }
 .play { background: #352052; border-color: #b48bea; }
-.iconButton:focus-visible, .slider:focus-visible, .select:focus-visible, .link:focus-visible {
+.iconButton:focus-visible, .slider:focus-visible, .link:focus-visible {
   outline: 2px solid #c4a35a;
   outline-offset: 2px;
 }
 .slider { flex: 1 1 140px; min-width: 0; height: 40px; accent-color: #9b72d9; cursor: pointer; }
 .meta { display: flex; align-items: center; gap: 10px; margin-left: auto; font-variant-numeric: tabular-nums; color: #b6c7d9; white-space: nowrap; }
-.select { border: 1px solid #61738b; padding: 6px 8px; height: 36px; background: #142130; color: #e7edf6; }
+/* The speed and seat choices are themed selects (ui/themed-select); only their width is set here. */
+.speedSelect { width: 86px; }
+.seatSelect { width: 190px; max-width: 100%; }
 .note { color: #9db0c4; font-size: 13px; }
 .result {
   display: flex;

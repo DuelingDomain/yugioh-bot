@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { GitFork, Eye, TriangleAlert, X } from "lucide-react";
 import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
 import { BodyPortal, OpenForksButton, OpenForksSheet, type OpenForksState } from "./replay-open-forks";
@@ -255,14 +256,9 @@ export function ReplayOwnerView({ model, view, busy = false, onChange }: {
       <BodyPortal>
         <Sheet open={open} onClose={() => setOpen(false)} title="Private view">
           <div className={styles.sheetBody}>
-            <label>
-              <span>Show cards of</span>
-              <select aria-label="Show cards of" value={view.seat ?? ""} disabled={busy}
-                onChange={(event) => onChange({ ...view, seat: event.target.value === "" ? null : Number(event.target.value) })}>
-                <option value="">Default view</option>
-                {seats.map((seat) => <option key={seat} value={seat}>{nameOf(seat)} (seat {seat + 1})</option>)}
-              </select>
-            </label>
+            <ThemedSelect label="Show cards of" value={view.seat ?? ""} disabled={busy}
+              choices={[{ value: "", label: "Default view" }, ...seats.map((seat) => ({ value: seat, label: `${nameOf(seat)} (seat ${seat + 1})` }))]}
+              onChange={(next) => onChange({ ...view, seat: next === "" ? null : Number(next) })} />
             <label className={styles.check}>
               <input type="checkbox" checked={view.reveal} disabled={busy}
                 onChange={(event) => onChange({ ...view, reveal: event.target.checked })} />
@@ -317,12 +313,12 @@ export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onRel
     <span className={styles.group} data-replay-owner-tools data-tools-low={low || undefined}>
       {steps ? <>
         <span className={styles.note}>{model.frames.length ? "Final board preview." : "No board preview."} Choose a move to Jump in.</span>
-        <select className={styles.btn} aria-label="Jump in at move" title="Choose a move to Jump in" disabled={busy} value={checkpoint?.frameId ?? ""}
-          onChange={event => onSelectStep(event.target.value)}>
-          {steps.map(step => <option key={step.frameId} value={step.frameId} disabled={step.cursor === null}>
-            Move {step.step}{step.actorSeat === null ? "" : ` · Seat ${step.actorSeat + 1}`}
-          </option>)}
-        </select>
+        <ThemedSelect variant="menu" wide className={styles.jump} label="Jump in at move" title="Choose a move to Jump in" disabled={busy}
+          value={checkpoint?.frameId ?? ""} onChange={onSelectStep}
+          choices={steps.map(step => ({
+            value: step.frameId, disabled: step.cursor === null,
+            label: `Move ${step.step}${step.actorSeat === null ? "" : ` · Seat ${step.actorSeat + 1}`}`,
+          }))} />
       </> : null}
       <ReplayOwnerView model={model} view={view} busy={busy} onChange={onViewChange} />
       <OpenForksButton state={openForks} currentSlug={slug} />

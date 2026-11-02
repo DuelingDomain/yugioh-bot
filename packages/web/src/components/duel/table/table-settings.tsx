@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { ThemedSelect } from "@/components/ui/themed-select";
 import { BugReportMenuButton } from "../../bug-report/bug-report-menu-button";
 import type { DuelWebsocketState } from "@/lib/hooks/use-duel-websocket";
 import fxStyles from "../battle-fx.module.css";
@@ -11,7 +12,7 @@ import { DuelCardTextSizeControl } from "../card-text-size-control";
 import { DuelCardHoverInfoControl } from "../card-hover-info-control";
 import { DuelDiceSkinControl } from "../dice-skin-control";
 import { duelFontClasses } from "../fonts";
-import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, type DuelPreferences } from "../preferences";
+import { DUEL_MOTION_CHOICES, DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, type DuelPreferences } from "../preferences";
 import { DuelSettingsSummary, DuelSoundControls, RoomInvite } from "../room-settings";
 import roomStyles from "../room.module.css";
 import type { TableController } from "./types";
@@ -51,13 +52,8 @@ export function TableSettings({ controller, preferences, connection, tools, repl
         onEnabledChange={preferences.setSoundEnabled}
         onVolumeChange={preferences.setSoundVolume}
       />
-      <label className="flex flex-col gap-2">Motion
-        <select value={preferences.motion} onChange={(event) => preferences.setMotion(event.target.value as typeof preferences.motion)}>
-          <option value="system">Use device setting</option>
-          <option value="reduced">Reduced motion</option>
-          <option value="full">Full motion</option>
-        </select>
-      </label>
+      <ThemedSelect label="Motion" value={preferences.motion} onChange={preferences.setMotion}
+        choices={DUEL_MOTION_CHOICES} />
       <div className={`${fxStyles.shakeRow} ${duelFontClasses}`}>
         <span>Screen shake</span>
         <div className={fxStyles.segment} role="group" aria-label="Screen shake">

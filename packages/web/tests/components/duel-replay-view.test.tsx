@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelReplayV2 } from "@yugidraft/shared/duels";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV1, replayV2 } from "./replay-fixtures";
+import { chooseThemed } from "../helpers/themed-select";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -123,7 +124,7 @@ describe("DuelReplayView transport", () => {
       expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
       act(() => { vi.advanceTimersByTime(1400); });
       expect(screen.getByText("Move 1 / 3")).toBeTruthy();
-      fireEvent.change(screen.getByRole("combobox", { name: "Playback speed" }), { target: { value: "4" } });
+      chooseThemed("Playback speed", "4");
       act(() => { vi.advanceTimersByTime(350); });
       expect(screen.getByText("Move 2 / 3")).toBeTruthy();
     } finally {
@@ -166,7 +167,7 @@ describe("DuelReplayView requests and live actions", () => {
     stubServer(byVisibility((visibility) => replayV2({ visibility })));
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "1" } });
+    chooseThemed("View from seat", "1");
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
     await screen.findByRole("group", { name: "Replay controls" });
     for (const call of calls) {
@@ -193,7 +194,7 @@ describe("DuelReplayView camera and card visibility", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
     expect(lastField().mySeat).toBe(0);
     expect(screen.getByTestId("bottom-hand").textContent).toBe("100,101");
-    fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "1" } });
+    chooseThemed("View from seat", "1");
     expect(screen.getByText("Move 1 / 3")).toBeTruthy();
     expect(screen.getByTestId("field").dataset.bottom).toBe("1");
     expect(screen.getByTestId("field").dataset.spectator).toBe("true");
@@ -201,7 +202,7 @@ describe("DuelReplayView camera and card visibility", () => {
     expect(screen.getByTestId("top-name").textContent).toBe("Ada");
     expect(calls).toHaveLength(1);
     // Back on the viewer's own seat the board is theirs again.
-    fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "0" } });
+    chooseThemed("View from seat", "0");
     expect(screen.getByTestId("field").dataset.spectator).toBe("false");
   });
 
@@ -226,13 +227,13 @@ describe("DuelReplayView camera and card visibility", () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "1" } });
+    chooseThemed("View from seat", "1");
     expect(screen.getByTestId("field").dataset.bottom).toBe("1");
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
     await waitFor(() => expect(document.querySelector("[data-replay-visibility='public']")).not.toBeNull());
     expect(screen.getByText("Move 2 / 3")).toBeTruthy();
     expect(screen.getByTestId("field").dataset.bottom).toBe("1");
-    fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "0" } });
+    chooseThemed("View from seat", "0");
     expect(screen.getByTestId("bottom-hand").textContent).toBe("back,back");
     expect(screen.getByText(/hidden cards stay hidden/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Public" })).getAttribute("aria-pressed")).toBe("true");

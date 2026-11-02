@@ -21,14 +21,13 @@
 .top a { flex: none; font-size: 12px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .bar .icon { width: 34px; height: 34px; }
-.speedField { margin-left: auto; }
+.speedSelect { width: 86px; margin-left: auto; }
 .scrub { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .bar .slider { flex: 1 1 auto; min-width: 0; width: auto; height: 20px; }
 .count { flex: none; font-variant-numeric: tabular-nums; color: #b6c7d9; white-space: nowrap; }
-.bar .speed { height: 32px; padding: 4px 6px; }
 .view { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.view label { display: flex; align-items: center; gap: 6px; min-width: 0; color: #b6c7d9; }
-.bar .camera { height: 32px; padding: 4px 6px; max-width: 9.5em; }
+.cameraField { display: flex; align-items: center; gap: 6px; min-width: 0; color: #b6c7d9; }
+.cameraSelect { width: 11em; max-width: 100%; }
 .bar .cards { margin-left: auto; }
 .cards button { min-height: 32px; padding: 0 10px; }
 .result {
@@ -66,7 +65,7 @@
   .hidden, .top .note { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .top .note { max-width: 50%; }
   .result strong { font-size: 14px; }
-  .speedField { margin-left: 0; }
+  .speedSelect { margin-left: 0; }
   .view { justify-content: flex-start; }
   .bar .cards { margin-left: 0; }
 }
@@ -80,6 +79,4 @@
   .bar { padding: 6px 10px 8px; }
   .bar .icon { width: 40px; height: 40px; }
   .cards button { min-height: 36px; }
-  .bar .camera { height: 36px; }
-  .bar .speed { height: 36px; }
 }

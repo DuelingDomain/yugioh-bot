@@ -33,6 +33,8 @@ import type { DuelActivateHandler, DuelHoverHandler } from "./field-keys";
 
 export const BASE_STEP_MS = 1400;
 export const SPEEDS = [0.5, 1, 2, 4] as const;
+/** The playback speed list of the replay bars. */
+export const SPEED_CHOICES = SPEEDS.map((value) => ({ value: value as number, label: `${value}×` }));
 /** The query parameter that keeps the selected frame across a reload. */
 export const FRAME_PARAM = "frame";
 
@@ -424,7 +426,7 @@ export function replayKeyAction(event: KeyboardEvent, doc: Pick<Document, "query
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return null;
   const target = event.target instanceof HTMLElement ? event.target : null;
   const tag = target?.tagName;
-  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.isContentEditable) return null;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.getAttribute("role") === "combobox" || target?.isContentEditable) return null;
   // A dialog owns the keyboard, whether focus is inside it or still on the page behind it.
   if (target?.closest("[role='dialog']") || doc.querySelector("[role='dialog'][aria-modal='true']:not([inert])")) return null;
   // The log and the table panels scroll with these keys; they are not the transport.
