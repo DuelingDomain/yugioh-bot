@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
+import type {RemoteFieldCard} from '@yugidraft/shared/remote';
+import {hitTrackedCards} from '@/lib/remote/field-track-cache';
 import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
@@ -25,12 +27,14 @@ export type FeedHit = {
   frames?: HTMLCanvasElement[];
   /** True for a click on the live feed. The table then drops the result if the person closed the popup meanwhile. */
   live?: boolean;
+  cached?:RemoteFieldCard;
+  frozenFrame?:HTMLCanvasElement;
 };
 /** Where a click landed, before the card under it is known. */
 export type FeedStart = { x: number; y: number; anchor: Rect; feed: Rect };
 export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]; live?: boolean };
 type Box = { left: number; top: number; width: number; height: number };
-type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
+type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
 const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
@@ -221,8 +225,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     setSay(`Card ${index + 1} of ${count}, ${card.kind === "face-up" ? "face up" : "face down"}, selected.`);
     // The card quad belongs to the frozen frame, so the reader gets that same frame.
     const canvas = frozenRef.current?.canvas;
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(canvas ? { frames: [copyOf(canvas)] } : {}) });
-  }, [anchorOf, feedRect, onSelect, seat]);
+    const cached=card.kind==='face-up'&&!card.covered?hitTrackedCards(frozenRef.current?.cached??[],card.cx,card.cy):undefined;
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(cached?{cached,frozenFrame:canvas}:canvas ? { frames: [copyOf(canvas)] } : {}) });
+  }, [anchorOf, feedRect, onSelect, seat,hub]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {
     const element = video.current; if (!element || !element.videoWidth) return;
@@ -232,7 +237,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     const context = canvas.getContext("2d"); if (!context) return;
     context.drawImage(element, 0, 0, canvas.width, canvas.height);
     const token = ++run.current;
-    const base: Frozen = { pinned, status: "detecting", cards: [], note: "", ms: 0, canvas, pending };
+    const base: Frozen = { pinned, status: "detecting", cards: [],cached:hub.trackedCards(seat), note: "", ms: 0, canvas, pending };
     frozenRef.current = base; setFrozenState(base); setActive(-1); setHover(-1); setSelected(null); setSay("Frame frozen. Looking for cards.");
     const result = await createImageBitmap(canvas).then(detectCards, () => ({ status: "error" as const, cards: [] as [], note: "The frame could not be read." }));
     if (token !== run.current) return;
@@ -240,7 +245,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     const note = result.status === "ready" ? "" : result.note;
     setFrozenState(f => f && { ...f, status: result.status, cards, note, ms: result.status === "ready" ? result.ms : 0 });
     setSay(result.status === "ready" ? (cards.length ? `${cards.length} ${cards.length === 1 ? "card" : "cards"} outlined. Tab moves between cards, Enter opens one, Escape resumes the live feed.` : "No cards found in this frame.") : note);
-  }, []);
+  }, [hub.trackedCards,seat]);
 
   // A click that arrived while the frame was still being read lands on its card once the outlines exist.
   useEffect(() => {
@@ -279,6 +284,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     const p = point(event.clientX, event.clientY); if (!p || !box) return;
     wrap.current?.focus({ preventScroll: true });
     const f = frozenRef.current;
+    const cached=!f?hub.trackedAt(seat,p.x,p.y):undefined;
+    if(cached){
+      ++run.current;
+      onSelect(seat,{x:p.x,y:p.y,quad:cached.quad,kind:'face-up',confidence:1,refined:true,covered:false,index:0,count:1,anchor:anchorOf(cached.quad),feed:feedRect(),cached});
+      return;
+    }
     if (!f) { void liveClick(p); return; }
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
@@ -334,6 +345,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   useEffect(() => {
     if (!shownId || !frame || !frameCards) { setPeekLabel(null); return; }
     if (shownKind === "face-down") { setPeekLabel({ id: shownId, state: "ready", text: "Face-down card" }); return; }
+    const tracked=shownCard&&!shownCovered?hitTrackedCards(frozen?.cached??[],shownCard.cx,shownCard.cy):undefined;
+    if(tracked){setPeekLabel({id:shownId,state:'ready',text:tracked.name??`Card ${tracked.cardId}`,tier:'sure'});return;}
     const cached = peekCache.current.get(shownId); if (cached) { setPeekLabel(cached); return; }
     setPeekLabel({ id: shownId, state: "loading", text: "Reading…", covered: shownCovered });
     const controller = new AbortController();
@@ -439,8 +452,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       }) : null}
       {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
     </div>
-    <span className={s.ctag}><i />{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span>
-    {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`}>
+    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
+    {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
         {onReadBoard && frozen.status === "ready" && frozen.cards.length ? <button type="button" className={s.fzbtn} disabled={board?.state === "reading"} onClick={() => void readAll()} data-testid="read-board" aria-keyshortcuts="R">
@@ -450,6 +463,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
+      <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>
     {extra}

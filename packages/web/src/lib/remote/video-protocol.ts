@@ -65,8 +65,8 @@ export class RecognitionChannel {
     this.pending.set(requestId, { owner, requester: from, at: this.now() });
     this.lastAccepted.set(from, this.now());
   }
-  async request(owner: number, x: number, y: number, requestId = crypto.randomUUID()) {
-    const message = remoteDataMessageSchema.parse({ type: "recognition.request", feedOwnerSeat: owner, x, y, requestId }) as RecognitionRequest;
+  async request(owner: number, x: number, y: number, requestId = crypto.randomUUID(), force=false) {
+    const message = remoteDataMessageSchema.parse({ type: "recognition.request", feedOwnerSeat: owner, x, y, requestId,...(force?{force:true}:{}) }) as RecognitionRequest;
     this.announce(this.seat, requestId, owner);
     if (!this.pending.has(requestId)) throw new Error("Wait before requesting another card");
     // Observers see only correlation IDs/owner, never the click coordinates.

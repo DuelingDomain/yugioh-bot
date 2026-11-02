@@ -12,6 +12,25 @@ test('index roundtrip validates dimensions and ranks with bounded priors', () =>
   assert.throws(() => decodeIndex(new ArrayBuffer(3), meta));
   assert.throws(() => topK(new Float32Array(3), index, 2));
 });
+test('flat catalog search preserves cosine, alternate-art deduplication, ties and restrictions',()=>{
+  for(const vectors of [new Int8Array([3,4,5,0,0,0,-3,-4,0,5,3,4]),new Float32Array([.3,.4,.5,0,0,0,-.3,-.4,0,.5,.3,.4])]) {
+    const entries=['alt','alt','zero','negative','other','tie'].map((cardId,i)=>({cardId,passcode:i+1,name:cardId,frameClass:i===4?'Spell':'Effect'}));
+    const index={meta:{...meta,count:6,dtype:vectors instanceof Int8Array?'int8' as const:'float32' as const,entries},vectors};
+    const plain=topK(new Float32Array([1,0]),index,10);
+    assert.deepEqual(plain.map(c=>c.cardId),['alt','tie','other','negative']);
+    assert.ok(Math.abs(plain[0].score-1)<1e-6);assert.ok(Math.abs(plain[1].score-.6)<1e-6);
+    const restricted=topK(new Float32Array([1,0]),index,3,undefined,undefined,new Set(['tie','alt']));
+    assert.deepEqual(restricted.map(c=>c.cardId),['alt','tie']);
+    assert.equal(topK(new Float32Array([0,1]),index,1,{frameClasses:['Spell']})[0].cardId,'other');
+    assert.equal(topK(new Float32Array([.6,.8]),index,1,{voiceMentioned:['tie']})[0].cardId,'tie');
+  }
+});
+test('catalog ties follow the first eligible artwork after zero norms and class restrictions',()=>{
+  const index={meta:{...meta,count:3,entries:[{cardId:'alt',passcode:1,name:'Alt',frameClass:'Spell'},{cardId:'other',passcode:2,name:'Other',frameClass:'Effect'},{cardId:'alt',passcode:1,name:'Alt',frameClass:'Effect'}]},vectors:new Float32Array([1,0,1,0,1,0])};
+  assert.deepEqual(topK(new Float32Array([1,0]),index,2,{frameClasses:['Effect']}).map(c=>c.cardId),['other','alt']);
+  const zeroFirst={...index,vectors:new Float32Array([0,0,1,0,1,0])};
+  assert.deepEqual(topK(new Float32Array([1,0]),zeroFirst,2).map(c=>c.cardId),['other','alt']);
+});
 test('Laplacian variance distinguishes flat and detailed frames', () => {
   const data = new Uint8ClampedArray(16 * 16 * 4).fill(128);
   const flat = sharpness({ width: 16, height: 16, data });
@@ -68,7 +87,7 @@ test('full catalog retains Tokens, Skills and alternate artwork', () => {
 });
 
 import { createRecognizer } from './client';
-import { webRuntime, type WebOrt } from './web-runtime';
+import { webRuntime, openModelSession, type WebOrt } from './web-runtime';
 test('game shorthand validates before allocating a worker and disposal rejects recognition', async () => {
   assert.throws(() => createRecognizer({game: 'unknown' as 'yugioh'}), /Unsupported game/);
   const reader = createRecognizer({game: 'yugioh'}); reader.dispose();
@@ -81,6 +100,22 @@ test('isolated WASM enables four threads and SIMD; other pages keep one thread',
   assert.equal(ort!.env.wasm.numThreads, 4); assert.equal(ort!.env.wasm.simd, true);
   webRuntime({...deps, crossOriginIsolated: false});
   assert.equal(ort!.env.wasm.numThreads, 1);
+});
+test('auto uses an available WebGPU adapter and retries a failed run on threaded SIMD WASM',async(t)=>{
+  t.mock.method(console,'debug',()=>{});t.mock.method(console,'warn',()=>{});
+  let fail=false,gpuRuns=0,wasmRuns=0;
+  class Tensor {constructor(public type:string,public data:Float32Array,public dims:number[]){}}
+  const output={vector:{data:new Float32Array([1,0]),dims:[1,2]}};
+  const build=(gpu:boolean)=>({env:{wasm:{}},Tensor,InferenceSession:{create:async()=>({release:async()=>{},run:async()=>{
+    if(gpu){gpuRuns++;if(fail)throw new Error('GPU device lost');}else wasmRuns++;return output;
+  }})}} as unknown as WebOrt);
+  const wasm=build(false),gpu=build(true);
+  const {session}=await openModelSession('model.onnx','test-model',{ort:wasm,ortWebGpu:async()=>gpu,gpu:{requestAdapter:async()=>({info:{vendor:'test-gpu'}})},fetch:async()=>new Response(new Uint8Array([1,2,3])),getURL:path=>path,crossOriginIsolated:true,hardwareConcurrency:8});
+  const feeds={input:new Tensor('float32',new Float32Array([1]),[1])};
+  await session.run(feeds);assert.equal(session.ep,'webgpu');assert.equal(gpuRuns,1);assert.equal(wasmRuns,0);
+  fail=true;await session.run(feeds);assert.equal(session.ep,'wasm');assert.equal(wasmRuns,1);
+  await session.run(feeds);assert.equal(gpuRuns,2);assert.equal(wasmRuns,2);
+  assert.equal(wasm.env.wasm.numThreads,4);assert.equal(wasm.env.wasm.simd,true);await session.release();
 });
 
 import { detectFullArtLayout, fullArtProfile } from './full-art';
@@ -117,6 +152,21 @@ test('AI client blocks automatic sure calls and only sends the requested small c
     await reader.askAI(result,{explicitRequest:true});
     assert.deepEqual(body,{jpegBase64:'jpeg',localTier:'sure',explicitRequest:true});
   } finally {globalThis.fetch=oldFetch;reader.dispose();}
+});
+test('a deferred AI crop is encoded only when asked and keeps the large source crop',async()=>{
+  const originalWorker=globalThis.Worker,originalFetch=globalThis.fetch,messages:string[]=[],bodies:any[]=[];
+  class FakeWorker {
+    onmessage?: (event:{data:unknown})=>void;
+    postMessage(message:{id:number;type:string;token?:string}){messages.push(message.type);queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:message.type==='aiCrop'?'source-640-jpeg':null}}));}
+    terminate(){}
+  }
+  globalThis.Worker=FakeWorker as unknown as typeof Worker;globalThis.fetch=async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return Response.json({name:null,match:null});};
+  const reader=createRecognizer();
+  try {
+    const result={tier:'not sure',cropJpeg:'small-training-jpeg',aiCropToken:'scoped-read-1',candidates:[]} as any;
+    assert.equal(messages.length,0);await reader.askAI(result,{explicitRequest:true});
+    assert.deepEqual(messages,['init','aiCrop']);assert.equal(bodies[0].jpegBase64,'source-640-jpeg');
+  }finally{reader.dispose();globalThis.Worker=originalWorker;globalThis.fetch=originalFetch;}
 });
 
 test('tiny outlines have a 24 CSS pixel target without taking direct polygon hits',()=>{

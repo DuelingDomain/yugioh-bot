@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
+import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
 /** Loads one table, keeps it fresh from the socket (5 s poll as backup) and posts actions. */
@@ -17,8 +18,9 @@ export function useRemoteRoom(slug: string) {
   const [error, setError] = useState("");
   const [realtime, setRealtime] = useState("Connecting…");
   const roomRef = useRef<RemoteRoom | undefined>(room);
-  roomRef.current = room;
-  const lastSeq = useRef(0);
+  if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;
+  const lastSeq = useRef(0),tableKey=useRef(slug);
+  if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
   const socketRef = useRef<Socket<RemoteServerEvents, RemoteClientEvents> | null>(null);
   const dataHandlers = useRef(new Set<(payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void>());
@@ -66,23 +68,31 @@ export function useRemoteRoom(slug: string) {
   }, [slug, router, mutate]);
 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
-  const action = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
-    const current = roomRef.current; if (!current) return null;
+  const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
+    const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
     const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey } as RemoteAction };
     setError("");
     try {
       const updated = await remoteApi<RemoteRoom>(`/${slug}/actions`, input);
+      if(tableKey.current!==slug)return updated;
       lastSeq.current = Math.max(lastSeq.current, updated.lastSeq);
       roomRef.current = updated;
       await mutate(old => old && old.lastSeq > updated.lastSeq ? old : updated, { revalidate: false });
       return updated;
-    } catch (e) { setError((e as Error).message); void mutate(); return null; }
+    } catch (e) {
+      if(tableKey.current!==slug)return null;
+      setError((e as Error).message);
+      try{const refreshed=await mutate();if(tableKey.current===slug&&refreshed?.slug===slug){roomRef.current=refreshed;lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);}}catch{/* Keep the failed action recoverable during a network outage. */}
+      return null;
+    }
   }, [slug, mutate]);
+
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction),[postAction,slug]);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);
   const onData = useCallback((handler: (payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void) => {
     dataHandlers.current.add(handler); return () => { dataHandlers.current.delete(handler); };
   }, []);
 
-  return { slug, room, loadError, busy, error, setError, realtime, operation, action, mutate, sendData, onData };
+  return { slug, room, loadError, busy, error, setError, realtime, operation, action, transaction, mutate, sendData, onData };
 }

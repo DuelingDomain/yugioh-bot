@@ -31,6 +31,8 @@ import { Icon } from "./icons";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
+import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
+import { AutoFieldWatcher } from "../field-watcher";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const UNDO_MS = 5000;
@@ -39,7 +41,7 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
 
-type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; tier?: Tier; covered?: boolean; token?: number };
+type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; tier?: Tier; covered?: boolean; token?: number };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -213,8 +215,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
   /** Where a new card goes on a field: its row, the first free slot and a fresh ref. */
-  const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>) => {
-    const current = R.current.room;
+  const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>, current=R.current.room) => {
     const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = spellTrap && /field/i.test(found?.type ?? "");
     const emzSlot = !spellTrap && /link/i.test(found?.type ?? "") && hasExtraZones(current.format?.id) ? freeEmzSlot(seat, current.state.seats) : undefined;
     const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : emzSlot ? "extra-monster" : "monster";
@@ -230,9 +231,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (other !== null) for (const card of seats[other]?.twin ?? []) if (card.zone === "extra-monster" && card.slot) used.add(mirrorEmz(card.slot));
     return [1, 2].find(n => !used.has(n));
   };
-  /** A public copy of this card already on the field. The same physical card must not be put there twice. */
-  const copyOnField = (seat: number, cardId: number) =>
-    R.current.room.state.seats[seat].twin.find(card => cardCode(card) === cardId && card.faceUp && card.zone !== "hand" && card.zone !== "deck");
   const saveSample = useCallback((token: number | undefined, cardId: number, source: FeedbackSource | undefined) => {
     if (token === undefined || !source) return;
     void hub.recordFeedback(token, cardId, source).then(result => { if (result.ok && R.current.feedbackAdmin) toast("Saved to the training set"); else if (result.note) toast(result.note); });
@@ -240,33 +238,37 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   const identify = useCallback(async (pick: Pick, source: "click" | "auto" | "voice" | "typed") => {
     const at = ctx.current; if (!at) return;
-    const { seat } = at; const current = R.current.room;
+    const { seat } = at;
     // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
     // The table refused the card (for example it closed meanwhile). Say so: a popup that only vanishes looks like a bug.
     const bail = () => { layers.close("tray"); setTray(null); toast("The table did not accept this card. Nothing was placed.", 4200); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
-    const owns = current.solo || seat === current.mySeat;
-    // Reuse an explicit/private origin first, then the reviewed public-copy match.
-    const revealRef = owns ? remoteRecognitionRef(current.state, seat, pick.cardId, at.cardRef) : undefined;
-    const same = owns ? current.state.seats[seat].twin.find(card => card.ref === at.cardRef)
-      ?? current.state.seats[seat].twin.find(card => card.ref === revealRef) ?? copyOnField(seat, pick.cardId) : undefined;
-    const spot = same ? { row: same.zone, slot: same.slot, ref: same.ref } : layoutFor(seat, pick.cardId, found);
-    const { row, slot, ref } = spot;
-    // Place a new physical card before attaching its sighting.
-    if (owns && !same) {
-      const place = await act({ type: "twin.place", actorSeat: current.solo ? seat : current.mySeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
-      if (!place) { bail(); return; }
-    }
-    if (owns) setFresh(ref);
-    const updated = await act({ type: "card.identified", actorSeat: current.mySeat, seat, cardId: pick.cardId, name: pick.name, source, ...(owns ? { cardRef: ref, zone: row, ...(slot ? { slot } : {}) } : {}) });
+    const outcome=await ctl.transaction(async(current,apply)=>{
+      const owns = current.solo || seat === current.mySeat;
+      // Keep explicit private-origin targeting inside the shared mutation queue.
+      const targetRef = at.ref ?? at.cardRef;
+      const revealRef = owns ? remoteRecognitionRef(current.state, seat, pick.cardId, targetRef) : undefined;
+      const same = owns ? current.state.seats[seat].twin.find(card => card.ref === targetRef)
+        ?? current.state.seats[seat].twin.find(card => card.ref === revealRef)
+        ?? current.state.seats[seat].twin.find(card => cardCode(card) === pick.cardId && card.faceUp && !['hand', 'deck'].includes(card.zone)) : undefined;
+      const spot=same?{row:same.zone,slot:same.slot,ref:same.ref}:layoutFor(seat,pick.cardId,found,current);
+      const {row,slot,ref}=spot;
+      let updated:RemoteRoom|null=null;
+      if(owns&&!same)updated=await apply({type:'twin.place',actorSeat:current.solo?seat:current.mySeat,seat,zone:row,card:{ref,cardId:pick.cardId,name:pick.name,...(slot?{slot}:{}),faceUp:true,position:'attack'}});
+      else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(owns?{cardRef:ref,zone:row,...(slot?{slot}:{})}:{})});
+      return {updated,owns,ref};
+    });
+    const {updated,owns,ref}=outcome;
+    if(owns&&updated)setFresh(ref);
     if (!updated) { bail(); return; }
     saveSample(at.token, pick.cardId, pick.feedback);
-    setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
-    const not = updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
+    const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
+    setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
+    const not = identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
     // One outline per card, and one active selection at a time: a new read replaces the older outlines on this feed.
-    setMarks(all => ({ ...all, [seat]: [{ id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(updated.state.identified?.addErrors?.length) }] }));
+    setMarks(all => ({ ...all, [seat]: [{ id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad, canAdd: owns && !(identified?.addErrors?.length) }] }));
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
     // The outline expires after a few seconds, unless the popup for this card is still open.
     const expire = () => { if (popupHeld.current === seat) { setTimeout(expire, 2000); return; } setMarks(all => (all[seat] ?? []).some(mark => mark.id === markId) ? { ...all, [seat]: (all[seat] ?? []).filter(mark => mark.id !== markId) } : all); };
@@ -274,7 +276,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setPopAt(at.at); layers.open("card");
     if(ctx.current) delete ctx.current.cardRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [act, layers, hub, saveSample, toast]);
+  }, [ctl.transaction, layers, hub, saveSample, toast]);
 
   /** The person says the board holds one more copy of the open card: it goes on the field as a second card. */
   const anotherCopy = async () => {
@@ -300,8 +302,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, name, toast]);
 
-  const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
-    const hit = found?.hit; const extra = hit ?? found?.point;
+  const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
+    let hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     if(hit?.kind==="face-down") {
       const origins=R.current.state.effectTracking?.origins.filter(o=>o.seat===seat && o.destination==="set" && R.current.state.seats[seat].twin.some(c=>c.ref===o.ref && !c.faceUp)) ?? [];
@@ -312,18 +314,25 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       }
       toast(origins.length ? origins.map(o=>"Face-down · Set by "+o.source.name).join("; ") : "Face-down card"); layers.close(); return;
     }
+    const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
+    // A stale transport quad must not steer a fresh read or bind its old ref.
+    if(hit?.cached&&!cached)hit=undefined;
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
-    const at: PopAt = { anchor: hit?.anchor ?? found?.point?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
-    ctx.current = { seat, x, y, quad: hit?.quad, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}), ...(hit?.covered ? { covered: true } : {}) };
+    const at: PopAt = { anchor: extra?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
+    ctx.current = { seat, x, y, quad: hit?.quad, at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
+    if(cached){
+      setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,tier:'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
+      setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
+    }
     if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
     setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     let result: Awaited<ReturnType<typeof hub.read>>;
-    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, extra?.frames); }
+    try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, (found?.hit?.cached&&!cached?undefined:extra?.frames),found?.force); }
     catch {
       // The read failed or was cut off. Never leave the popup on "Reading…".
       if (readCounter.current !== id) return;
@@ -600,7 +609,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
-    onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
+    onWrong: () => { if (!subject) return;
+      if(subject.via==='tracked'&&ctx.current&&ctx.current.ref&&ctx.current.ref===subject.ref){
+        const at=ctx.current,frozen=(solo||subject.seat===mySeat)&&at.frozenFrame?{x:at.x,y:at.y,frame:at.frozenFrame}:undefined;
+        const target=trackedRereadTarget(at.ref!,hub.trackedCards(subject.seat),frozen);
+        if(target){void startRead(subject.seat,target.x,target.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!,frames:target.frames},force:true,ref:subject.ref});return;}
+      }
+      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
     onActivate: subject && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
@@ -631,7 +646,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const humans = healthRows.filter(row => !room.seats.find(item => item.seat === row.seat)?.bot);
   const worst = humans.some(row => row.health.q === "bad") ? "bad" : humans.some(row => row.health.q === "warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
   const healthText = worst === "good" ? "All feeds ok" : worst === "off" ? "Cameras off" : `${humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length} feed${humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length === 1 ? "" : "s"} weak`;
-  const format = room.format ?? normalizeRemoteFormat();
+  const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
@@ -640,6 +655,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   void draftPhase;
 
   return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-testid="remote-table" data-status={room.status}>
+    <AutoFieldWatcher room={room} transaction={ctl.transaction} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}

@@ -7,29 +7,58 @@ export function normalize(v: Float32Array): Float32Array {
   if (!Number.isFinite(norm) || norm === 0) throw new Error('Invalid embedding');
   return Float32Array.from(v, x => x / norm);
 }
+interface SearchData { inverseNorms:Float64Array; rowsByCard:Map<string,number[]>; order:Map<string,number> }
+const prepared=new WeakMap<LoadedIndex,SearchData>();
+/** Immutable loaded indexes live for the worker lifetime; norms never depend on a query. */
+export function prepareSearch(index:LoadedIndex):SearchData {
+  const cached=prepared.get(index);if(cached)return cached;
+  const {count,dim,entries}=index.meta,vectors=index.vectors;
+  const inverseNorms=new Float64Array(count),rowsByCard=new Map<string,number[]>(),order=new Map<string,number>();
+  for(let row=0;row<count;row++) {
+    let norm=0;for(let d=row*dim,end=d+dim;d<end;d++)norm+=vectors[d]*vectors[d];
+    inverseNorms[row]=norm?1/Math.sqrt(norm):0;
+    const id=entries[row].cardId,rows=rowsByCard.get(id);
+    if(rows)rows.push(row);else rowsByCard.set(id,[row]);
+    if(norm&&!order.has(id))order.set(id,row);
+  }
+  const value={inverseNorms,rowsByCard,order};prepared.set(index,value);return value;
+}
 export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: RecognitionPriors, frameClass?: string, cardIds?: ReadonlySet<string>): Candidate[] {
   const { dim, count, entries } = index.meta;
   if (query.length !== dim || !query.every(Number.isFinite)) throw new Error('Embedding dimension/value mismatch');
+  const {inverseNorms,rowsByCard,order}=prepareSearch(index),vectors=index.vectors;
+  const limit=Math.max(1,Math.min(100,Math.floor(k)));
   const seen = new Set(priors?.seen), voice = new Set(priors?.voiceMentioned);
   const filter = priors?.frameClasses?.length ? new Set(priors.frameClasses) : null;
-  const best = new Map<string, Candidate & { rank: number }>();
-  for (let row = 0; row < count; row++) {
+  const rows=cardIds?Array.from(cardIds).flatMap(id=>rowsByCard.get(id)??[]):undefined;
+  const best:(Candidate & {rank:number;order:number})[]=[];
+  for (let r = 0; r < (rows?.length??count); r++) {
+    const row=rows?rows[r]:r;
     const entry = entries[row];
-    if (cardIds && !cardIds.has(entry.cardId)) continue;
     if (filter && !filter.has(entry.frameClass ?? '')) continue;
-    let dot = 0, norm = 0;
-    for (let d = 0; d < dim; d++) { const v = index.vectors[row * dim + d]; dot += query[d] * v; norm += v * v; }
-    if (!norm) continue;
-    const raw = Math.max(-1, Math.min(1, dot / Math.sqrt(norm)));
+    const inverse=inverseNorms[row];if(!inverse)continue;
+    let a=0,b=0,c=0,d=0,j=0,offset=row*dim;
+    // Flat int8/float32 dot product: no row slices, allocations or per-query norms.
+    for(;j+3<dim;j+=4,offset+=4){a+=query[j]*vectors[offset];b+=query[j+1]*vectors[offset+1];c+=query[j+2]*vectors[offset+2];d+=query[j+3]*vectors[offset+3];}
+    let dot=a+b+c+d;for(;j<dim;j++,offset++)dot+=query[j]*vectors[offset];
+    const raw = Math.max(-1, Math.min(1, dot * inverse));
     // Priors only reorder plausible visual matches; scores are ranking similarities, not probabilities.
-    const boost = raw >= 0.5 ? Math.min(0.06, (seen.has(entry.cardId) ? 0.015 : 0) + (voice.has(entry.cardId) ? 0.04 : 0)) : 0;
+    const boost = raw >= 0.5 ? Math.min(0.06, (seen.size&&seen.has(entry.cardId) ? 0.015 : 0) + (voice.size&&voice.has(entry.cardId) ? 0.04 : 0)) : 0;
     // Border is unreliable under glare: a soft class filter never empties the candidate list.
     const penalty = frameClass && entry.frameClass && frameClass !== entry.frameClass ? 0.035 : 0;
     const rank = raw + boost - penalty;
     const score = Math.max(-1, Math.min(1, rank));
-    if (rank > (best.get(entry.cardId)?.rank ?? -Infinity)) best.set(entry.cardId, { cardId: entry.cardId, score, rank });
+    const last=best[limit-1];
+    if(last&&rank<last.rank)continue;
+    const ordinal=filter?rowsByCard.get(entry.cardId)!.find(r=>inverseNorms[r]&&filter.has(entries[r].frameClass??''))!:order.get(entry.cardId)!;
+    if(last&&(rank<last.rank||(rank===last.rank&&ordinal>=last.order)))continue;
+    const existing=best.findIndex(c=>c.cardId===entry.cardId);
+    if(existing>=0){if(rank<=best[existing].rank)continue;best.splice(existing,1);}
+    const at=best.findIndex(c=>rank>c.rank||(rank===c.rank&&ordinal<c.order));
+    best.splice(at<0?best.length:at,0,{cardId:entry.cardId,score,rank,order:ordinal});
+    if(best.length>limit)best.pop();
   }
-  return [...best.values()].sort((a, b) => b.rank - a.rank).slice(0, Math.max(1, Math.min(100, Math.floor(k)))).map(({ cardId, score }) => ({ cardId, score }));
+  return best.map(({cardId,score})=>({cardId,score}));
 }
 
 /** Deck suggestions win ambiguous reads; a clear catalog answer always wins.

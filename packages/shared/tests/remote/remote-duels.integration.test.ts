@@ -246,6 +246,7 @@ describe("remote deck registration and live checks", () => {
     s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "monster", slot: 1, source: "auto" });
     s.place("one", "monster", 2);
     expect(s.room.state.deckChecks.flags).toEqual([]);
+    s.act({ type: "twin.remove", seat: 0, cardRef: "one" });
     s.place("different", "monster", 2, 1);
     s.act({ type: "card.identified", seat: 0, cardRef: "different", cardId: 14558127, zone: "monster", slot: 2, source: "auto" });
     expect(s.room.state.deckChecks.flags).toEqual([]);
@@ -297,6 +298,28 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.seats[0].deck?.deck.main).toHaveLength(40);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
+  it("records one automatic placement sighting and undoes it atomically without orphaned recognition", () => {
+    const s = deckSession(); s.start();
+    const before = structuredClone(s.room);
+    const action = remoteActionSchema.parse({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", source: "auto",
+      idempotencyKey: "atomic-auto", card: { ref: "auto-card", cardId: 14558127, slot: 2 } });
+    expect(action).toMatchObject({ type: "twin.place", source: "auto" });
+    s.act(action);
+    expect(s.room.lastSeq).toBe(before.lastSeq + 1);
+    expect(s.room.events.slice(before.events.length)).toMatchObject([{ action: { type: "twin.place", source: "auto" } }]);
+    expect(s.room.events.at(-1)?.effects).toBeUndefined();
+    const persisted = s.db.prepare("select effects_json from remote_events where idempotency_key=? and table_id=(select id from remote_tables where slug=?)")
+      .get("atomic-auto", s.room.slug) as { effects_json: string };
+    expect(JSON.parse(persisted.effects_json)).toMatchObject({ facts: { 14558127: { code: 14558127, name: "Ash Blossom" } } });
+    expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 14558127, zone: "monster", slot: 2 }]);
+    expect(s.room.state.deckChecks.instances).toMatchObject([{ code: 14558127, name: "Ash Blossom", refs: ["auto-card"], zone: "monster", slot: 2 }]);
+    expect(s.room.state.identified).toBeNull();
+    s.act({ type: "undo", targetActionId: s.room.state.undo!.actionId });
+    expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
+    expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
+    expect(s.room.state.identified).toEqual(before.state.identified);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {
     const { db, service, table, users } = setup();
     const events = service.get(table.slug,"g",users[0]).events;
@@ -319,15 +342,36 @@ describe("remote deck registration and live checks", () => {
     ambiguous.act({type:"twin.place",seat:0,zone:"monster",card:{ref:"unknown-slot",cardId:14558127}});
     ambiguous.place("known-slot","monster",2);
     expect(ambiguous.room.state.deckChecks.flags).toEqual([]);
-    const field = deckSession(); field.start(); field.place("field-a","field",1); field.place("field-b","field",2);
+    const field = deckSession(); field.start(); field.place("field-a","field",1);
+    field.act({ type: "cards.identified", seat: 0, source: "auto", cards: [
+      { cardId: 14558127, zone: "field", slot: 1, observationId: "field-a" },
+      { cardId: 14558127, zone: "field", slot: 2, observationId: "field-b" },
+    ] });
     expect(field.room.state.deckChecks.flags).toEqual([]);
   });
-  it("does not count conflicting same-slot batch refs as separate physical detections", () => {
-    const s = deckSession(); s.start(); s.place("a"); s.place("b","monster",1,1);
+  it("does not count a repeated same-slot batch ref as separate physical detections", () => {
+    const s = deckSession(); s.start(); s.place("a");
     s.act({ type:"cards.identified",seat:0,source:"auto",cards:[
-      {cardId:14558127,cardRef:"a",observationId:"a"}, {cardId:14558127,cardRef:"b",observationId:"b"},
+      {cardId:14558127,cardRef:"a",observationId:"a"}, {cardId:14558127,cardRef:"a",observationId:"b"},
     ]});
     expect(s.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("does not count conflicting same-slot batch refs from legacy state as separate physical detections", () => {
+    const s = deckSession(); s.start(); s.place("a");
+    const legacy = structuredClone(s.room.state);
+    // Old tables can contain twins that the current physical-slot guard would reject.
+    legacy.seats[0].twin.push({ ...legacy.seats[0].twin[0], ref: "b", cardId: 1 });
+    const next = ygoModule.reduce(legacy, remoteActionSchema.parse({
+      type: "cards.identified", actorSeat: 0, seat: 0, source: "auto", idempotencyKey: "legacy-same-slot",
+      at: legacy.updatedAt + 1, cards: [
+        { cardId: 14558127, cardRef: "a", observationId: "a" },
+        { cardId: 14558127, cardRef: "b", observationId: "b" },
+      ],
+    }), { showCardsSetFromDeck: true, facts: {
+      14558127: { code: 14558127, copyKey: 14558127, name: "Ash Blossom", limit: 1, section: "main" },
+    } });
+    expect(next.deckChecks.flags).toEqual([]);
+    expect(next.deckChecks.instances).toHaveLength(1);
   });
   it("applies an Advanced limited-card cap to simultaneous copies", () => {
     const s = deckSession("normal"); s.start(); s.place("one","monster",1,33396948);
@@ -369,6 +413,92 @@ describe("remote deck registration and live checks", () => {
     expect(JSON.stringify(s.db.prepare("select * from remote_events").all())).not.toContain("Sulman");
     deleteUserAccount(s.db,s.users[0]);
     expect(s.service.get(s.room.slug,"g",s.users[0]).events.at(-1)?.messages).toContain(DELETED_PLAYER_NAME+" added Ash Blossom to their decklist");
+  });
+});
+describe("B3 physical field slot guard", () => {
+  const slots = [
+    ...["monster", "spell-trap"].flatMap(zone => [1, 2, 3, 4, 5].map(slot => ({ zone, slot }))),
+    ...["extra-monster", "pendulum"].flatMap(zone => [1, 2].map(slot => ({ zone, slot }))),
+    { zone: "field", slot: 1 },
+  ];
+  it.each(slots)("rejects a second placement or incoming move into $zone $slot without changing state", ({ zone, slot }) => {
+    const s = deckSession(); s.start(); s.place("occupant", zone, slot, 1);
+    s.place("incoming", "graveyard", 1, 2);
+    const before = structuredClone(s.room);
+    for (const action of [
+      { type: "twin.place", seat: 0, zone, card: { ref: "duplicate", slot, faceUp: false } },
+      { type: "twin.move", seat: 0, zone, slot, cardRef: "incoming", position: "defense" },
+    ]) {
+      expect(() => s.act(action)).toThrow(/occupied/i);
+      expect(s.service.get(s.room.slug, "g", s.users[0])).toEqual(before);
+    }
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(before.state);
+  });
+  it.each([undefined, 1, 5])("treats the field zone as one physical slot even with slot %s", slot => {
+    const s = deckSession(); s.start();
+    s.act({ type: "twin.place", seat: 0, zone: "field", card: { ref: "field-a" } });
+    s.place("incoming", "graveyard");
+    expect(() => s.act({ type: "twin.place", seat: 0, zone: "field", card: { ref: "field-b", slot } })).toThrow(/occupied/i);
+    expect(() => s.act({ type: "twin.move", seat: 0, zone: "field", slot, cardRef: "incoming" })).toThrow(/occupied/i);
+    s.act({ type: "twin.move", seat: 0, zone: "field", slot, cardRef: "field-a", position: "defense" });
+    expect(s.room.state.seats[0].twin[0]).toMatchObject({ ref: "field-a", position: "defense" });
+  });
+  it.each([
+    ["twin.place", "twin.place"], ["twin.place", "twin.move"],
+    ["twin.move", "twin.place"], ["twin.move", "twin.move"],
+  ])("rejects stale %s intent after %s fills its destination, even with the latest sequence", (staleType, firstType) => {
+    const s = deckSession(); s.start(); s.place("first", "graveyard", 1, 1); s.place("second", "graveyard", 1, 2);
+    const staleIntent = staleType === "twin.place"
+      ? { type: staleType, seat: 0, zone: "monster", card: { ref: "stale", slot: 2 } }
+      : { type: staleType, seat: 0, zone: "monster", cardRef: "second", slot: 2 };
+    s.act(firstType === "twin.place"
+      ? { type: firstType, seat: 0, zone: "monster", card: { ref: "manual", slot: 2 } }
+      : { type: firstType, seat: 0, zone: "monster", cardRef: "first", slot: 2 });
+    const before = structuredClone(s.room);
+    expect(() => s.act(staleIntent)).toThrow(/occupied/i);
+    expect(s.service.get(s.room.slug, "g", s.users[0])).toEqual(before);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(before.state);
+  });
+  it.each(["monster", "spell-trap", "extra-monster", "pendulum"])("allows self moves, free slots and separate owners in %s, preserving Undo and replay", zone => {
+    const s = deckSession(); s.start(); s.place("moving", zone, 1);
+    s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone, card: { ref: "other-owner", slot: 1 } });
+    s.act({ type: "twin.move", seat: 0, cardRef: "moving", zone, slot: 1, position: "defense" });
+    s.act({ type: "twin.move", seat: 0, cardRef: "moving", zone });
+    expect(s.room.state.seats[0].twin[0]).toMatchObject({ ref: "moving", zone, slot: 1, position: "defense" });
+    const before = structuredClone(s.room.state.seats[0].twin);
+    s.act({ type: "twin.move", seat: 0, cardRef: "moving", zone, slot: 2 });
+    expect(s.room.state.seats[0].twin[0].slot).toBe(2);
+    s.act({ type: "undo", targetActionId: s.room.state.undo!.actionId });
+    expect(s.room.state.seats[0].twin).toEqual(before);
+    s.act({ type: "twin.move", seat: 0, cardRef: "moving", zone: "graveyard" });
+    s.place("new-occupant", zone, 1);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it.each(["graveyard", "banished", "hand", "deck", "extra", "hand-reveal"])("allows several placements and incoming moves with the same optional slot in the %s pile", zone => {
+    const s = deckSession(); s.start(); s.place("a", zone, 1, 1); s.place("b", zone, 1, 2); s.place("c", "monster", 1, 3);
+    s.act({ type: "twin.move", seat: 0, cardRef: "c", zone, slot: 1 });
+    expect(s.room.state.seats[0].twin.filter(card => card.zone === zone)).toHaveLength(3);
+    s.act({ type: "undo", targetActionId: s.room.state.undo!.actionId });
+    expect(s.room.state.seats[0].twin.find(card => card.ref === "c")?.zone).toBe("monster");
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it.each(["monster", "spell-trap", "extra-monster", "pendulum"])("preserves unlocated legacy %s twins without guessing their physical slot", zone => {
+    const s = deckSession(); s.start();
+    for (const ref of ["unlocated-a", "unlocated-b"]) s.act({ type: "twin.place", seat: 0, zone, card: { ref } });
+    s.place("located", zone, 1, 1); s.place("incoming", "graveyard", 1, 2);
+    s.act({ type: "twin.move", seat: 0, cardRef: "incoming", zone });
+    s.act({ type: "twin.move", seat: 0, cardRef: "unlocated-a", zone, position: "defense" });
+    expect(s.room.state.seats[0].twin.filter(card => card.slot === undefined)).toHaveLength(3);
+    expect(() => s.act({ type: "twin.move", seat: 0, cardRef: "unlocated-a", zone, slot: 1 })).toThrow(/occupied/i);
+    s.act({ type: "twin.move", seat: 0, cardRef: "unlocated-a", zone, slot: 2 });
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it.each(["extra-monster", "pendulum"])("rejects explicit slots outside the two physical %s positions", zone => {
+    const s = deckSession(); s.start(); s.place("incoming", "graveyard");
+    for (const slot of [3, 4, 5]) {
+      expect(() => s.act({ type: "twin.place", seat: 0, zone, card: { ref: "out-of-range", slot } })).toThrow(/slot/i);
+      expect(() => s.act({ type: "twin.move", seat: 0, cardRef: "incoming", zone, slot })).toThrow(/slot/i);
+    }
   });
 });
 describe("solo remote tables", () => {
@@ -745,12 +875,21 @@ describe("tolerant voice attack resolution", () => {
 
   it.each([1, 2, 3, 4, 5])("resolves zone %i without depending on twin array order", slot => {
     const b = board();
+    if (slot === 3) b.state.seats[1].twin[0].slot = 4;
     b.place(1, { ref: `slot-${slot}`, slot });
     const state = structuredClone(b.state);
     state.seats[1].twin.reverse();
     const result = resolve(state, `my dragon attacks zone ${slot}`);
     expect(result.candidates.some(c => c.proposal.targetCardRef === `slot-${slot}`)).toBe(true);
-    expect(result.status).toBe(slot === 3 ? "ambiguous" : "unique");
+    expect(result.status).toBe("unique");
+  });
+  it("keeps legacy conflicting same-slot targets ambiguous", () => {
+    const b = board();
+    b.place(1, { ref: "legacy-duplicate", slot: 4 });
+    b.state.seats[1].twin.find(card => card.ref === "legacy-duplicate")!.slot = 3;
+    const result = resolve(b.state, "my dragon attacks zone 3");
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates.some(c => c.proposal.targetCardRef === "legacy-duplicate")).toBe(true);
   });
 
   it("keeps legacy twins useful without catalog metadata and exposes the registry hook", () => {
@@ -1263,4 +1402,25 @@ it("keeps the remaining same-name Trap Trick copy after its banish cost becomes 
   alreadySeen.act({type:"effect.activated",source:{cardId:80101899}});
   alreadySeen.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"set",faceUp:false}});
   expect(originOf(alreadySeen).candidates?.some(c=>c.cardId===53582587)).toBe(false);
+});
+
+it('moves a physical twin to defense under the same ref, with Undo and owner checks',()=>{
+  const s=deckSession();s.start();s.place('rotation');
+  s.act({type:'twin.move',seat:0,cardRef:'rotation',zone:'monster',slot:1,position:'defense'});
+  expect(s.room.state.seats[0].twin[0]).toMatchObject({ref:'rotation',position:'defense'});
+  const event=s.room.state.undo!.actionId;
+  s.act({type:'undo',targetActionId:event});expect(s.room.state.seats[0].twin[0].position).toBe('attack');
+  expect(()=>s.act({type:'twin.move',actorSeat:1,seat:0,cardRef:'rotation',zone:'monster',position:'defense'})).toThrow(/owner/);
+});
+
+it('persists one named automatic departure with destination correction and normal owner/Undo rules',()=>{
+  const s=deckSession();s.start();s.place('leaving');const before=s.room.state.seats[0].twin[0];
+  const departure={type:'twin.move',seat:0,cardRef:'leaving',zone:'graveyard',source:'auto',name:'Varudras'} as const;
+  s.act(departure);expect(s.room.state.seats[0].twin).toEqual([{...before,zone:'graveyard',slot:undefined}]);
+  expect(s.room.events.at(-1)?.action).toMatchObject(departure);expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+  const left=s.room.state.undo!.actionId;s.act({type:'undo',targetActionId:left});expect(s.room.state.seats[0].twin[0]).toEqual(before);
+  s.act(departure);s.act({...departure,zone:'banished'});const corrected=s.room.state.undo!.actionId;
+  s.act({type:'undo',targetActionId:corrected});expect(s.room.state.seats[0].twin[0].zone).toBe('graveyard');
+  expect(()=>s.act({...departure,actorSeat:1})).toThrow(/owner/);
+  expect(remoteActionSchema.safeParse({...departure,idempotencyKey:'bounded',actorSeat:0,name:'x'.repeat(201)}).success).toBe(false);
 });

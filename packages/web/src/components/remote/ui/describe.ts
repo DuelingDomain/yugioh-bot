@@ -22,13 +22,13 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "attack.resolve": return { kind: "AT", text: `Attack ${a.outcome === "cancelled" ? "cancelled" : "resolved"}`, undoable: true };
     case "card.identified": {
       const found = card(a.cardId ?? a.passcode) ?? a.name;
-      return { kind: "CD", text: `${found ?? "A card"} identified on ${name(a.seat)}'s field`, undoable: true };
+      return { kind: "CD", text: `${found ?? "A card"} identified on ${name(a.seat)}'s field${a.source === "auto" ? " · auto" : ""}`, undoable: true };
     }
     case "cards.identified": return { kind: "CD", text: `${a.cards.length} cards identified`, undoable: true };
     case "deck.add": return { kind: "CD", text: `${card(a.cardId) ?? "Card"} added to ${name(a.seat)}'s decklist`, undoable: true };
     case "deck.flag.dismiss": return { kind: "CD", text: "Deck warning dismissed", undoable: true };
-    case "twin.place": return { kind: "CD", text: `${a.card.name ?? card(a.card.cardId ?? a.card.passcode) ?? "A card"} placed on ${name(a.seat)}'s field`, undoable: true };
-    case "twin.move": return { kind: "CD", text: `A card on ${name(a.seat)}'s field moved to ${a.zone}`, undoable: true };
+    case "twin.place": return { kind: "CD", text: `${a.card.name ?? card(a.card.cardId ?? a.card.passcode) ?? "A card"} placed on ${name(a.seat)}'s field${a.source === 'auto' ? ' · auto' : ''}`, undoable: true };
+    case "twin.move": return { kind: "CD", text: a.source==='auto'&&['graveyard','banished','hand','extra'].includes(a.zone)?`${a.name??'A card'} left the field → ${{graveyard:'GY',banished:'banish',hand:'hand',extra:'Extra Deck'}[a.zone]} · auto`:`A card on ${name(a.seat)}'s field moved to ${a.zone}`, undoable: true };
     case "twin.flip": return { kind: "CD", text: `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}`, undoable: true };
     case "twin.remove": return { kind: "CD", text: `A card was removed from ${name(a.seat)}'s field`, undoable: true };
     case "twin.merge": return { kind: "CD", text: "Duplicate cards merged", undoable: true };

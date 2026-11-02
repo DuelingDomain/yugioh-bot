@@ -17,3 +17,8 @@ export type {RemoteRecognitionResult} from './remote-result';
 export type {RecognitionEvidence} from './types';
 
 export type {RealsetSample,RealsetExport} from './calibration';
+
+export {createFieldWatcher} from './field-watcher';
+export type {FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTrack,FieldSnapshot,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
+export {createFieldCalibration,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones} from './field-zones';
+export type {FieldZone,FieldCalibration,FieldFormat} from './field-zones';

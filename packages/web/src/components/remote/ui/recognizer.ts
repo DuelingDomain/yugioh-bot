@@ -26,6 +26,7 @@ type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "nea
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
   warmup(): Promise<void>;
+  prepare():Promise<void>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
@@ -37,9 +38,6 @@ type VisionRecognizer = {
 
 export type FeedbackSource = "pick" | "search" | "voice" | "ai";
 const READ_TIMEOUT_MS = 10_000;
-const RING_MS = 1000;
-const FRAME_GAP_MS = 200;
-const MAX_FRAMES = 6;
 
 let meta: Promise<Meta | null> | null = null;
 let recognizer: Promise<VisionRecognizer | null> | null = null;
@@ -134,12 +132,10 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
   await element.play().catch(() => undefined);
   const frames: ImageBitmap[] = [];
   try {
-    const until = Date.now() + RING_MS;
     for (let tries = 0; tries < 40 && !element.videoWidth; tries++) await new Promise(resolve => setTimeout(resolve, 50));
-    while (element.videoWidth && frames.length < MAX_FRAMES && Date.now() < until + FRAME_GAP_MS) {
+    if (element.videoWidth) {
       signal.throwIfAborted();
       frames.push(await createImageBitmap(element));
-      await new Promise(resolve => setTimeout(resolve, FRAME_GAP_MS));
     }
     return frames;
   } catch (error) { for (const frame of frames) frame.close(); throw error; }
@@ -147,9 +143,11 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
 }
 
 let chain: Promise<unknown> = Promise.resolve();
+let pendingJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
 function enqueue<T>(job: () => Promise<T>): Promise<T> {
-  const run = chain.then(job, job);
+  pendingJobs++;
+  const run = chain.then(job, job).finally(() => { pendingJobs--; });
   chain = run.catch(() => undefined);
   return run;
 }
@@ -213,15 +211,16 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   const vision = await loadRecognizer();
   const found = await loadMeta();
   if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
-  // Frames the feed already holds (its ring buffer) read at once. Without them the track is sampled for about a second.
+  // The selected outline belongs to the first held frame. Keep that pair intact
+  // and avoid another camera sampling window or detector pass for a desktop click.
   // The own feed keeps a native-resolution ring all the time, so a read of it never waits to sample the camera.
-  const frames = kept?.length ? await Promise.all(kept.map(frame => createImageBitmap(frame)))
+  const frames = kept?.length ? await Promise.all((card?kept.slice(0,1):kept).map(frame => createImageBitmap(frame)))
     : own && ownBuffer ? await ownFeedFrames().catch(() => track ? sampleFrames(track, signal) : [])
     : await sampleFrames(track!, signal);
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5,maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true,deferAICrop:true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
     const wire = toRemoteRecognitionResult(result, byId, "local");
@@ -261,7 +260,7 @@ export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Ma
   };
 }
 
-type OwnBuffer = { snapshot(): Promise<ImageBitmap[]>; stop(): void };
+type OwnBuffer = { sample(): Promise<{frame:ImageBitmap;at:number}>; snapshot(): Promise<ImageBitmap[]>; stop(): void };
 let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = null;
 /** Starts the always-on native-resolution frame ring on the own feed. One per page; clicks and remote reads take their frames from it. */
 export function attachOwnFeed(video: HTMLVideoElement) {
@@ -276,4 +275,21 @@ export function detachOwnFeed(video: HTMLVideoElement) {
 /** Clones of the buffered frames (up to 6, newest second). The caller closes them. */
 export function ownFeedFrames(): Promise<ImageBitmap[]> {
   return ownBuffer ? ownBuffer.snapshot() : Promise.reject(new Error("The own feed is not buffered"));
+}
+
+/** Minimal shared-reader bridge for the owner-only field watcher. Manual reads take priority. */
+export async function ownFieldResources(getPriors: () => Priors) {
+  const [reader, found] = await Promise.all([loadRecognizer(), loadMeta()]);
+  if (!reader || !found) return null;
+  return {
+    recognizer: {
+      prepare:()=>enqueue(()=>reader.prepare()),
+      detectCards: (frame: ImageBitmap | ImageData) => enqueue(() => reader.detectCards(frame as ImageBitmap)),
+      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)) as Promise<import("@yugidraft/vision").RecognitionResult>,
+    },
+    buffer: { sample: () => ownBuffer ? ownBuffer.sample() : Promise.reject(new Error("Waiting for the own camera buffer")) },
+    getPriors: () => priorsFor(found, getPriors()),
+    cpuBusy: () => pendingJobs > 0,
+    entries: found.entries,
+  };
 }

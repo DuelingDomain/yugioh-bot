@@ -60,7 +60,7 @@ export type Cell = { card?: TwinCard; count: number };
 /** Puts twin cards into grid cells. Cards without a slot take the first free slot of their row. */
 export function cellsFor(twin: readonly TwinCard[], extraZones = false): Record<ZoneKey, Cell> {
   const cells = Object.fromEntries([...ZK, ...EK].map(k => [k, { count: 0 }])) as Record<ZoneKey, Cell>;
-  const rows: Record<string, { prefix: string; list: TwinCard[] }> = { monster: { prefix: "m", list: [] }, "spell-trap": { prefix: "s", list: [] } };
+  const rows: Record<string, { prefix: string; slots: number; list: TwinCard[] }> = { monster: { prefix: "m", slots: 5, list: [] }, "spell-trap": { prefix: "s", slots: 5, list: [] } };
   const emz: TwinCard[] = []; const pendulum: TwinCard[] = [];
   for (const card of twin) {
     if (card.zone === "graveyard") cells.gy.count++;
@@ -71,13 +71,13 @@ export function cellsFor(twin: readonly TwinCard[], extraZones = false): Record<
     else if (extraZones && card.zone === "pendulum") pendulum.push(card);
     else if (rows[card.zone]) rows[card.zone].list.push(card);
   }
-  for (const { prefix, list } of Object.values(rows)) {
+  for (const { prefix, slots, list } of Object.values(rows)) {
     const used = new Set<number>(); const loose: TwinCard[] = [];
     for (const card of list) {
-      if (card.slot && !used.has(card.slot)) { used.add(card.slot); cells[`${prefix}${card.slot}` as ZoneKey] = { card, count: 1 }; } else loose.push(card);
+      if (card.slot && card.slot<=slots && !used.has(card.slot)) { used.add(card.slot); cells[`${prefix}${card.slot}` as ZoneKey] = { card, count: 1 }; } else loose.push(card);
     }
     for (const card of loose) {
-      const free = [1, 2, 3, 4, 5].find(n => !used.has(n)); if (!free) break;
+      const free = [1, 2, 3, 4, 5].find(n => n<=slots&&!used.has(n)); if (!free) break;
       used.add(free); cells[`${prefix}${free}` as ZoneKey] = { card, count: 1 };
     }
   }
