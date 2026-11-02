@@ -454,3 +454,15 @@ it('field legality: manual pile destinations always remain available',async()=>{
  const {manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
  for(const zone of ['graveyard','banished','deck','extra','hand','hand-reveal','GY','BANISHED','DECK','EXTRA'])expect(manualFieldZoneWarning(undefined,zone)).toBeUndefined();
 });
+
+it('back cache notifies immediately, returns stable snapshots and expires with one timer',async()=>{
+ vi.useFakeTimers();let now=0;
+ try{
+  const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache'),cache=new FieldTrackCache(()=>now),changed=vi.fn();
+  const stop=cache.subscribe(changed),empty=cache.backs(0);expect(cache.backs(0)).toBe(empty);expect(vi.getTimerCount()).toBe(0);
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  cache.receive(0,{type:'field.tracks',cards:[],backs:[{ref:'set',zone:'M2',quad}]});
+  expect(changed).toHaveBeenCalledOnce();expect(cache.backs(0)).toBe(cache.backs(0));expect(vi.getTimerCount()).toBe(1);
+  now=3001;await vi.advanceTimersByTimeAsync(3001);expect(cache.backs(0)).toBe(empty);expect(changed).toHaveBeenCalledTimes(2);expect(vi.getTimerCount()).toBe(0);stop();
+ }finally{vi.useRealTimers();}
+});

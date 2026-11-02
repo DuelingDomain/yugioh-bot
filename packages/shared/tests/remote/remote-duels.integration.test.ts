@@ -1697,3 +1697,19 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
  act({type:'undo',targetActionId:removed});
  expect(state.seats[0].twin.map(card=>card.ref)).toEqual(['older','newer']);
 });
+
+it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
+  const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2});let serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`atomic-${++serial}`,at:serial}));
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'set',slot:2,faceUp:false,position:'defense'}});
+  const before=structuredClone(state);
+  reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:true,cardId:46986414,name:'Dark Magician',position:'attack',source:'auto',bestMatch:true});
+  expect(state.seats[0].twin[0]).toMatchObject({ref:'set',faceUp:true,cardId:46986414,name:'Dark Magician',position:'attack',bestMatch:true});
+  const revealed=structuredClone(state),actionId=state.undo!.actionId;
+  reduce({type:'undo',targetActionId:actionId});expect(state.seats[0].twin).toEqual(before.seats[0].twin);
+  state=revealed;reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false});expect(state.seats[0].twin[0].publicIdentity).toBe(true);
+  reduce({type:'twin.move',seat:0,cardRef:'set',zone:'hand'});
+  expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
+  expect(remoteActionSchema.safeParse({type:'twin.flip',actorSeat:0,seat:0,idempotencyKey:'bad',cardRef:'set',faceUp:false,cardId:46986414}).success).toBe(false);
+});
