@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { defaultGridCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
@@ -16,7 +17,14 @@ function readSaved(seatKey:string,deviceKey?:string):{enabled?:boolean;calibrati
     const legacy=JSON.parse(localStorage.getItem(fieldCalibrationKey(seatKey))??'{}');
     if(!legacy||typeof legacy!=='object'||Array.isArray(legacy))return {};
     // Phone pairings never inherit a webcam's geometry.
-    if(deviceKey?.startsWith('phone:')||deviceKey&&legacy.cameraId&&legacy.cameraId!==deviceKey)return {};
+    if(deviceKey?.startsWith('phone:'))return {};
+    if(deviceKey&&legacy.cameraId&&legacy.cameraId!==deviceKey) {
+      // Another id for the same seat (lobby and table can report a camera differently): keep which side
+      // the player sits on, but not the other camera's corners. A phone's record is never inherited.
+      const orientation=legacy.calibration?.orientation;
+      if(!orientation||String(legacy.cameraId).startsWith('phone:'))return {};
+      try{return {enabled:legacy.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation)};}catch{return {};}
+    }
     return legacy;
   }catch{return {};}
 }
@@ -54,7 +62,9 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     setGrid(loadFieldCalibration(options.seatKey,options.deviceKey));
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey]);
-  const save=useCallback((on:boolean,grid?:FieldCalibration)=>{try{localStorage.setItem(storageKey,JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey}));}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey]);
+  const save=useCallback((on:boolean,grid?:FieldCalibration)=>{try{const value=JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey});localStorage.setItem(storageKey,value);
+    // Same last-camera pointer the lobby writes, so a flip made at the table shows in the lobby and the reverse.
+    if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.seatKey]);
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
   const setCalibration=useCallback((grid?:FieldCalibration)=>{gridRef.current=grid;setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
   useEffect(()=>{
