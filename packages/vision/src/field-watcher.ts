@@ -64,10 +64,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // original halo must agree with clear mat, including at the camera edge.
   function observeAbsence(t:InternalTrack,evidence:FieldAnalysis,at:number) {
     if(t.view.removed)return;
-    const halo=evidence.halo?.(t.view.card);
-    const clear=!evidence.occluded?.(t.view.card)&&
+    const halo=evidence.halo?.(t.view.card),pixels=evidence.background?.(t.view.card)??evidence.appearance?.(t.view.card);
+    // A uniform sleeve can match the mat. Unchanged card pixels are never
+    // evidence of departure, even when the detector is between samples.
+    const clear=!sameFieldAppearance(t.identityAppearance??t.appearance,pixels)&&!evidence.occluded?.(t.view.card)&&
       halo?.length&&halo.length===t.halo?.length&&halo.filter((v,i)=>Math.abs(v-t.halo![i])>.06).length/halo.length<=.08&&
-      clearFieldBackground(evidence.background?.(t.view.card)??evidence.appearance?.(t.view.card),t.halo);
+      clearFieldBackground(pixels,t.halo);
     t.clearCandidate=!!clear;if(clear)t.clearCandidateAt??=at;else t.clearCandidateAt=undefined;
     if(!clear||evidence.motion(t.view.card)>.01){resetAbsence(t);return;}
     t.view.visible=false;t.missed=true;invalidateRead(t);t.best=undefined;

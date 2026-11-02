@@ -606,3 +606,25 @@ test('tracker follows slides, quarter turns and GY entry without another identit
  covered.outlines=[];covered.appearance=Array(288).fill(.8);covered.motion=.2;await covered.tick(100);covered.motion=0;covered.appearanceAt=c=>c.quad[0].x===destination.quad[0].x?pixels:Array(288).fill(.8);covered.outlines=[destination];for(let i=0;i<8;i++)await covered.tick(100);
  assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),true,'without simultaneous copy proof, matching incoming pixels follow the existing ref');covered.watcher.dispose();}
 });
+
+test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
+ let at=0;
+ const outline={...card(.3,.3),kind:'face-down' as const};
+ const patch=Array(288).fill(0),halo=Array(192).fill(0);
+ const crop={width:96,height:140,data:new Uint8ClampedArray(96*140*4)};
+ const events:field.FieldEvent[]=[];
+ const watcher=field.createFieldWatcher({profile:yugioh,
+  recognizer:{detectCards:async()=>[structuredClone(outline)],recognize:async()=>sureResult()},
+  buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  getKnownCards:()=>[{id:'dark-sleeve',zone:'M2',card:structuredClone(outline),faceDown:true}],
+  now:()=>at,hidden:()=>false,
+  analyze:()=>({crop:()=>crop,motion:()=>0,motionOutside:()=>0,sharpness:()=>20,appearance:()=>patch,halo:()=>halo}),clone:async f=>f});
+ watcher.subscribe(event=>events.push(event));
+ try{
+  for(let i=0;i<30;i++){at+=100;await watcher.tick();}
+  assert.equal(events.filter(event=>event.type==='removed').length,0);
+  assert.equal(events.filter(event=>event.type==='placed').length,0);
+  assert.equal(watcher.getSnapshot().tracks.filter(track=>!track.removed).length,1);
+  assert.equal(watcher.getSnapshot().tracks[0].id,'dark-sleeve');
+ }finally{watcher.dispose();}
+});

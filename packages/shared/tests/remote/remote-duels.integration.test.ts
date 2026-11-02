@@ -1589,3 +1589,17 @@ it("targets an untouched card after LP changes, rejects dependencies, and preser
   act({type:"twin.place",seat:0,zone:"monster",card:{ref:"occupied",slot:1},idempotencyKey:"occupied"});
   expect(()=>act({type:"undo",targetActionId:"move-again",idempotencyKey:"occupied-undo"})).toThrow(/occupied/i);
 });
+
+it.each(['graveyard','banished'])('targeted undo restores %s pile order while preserving later edits to other cards',pile=>{
+ let state=ygoModule.initialState({seatCount:2}),serial=0;
+ const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at:1000,idempotencyKey:`pile-order-${++serial}`,...input}));
+ act({type:'twin.place',zone:pile,card:{ref:'older',cardId:1,faceUp:true}});
+ act({type:'twin.place',zone:pile,card:{ref:'newer',cardId:2,faceUp:true}});
+ act({type:'twin.move',cardRef:'older',zone:pile==='graveyard'?'banished':'graveyard'});
+ const moved=state.undo!.actionId;
+ act({type:'twin.flip',cardRef:'newer',faceUp:false});
+ act({type:'twin.place',zone:pile,card:{ref:'latest',cardId:3,faceUp:true}});
+ act({type:'undo',targetActionId:moved});
+ expect(state.seats[0].twin.filter(card=>card.zone===pile).map(card=>card.ref)).toEqual(['older','newer','latest']);
+ expect(state.seats[0].twin.find(card=>card.ref==='newer')?.faceUp).toBe(false);
+});

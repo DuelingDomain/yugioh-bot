@@ -42,6 +42,18 @@ function restore(before: unknown, after: unknown, current: unknown): unknown {
         else if (index >= 0) result[index] = value;
         else result.splice(Math.min(before.findIndex(v => v[key] === id), result.length), 0, value);
       }
+      if (key === "ref") for (let i = before.length - 1; i >= 0; i--) {
+        const old = before[i], applied = after.find(v => v[key] === old[key]);
+        if (equal(old, applied) || after.findIndex(v => v[key] === old[key]) === i) continue;
+        const index = result.findIndex(v => v[key] === old[key]);
+        if (index < 0) continue;
+        // Pile moves append twins. Restore this card relative to its old
+        // neighbors while retaining later edits and newly added cards.
+        const [value] = result.splice(index, 1);
+        const next = before.slice(i + 1).map(v => result.findIndex(item => item[key] === v[key])).find(n => n >= 0);
+        const previous = before.slice(0, i).reverse().map(v => result.findIndex(item => item[key] === v[key])).find(n => n >= 0);
+        result.splice(next ?? (previous === undefined ? Math.min(i, result.length) : previous + 1), 0, value);
+      }
       return result;
     }
   }
