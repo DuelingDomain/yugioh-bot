@@ -1,3 +1,4 @@
+import type {FieldIdentityEntry} from './field-gallery';
 /** Data-only contracts: another game can supply these without changing the engine. */
 export interface Point { x: number; y: number }
 export interface FractionalBox { x: number; y: number; w: number; h: number }
@@ -49,7 +50,16 @@ export interface PeekResult {
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
 export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
-export interface RecognizeOptions { /** Normalized source region, including neighbouring-card margin; detector uses a 448px crop. */ region?: FractionalBox; /** Consume ImageData buffers instead of copying them. */ transferFrames?: boolean; clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; /** Small decision crop only; no AI source retention or feedback collection. */ includeDiagnosticCrop?:boolean; /** Keep AI source pixels in the worker; warp/encode only for an explicit askAI call. */ deferAICrop?:boolean; includeFeedback?: boolean; /** Reuse clean visual evidence for local identity tracking without retaining pixels. */ includeIdentityEmbedding?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Permit a clean upright answer to skip the reverse view, including when retaining raw evidence. */ preferUpright?:boolean; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean }
+
+export interface RecognizeOptions {
+  /** Serializable session identities (e.g. fieldGallery.entries()); absent by default. */
+  gallery?: readonly FieldIdentityEntry[];
+  /** Allow confident priors.decklist matches to skip catalog search. Default: false. */
+  deckFirst?: boolean;
+  /** Minimum unboosted winner/runner-up gap for gallery/deck exits. Default: 0.08. */
+  earlyExitMargin?: number;
+  /** Normalized source region, including neighbouring-card margin; detector uses a 448px crop. */ region?: FractionalBox; /** Consume ImageData buffers instead of copying them. */ transferFrames?: boolean; clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; /** Small decision crop only; no AI source retention or feedback collection. */ includeDiagnosticCrop?:boolean; /** Keep AI source pixels in the worker; warp/encode only for an explicit askAI call. */ deferAICrop?:boolean; includeFeedback?: boolean; /** Reuse clean visual evidence for local identity tracking without retaining pixels. */ includeIdentityEmbedding?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Permit a clean upright answer to skip the reverse view, including when retaining raw evidence. */ preferUpright?:boolean; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal and gallery/deck early exits for calibration/motion audits. */ earlyExit?: boolean
+}
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];

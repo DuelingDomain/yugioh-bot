@@ -1,6 +1,9 @@
 import { polygonArea } from './geometry';
 import type { RecognizeOptions } from './types';
 export function validateOptions(opts: RecognizeOptions): void {
+  if(opts.deckFirst!==undefined && typeof opts.deckFirst!=='boolean')throw new Error('deckFirst must be a boolean');
+  if(opts.earlyExitMargin!==undefined && (!Number.isFinite(opts.earlyExitMargin) || opts.earlyExitMargin<0 || opts.earlyExitMargin>2))throw new Error('earlyExitMargin must be finite and between 0 and 2');
+  if(opts.gallery!==undefined && (!Array.isArray(opts.gallery) || opts.gallery.some(r=>!r || (r.cardId!==undefined && typeof r.cardId!=='string') || !['art-box','whole-card'].includes(r.embedding?.space) || !Array.isArray(r.embedding?.values) || !r.embedding.values.length || r.embedding.values.length>4096 || !r.embedding.values.every(Number.isFinite))))throw new Error('Invalid recognition gallery');
   if(opts.region && (![opts.region.x,opts.region.y,opts.region.w,opts.region.h].every(Number.isFinite) || opts.region.x<0 || opts.region.y<0 || opts.region.w<=0 || opts.region.h<=0 || opts.region.x+opts.region.w>1.000001 || opts.region.y+opts.region.h>1.000001))throw new Error('region must be a nonempty normalized source rectangle');
   if(opts.maxFrames!==undefined&&opts.maxFrames!==1&&opts.maxFrames!==3)throw new Error('maxFrames must be 1 or 3');
   if (opts.clickPoint && (![opts.clickPoint.x, opts.clickPoint.y].every(Number.isFinite) || opts.clickPoint.x < 0 || opts.clickPoint.x > 1 || opts.clickPoint.y < 0 || opts.clickPoint.y > 1)) throw new Error('clickPoint must be normalized to [0,1]');

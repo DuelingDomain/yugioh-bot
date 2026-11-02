@@ -1,4 +1,5 @@
 import { detectScene } from './detect-scene';
+import { fieldEmbeddingSimilarity } from './field-motion';
 // Ported from mathulbrich/duel-lens src/offscreen/engine.ts (Apache-2.0), f6968f3682d53a79c4a9fef591300615eda61c11.
 // Modified: browser-frame API, game profile, sharpest-three temporal fusion and priors.
 // Retains warp -> hypotheses -> staged embedding -> per-card search -> decide flow.
@@ -89,6 +90,22 @@ export class RecognitionPipeline {
     const usedIndices:number[]=[];
     const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; deferredAICrop?:DeferredAICrop; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
+    const earlyExitMargin=opts.earlyExitMargin??.08;
+    const clearShortlist=(list:Candidate[])=>decide(list,thresholds,this.profile.cardBack.cardId).confident && list[0].score-(list[1]?.score??0)>=earlyExitMargin && !this.confused(list) && (!opts.priors?.frameClasses?.length || opts.priors.frameClasses.includes(this.catalog.get(list[0].cardId)?.frameClass??''));
+    const gallerySearch=(vector:Float32Array,index:LoadedIndex):Candidate[]=>{
+      const embedding={values:Array.from(vector),space:index===this.fullArtIndex?'whole-card':'art-box'};
+      const scores=new Map<string|undefined,number>();
+      for(const entry of opts.gallery??[]) {
+        const score=fieldEmbeddingSimilarity(entry.embedding,embedding);
+        if(score!==undefined && score>(scores.get(entry.cardId)??-Infinity))scores.set(entry.cardId,score);
+      }
+      const ranked=[...scores].map(([cardId,score])=>({cardId,score})).sort((a,b)=>b.score-a.score);
+      const best=ranked[0];
+      // Dismissed/unknown identities still compete for the margin, but cannot name a card.
+      if(!best?.cardId || !this.catalog.has(best.cardId) || best.score<.84 || !clearShortlist(ranked.map(c=>({cardId:c.cardId??'',score:c.score}))))return [];
+      return ranked.filter((c):c is Candidate=>Boolean(c.cardId && this.catalog.has(c.cardId)));
+    };
+    let shortlistExit=false;
     // Reuse unboosted evidence for each hypothesis and the single-frame final
     // decision. This cache lasts one read, so mutable caller queries cannot go stale.
     const deckIds=opts.priors?.decklist?.length?new Set(opts.priors.decklist):undefined;
@@ -162,12 +179,39 @@ export class RecognitionPipeline {
       const faceDown=(selected?.kind ?? card?.kind)==='face-down';
       const vectors: Float32Array[] = [], lists: Candidate[][] = [], cleanLists:Candidate[][]=[];
       let merged: Candidate[] = [];
+      const embedded=new Map<RGBAImage,Float32Array>();
+      const embed=async(image:RGBAImage)=>{
+        let vector=embedded.get(image);
+        if(!vector) {
+          const started=performance.now();
+          [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[image]);
+          if(vector.length!==this.index.meta.dim)throw new Error('Model embedding dimension mismatch');
+          timings.embed+=performance.now()-started;embedded.set(image,vector);
+        }
+        return vector;
+      };
+      const wholeHypotheses=this.fullArtIndex?.meta.count?[{image:warped,rotation:0},{image:rotate180(warped),rotation:180}]:[];
+      let fastMatch:{vector:Float32Array;index:LoadedIndex;rotation:number;candidates:Candidate[]}|undefined;
+      // Try every relevant local view before touching the catalog. Reuse its embeddings on a miss.
+      if(opts.earlyExit!==false && (opts.deckFirst && deckIds || opts.gallery?.length) && !views.length && !frameEvidence.length && found && !partial && !covered && !faceDown && (!fullArt || this.fullArtIndex?.meta.count)) {
+        const localViews=[...hypotheses.map(h=>({...h,index:this.index})),...wholeHypotheses.map(h=>({...h,index:this.fullArtIndex!}))];
+        for(const hypothesis of localViews) {
+          if(!(opts.deckFirst && deckIds) && !opts.gallery?.some(e=>e.embedding.space===(hypothesis.index===this.fullArtIndex?'whole-card':'art-box')))continue;
+          const vector=await embed(hypothesis.image),started=performance.now();
+          const gallery=opts.gallery?.length?gallerySearch(vector,hypothesis.index):[];
+          const deck=opts.deckFirst?deckSearch(vector,hypothesis.index):[];
+          const candidates=gallery.length?gallery:clearShortlist(deck)?deck:[];
+          timings.search+=performance.now()-started;
+          if(candidates.length) {fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+        }
+      }
+      if(fastMatch) {
+        vectors.push(fastMatch.vector);lists.push(fastMatch.candidates);cleanLists.push(fastMatch.candidates);
+        merged=fastMatch.candidates;shortlistExit=true;earlyExit=true;
+      }
       // Duel Lens's views-in-turn: do not pay for more crops if the first view is sure.
-      for (const hypothesis of hypotheses) {
-        t = performance.now();
-        const [vector] = await embedImages(this.embedder, this.Tensor, this.profile.embedding, [hypothesis.image]);
-        if (vector.length !== this.index.meta.dim) throw new Error('Model embedding dimension mismatch');
-        timings.embed += performance.now() - t;
+      for (const hypothesis of fastMatch?[]:hypotheses) {
+        const vector = await embed(hypothesis.image);
         t = performance.now();
         const clean=cleanSearch(vector,this.index);
         vectors.push(vector); lists.push(this.search(vector, this.index, 10,opts.priors,undefined,clean,deckSearch(vector,this.index)));cleanLists.push(clean);
@@ -181,17 +225,16 @@ export class RecognitionPipeline {
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
       for (let i = 1; i < lists.length; i++) if ((lists[i][0]?.score ?? -Infinity) > (lists[winner][0]?.score ?? -Infinity)) winner = i;
-      const alternatives=[{index:this.index,vector:vectors[winner]}];
+      const alternatives=[{index:fastMatch?.index??this.index,vector:vectors[winner]}];
       let fullBest:{vector:Float32Array;score:number}|undefined;
       const fullLists:Candidate[][]=[];
-      let winningIndex=this.index, winningVector=vectors[winner], winningRotation=hypotheses[winner]?.rotation ?? 0;
+      let winningIndex=fastMatch?.index??this.index, winningVector=vectors[winner], winningRotation=fastMatch?.rotation??hypotheses[winner]?.rotation ?? 0;
       // Compare whole-card pixels only to whole-card references. Always run both
       // when references exist, even if the standard crop was confident.
-      if(this.fullArtIndex?.meta.count) {
-        for(const rotation of [0,180] as const) {
+      if(!fastMatch && this.fullArtIndex?.meta.count) {
+        for(const {image,rotation} of wholeHypotheses) {
+          const vector=await embed(image);
           t=performance.now();
-          const [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[rotation ? rotate180(warped) : warped]);
-          timings.embed+=performance.now()-t; t=performance.now();
           const clean=cleanSearch(vector,this.fullArtIndex),list=this.search(vector,this.fullArtIndex,10,opts.priors,undefined,clean,deckSearch(vector,this.fullArtIndex));fullLists.push(list);cleanLists.push(clean);
           if(!fullBest || (list[0]?.score ?? -Infinity)>fullBest.score) fullBest={vector,score:list[0]?.score ?? -Infinity};
           if((list[0]?.score ?? -Infinity)>(merged[0]?.score ?? -Infinity)) {winningIndex=this.fullArtIndex;winningVector=vector;winningRotation=rotation;}
@@ -224,13 +267,17 @@ export class RecognitionPipeline {
         if(opts.deferAICrop)deferredAICrop={bytes:frame.data.byteLength,create};else aiCrop=create();
       }
       views.push({ aiCrop, deferredAICrop, faceDown, clean, ranked:merged, confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || selected), corners: found, unambiguous: eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean, thresholds, this.profile.cardBack.cardId).confident, frameClass });
+      if(fastMatch)break;
       if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,thresholds,this.profile.cardBack.cardId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
     }
     const t = performance.now(), k = opts.k ?? 5;
     let candidates: Candidate[] = [], visual: Candidate[] = [], deckSuggestions:Candidate[]=[];
     let frameClass: string | undefined;
     const fallback = !views.length || views.some(v => !v.corners);
-    if (views.length) {
+    if(shortlistExit) {
+      visual=views[0].clean;candidates=views[0].ranked;frameClass=views[0].frameClass;
+      deckSuggestions=frameEvidence[0].deck.slice(0,2);
+    } else if (views.length) {
       frameClass = views.map(v => v.frameClass).find(c => c && views.filter(v => v.frameClass === c).length > views.length / 2);
       const visualLists: Candidate[][]=[], rankedLists: Candidate[][]=[], deckLists:Candidate[][]=[];
       for(const index of [this.index,this.fullArtIndex].filter((i): i is LoadedIndex=>Boolean(i))) {
