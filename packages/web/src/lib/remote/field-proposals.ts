@@ -9,7 +9,7 @@ export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack):boolean {
   return area/Math.min((x.right-x.left)*(x.bottom-x.top),(y.right-y.left)*(y.bottom-y.top))<.04;
 }
 /** A new placement records the sighting atomically, so one Undo removes both. */
-export function fieldPlacementProposals({track,seat,cardId,name,existing=false,copyProof}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;copyProof?:{simultaneousQuads:2;at:number}}):RemoteActionProposal[] {
+export function fieldPlacementProposals({track,seat,cardId,name,existing=false,copyProof}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;copyProof?:{simultaneousQuads:number;at:number}}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
   if(['GY','BANISHED','DECK','EXTRA'].includes(track.zone))return [];
   if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(track.bestMatch?{bestMatch:true}:{}),...location}]:[];

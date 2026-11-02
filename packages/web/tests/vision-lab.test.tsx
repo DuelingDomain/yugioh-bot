@@ -58,12 +58,12 @@ const cards = [
   { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
 const zoneEntries=[
-  {cardId:'41420027',passcode:41420027,name:'Solemn Judgment'},
-  {cardId:'76375913',passcode:76375913,name:'Mystic Mine'},
-  {cardId:'23995346',passcode:23995346,name:'Blue-Eyes Ultimate Dragon'},
-  {cardId:'16178681',passcode:16178681,name:'Odd-Eyes Pendulum Dragon'},
-  {cardId:'900000101',passcode:900000101,name:'Extra Deck Pendulum fixture'},
-  {cardId:'900000102',passcode:900000102,name:'Unknown full type fixture'},
+  {cardId:'41420027',passcode:41420027,frameClass:'Normal',name:'Solemn Judgment'},
+  {cardId:'76375913',passcode:76375913,frameClass:'Normal',name:'Mystic Mine'},
+  {cardId:'23995346',passcode:23995346,frameClass:'Normal',name:'Blue-Eyes Ultimate Dragon'},
+  {cardId:'16178681',passcode:16178681,frameClass:'Normal',name:'Odd-Eyes Pendulum Dragon'},
+  {cardId:'900000101',passcode:900000101,frameClass:'Normal',name:'Extra Deck Pendulum fixture'},
+  {cardId:'900000102',passcode:900000102,frameClass:'Normal',name:'Unknown full type fixture'},
 ];
 const catalogFacts=[
   ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),
@@ -747,6 +747,45 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+it.each([
+ ['graveyard',undefined],['hand',undefined],['deck',undefined],['extra',undefined],['banished',undefined],
+ ['spell-trap',3],['spell-trap',undefined],
+] as const)('camera absence preserves a separate %s copy at slot %s',async(zone,slot)=>{
+ const timers:(()=>void)[]=[],interval=setInterval;
+ const clock=vi.spyOn(Date,'now'),schedule=vi.spyOn(globalThis,'setInterval').mockImplementation((callback:any,delay?:number,...args:any[])=>{if(delay===500)timers.push(callback);return interval(callback,delay,...args);});
+ const kept={ref:'visible-copy',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+ const other={...kept,ref:'separate-copy',zone,slot};
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[kept,other],'moved');
+ try{
+  const at=Date.now();await act(async()=>{for(const tick of timers)tick();});clock.mockReturnValue(at+6500);await act(async()=>{for(const tick of timers)tick();});
+  expect(fixture.post).not.toHaveBeenCalled();
+  expect(fixture.room().state.seats[0].twin).toEqual([kept,other]);
+ }finally{fixture.dispose();clock.mockRestore();schedule.mockRestore();}
+});
+it('repairs an absent duplicate at the same precise physical field slot',async()=>{
+ const timers:(()=>void)[]=[],interval=setInterval;
+ const clock=vi.spyOn(Date,'now'),schedule=vi.spyOn(globalThis,'setInterval').mockImplementation((callback:any,delay?:number,...args:any[])=>{if(delay===500)timers.push(callback);return interval(callback,delay,...args);});
+ const kept={ref:'visible-copy',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[kept,{...kept,ref:'same-slot-ghost'}],'moved');
+ try{
+  const at=Date.now();await act(async()=>{for(const tick of timers)tick();});clock.mockReturnValue(at+6500);await act(async()=>{for(const tick of timers)tick();});
+  expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.merge',keepRef:kept.ref,removeRef:'same-slot-ghost'}),undefined);
+  expect(fixture.room().state.seats[0].twin).toEqual([kept]);
+ }finally{fixture.dispose();clock.mockRestore();schedule.mockRestore();}
+});
+it('creates a third simultaneous physical copy with all three witnesses in copyProof',async()=>{
+ const twins=[1,2].map(slot=>({ref:`copy-${slot}`,zone:'spell-trap',slot,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4',twins,'placed',undefined,async proposal=>{proposal.at=Date.now();});
+ try{
+  fixture.track.card={...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x*.3}))};
+  const witnesses=twins.map((card,index)=>({...fixture.track,id:card.ref,zone:`S${card.slot}`,card:{...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x+(index+1)*.3}))}}));
+  state.fieldWatch.watch.snapshot.tracks.push(...witnesses);
+  state.fieldWatch.watch.getTrack=(id:string)=>state.fieldWatch.watch.snapshot.tracks.find((track:any)=>track.id===id);
+  fixture.refresh();await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.post.mock.calls[0][0]).toMatchObject({type:'twin.place',source:'auto',copyProof:{simultaneousQuads:3}});
+  expect(fixture.room().state.seats[0].twin).toHaveLength(3);
+ }finally{fixture.dispose();}
+});
 const physicalQuad=(row:'M'|'S'):DetectedQuad=>({kind:'face-up',confidence:.99,partial:false,quad:[{x:.588,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.22:.64},{x:.668,y:row==='M'?.38:.8},{x:.588,y:row==='M'?.38:.8}]});
 async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:DetectedQuad)=>string){
  const {createFieldWatcher,yugioh}=await import('@yugidraft/vision');let at=0;
@@ -771,13 +810,13 @@ describe('typed watcher zone projection',()=>{
  });
  it('waits for an already-started catalog prefetch before committing the legal row',async()=>{
   const {loadCards}=await import('../src/components/remote/ui/catalog'),ready=deferred<Response>();
-  const entry={cardId:'900000103',passcode:900000103,name:'Prefetched trap fixture'};
+  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched trap fixture'};
   fetcher.mockImplementation(async(url,init)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const prefetch=loadCards([entry.passcode]),fixture=await typedWatcherFixture(entry,'M4');
   try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
  });
  it('uses the latest physical column when a card moves during full-type loading',async()=>{
-  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,name:'Moving trap fixture'};
+  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Normal',name:'Moving trap fixture'};
   fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});}finally{fixture.dispose();}
  });

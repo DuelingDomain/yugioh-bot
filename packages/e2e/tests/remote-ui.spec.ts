@@ -512,6 +512,36 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
+  test("one card seen twice: 2x badges and a banner; Two copies hides them, Merge keeps one card with a log line and Undo", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+    // A second Mystical Space Typhoon in another Spell/Trap Zone: the same public card twice on one field.
+    const before = await room() as unknown as { lastSeq: number };
+    const placed = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: before.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "mst2", cardId: 5318639, name: "Mystical Space Typhoon", slot: 3, faceUp: true, position: "attack" } } } });
+    expect(placed.status(), await placed.text()).toBe(200);
+    const twins = async () => (await room()).state.seats[0].twin.filter(card => card.zone === "spell-trap").length;
+    await page.goto(`/duels/remote/${slug}`);
+    const banner = page.getByTestId("dup-banner-0");
+    await expect(banner).toContainText("Mystical Space Typhoon appears twice");
+    await expect(page.getByTestId("field-0").getByTestId("dup-badge")).toHaveText(["2\u00d7", "2\u00d7"]);
+    // Readable and inside the window on a laptop and on a phone.
+    for (const size of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(size); await banner.scrollIntoViewIfNeeded();
+      const box = (await banner.boundingBox())!; expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(size.width + 1);
+      await expect(page.getByTestId("dup-merge-0")).toBeVisible(); await shot(page, `dup-banner-${size.width}`);
+    }
+    // Two copies: the badges and the line go away. Nothing changes on the table.
+    await page.getByTestId("dup-two-0").click();
+    await expect(banner).toHaveCount(0); await expect(page.getByTestId("dup-badge")).toHaveCount(0); expect(await twins()).toBe(2);
+    // The answer is this viewer's. After a reload the line asks again, and Merge keeps one card.
+    await page.reload(); await expect(banner).toBeVisible();
+    await banner.getByTestId("dup-merge-0").focus(); await page.keyboard.press("Enter");
+    await expect.poll(twins).toBe(1); await expect(banner).toHaveCount(0);
+    // Undo has a 5 second window: use it first, then read the log.
+    await page.getByTestId("undo").click(); await expect.poll(twins).toBe(2);
+    expect((await room()).events.filter(event => ["twin.merge", "twin.remove"].includes(event.action.type))).toHaveLength(1);
+    await page.getByTestId("log-button").click(); await expect(page.getByTestId("log-drawer")).toContainText(/Merged duplicate|removed from/);
+  });
+
   test("field layout: Field, M1-M5, GY on top; Extra Deck, S1-S5, Deck below; other seats turned 180 degrees", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2); await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);

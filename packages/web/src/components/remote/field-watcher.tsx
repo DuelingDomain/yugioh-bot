@@ -20,6 +20,7 @@ import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
+const sameFieldSlot=(a:TwinCard,b:TwinCard)=>publicField(a.zone)&&a.zone===b.zone&&(a.zone==='field'||(a.slot!==undefined&&a.slot===b.slot));
 const piles=new Set<FieldZone>(['GY','BANISHED','DECK','EXTRA']);
 const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 function readPhysicalZones(key:string):Map<string,FieldZone> {
@@ -160,13 +161,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown});if(!updated)return;}
       // The resolver has just required a distinct, same-frame witness for every
       // existing copy. Timestamp the actual camera sample in the server clock.
-      const copyProof=!existing&&code&&twins.some(c=>cardCode(c)===code)?{simultaneousQuads:2 as const,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
+      const copyCount=code?twins.filter(c=>cardCode(c)===code).length:0;
+      const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       for(const proposal of fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(proposal.type==='twin.place'){
           const canonical=placedTwin(updated.state.seats[seat].twin,{...proposal.card,zone:proposal.zone});
           if(!canonical)throw new Error('Camera placement was not returned in its slot');
-          if(canonical && canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
+          if(canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
           bindings.current.set(event.track.id,canonical.ref);
         }
       }
@@ -181,7 +183,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       let target=currentTarget();if(!target)return;
       if(!matches(target)&&!(existing&&keepsManual(existing.ref,fieldZoneLocation(target.observed.zone),target.observed.position))){
         const physicallyMoved=target.observed.zone!==physicalAtSave.zone||target.observed.position!==physicalAtSave.position;
-        const initialCorrection=!!existing&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position);
+        const initialCorrection=!!existing&&!keepsManual(existing.ref,location,track.position)&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==track.position);
         if(!physicallyMoved&&!initialCorrection){setNotice('The placement changed. Check this card.');return;}
         // A genuine move is separate from the atomic placement and keeps its ref.
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.move',actorSeat:seat,seat,cardRef:target.card.ref,...target.location,position:target.observed.position});
@@ -223,6 +225,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         const projected=projectFieldZone({zone:observed.zone,facts:cardInfo(code),twins:current.current.room.state.seats[seat].twin,ref:card.ref,faceDown:observed.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
         if(!projected.zone){setNotice(projected.reason??'Choose a legal zone manually.');return;}
         const location=fieldZoneLocation(projected.zone);
+        if(keepsManual(card.ref,location,observed.position))return;
         if(card.zone!==location.zone||card.slot!==location.slot||card.position!==observed.position){if(!await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...location,position:observed.position}))return;if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}}
         const after=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!live()||!fieldEvidenceMatches(event,after))return;
         const twins=current.current.room.state.seats[seat].twin,persisted=twins.find(c=>c.ref===card.ref);if(!persisted)return;
@@ -244,14 +247,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         const code=cardCode(ghost),lost=tracked(ghost.ref),mergedAt=mergedCopies.current.get(ghost.ref);
         // A restored merge is an owner override. A covered live track is not gone.
         if(!code||(mergedAt!==undefined&&current.current.room.lastSeq>mergedAt)||(lost&&!lost.removed)){missingCopies.current.delete(ghost.ref);continue;}
-        const keep=twins.find(c=>c.ref!==ghost.ref&&cardCode(c)===code&&publicField(c.zone)&&c.faceUp&&(()=>{const t=tracked(c.ref);return t?.state==='identified'&&t.visible&&!t.removed&&entries.current.get(t.cardId??'')?.passcode===code;})());
+        // Camera absence cannot distinguish a real pile copy from a duplicate.
+        // Only overlapping twins at one precise field position are safe to repair.
+        const keep=twins.find(c=>c.ref!==ghost.ref&&cardCode(c)===code&&sameFieldSlot(ghost,c)&&c.faceUp&&(()=>{const t=tracked(c.ref);return t?.state==='identified'&&t.visible&&!t.removed&&entries.current.get(t.cardId??'')?.passcode===code;})());
         if(!keep){missingCopies.current.delete(ghost.ref);continue;}
         const since=missingCopies.current.get(ghost.ref)??at;missingCopies.current.set(ghost.ref,since);
         if(at-since<5000)continue;
         repairingCopies.current=true;
         void queue(async act=>{
           const latest=current.current.room,twins=latest.state.seats[seat].twin,survivor=twins.find(c=>c.ref===keep.ref),duplicate=twins.find(c=>c.ref===ghost.ref),t=tracked(keep.ref),gone=tracked(ghost.ref);
-          if(!live()||!survivor||!duplicate||!t?.visible||t.removed||(gone&&!gone.removed))return;
+          if(!live()||!survivor||!duplicate||!sameFieldSlot(survivor,duplicate)||!t?.visible||t.removed||(gone&&!gone.removed))return;
           const updated=await act({type:'twin.merge',actorSeat:seat,seat,keepRef:survivor.ref,removeRef:duplicate.ref,reason:'Camera sees one physical copy; absent duplicate merged'});
           if(updated){mergedCopies.current.set(duplicate.ref,updated.lastSeq);missingCopies.current.delete(duplicate.ref);setDeparture(null);setNotice(`${survivor.name??'Card'} duplicate merged · one physical copy`);setUndoId(updated.state.undo?.actionId??'');}
         }).finally(()=>{repairingCopies.current=false;});
