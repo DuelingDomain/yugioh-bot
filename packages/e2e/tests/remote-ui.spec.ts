@@ -584,11 +584,21 @@ test.describe("remote lobby camera step", () => {
     await dialog.getByRole("button", { name: "Save calibration" }).click();
     await expect(zones).toHaveAttribute("data-state", "done");
     await shot(page, "lobby-zones-done");
+    // The lobby grid, in 0..1 units. The table must draw the very same cells from the saved record.
+    const cells = (selector: string, scale: number) => page.locator(selector).evaluateAll((polygons, k) => polygons.map(p => (p.getAttribute("points") ?? "").split(/[ ,]+/).map(n => Number(n) / k)), scale);
+    const lobbyCells = await cells('svg[viewBox="0 0 1000 1000"] polygon', 1000);
+    expect(lobbyCells.length).toBeGreaterThan(10);
     expect((await context.request.post(`/api/remote/${slug}/ready`, { data: { ready: true } })).ok()).toBe(true);
     expect((await context.request.post(`/api/remote/${slug}/start`, { data: {} })).ok()).toBe(true);
     await expect(page.getByTestId("remote-table")).toBeVisible();
-    await expect(page.getByTestId("field-watcher-status")).toBeVisible();
-    await expect(page.getByTestId("field-watcher-status")).not.toContainText("Choose your side");
+    const status = page.getByTestId("field-watcher-status");
+    // Only a state after the record was read with the camera on can show a missing calibration.
+    await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Watcher unavailable|Paused · busy)$/, { timeout: 30_000 });
+    const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
+    await expect(tableGrid.first()).toBeVisible();
+    const tableCells = await cells('[data-testid="zone-grid"][data-calibrated="true"] polygon', 1);
+    expect(tableCells.length).toBe(lobbyCells.length);
+    tableCells.forEach((points, i) => points.forEach((n, j) => expect(Math.abs(n - lobbyCells[i][j])).toBeLessThan(.005)));
   });
 });
 

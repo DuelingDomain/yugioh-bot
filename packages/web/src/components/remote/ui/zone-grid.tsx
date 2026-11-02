@@ -27,7 +27,8 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
     refresh();const timer=setInterval(refresh,500);return()=>clearInterval(timer);
   },[own,seat,hub.trackedCalibration]);
   const calibration = own ? grid.calibration : remoteCalibration;
-  const calibrated = !!calibration;
+  // Own feed: the shared rule (zones placed on the mat). Others: any grid the owner shares.
+  const calibrated = own ? !!grid.placed : !!calibration;
   const cells = useMemo(() => fieldGridCells(grid.format), [grid.format]);
   const defaultSide = own ? grid.defaultSide : undefined;
   const shown = displayCalibration(calibration, defaultSide);
@@ -52,7 +53,7 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
     return [{ id: track.id, pair, x, y: top }];
   }).slice(0, 3), [tracks, calibrated, calibration, cells]);
 
-  if (!box || (!visible && (!own || calibration?.orientation))) return null;
+  if (!box || (!visible && (!own || (calibration?.orientation && grid.placed)))) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
   return <>
     <svg className={s.zgrid} style={frame} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="zone-grid" data-calibrated={calibrated} data-seat={seat}>

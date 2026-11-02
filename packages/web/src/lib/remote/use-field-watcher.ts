@@ -1,43 +1,72 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { defaultGridCalibration } from './zone-grid';
+import { defaultGridCalibration, isPlacedCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
 export interface UseFieldWatcherOptions {
-  owner:boolean; active:boolean; seatKey:string; duelKey?:string; sourceKey?:unknown; deviceKey?:string;
+  owner:boolean; active:boolean; seatKey:string; duelKey?:string; sourceKey?:unknown; deviceKey?:string; deviceLabel?:string;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
 export const fieldCalibrationKey=(seatKey:string,deviceKey?:string)=>`dd-field-watcher:v1:${seatKey}${deviceKey?`:device:${encodeURIComponent(deviceKey)}`:''}`;
-function readSaved(seatKey:string,deviceKey?:string):{enabled?:boolean;calibration?:FieldCalibration;cameraId?:string} {
+interface SavedRecord {enabled?:boolean;calibration?:FieldCalibration;cameraId?:string;cameraLabel?:string;placed?:boolean}
+const parseRecord=(raw:string|null):SavedRecord|undefined=>{
+  if(!raw)return undefined;
+  try{const value=JSON.parse(raw);return value&&typeof value==='object'&&!Array.isArray(value)?value:undefined;}catch{return undefined;}
+};
+const seatPrefix=(seatKey:string)=>/^(.+:.+:)\d+$/.exec(seatKey)?.[1];
+/** The other seat keys of the same user and guild: the mat and the camera do not change with the seat number. */
+function siblingSeatKeys(seatKey:string):string[] {
+  const prefix=seatPrefix(seatKey),base=fieldCalibrationKey(prefix??'');
+  if(!prefix)return [];
+  const seen=new Set<string>();
+  for(let i=0;i<localStorage.length;i++){
+    const rest=localStorage.key(i)?.startsWith(base)?localStorage.key(i)!.slice(base.length):'';
+    const seat=/^(\d+)(:device:.*)?$/.exec(rest)?.[1];
+    if(seat&&prefix+seat!==seatKey)seen.add(prefix+seat);
+  }
+  return [...seen];
+}
+/** One seat's record for this camera. A new camera id keeps the corners only when it is the same camera by label. */
+function pickRecord(seatKey:string,deviceKey?:string,label?:string):SavedRecord|undefined {
+  const exact=parseRecord(localStorage.getItem(fieldCalibrationKey(seatKey,deviceKey)));
+  if(exact||!deviceKey)return exact;
+  // Phone pairings never inherit a webcam's geometry.
+  if(deviceKey.startsWith('phone:'))return undefined;
+  const last=parseRecord(localStorage.getItem(fieldCalibrationKey(seatKey)));
+  if(!last||!last.cameraId||last.cameraId===deviceKey)return last;
+  if(String(last.cameraId).startsWith('phone:'))return undefined;
+  if(label&&last.cameraLabel===label)return last;
+  // Another camera for the same seat: keep which side the player sits on, but not the other camera's corners.
+  const orientation=last.calibration?.orientation;
+  if(!orientation)return undefined;
+  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation),placed:false};}catch{return undefined;}
+}
+function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
   try {
-    const exact=localStorage.getItem(fieldCalibrationKey(seatKey,deviceKey));
-    if(exact){const value=JSON.parse(exact);return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}
-    const legacy=JSON.parse(localStorage.getItem(fieldCalibrationKey(seatKey))??'{}');
-    if(!legacy||typeof legacy!=='object'||Array.isArray(legacy))return {};
-    // Phone pairings never inherit a webcam's geometry.
-    if(deviceKey?.startsWith('phone:'))return {};
-    if(deviceKey&&legacy.cameraId&&legacy.cameraId!==deviceKey) {
-      // Another id for the same seat (lobby and table can report a camera differently): keep which side
-      // the player sits on, but not the other camera's corners. A phone's record is never inherited.
-      const orientation=legacy.calibration?.orientation;
-      if(!orientation||String(legacy.cameraId).startsWith('phone:'))return {};
-      try{return {enabled:legacy.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation)};}catch{return {};}
-    }
-    return legacy;
+    let value=pickRecord(seatKey,deviceKey,label);
+    if(!value)for(const other of siblingSeatKeys(seatKey)){value=pickRecord(other,deviceKey,label);if(value)break;}
+    return value??{};
   }catch{return {};}
 }
-/** Lobby and table share the same seat + camera record, including orientation. */
-export function loadFieldCalibration(seatKey:string,deviceKey?:string):FieldCalibration|undefined {
-  try {const saved=readSaved(seatKey,deviceKey).calibration;return saved?createFieldCalibration(saved.corners,saved.orientation):undefined;}catch{return undefined;}
-}
-export function loadFieldCalibrationCamera(seatKey:string):string|undefined {
-  return readSaved(seatKey).cameraId;
-}
-export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string) {
+/** A record made before the saved flag counts as placed when its corners left the first guess. */
+const isPlaced=(saved:SavedRecord,calibration?:FieldCalibration)=>saved.placed??isPlacedCalibration(calibration);
+/** Lobby and table share the same seat + camera record, including orientation and whether the zones were placed. */
+export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean} {
   try {
-    const value={...readSaved(seatKey,cameraId),calibration:grid,cameraId};
+    const saved=readSaved(seatKey,deviceKey,label),calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation):undefined;
+    return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration)};
+  }catch{return {placed:false};}
+}
+export function loadFieldCalibration(seatKey:string,deviceKey?:string,label?:string):FieldCalibration|undefined {
+  return loadFieldCalibrationRecord(seatKey,deviceKey,label).calibration;
+}
+/** `placed` marks a save from the calibration dialog; a side flip leaves it as it was. */
+export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string,meta:{label?:string;placed?:boolean}={}) {
+  try {
+    const before=readSaved(seatKey,cameraId,meta.label);
+    const value={...before,calibration:grid,cameraId,cameraLabel:meta.label??before.cameraLabel,placed:meta.placed??isPlaced(before,before.calibration)};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.
     if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));
@@ -51,22 +80,29 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const galleryKey=`dd-field-gallery:v1:${options.seatKey}:${options.duelKey??'lab'}`;
   const [enabled,setOn]=useState(true),[loaded,setLoaded]=useState('');
   const [calibration,setGrid]=useState<FieldCalibration|undefined>();
+  const [placed,setPlaced]=useState(false);
+  const placedRef=useRef(placed);placedRef.current=placed;
   const gridRef=useRef(calibration);gridRef.current=calibration;
   const [snapshot,setSnapshot]=useState<FieldSnapshot>(initial);
   const storageKey=fieldCalibrationKey(options.seatKey,options.deviceKey);
   const hasCalibration=!!calibration?.orientation;
-  const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!hasCalibration;
+  // Ready = a side is saved AND the zones were placed on the mat (the lobby reads the same rule).
+  const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!(hasCalibration&&placed);
   useEffect(()=>{
-    const value=readSaved(options.seatKey,options.deviceKey);
+    const value=readSaved(options.seatKey,options.deviceKey,options.deviceLabel),record=loadFieldCalibrationRecord(options.seatKey,options.deviceKey,options.deviceLabel);
     setOn(value.enabled!==false);
-    setGrid(loadFieldCalibration(options.seatKey,options.deviceKey));
+    setGrid(record.calibration);setPlaced(record.placed);
     setLoaded(storageKey);
-  },[storageKey,options.seatKey,options.deviceKey]);
-  const save=useCallback((on:boolean,grid?:FieldCalibration)=>{try{const value=JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey});localStorage.setItem(storageKey,value);
+  },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel]);
+  const save=useCallback((on:boolean,grid?:FieldCalibration,isPlacedNow=placedRef.current)=>{try{const value=JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey,cameraLabel:options.deviceLabel,placed:isPlacedNow});localStorage.setItem(storageKey,value);
     // Same last-camera pointer the lobby writes, so a flip made at the table shows in the lobby and the reverse.
-    if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.seatKey]);
+    if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.deviceLabel,options.seatKey]);
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
-  const setCalibration=useCallback((grid?:FieldCalibration)=>{gridRef.current=grid;setGrid(grid);watcher.current?.setCalibration(grid);save(enabled,grid);},[enabled,save]);
+  // `placed` is true from the calibration dialog; a side flip keeps it, and a grid moved off the first guess counts too.
+  const setCalibration=useCallback((grid?:FieldCalibration,markPlaced?:boolean)=>{
+    const next=!!grid&&(markPlaced??(placedRef.current||isPlacedCalibration(grid)));
+    gridRef.current=grid;setGrid(grid);setPlaced(next);placedRef.current=next;watcher.current?.setCalibration(grid);save(enabled,grid,next);
+  },[enabled,save]);
   useEffect(()=>{
     if(!options.owner||!options.active||!enabled||loaded!==storageKey){setSnapshot(initial);return;}
     let cancelled=false,reader:FieldWatcher|null=null;
@@ -92,7 +128,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration,galleryKey]);
-  return {getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
+  return {placed,getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>watcher.current?.confirm(id,cardId,ref,human),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),
