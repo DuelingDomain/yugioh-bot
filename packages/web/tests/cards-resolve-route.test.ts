@@ -1,12 +1,14 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 // packages/web/tests/cards-resolve-route.test.ts
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
+let seedDir: string;
+let seedDbPath: string;
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
   return sessionFixture(auth);
@@ -29,17 +31,16 @@ vi.mock("@yugidraft/shared/services", async (importOriginal) => {
   };
 });
 
-async function setupDb() {
+async function setupDb(seedCatalog = true) {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-"));
   const dbPath = join(tempDir, "test.sqlite");
   tempDirs.push(tempDir);
   process.env.DATABASE_PATH = dbPath;
   process.env.DISCORD_GUILD_ID = "guild-1";
+  copyFileSync(seedDbPath, dbPath);
+  if (!seedCatalog) return;
   const Database = (await import("better-sqlite3")).default;
-  const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
-  migrate(db);
-  seedFixtureUsers(db, FIXTURE_KEYS);
   // two catalog cards: one in "Metal Raiders", one not in any set
   db.prepare(
     `insert into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
@@ -60,6 +61,26 @@ function seedCard(db: import("better-sqlite3").Database, id: number, name: strin
 }
 
 describe("POST /api/cards/resolve", () => {
+  beforeAll(async () => {
+    // Fresh schema creation makes many disk commits. Migrate once, then copy
+    // the empty catalog so every case retains its own real file-backed DB.
+    seedDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-seed-"));
+    seedDbPath = join(seedDir, "seed.sqlite");
+    const Database = (await import("better-sqlite3")).default;
+    const { migrate } = await import("@yugidraft/shared/db");
+    const db = new Database(seedDbPath);
+    try {
+      migrate(db);
+      seedFixtureUsers(db, FIXTURE_KEYS);
+    } finally {
+      db.close();
+    }
+    // Keep cold route transforms outside the individual request timer.
+    await import("../app/api/cards/resolve/route");
+  });
+  afterAll(() => {
+    if (seedDir) rmSync(seedDir, { recursive: true, force: true });
+  });
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
@@ -140,16 +161,8 @@ describe("POST /api/cards/resolve", () => {
   });
 
   it("syncs a requested set before resolving it, so an unsynced set returns its cards", async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-sets-"));
-    tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = join(tempDir, "test.sqlite");
-    process.env.DISCORD_GUILD_ID = "guild-1";
+    await setupDb(false);
     const Database = (await import("better-sqlite3")).default;
-    const { migrate } = await import("@yugidraft/shared/db");
-    const db = new Database(process.env.DATABASE_PATH);
-    migrate(db);
-    seedFixtureUsers(db, FIXTURE_KEYS);
-    db.close();
     syncDraftPool.mockImplementation(async () => {
       const d = new Database(process.env.DATABASE_PATH!);
       d.prepare(
@@ -200,16 +213,9 @@ describe("POST /api/cards/resolve", () => {
   });
 
   it("returns one card entry per distinct id even when ids repeat", async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-dedup-"));
-    const dbPath = join(tempDir, "test.sqlite");
-    tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "guild-1";
+    await setupDb(false);
     const Database = (await import("better-sqlite3")).default;
-    const { migrate } = await import("@yugidraft/shared/db");
-    const db = new Database(dbPath);
-    migrate(db);
-    seedFixtureUsers(db, FIXTURE_KEYS);
+    const db = new Database(process.env.DATABASE_PATH!);
     // Two catalog cards; request repeats 101 three times.
     seedCard(db, 101, "Alpha");
     seedCard(db, 102, "Beta");
