@@ -358,6 +358,20 @@ it('field legality: face-down geometry can be retained without catalog facts',as
  expect(projectFieldZone({zone:'S4',faceDown:true,twins:[]})).toEqual({zone:'S4',label:'Spell/Trap Zone 4'});
  expect(projectFieldZone({zone:'M2',faceDown:true,twins:[{ref:'busy',zone:'monster',slot:2}]}).zone).toBe('M1');
 });
+it('field legality: face-down extra-row observations use aligned main zones in every format',async()=>{
+ const {projectFieldZone}=await import('../src/lib/remote/field-legality');
+ for(const format of ['normal','domain','genesys','genesys-domain'] as const){
+  expect(projectFieldZone({zone:'EMZ1',faceDown:true,format,twins:[]}).zone).toBe('M2');
+  expect(projectFieldZone({zone:'EMZ2',faceDown:true,format,twins:[]}).zone).toBe('M4');
+ }
+ expect(projectFieldZone({zone:'EMZ2',faceDown:true,twins:[{ref:'busy',zone:'monster',slot:4}]}).zone).toBe('M3');
+});
+it('field legality: nullable catalog race does not invent a Field Spell subtype',async()=>{
+ const {projectFieldZone,manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
+ const facts:import('../src/lib/remote/field-legality').FieldZoneFacts={type:'Spell Card',race:null};
+ expect(projectFieldZone({zone:'M4',facts,twins:[]}).zone).toBe('S4');
+ expect(manualFieldZoneWarning(facts,'spell-trap',4)).toBeUndefined();
+});
 it('field legality: pile observations remain unchanged for adapter policy',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  for(const zone of ['GY','BANISHED','DECK','EXTRA'] as const)expect(projectFieldZone({zone,twins:[]}).zone).toBe(zone);

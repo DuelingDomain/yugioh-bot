@@ -1,6 +1,6 @@
 import { fieldZoneLocation, hasExtraMonsterZones, type FieldFormat, type FieldZone } from '@yugidraft/vision';
 
-export type FieldZoneFacts = { type:string; frameType?:string; race?:string };
+export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null };
 type FieldTwin = { ref:string; zone:string; slot?:number };
 type Projection = { zone?:FieldZone; label:string; reason?:string };
 const piles = new Set(['GY','BANISHED','DECK','EXTRA','graveyard','banished','deck','extra','hand','hand-reveal']);
@@ -48,7 +48,7 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(faceDown){
     if(zone.startsWith('M'))return row('M');
     if(zone.startsWith('S'))return row('S');
-    if(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format))return row('M');
+    if(zone.startsWith('EMZ'))return row('M');
     return occupied(zone)?abstain(`${fieldZoneLabel(zone)} is occupied. Choose a zone manually.`):accept(zone);
   }
   const kind=cardKind(facts);
@@ -60,7 +60,7 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   return row('M');
 }
 
-/** Explicit moves remain available; callers can present this warning before saving. */
+/** Explicit moves remain available; callers can display a warning alongside the move. */
 export function manualFieldZoneWarning(facts:FieldZoneFacts|undefined,zone:string,slot?:number):string|undefined {
   if(piles.has(zone))return;
   const location=/^[MS][1-5]$|^EMZ[12]$|^FIELD$/.test(zone)?fieldZoneLocation(zone as FieldZone):{zone,slot};
@@ -68,12 +68,12 @@ export function manualFieldZoneWarning(facts:FieldZoneFacts|undefined,zone:strin
   if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(destination))return;
   const kind=cardKind(facts);
   if(!kind.known)return unknownType;
-  if(destination==='monster')return kind.monster||kind.trapMonster?undefined:'Spell and Trap Cards normally belong outside Main Monster Zones. Confirm this move.';
-  if(destination==='extra-monster')return kind.extra?undefined:'Extra Monster Zones require Fusion, Synchro, Xyz, or Link Monsters. Confirm this move.';
-  if(destination==='field')return kind.field?undefined:'Only Field Spells normally belong in the Field Spell Zone. Confirm this move.';
-  if(kind.field)return 'Field Spells normally belong in the Field Spell Zone. Confirm this move.';
-  if(destination==='pendulum')return kind.pendulum?undefined:'Only Pendulum Monsters normally belong in Pendulum Zones. Confirm this move.';
+  if(destination==='monster')return kind.monster||kind.trapMonster?undefined:'Spell and Trap Cards normally belong outside Main Monster Zones. Check this manual move.';
+  if(destination==='extra-monster')return kind.extra?undefined:'Extra Monster Zones require Fusion, Synchro, Xyz, or Link Monsters. Check this manual move.';
+  if(destination==='field')return kind.field?undefined:'Only Field Spells normally belong in the Field Spell Zone. Check this manual move.';
+  if(kind.field)return 'Field Spells normally belong in the Field Spell Zone. Check this manual move.';
+  if(destination==='pendulum')return kind.pendulum?undefined:'Only Pendulum Monsters normally belong in Pendulum Zones. Check this manual move.';
   if(kind.spell||kind.trap)return;
-  if(kind.pendulum)return targetSlot===1||targetSlot===5?undefined:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales. Confirm this move.';
-  return 'Monsters normally belong outside Spell/Trap Zones. Confirm this move.';
+  if(kind.pendulum)return targetSlot===1||targetSlot===5?undefined:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales. Check this manual move.';
+  return 'Monsters normally belong outside Spell/Trap Zones. Check this manual move.';
 }
