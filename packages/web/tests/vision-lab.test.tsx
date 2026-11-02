@@ -393,6 +393,88 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
 
 // Field watcher lifecycle shares this existing browser test file.
 import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+import { FieldCalibrationControl } from "../src/components/remote/field-calibration";
+
+describe('field calibration modal',()=>{
+  it('escapes feed containment, traps focus, closes with Escape and restores its opener',()=>{
+    function CalibrationHarness(){
+      const [open,setOpen]=React.useState(false);
+      return <div data-testid="small-calibration-feed"><button type="button" onClick={()=>setOpen(true)}>Calibrate zones</button>{open?<FieldCalibrationControl video={null} onSave={()=>setOpen(false)} onCancel={()=>setOpen(false)}/>:null}</div>;
+    }
+    render(<CalibrationHarness/>);
+    const opener=screen.getByRole('button',{name:'Calibrate zones'});opener.focus();fireEvent.click(opener);
+    const modal=screen.getByRole('dialog',{name:'Calibrate field zones'});
+    expect(screen.getByTestId('small-calibration-feed')).not.toContainElement(modal);
+    expect(modal).toHaveAttribute('aria-modal','true');expect(modal).toHaveFocus();
+    const cancel=within(modal).getByRole('button',{name:'Cancel calibration'});
+    cancel.focus();fireEvent.keyDown(cancel,{key:'Tab'});expect(cancel).toHaveFocus();
+    modal.focus();fireEvent.keyDown(modal,{key:'Tab',shiftKey:true});expect(cancel).toHaveFocus();
+    fireEvent.keyDown(modal,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();expect(opener).toHaveFocus();
+  });
+});
+
+describe('field watcher presentation',()=>{
+  it('uses feed toolbar slots and shows one announced body prompt with a readable zone',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+    const choose=vi.fn(),dismiss=vi.fn(),enable=vi.fn(),calibrate=vi.fn();
+    const prompts=[{id:'first',zone:'M2',candidates:[{id:'46986414',label:'Dark Magician'}]},{id:'second',zone:'S4',candidates:[{id:'83764718',label:'Monster Reborn'}]},{id:'third',zone:'EMZ1',candidates:[]}];
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated={false} calibrationDisabled={false} onEnabledChange={enable} onCalibrate={calibrate} prompts={prompts} pending={false} onChoose={choose} onDismiss={dismiss}/>);
+      expect(host.querySelector('[data-field-watcher-controls]')).toContainElement(screen.getByRole('checkbox',{name:'Auto-detect cards'}));
+      expect(host.querySelector('[data-field-watcher-status-slot]')).toContainElement(screen.getByTestId('field-watcher-status'));
+      expect(screen.getAllByTestId('field-watcher-prompt')).toHaveLength(1);
+      const prompt=screen.getByTestId('field-watcher-prompt');expect(host).not.toContainElement(prompt);
+      expect(prompt).toHaveAccessibleDescription(/Main Monster Zone 2/);expect(within(prompt).getByText('+2 more')).toBeVisible();
+      expect(screen.getByRole('status',{name:'Card detection updates'})).toHaveTextContent('New card needs a choice');
+      expect(screen.queryByRole('button',{name:'Monster Reborn'})).toBeNull();
+      fireEvent.click(within(prompt).getByRole('button',{name:'Dark Magician'}));expect(choose).toHaveBeenCalledWith('first','46986414');
+      fireEvent.click(within(prompt).getByRole('button',{name:'Dismiss'}));expect(dismiss).toHaveBeenCalledWith('first');
+      fireEvent.click(screen.getByRole('checkbox',{name:'Auto-detect cards'}));expect(enable).toHaveBeenCalledWith(false);
+      fireEvent.click(screen.getByRole('button',{name:'Calibrate zones'}));expect(calibrate).toHaveBeenCalledOnce();
+    }finally{host.remove();}
+  });
+  it('keeps prompt choices and dismissal disabled while an action is pending',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[{id:'first',zone:'GY',candidates:[{id:'46986414',label:'Dark Magician'}]}]} pending onChoose={()=>{}} onDismiss={()=>{}}/>);
+      expect(screen.getByRole('button',{name:'Recalibrate'})).toBeDisabled();
+      const prompt=screen.getByTestId('field-watcher-prompt');expect(prompt).toHaveAttribute('aria-busy','true');
+      for(const button of within(prompt).getAllByRole('button'))expect(button).toBeDisabled();
+    }finally{host.remove();}
+  });
+  it('keeps a measured bottom-edge prompt inside the viewport when its feed is only 96 pixels tall',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    vi.stubGlobal('innerWidth',640);vi.stubGlobal('innerHeight',400);
+    const host=document.createElement('div');document.body.append(host);
+    vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+      const bounds=this.dataset.testid==='field-watcher-prompt'?{left:0,top:0,width:300,height:330}:{left:20,top:80,width:240,height:96};
+      return {...bounds,x:bounds.left,y:bounds.top,right:bounds.left+bounds.width,bottom:bounds.top+bounds.height,toJSON:()=>({})};
+    });
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled={false} onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[{id:'bottom',zone:'S5',quad:[{x:.8,y:.7},{x:.9,y:.7},{x:.9,y:.99},{x:.8,y:.99}],candidates:cards.map(card=>({id:card.cardId,label:card.name}))}]} pending={false} onChoose={()=>{}} onDismiss={()=>{}}/>);
+      const prompt=screen.getByTestId('field-watcher-prompt'),top=Number.parseFloat(prompt.style.top),left=Number.parseFloat(prompt.style.left);
+      expect(host).not.toContainElement(prompt);expect(top).toBeGreaterThanOrEqual(8);expect(top+330).toBeLessThanOrEqual(392);
+      expect(left).toBeGreaterThanOrEqual(8);expect(left+300).toBeLessThanOrEqual(632);
+      expect(within(prompt).getAllByRole('button')).toHaveLength(6);
+    }finally{host.remove();}
+  });
+  it('places destination and Undo notices above the existing feed toolbar in the body layer',async()=>{
+    const {FieldWatcherUI}=await import('../src/components/remote/field-watcher-ui');
+    const host=document.createElement('div');host.innerHTML='<div data-feed-toolbar></div>';document.body.append(host);
+    vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+      const bounds=this.dataset.testid==='departure-ui'?{left:0,top:0,width:300,height:72}:this.hasAttribute('data-feed-toolbar')?{left:20,top:300,width:400,height:26}:{left:20,top:60,width:400,height:280};
+      return {...bounds,x:bounds.left,y:bounds.top,right:bounds.left+bounds.width,bottom:bounds.top+bounds.height,toJSON:()=>({})};
+    });
+    try{
+      render(<FieldWatcherUI host={host} enabled statusLabel="Watching field" calibrated calibrationDisabled={false} onEnabledChange={()=>{}} onCalibrate={()=>{}} prompts={[]} pending={false} onChoose={()=>{}} onDismiss={()=>{}} noticeTestId="departure-ui" notice={<>Card left the field <button type="button">GY</button><button type="button">Undo</button></>}/>);
+      const notice=screen.getByTestId('departure-ui');expect(host).not.toContainElement(notice);
+      expect(Number.parseFloat(notice.style.top)+72).toBeLessThanOrEqual(292);
+      expect(within(notice).getByRole('button',{name:'Undo'})).toBeEnabled();
+    }finally{host.remove();}
+  });
+});
 it('keeps Ask AI available when the large source crop is deferred in the worker',async()=>{
   state.recognize.mockResolvedValue({...result,aiCropJpeg:undefined,aiCropToken:'scoped-crop-1'});
   state.askAI.mockResolvedValue({name:null,match:null});await renderLab();await recognizeCenter();

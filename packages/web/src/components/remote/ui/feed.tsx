@@ -428,8 +428,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       })}
       {reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>)}
     </div>
-    <span className={s.ctag}><i />{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span>
-    {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`}>
+    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
+    {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
         {onReadBoard && frozen.status === "ready" && frozen.cards.length ? <button type="button" className={s.fzbtn} disabled={board?.state === "reading"} onClick={() => void readAll()} data-testid="read-board" aria-keyshortcuts="R">
@@ -439,6 +439,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
+      <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>
     {extra}
