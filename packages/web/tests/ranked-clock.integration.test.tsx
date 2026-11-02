@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { fixtureDiscordId, fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
+import { chooseThemed } from "./helpers/themed-select";
 
 const auth = vi.fn();
 const push = vi.fn();
@@ -48,7 +49,7 @@ it("creates a fixed-clock ranked table through the creator and real API after se
   }));
   const { DuelCreator } = await import("../src/components/duel/creator");
   render(<DuelCreator />);
-  fireEvent.change(screen.getByLabelText("Turn timer"), { target: { value: "0" } });
+  chooseThemed("Turn timer", "0");
   fireEvent.click(screen.getByRole("checkbox", { name: /Ranked/ }));
   expect(screen.queryByLabelText("Turn timer")).not.toBeInTheDocument();
   expect(screen.queryByRole("group", { name: "When the timer runs out" })).not.toBeInTheDocument();
