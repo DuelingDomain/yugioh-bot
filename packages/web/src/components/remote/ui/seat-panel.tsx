@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField } from "./holo-field";
 import { Icon } from "./icons";
@@ -28,10 +28,33 @@ export type SeatPanelProps = {
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
+  /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
+/** Camera first (default) or enlarged field, per viewer and seat. Remembered in this browser only. */
+function useFieldView(key: string) {
+  const [field, setField] = useState(false); const [swapping, setSwapping] = useState(false);
+  useEffect(() => { try { setField(localStorage.getItem(key) === "field"); } catch { /* storage blocked: stay camera first */ } }, [key]);
+  useEffect(() => { if (!swapping) return; const timer = setTimeout(() => setSwapping(false), 420); return () => clearTimeout(timer); }, [swapping]);
+  const set = useCallback((next: boolean) => {
+    setField(next); setSwapping(true);
+    try { if (next) localStorage.setItem(key, "field"); else localStorage.removeItem(key); } catch { /* storage blocked: not remembered */ }
+  }, [key]);
+  return [field, set, swapping] as const;
+}
+
 export function SeatPanel(p: SeatPanelProps) {
+  const [fieldView, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
+  // A click on the empty field or its frame enlarges it. Cards, zones that hold a card, buttons and a pending attack pick keep their own click.
+  const enlargeFromField = (event: MouseEvent<HTMLElement>) => {
+    if (fieldView || p.picking) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea")) return;
+    const zone = target.closest("[data-zone]");
+    if (zone && zone.querySelector(`.${s.cd}`)) return;
+    setFieldView(true);
+  };
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
   useEffect(() => {
     if (previous.current === p.lp) return;
@@ -41,13 +64,15 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined}>
+  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
+      <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
+        title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat}
         aria-label={`${p.name} feed: ${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}. Open feed health`} onClick={event => p.onHealth(event.currentTarget)}>
         <span className={s.sig}><i /><i /><i /><i /></span><i className={s.hlt}>{p.health.label}</i>
@@ -57,6 +82,7 @@ export function SeatPanel(p: SeatPanelProps) {
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         below={p.cameraControl}
         extra={<>
+          {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
           <div className={s.fz} aria-live="off">FEED FROZEN<small>Last good frame shown</small></div>
           <div className={`${s.dwarn} ${p.deckWarning ? s.on : ""}`} data-testid="deck-warning" role={p.deckWarning ? "status" : undefined}>
             {p.deckWarning ? <><Icon name="warn" /><span><b>Deck no longer valid:</b> {p.deckWarning}</span>
@@ -64,7 +90,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
-        <div className={s.fwrap}>
+        <div className={s.fwrap} onClick={enlargeFromField} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
