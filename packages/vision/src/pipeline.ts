@@ -112,7 +112,10 @@ export class RecognitionPipeline {
         // Only a strong, wholly visible, isolated click target can skip the original scene pass.
         // Keep weak neighbouring outlines in the scene for overlap and covered-card checks.
         if(!card || card.conf<.9 || card.pts.some(([x,y])=>!(x>0 && y>0 && x<frame.width && y<frame.height)) ||
-          scene.some(other=>other!==card && (chooseCard([other],frame,clickPoint) || polygonArea(clipToConvex(quad,other.pts.map(([x,y])=>({x,y}))))>0))) {
+          scene.some(other=>other!==card && (
+            Boolean(chooseCard([other],frame,clickPoint)) ||
+            (polygonArea(clipToConvex(quad,other.pts.map(([x,y])=>({x,y}))))>0)
+          ))) {
           scene=await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
           card=chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence),frame,clickPoint);
         }
