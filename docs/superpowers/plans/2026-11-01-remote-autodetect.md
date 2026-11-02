@@ -185,3 +185,42 @@ shared-typecheck limitation are recorded in `packages/vision/REPORT.md`.
 Implementation and test commits pushed through `eae55a4bc`; report/plan follow in
 a final documentation commit. Isolated web/WS/LiveKit services are stopped, their
 ports are free, and protected services were untouched.
+
+## Review round 2 remediation
+
+The coordinator supplied the design and authorized these fixes on the existing
+branch. Keep identity untrusted until a read/explicit confirmation succeeds, but
+retain the reserved physical twin ref through prompts. Match a same-spot change
+back to its existing track even after skipped detection. Explicit prompt choices
+may update that slot's untracked twin; automatic copy binding may not steal a
+different slot's temporarily hidden track. Bound all table requests/refreshes at
+10 seconds and permit historical occupied-slot events only during trusted replay.
+
+- [x] NB1/B4: failing same-spot light-tick and restart probes in existing vision
+  tests; preserve bound refs and verify confirmation leaves one track/ref.
+- [x] NB1/NS2: existing web tests cover one-click face-down/replacement prompt
+  confirmation and two-copy ref safety; update the isolated apply path.
+- [x] NS1: prove a hung request and failed-action refresh time out, report errors
+  and let the shared action queue proceed; use AbortSignal.timeout(10_000).
+- [x] NS3: historical duplicate-slot replay probes; live writes remain rejected.
+- [x] Run relevant suites/typechecks, review the changes, record per-item numbers,
+  commit small and push without a PR or attribution trailers. Protected ports stay
+  untouched; use only the existing ignored fixture data for any browser check.
+
+Round 2 result: **401 passing cases**, with **21 new probes** in existing files
+(four watcher, eight component, three timeout, six replay). One explicit choice
+resolves restart/replacement prompts with one twin, including cards moved while
+the prompt waits. Two-copy probes produce zero moves of the hidden first copy.
+Timeout is 10 seconds per request, at most 20 seconds for a hung action followed
+by a hung recovery; subsequent actions continue. Six legacy conflict replays pass
+while new live conflicts remain rejected. Scoped code review has no outstanding
+findings. Vision/web/e2e typechecks, shared build and worker bundle pass.
+
+The full nine-case browser rerun passed in 2.0 minutes and regenerated all sixteen
+requested screenshots. Cached owner p50/p95 **16.60/34.21 ms**, observer
+**17.58/23.81 ms**; forty clicks, zero extra recognition/actions. Actual table
+move/removal samples **1,073.7/3,218.0 ms**. Full numbers and the 3,029 ms observer
+snapshot sample are retained in REPORT and ignored `field-watcher/round2.json`.
+No new placement/hand benchmark is claimed. Implementation pushed through
+`779767c36`; final report follows as documentation. Isolated services are stopped
+and their ports are free; protected services were untouched.

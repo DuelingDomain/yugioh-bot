@@ -1,5 +1,55 @@
 # Remote vision measurements — 2026-11-01
 
+## Round 2 review fixes and verification
+
+Read the appended review of `2d1e67f7d` in full. B1–B3 remain closed; the
+remaining B4 confirmation flow and NB1/NS1–NS3 are now fixed. No item was skipped.
+
+| Item | Change | New regression evidence |
+| --- | --- | --- |
+| NB1 / B4 | Same-spot changed pixels retain the track/ref after light ticks. Restart and face-down prompts retain `bindRef` without trusting the old identity. Explicit confirmation reuses the reserved twin, or the untracked twin occupying the slot. A reserved card may move while its prompt waits; confirmation updates and moves that same ref, checking other visible ownership first. | **4 watcher probes** cover different-card restart, face-down restart, busy/hand light ticks and CPU-budget skips. **6 component probes** click the actual confirmation UI and use the real reducer/queue: face-down restart, required flip, different-card restart, both faces moving before confirmation, and unbound same-spot replacement. Each leaves **one twin** and closes the prompt with one confirmation. |
+| NS1 | `remoteApi` uses `AbortSignal.timeout(10_000)` for fetch and response body. Failed-action recovery makes a separate bounded request instead of waiting on an outstanding SWR revalidation, then retains the returned sequence/state. Errors remain visible and later actions continue. | **3 fake-clock probes**: hung action, hung recovery, both hung. Deadline **10 s per request**, up to **20 s** if both consecutive requests hang; the next action succeeds and uses the refreshed sequence when available. |
+| NS2 | An existing track owns its copy even while hidden. Card-only adoption requires no track at all, or the same physical slot. | **2 component probes**, prompt and automatic settlement: a second copy beside a hidden first track creates its own twin/ref with **zero moves of the first copy**. |
+| NS3 | Only trusted replay bypasses the occupied-slot assertion for already accepted historical events. Live writes retain slot validation and rejection. | **6 service probes**: legacy placement/move conflicts in Main Monster, EMZ and Field. Replay keeps both refs and Undo works; a subsequent live conflicting placement still rejects. |
+
+All probes extend existing test files. Each defect was reproduced before its fix.
+Final scoped review found the moving-prompt variant, which was reproduced in both
+faces and fixed before the browser run; no actionable findings remain in scope.
+
+Verification: **136 vision + 117 targeted web + 139 shared remote integration +
+9 browser = 401 passing cases**, including **21 new regression cases**. Vision,
+web and e2e typechecks, shared source build and worker bundle pass. The existing
+unrelated broad shared-typecheck limitation documented below is unchanged.
+
+The complete browser rerun passed **9/9 in 2.0 minutes** on the isolated native
+camera/WASM/LiveKit/WebSocket stack. It verifies actual format-dependent EMZ and
+DEF→ATK following, automatic departure/log/destinations/Undo/retry, the manual-read
+race, forty cached popup clicks and both authenticated real-time snapshots.
+The screenshot matrix was regenerated: **16 PNGs**, two/four-seat layouts at
+1920×1080, 2560×1440, 1366×768 and 390×844 with prompt/calibration. Dimensions are
+checked and the four-seat mobile calibration image was visually inspected again.
+
+| Current full browser run, cached click → popup DOM | n | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Owner | 20 | **16.60 ms** | **34.21 ms** | 34.32 ms |
+| Observer | 20 | **17.58 ms** | **23.81 ms** | 27.04 ms |
+
+All forty clicks caused **zero additional recognition or table actions**. These
+DOM timings exclude card-image download/decode/paint. Single actual table samples:
+move→updated EMZ **1,073.7 ms**, removal→GY/toast **3,218.0 ms**, physical
+appearance→WebSocket twin **3,020 ms owner / 3,029 ms observer**. The latter is
+one full-stack development-server sample, not a local identification distribution.
+No new balanced placement or hand-clip benchmark was run in this round; the
+earlier measured distributions and hard-maximum limitations remain below.
+
+Local raw evidence: `data/vision/benchmark/field-watcher/round2.json` (source
+`779767c36`, all forty click samples, real-time receipts and follow samples),
+`round2-e2e.log`, and the regenerated `r1-shots/` screenshot directory. Earlier
+round-one timing JSON records remain available. Reproduction uses the same test
+commands below and the existing isolated fixture stack. No models/index were
+rebuilt or downloaded. Isolated services on 3449, 3349/4349 and 7889 are stopped;
+the coordinator's protected services/ports were untouched.
+
 ## Review r1 remediation and current measurements
 
 The coordinator's review of `511ea54fb` was read in full. All four blockers,
