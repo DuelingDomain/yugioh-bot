@@ -829,7 +829,7 @@ describe('typed watcher zone projection',()=>{
  });
  it('corrects a live move while keeping the bound ref independent of its physical row',async()=>{
   const old={ref:'bound-spell',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
-  const fixture=await typedWatcherFixture(zoneEntries[0],'M5',[old],'moved');try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:5}));expect(fixture.room().state.seats[0].twin).toHaveLength(1);}finally{fixture.dispose();}
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M5',[old],'moved');try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:5}),undefined);expect(fixture.room().state.seats[0].twin).toHaveLength(1);}finally{fixture.dispose();}
  });
  it('resolves an old illegal same-spot twin before projecting the corrected destination',async()=>{
   const old={ref:'reserved-spell',zone:'monster',slot:4,cardId:46986414,name:'Old mistaken identity',faceUp:true,position:'attack'};
