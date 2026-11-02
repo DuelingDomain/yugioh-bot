@@ -2,7 +2,7 @@ import type { Recognizer } from './client';
 import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } from './types';
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
-import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, type FieldFrame, type FieldAnalysis } from './field-motion';
+import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, clearFieldBackground, type FieldFrame, type FieldAnalysis } from './field-motion';
 import { fieldCenter, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
@@ -23,14 +23,14 @@ export interface FieldWatcherOptions {
   analyze?:(frame:FieldFrame)=>FieldAnalysis; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
 interface PendingRead { at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean }
-interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
 /** Owner-only caller, native frame buffer. One detector/read at a time; no AI or uploads. */
 export function createFieldWatcher(options:FieldWatcherOptions) {
   const now=options.now??(()=>performance.now()),analyze=options.analyze??createFieldAnalyzer(),clone=options.clone??cloneFieldFrame;
   const hidden=options.hidden??(()=>typeof document!=='undefined'&&document.hidden);
-  const stableMs=Math.max(400,Math.min(600,options.stableMs??400)),removalMs=Math.max(2000,options.removalMs??2000);
+  const stableMs=Math.max(400,Math.min(600,options.stableMs??400)),removalMs=Math.max(2500,options.removalMs??2500);
   const budget=Math.max(.05,Math.min(.5,options.cpuBudget??.2)),maxTracks=Math.max(1,Math.min(60,options.maxTracks??20));
   const tracks:InternalTrack[]=[],listeners=new Set<(event:FieldEvent)=>void>(),updates=new Set<()=>void>(),retained=new Set<FieldFrame>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
@@ -46,7 +46,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     while(retained.size>6){const frame=retained.values().next().value!;for(const t of tracks)if(t.best?.frame===frame)t.best=undefined;closeFieldFrame(frame);retained.delete(frame);}
   }
   function invalidateRead(t:InternalTrack) {if(t.read){t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
-  function interruptWindow(preserveVisibility=false) {previousAt=-Infinity;for(const t of tracks){if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;t.clearMissing=0;t.missingSamples=0;t.best=undefined;}pruneFrames();}
+  function resetAbsence(t:InternalTrack,preserveWindow=false){t.clearMissing=0;t.missingSamples=0;t.missingAt=undefined;if(!preserveWindow)t.clearWindowAt=undefined;}
+  function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;for(const t of tracks){if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;resetAbsence(t,preserveAbsenceWindow);t.best=undefined;}pruneFrames();}
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
       const start=now();
@@ -71,8 +72,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(generation!==epoch||disposed)return;
       if(sample.at<=lastFrameAt){metrics.skipped++;return;}
       lastFrameAt=sample.at;
-      const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt,dt=Number.isFinite(gap)&&gap<=maxGap?gap:0;
-      if(gap>maxGap)interruptWindow(light);previousAt=sample.at;
+      const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
+      if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
       const evidence=analyze(current);
       if(light) {
         // Keep cached clicks fresh during input pressure and long detector gaps.
@@ -103,7 +104,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
-        return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!(t.view.state==='identified'&&t.missed&&t.view.card.kind==='face-up'&&c.kind==='face-up')||(!t.appearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.appearance,evidence.appearance?.(c)))};
+        return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind==='face-up'&&c.kind==='face-up'&&sameFieldAppearance(t.appearance,evidence.appearance?.(c))))&&(!(t.view.state==='identified'&&t.missed&&t.view.card.kind==='face-up'&&c.kind==='face-up')||(!t.appearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.appearance,evidence.appearance?.(c)))};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
@@ -114,7 +115,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&sameFieldAppearance(lost[0].appearance,evidence.appearance?.(incoming[0]))){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
       }
-      for(const c of cards)if(!taken.has(c)&&tracks.length<maxTracks) {
+      for(const c of cards)if(!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));
         const t:InternalTrack={view:{id:known?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height),faceDown:known?.faceDown??c.kind==='face-down',cardId:known?.faceDown?undefined:known?.cardId,state:known?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(known?{announced:c,announcedZone:known.zone,announcedPosition:known.position??fieldOrientation(c,current.width,current.height)}:{}),missed:false,stableSince:sample.at,observations:0,clearMissing:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height),needsRead:!known||(!known.faceDown&&!known.cardId)};
@@ -126,14 +127,19 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.view.visible=false;
           invalidateRead(t);
           t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;
-          // Consecutive clear detector samples only: hidden tabs, overload and motion cannot remove cards.
-          const halo=evidence.halo?.(t.view.card),blocked=halo&&t.halo&&halo.filter((v,i)=>Math.abs(v-t.halo![i])>.1).length/halo.length>.2;
-          if(evidence.motion(t.view.card)>.025||blocked){t.clearMissing=0;t.missingSamples=0;continue;}
-          t.clearMissing+=dt;t.missingSamples++;
-          if(t.view.state==='identified'&&!t.view.removed&&t.clearMissing>removalMs&&t.missingSamples>=3){t.view.removed=true;emit('removed',t);}
+          // Full detector evidence only. A stationary hand still has different
+          // footprint/halo pixels; an overlapping outline is never clear mat.
+          const halo=evidence.halo?.(t.view.card),blocked=!halo?.length||halo.length!==t.halo?.length||halo.filter((v,i)=>Math.abs(v-t.halo![i])>.06).length/halo.length>.08;
+          if(evidence.motion(t.view.card)>.01||blocked||cards.some(c=>quadIou(c,t.view.card)>.04)||!clearFieldBackground(evidence.appearance?.(t.view.card),t.halo)){resetAbsence(t);continue;}
+          const elapsed=sample.at-(t.missingAt??sample.at);
+          if(elapsed>1000)resetAbsence(t,true);
+          t.clearWindowAt??=sample.at;
+          if(t.missingSamples)t.clearMissing+=elapsed;
+          t.missingAt=sample.at;t.missingSamples++;
+          if(t.view.state==='identified'&&!t.view.removed&&t.clearMissing>=removalMs&&t.missingSamples>=5){t.view.removed=true;emit('removed',t);}
           continue;
         }
-        t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;t.clearMissing=0;t.missingSamples=0;t.view.lastSeen=sample.at;t.view.card=c;
+        t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);t.view.lastSeen=sample.at;t.view.card=c;
         // Uncalibrated ordering is assigned at settlement, then kept until the card actually moves.
         if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const position=fieldOrientation(c,current.width,current.height);
@@ -153,7 +159,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.observations<3||sample.at-t.stableSince<stableMs)continue;
         const wasFaceDown=t.view.faceDown;
         t.view.faceDown=c.kind==='face-down';t.view.position=position;
-        if(t.reappeared){emit('prompt',t,{reason:'reappeared'});t.reappeared=false;}
+        if(t.reappeared){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.reappeared=false;}
         if(t.view.state==='identified') {
           if(t.announced&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;}
           if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;}
@@ -180,6 +186,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(tracks.some(t=>t.best?.frame===current)){retained.add(current);current=undefined;}
       // Forget transient non-cards; identified instances remain until the caller resolves them.
       for(let i=tracks.length-1;i>=0;i--)if(tracks[i].view.state==='candidate'&&sample.at-tracks[i].view.lastSeen>3000)tracks.splice(i,1);
+      // Keep recent departures for Undo/reappearance without consuming live slots.
+      const retired=tracks.filter(t=>t.view.removed).sort((a,b)=>b.view.lastSeen-a.view.lastSeen);
+      for(const t of retired.filter((t,i)=>i>=maxTracks||sample.at-t.view.lastSeen>30000))tracks.splice(tracks.indexOf(t),1);
       pruneFrames();
     } catch(cause) {
       if(generation===epoch&&!disposed){status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;interruptWindow();}
@@ -191,7 +200,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // A bounded placement burst takes priority over the idle CPU budget. With
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
-      const settling=Boolean(reading)||tracks.some(t=>t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500));
+      const settling=Boolean(reading)||tracks.some(t=>t.read||(t.view.state==='candidate'&&t.view.card.confidence>=.7&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&now()-t.stableSince<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
       metrics.intervalMs=settling?200:Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
       if(status==='watching'&&metrics.intervalMs>500)status='budget';inFlight=false;notify();
     }
