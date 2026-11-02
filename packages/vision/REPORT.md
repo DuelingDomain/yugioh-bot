@@ -1,5 +1,95 @@
 # Remote vision measurements — 2026-11-01
 
+## Camera follows moves and departures
+
+This follow-up explicitly replaces suggestion-only removal. Stable moves update
+the same physical ref's zone/slot/ATK/DEF automatically. A field card missing for
+**at least 2,500 ms from its first clear miss and five consecutive full detector
+samples** automatically moves into **GY**, including Extra Deck monsters and
+spells/traps. An explicitly observed move into Extra Deck uses that zone. Pile
+disappearance never triggers another automatic departure.
+
+One normal reversible `twin.move` carries the public name and `source: auto`, so
+the persistent log says **“Card left the field → GY · auto”** without an extra action
+overwriting Undo. The owner toast offers **GY / Banish / Hand / Extra Deck** and the
+usual five-second **Undo**. After a destination correction, one-level Undo restores
+the previous pile. A rejected update exposes a revalidated retry. The diagnostic
+lab also removes verified departures automatically with local Undo.
+
+Removal requires motion energy **≤ .01**, no overlapping detector outline, no more
+than **8%** of halo channels changing by **>.06**, and **≥95%** of footprint samples
+matching the saved sufficiently uniform mat surround. Static hands cannot become
+absence merely by stopping. Missing/unknown background evidence and patterned mats
+can abstain. Hidden tabs, CPU pressure and flips reset absence. Sparse/slow detector
+evidence backs off after a bounded verification window; pixel-only cache heartbeats
+never count as absence. Retired records are bounded separately from live capacity.
+Undo during continued absence does not repeat removal. A return only reuses a
+departed ref for an unambiguous face-up appearance match; face-down returns cannot
+inherit the old identity.
+
+The final end-to-end table check, with actual native camera frames, actual worker
+inference and the normal action endpoint, measured **move → updated virtual EMZ
+1,290.8 ms** and **removal → GY/toast 3,478.7 ms** (one integration sample each).
+It verifies EMZ1 DEF (**−90°**) → EMZ2 ATK, one physical ref, disappearance to GY,
+named persisted log, immediate Undo restoring the original slot, **3.2 seconds** of
+continued absence without another removal, verified return, an injected **409**
+with successful explicit retry, all four destination buttons, and correction Undo.
+The lab's automatic removal/Undo case also passes.
+
+The offline final-code Chromium/WASM harness measured **10** native 1280×720
+synthetic camera trials, each identifying the existing indexed fixture, moving it
+to another zone, then clearing it. Endpoints below are watcher events and exclude
+the table action/network/rendering measured separately above. Percentiles use
+nearest rank; with ten trials p95 is the maximum. GPU was disabled; actual runtime
+was SIMD WASM with **four threads**, Node **22.23.3**, Chromium **153.0.8010.12**,
+and eight exposed logical CPUs on the same Ryzen 7 9800X3D host.
+
+| Camera change → watcher event | n | p50 | p95 / maximum |
+| --- | ---: | ---: | ---: |
+| Move → same-ref updated zone | 10 | **1,189.8 ms** | **2,551.4 ms** |
+| Clear removal → departed | 10 | **3,284.7 ms** | **6,042.4 ms** |
+
+All **10/10** moves and departures retained the identified physical ref and all
+ten initial identifications were correct `sure` results. These timings do not make
+2.5 seconds an upper bound: continuous safe evidence and normal scheduling can
+delay the action, and the slow tail is retained. The broader hand checks used the
+existing cached **3.4-second IPN Hand clip**, looped without new downloads:
+
+| Real hand-clip condition | Duration | False removals |
+| --- | ---: | ---: |
+| Full original hand-only scene | 30 s | **0** |
+| Clip covers an already identified card footprint, mat halo unchanged | 30 s | **0** |
+
+The second condition plays for **22 s**, then freezes the same clip for **8 s**;
+the control card was identified before coverage. It produced only that initial
+placement, with **zero additional placements, prompts or removals**. The full-scene
+negative had **119 detector samples and zero events**. There were **zero uncaught
+browser errors**. This is one real hand clip and synthetic positive/composite
+scenes, not a held-out overhead-playmat corpus or a general hand-removal error rate.
+
+Verification: **92 vision + 95 targeted web + 94 shared remote + 6 browser cases =
+287 passing cases**. Vision/web/e2e typechecks and worker bundling pass. The final
+two changed browser cases were rerun after the full six-case suite. All **40 cached
+owner/viewer clicks** still caused **zero additional recognition or table actions**.
+Review found and fixed ambiguous face-down resurrection, exhausted tracking slots,
+unbounded slow-model bursts, expired returns after hidden tabs, failed updates,
+and post-await toast races. Temporary table/LiveKit services were stopped;
+port3000 and the main checkout were untouched.
+
+Raw integration evidence: `data/vision/benchmark/field-watcher/table-follow.json`,
+`e2e-follow-final.log`, `e2e-follow-last.log`; conservative timing/occlusion unit
+cases extend `packages/vision/src/board.test.ts`. Repeated timing/clip evidence is
+`data/vision/benchmark/field-watcher/camera-follow.json` and its matching log:
+
+```bash
+FIELD_LABEL=camera-follow FIELD_TRIALS=10 FIELD_NEGATIVE_SECONDS=30 \
+  npx tsx scripts/vision/benchmark-field-watcher.ts
+```
+
+A development-server log initially caused a watched-file reload loop;
+moving it into ignored `.next/` resolved that
+test-infrastructure failure. No model/index downloads or real AI calls occurred.
+
 ## Cached feed popup follow-up
 
 Owner and other-player clicks now hit-test the identified physical tracks' convex

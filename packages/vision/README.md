@@ -746,7 +746,8 @@ const watcher = createFieldWatcher({
 });
 const off = watcher.subscribe(event => {
   // placed / moved / flipped / removed / prompt; event.track.id is the physical ref.
-  // Only placed is an immediate placement proposal; prompt/removal require a pick.
+  // Owner adapter applies placements/moves/flips and verified departures with Undo.
+  // Only uncertain prompt events need a card choice.
   handleProposal(event);
 });
 watcher.start();
@@ -785,10 +786,27 @@ ambiguous replacements are not assigned the old identity. Appearance comparison
 is not another embedding/recognition. Existing public refs survive watcher
 restarts; known flips, missing identity and attack/defense changes reconcile at
 settlement. `twin.move` accepts optional `position` for an undoable orientation
-update. A missed identified card needs more than two seconds of clear observations
-before a **GY / Banish / Hand** suggestion; it never moves automatically. A saved
-RGB surround suppresses stationary hand/arm occlusion, and reappearance invalidates
-the old removal suggestion. Dismissing that suggestion preserves tracking.
+update. A missed identified field card leaves automatically after at least
+**2.5 seconds and five consecutive full detector observations** of clear mat.
+Removal requires motion energy ≤ .01, at most 8% of the saved RGB surround changing
+by more than .06, no overlapping outline, and at least 95% of footprint samples
+matching a sufficiently uniform mat surround. Unknown or patterned mat evidence
+can abstain; a miss alone never removes a card. Hidden tabs, CPU pauses, flips and
+occlusion reset absence. Short verification bursts return to the CPU budget when
+slow samples cannot establish continuous evidence.
+
+The owner adapter posts one reversible `twin.move` to **GY** by default, including
+Extra Deck monsters and spells/traps; observed moves into Extra Deck use that
+explicit zone. Pile disappearance does not trigger another departure. The same
+action carries a bounded public name and `source: auto` for a persistent
+**“Card left the field”** log line. Its toast offers **GY / Banish / Hand / Extra
+Deck** and the usual five-second **Undo**. Undo reverses the latest action; after
+a destination correction it restores the prior pile. A failed update leaves an
+explicit retry, revalidated against current absence. Recent departed records are
+bounded separately from live cards, so continued absence after Undo cannot repeat
+removal or exhaust tracking capacity. Only an unambiguous face-up appearance match
+reuses a departed ref on return. The diagnostic lab also removes clear departures
+automatically and offers local Undo.
 
 Browser integration is isolated in
 `packages/web/src/lib/remote/use-field-watcher.ts` and

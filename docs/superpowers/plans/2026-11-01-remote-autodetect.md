@@ -84,3 +84,54 @@ EMZ1 DEF (−90°)→EMZ2 ATK with one physical ref. Repeated popup clicks expos
 3.83-second publication gap; pixel-only refreshes now retain valid visible cards
 during CPU pauses without inference and invalidate changed pixels safely.
 Full numbers, scope and reproduction are in `packages/vision/REPORT.md`.
+
+## Coordinator follow-up: camera follows moves and departures
+
+The coordinator explicitly replaces suggestion-only removal with automatic
+departure after roughly 2.5 seconds of clear absence. Reuse one reversible
+`twin.move` into the destination pile (default GY for monsters, Extra Deck monsters,
+spells and traps; retain an explicitly observed Extra Deck destination). Preserve
+physical refs and show a named persistent log line and an owner toast with
+GY/banish/hand/Extra Deck and Undo. No separate log action may displace removal Undo.
+Only disappearance from field zones triggers this action; pile disappearances do
+not. Existing one-level Undo reverses the latest action: removal Undo restores the
+original field location; Undo after a destination correction restores the previous
+pile. Keep the departed tracker tombstone so Undo during continued absence does
+not immediately repeat removal. A verified reappearance can follow the same ref.
+
+Design choice: reuse `twin.move` with optional bounded auto/name annotations rather
+than add a new action or delete/recreate the twin. Keep the watcher and its UI
+adapter isolated. Detector misses alone cannot prove departure: require at least
+2.5 seconds and five consecutive full detector samples with low motion, an
+unchanged surrounding halo, and pixels consistent with the surrounding mat.
+Unknown/nonuniform background evidence abstains. Stationary hands, overlapping
+outlines, flips, hidden tabs and CPU pauses reset absence. Light pixel checks never
+count as absence. Short bounded detector bursts settle moves and verify absence.
+
+- [x] Extend `packages/vision/src/board.test.ts` with red cases for strict timing,
+  frozen hand occlusion, missing background evidence, flips and slow detector move
+  settlement. Implement the conservative pixel evidence and watcher changes in
+  `field-motion.ts` and `field-watcher.ts`; run vision tests/typecheck and commit.
+- [x] Extend existing shared/web tests for one atomic automatic departure, owner
+  authorization, persistent named log, destination correction and Undo. Add optional
+  auto annotations to `packages/shared/src/remote/actions.ts`; reuse reducer and
+  live deck-check move behavior. Add helper proposals in `field-proposals.ts` and
+  owner removal/log toast in `components/remote/field-watcher.tsx`; update
+  `ui/describe.ts`. Run focused checks, review and commit.
+- [x] Extend `packages/e2e/tests/remote-ui.spec.ts` and the existing offline
+  `scripts/vision/benchmark-field-watcher.ts` harness. Measure actual move→zone and
+  removal→destination timing with real worker/camera frames. Run the cached hand
+  clip both alone and over an already identified track, including a frozen hand;
+  require zero false removals. Verify EMZ/DEF moves, no duplicate refs, named log,
+  destination controls and Undo. No new unit-test files, downloads or port3000.
+- [x] Run relevant regressions/typechecks, review, record numbers/scope in REPORT
+  and README, commit small and push `feat/remote-autodetect`; no PR or attribution.
+
+Final verification: 287 passing cases. Actual table move→EMZ update 1,290.8 ms;
+clear departure→GY/toast 3,478.7 ms. Ten worker trials: move p50/p95
+1,189.8/2,551.4 ms, removal p50/p95 3,284.7/6,042.4 ms; all same-ref and correct.
+Hand-only clip 30 s: zero false removals; identified-track occlusion 30 s, including 8 s
+frozen: zero false removals and no new placements/prompts. The 2.5 s clear window is
+a minimum; slower guarded trials are retained in the report. Both actual table
+and lab automatic removal/Undo pass; named log, four destination controls, Undo
+while absent, verified return, injected 409/retry and cached clicks are covered.
