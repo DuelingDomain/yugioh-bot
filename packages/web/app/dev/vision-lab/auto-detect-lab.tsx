@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { createOwnFeedBuffer, createRecognizer, yugioh, type FieldEvent, type FieldTrack, type FieldFormat, type IndexEntry, type Recognizer } from '@yugidraft/vision';
+import { createOwnFeedBuffer, createRecognizer, yugioh, type IdentityEmbedder, type FieldEvent, type FieldTrack, type FieldFormat, type IndexEntry, type Recognizer } from '@yugidraft/vision';
 import { useFieldWatcher } from '@/lib/remote/use-field-watcher';
 import { FieldCalibrationControl } from '@/components/remote/field-calibration';
 import styles from './vision-lab.module.css';
 
 /** Live camera harness for exactly the same engine/hook used on the remote table. */
-export function AutoDetectLab() {
+export function AutoDetectLab({defaultEmbedder='dinov2-small-duel'}:{defaultEmbedder?:IdentityEmbedder}={}) {
   const video=useRef<HTMLVideoElement>(null),stream=useRef<MediaStream|null>(null),buffer=useRef<ReturnType<typeof createOwnFeedBuffer>|null>(null),reader=useRef<Recognizer|null>(null),epoch=useRef(0);
   const [source,setSource]=useState<MediaStream|null>(null),[backend,setBackend]=useState<'auto'|'wasm'>('auto'),[deck,setDeck]=useState('');
+  const [embedder,setEmbedder]=useState<IdentityEmbedder>(defaultEmbedder);
   const [format,setFormat]=useState<FieldFormat>('normal');
   const [entries,setEntries]=useState(new Map<string,IndexEntry>()),[events,setEvents]=useState<FieldEvent[]>([]),[board,setBoard]=useState<FieldTrack[]>([]),[prompts,setPrompts]=useState<FieldEvent[]>([]);
   const [error,setError]=useState(''),[starting,setStarting]=useState(false),[calibrating,setCalibrating]=useState(false),[undo,setUndo]=useState<FieldTrack[]|null>(null);
@@ -31,7 +32,7 @@ export function AutoDetectLab() {
   }
   function apply(track:FieldTrack) {setUndo(current.current.board);setBoard(list=>[...list.filter(t=>t.id!==track.id),track]);setDeparture(null);}
   const watch=useFieldWatcher({owner:true,active:!!source,seatKey:`vision-lab:${format}:own:0`,sourceKey:source,
-    async create(){reader.current??=createRecognizer({game:'yugioh',backend});return {recognizer:reader.current,buffer:{sample:()=>buffer.current?buffer.current.sample():Promise.reject(new Error('Waiting for camera'))},profile:yugioh,format,
+    async create(){reader.current??=createRecognizer({game:'yugioh',backend,embedder});return {recognizer:reader.current,buffer:{sample:()=>buffer.current?buffer.current.sample():Promise.reject(new Error('Waiting for camera'))},profile:yugioh,format,
       getPriors:()=>({decklist:current.current.deck.split(/[\s,]+/).filter(Boolean)}),cpuBusy:()=>current.current.calibrating,
       getKnownCards:()=>current.current.board.map(t=>({id:t.id,card:t.card,zone:t.zone,cardId:t.cardId,faceDown:t.faceDown,position:t.position}))};},
     onEvent(event){setEvents(list=>[event,...list].slice(0,40));if(event.type==='placed')apply(event.track);
@@ -45,10 +46,12 @@ export function AutoDetectLab() {
   return <section className={styles.capture} aria-label="Auto-detect lab">
     <div className={styles.controls}><button type="button" className={styles.primary} disabled={starting} onClick={()=>void start()}>{starting?'Starting…':'Start camera'}</button><button type="button" onClick={stop} disabled={!source&&!starting}>Stop</button>
       <label><input type="checkbox" checked={watch.enabled} onChange={e=>watch.setEnabled(e.target.checked)}/> Auto-detect cards</label>
+      <label>Embedder <select aria-label="Auto-detect embedder" disabled={!!source||starting} value={embedder} onChange={e=>{reader.current?.dispose();reader.current=null;setEmbedder(e.target.value as IdentityEmbedder);}}><option value="dinov2-small-duel">DINOv2-duel</option><option value="dinov3-small">DINOv3-S</option></select></label>
       <label>Compute <select aria-label="Auto-detect compute" disabled={!!source} value={backend} onChange={e=>setBackend(e.target.value as 'auto'|'wasm')}><option value="auto">Auto · prefer WebGPU</option><option value="wasm">WASM · CPU benchmark</option></select></label>
       <label>Format <select aria-label="Auto-detect format" disabled={!!source} value={format} onChange={e=>setFormat(e.target.value as FieldFormat)}><option value="normal">Advanced</option><option value="domain">Domain</option><option value="genesys">Genesys</option><option value="genesys-domain">Genesys Domain</option></select></label>
       <button type="button" disabled={!source} onClick={()=>setCalibrating(true)}>{watch.calibration?'Recalibrate':'Calibrate zones'}</button>
     </div>
+    {events.find(e=>e.result)?.result?<p>{events.find(e=>e.result)!.result!.timingsMs.total.toFixed(1)} ms/read · {embedder==='dinov3-small'?'DINOv3-S (uncalibrated)':'DINOv2-duel'}</p>:null}
     <p role="status" data-testid="auto-detect-status">{watch.snapshot.status==='starting'?'Preparing card reader…':source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>
     <p>Place a card and keep your hand clear. Reading starts after about half a second of stability and confirms on a later frame. Sure reads fill the local twin with Undo. Other reads offer five choices. Clear absences leave the field automatically with Undo.</p>
     <label>Deck card IDs (optional) <input aria-label="Auto-detect deck priors" value={deck} onChange={e=>setDeck(e.target.value)} placeholder="46986414, 89631139"/></label>

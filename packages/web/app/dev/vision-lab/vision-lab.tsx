@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult, type FeedbackSource, isPhysicalEntry, catalogCardId } from "@yugidraft/vision";
+import { createRecognizer, yugioh, hitTestQuad, type IdentityEmbedder, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult, type FeedbackSource, isPhysicalEntry, catalogCardId } from "@yugidraft/vision";
 import { VisionFeedbackSetting, type FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { useVisionSource } from "./use-vision-source";
 import { useOutlineReads } from "./use-outline-reads";
@@ -15,7 +15,7 @@ const RecordSession = dynamic(() => import("./session/record-session"));
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
 // Modified for React and a local exportable correction log; no extension/report service.
 // Licence: packages/vision/src/licenses/duel-lens.LICENSE.
-interface Correction { at: string; guessed?: string; chosen: string; tier: RecognitionResult['tier']; sharpness: number; }
+interface Correction { model:IdentityEmbedder; at: string; guessed?: string; chosen: string; tier: RecognitionResult['tier']; sharpness: number; }
 type Backend = "auto" | "wasm";
 type Recognizer = ReturnType<typeof createRecognizer>;
 type CardEntry = IndexMeta["entries"][number];
@@ -30,13 +30,13 @@ function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
   return entry?.imageUrl;
 }
 
-export function VisionLab() {
+export function VisionLab({defaultEmbedder='dinov2-small-duel'}:{defaultEmbedder?:IdentityEmbedder}={}) {
   const [tab,setTab]=useState<'manual'|'auto'|'session'>('manual');
-  return <><nav className={styles.controls} aria-label="Vision lab modes" style={{padding:20}} role="tablist"><button type="button" role="tab" aria-selected={tab==='manual'} onClick={()=>setTab('manual')}>Click reader</button><button type="button" role="tab" aria-selected={tab==='auto'} onClick={()=>setTab('auto')}>Auto-detect</button><button type="button" role="tab" aria-selected={tab==='session'} onClick={()=>setTab('session')}>Record session</button></nav>{tab==='session'?<RecordSession/>:tab==='auto'?<main className={styles.lab}><h1>Auto-detect field lab</h1><AutoDetectLab/></main>:<ManualVisionLab/>}</>;
+  return <><nav className={styles.controls} aria-label="Vision lab modes" style={{padding:20}} role="tablist"><button type="button" role="tab" aria-selected={tab==='manual'} onClick={()=>setTab('manual')}>Click reader</button><button type="button" role="tab" aria-selected={tab==='auto'} onClick={()=>setTab('auto')}>Auto-detect</button><button type="button" role="tab" aria-selected={tab==='session'} onClick={()=>setTab('session')}>Record session</button></nav>{tab==='session'?<RecordSession/>:tab==='auto'?<main className={styles.lab}><h1>Auto-detect field lab</h1><AutoDetectLab defaultEmbedder={defaultEmbedder}/></main>:<ManualVisionLab defaultEmbedder={defaultEmbedder}/>}</>;
 }
 
-function ManualVisionLab() {
-  const recognizerRef = useRef<{ backend: Backend; value: Recognizer } | null>(null);
+function ManualVisionLab({defaultEmbedder}:{defaultEmbedder:IdentityEmbedder}) {
+  const recognizerRef = useRef<{ backend: Backend; embedder:IdentityEmbedder; value: Recognizer } | null>(null);
   const runRef = useRef(0);
   const busyRef = useRef(false);
   const frozenRef = useRef<ImageBitmap | null>(null);
@@ -53,6 +53,7 @@ function ManualVisionLab() {
   const [aiError, setAiError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const [backend, setBackend] = useState<Backend>("auto");
+  const [embedder, setEmbedder] = useState<IdentityEmbedder>(defaultEmbedder);
   const [busy, setBusy] = useState(false);
   const [captureMode,setCaptureMode]=useState(false);
   const [deck,setDeck]=useState('');
@@ -69,8 +70,8 @@ function ManualVisionLab() {
   const [metadataError, setMetadataError] = useState(false);
   useEffect(()=>{if(!flash)return;const timer=setTimeout(()=>setFlash(null),1400);return()=>clearTimeout(timer);},[flash]);
   function reader() {
-    if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
-      recognizerRef.current?.value.dispose();recognizerRef.current={backend,value:createRecognizer({game:'yugioh',backend})};
+    if(!recognizerRef.current || recognizerRef.current.backend!==backend || recognizerRef.current.embedder!==embedder) {
+      recognizerRef.current?.value.dispose();recognizerRef.current={backend,embedder,value:createRecognizer({game:'yugioh',backend,embedder})};
     }
     return recognizerRef.current.value;
   }
@@ -160,13 +161,10 @@ function ManualVisionLab() {
       if(run!==runRef.current)return;
       frames = frozenRef.current ? [await createImageBitmap(frozenRef.current)] : await source.snapshot();
       if (run !== runRef.current) return;
-      if (!recognizerRef.current || recognizerRef.current.backend !== backend) {
-        recognizerRef.current?.value.dispose();
-        recognizerRef.current = { backend, value: createRecognizer({ game: "yugioh", backend }) };
-      }
+      const activeReader = reader();
       // The worker takes ownership of these clones; the source keeps its originals.
       const live=source.source==='camera'&&!frozenRef.current;
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,deferAICrop:!captureMode,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(live&&!captureMode?{maxFrames:1 as const}:{}),...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
+      const next = await activeReader.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,deferAICrop:!captureMode,includeFeedback:feedbackEnabled&&!captureMode, card:selectedCard??undefined,includeRaw:captureMode,earlyExit:!captureMode,...(live&&!captureMode?{maxFrames:1 as const}:{}),...(captureMode&&deck.trim()?{priors:{decklist:deck.split(/[\s,]+/).filter(id=>/^\d+$/.test(id))}}:{}) });
       if (run === runRef.current) {
         if(live&&!next.detectedCard&&!captureMode)throw new Error('No card detected under this click.');
         setResult(next);setConfirmed(null);setQuery('');if(live&&next.detectedCard)setFlash(next.detectedCard);
@@ -212,9 +210,9 @@ function ManualVisionLab() {
       setFeedbackStatus('Saving recognition sample…');
       void recognizerRef.current.value.recordFeedback(result,cardId,source).then(()=>setFeedbackStatus('Recognition sample saved.'),error=>setFeedbackStatus(error instanceof Error?error.message:'Feedback could not be saved.'));
     }
-    setCorrections(log => [...log, { at: new Date().toISOString(), guessed: result.candidates[0]?.cardId,
+    setCorrections(log => [...log, { at: new Date().toISOString(), model:embedder, guessed: result.candidates[0]?.cardId,
       chosen: cardId, tier: result.tier, sharpness: result.quality.sharpness }]);
-  }, [result, busy,feedbackEnabled,cards,captureMode]);
+  }, [result, busy,feedbackEnabled,cards,captureMode,embedder]);
   useEffect(() => {
     const pick = (event: KeyboardEvent) => {
       if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
@@ -241,7 +239,7 @@ function ManualVisionLab() {
   const matches = query.trim().length >= 2 ? [...cards.values()].filter(card =>
     card.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || String(card.passcode).includes(query.trim())).slice(0, 8) : [];
   const exportCorrections = () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify({ game: yugioh.id, model: yugioh.embedding.id, corrections }, null, 2)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ game: yugioh.id, corrections }, null, 2)], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url; link.download = "vision-corrections.json"; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -315,6 +313,16 @@ function ManualVisionLab() {
           </div>
 
           <div className={styles.runControls}>
+            <label htmlFor="vision-embedder">Embedder
+              <select id="vision-embedder" value={embedder} disabled={busy} onChange={event => {
+                aiControllerRef.current?.abort();setAiBusy(false);setAiReading(null);setAiError(null);
+                disposeRecognizer();resetOutlineReads();setResult(null);setConfirmed(null);setError(null);setFeedbackStatus('');
+                setEmbedder(event.target.value as IdentityEmbedder);
+              }}>
+                <option value="dinov2-small-duel">DINOv2-duel</option>
+                <option value="dinov3-small">DINOv3-S</option>
+              </select>
+            </label>
             <label htmlFor="vision-backend">Compute
               <select id="vision-backend" value={backend} disabled={busy} onChange={event => {
                 disposeRecognizer();
@@ -328,6 +336,7 @@ function ManualVisionLab() {
               {busy ? "Recognizing…" : selection ? "Recognize selected card" : "Recognize center card"}
             </button>
           </div>
+          {embedder==='dinov3-small'?<p className={styles.hint}>Pretrained DINOv3-S · experimental, confidence thresholds are not calibrated. Switch on the same frozen card to compare.</p>:null}
           <p className={styles.hint}>Keep the card steady and evenly lit. The first recognition loads the local models and card index.</p>
           {activeError ? <p className={styles.error} role="alert">{activeError}</p> : null}
         </section>
@@ -335,7 +344,7 @@ function ManualVisionLab() {
         <section className={styles.matches} aria-labelledby="matches-heading">
           <div className={styles.sectionHead}>
             <h2 id="matches-heading">Top 5 matches</h2>
-            <span>{result ? (result.backend === "webgpu" ? "WebGPU" : "WASM") : "Awaiting recognition"}</span>
+            <span>{result ? `${result.timingsMs.total.toFixed(1)} ms/read · ${result.timingsMs.embed.toFixed(1)} ms embed · ${result.backend}` : "Awaiting recognition"}</span>
           </div>
           {metadataError ? <p className={styles.warning}>Card names and thumbnails are unavailable. Prepare the vision index, then reload.</p> : null}
           <div aria-live="polite" aria-busy={busy}>

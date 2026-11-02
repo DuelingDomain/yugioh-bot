@@ -1,6 +1,8 @@
 export { createRecognizer } from './client';
 export type { Recognizer, RecognizerConfig, AIReading } from './client';
 export { yugioh } from './games/yugioh';
+export { loadYugiohProfile } from './embedders';
+export type { IdentityEmbedder } from './embedders';
 export type { GameProfile, ConfidenceThresholds, RecognitionTier, EmbeddingModelSpec, RecognizeOptions, RecognitionPriors, RecognitionResult, Candidate, IndexMeta, IndexEntry } from './types';
 
 export { hitTestQuad } from './scene';

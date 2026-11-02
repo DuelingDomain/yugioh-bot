@@ -1,4 +1,5 @@
 import { yugioh } from './games/yugioh';
+import { loadYugiohProfile, type IdentityEmbedder } from './embedders';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
 import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
@@ -8,6 +9,8 @@ export interface RecognizerConfig {
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
   profile?: GameProfile;
+  /** Identity model and matching index. Explicit profile takes precedence. */
+  embedder?: IdentityEmbedder;
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
@@ -26,8 +29,9 @@ export interface Recognizer {
 }
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
-  const profile = config.profile ?? yugioh;
+  let profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
+  let initializationAbort: AbortController | undefined;
   let inFlight = false;
   let prepared:Promise<void>|undefined;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
@@ -43,14 +47,23 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   function initialize() {
     if (!initial) {
       worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-field-identity-v4', { type: 'module', name: 'card-recognition' });
+      const created = worker, controller = new AbortController();
+      initializationAbort = controller;
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined;prepared=undefined; };
+      worker.onerror = event => { if(worker!==created)return;controller.abort();failAll(new Error(event.message || 'Recognition worker failed')); created.terminate(); worker = undefined; initial = undefined;prepared=undefined; };
       worker.onmessageerror = () => failAll(new Error('Recognition worker message failed'));
-      initial = request({ type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/' }).catch(error => { worker?.terminate(); worker = undefined; initial = undefined; throw error; });
+      const canceled = new Promise<never>((_,reject)=>controller.signal.addEventListener('abort',()=>reject(new DOMException('Recognition aborted','AbortError')),{once:true}));
+      initial = Promise.race([(async () => {
+        if (!config.profile && config.embedder) profile = await loadYugiohProfile(config.embedder,fetch,controller.signal);
+        controller.signal.throwIfAborted();
+        if (disposed) throw new Error('Recognizer is disposed');
+        if (worker !== created) throw new DOMException('Recognition aborted','AbortError');
+        return request({ type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/' });
+      })(),canceled]).catch(error => { if(worker===created){controller.abort();created.terminate();worker=undefined;initial=undefined;initializationAbort=undefined;}throw error; });
     }
     return initial;
   }
@@ -62,7 +75,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     if(opts.cards) validateBoard(opts.cards);
     if('card' in opts) validateOptions({card:opts.card});
     const {signal,...workerOptions}=opts;
-    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;prepared=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
+    const abort=()=>{initializationAbort?.abort();initializationAbort=undefined;worker?.terminate();worker=undefined;initial=undefined;prepared=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
     inFlight=true;
     signal?.addEventListener('abort',abort,{once:true});
     try {
@@ -118,6 +131,6 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if(!response.ok)throw new Error(response.status===403?'Feedback needs your opt-in':response.status===429?'Feedback rate limit reached':'Feedback could not be saved');
       return response.json();
     },
-    dispose() { disposed = true; worker?.terminate(); worker = undefined; failAll(new Error('Recognizer disposed')); },
+    dispose() { disposed = true; initializationAbort?.abort();initializationAbort=undefined;worker?.terminate(); worker = undefined; failAll(new Error('Recognizer disposed')); },
   };
 }

@@ -15,13 +15,16 @@ export async function validFeedbackIndex(value:unknown):Promise<boolean> {
   if(!value||typeof value!=='object')return false;
   const s=value as VisionFeedbackInput;
   if(!['art-box','whole-card'].includes(s.space))return false;
+  const v3=s.modelId==='dinov3-small';
+  if(v3&&s.space!=='art-box')return false;
   const root=resolve(process.env.VISION_DATA_DIR??join(process.cwd(),'../../data/vision'));
   try {
-    const meta:IndexMeta=JSON.parse(await readFile(join(root,s.space==='whole-card'?'yugioh-full-art.meta.json':'yugioh-index.meta.json'),'utf8'));
+    const metaFile=v3?'yugioh-index-v3.meta.json':s.space==='whole-card'?'yugioh-full-art.meta.json':'yugioh-index.meta.json';
+    const meta:IndexMeta=JSON.parse(await readFile(join(root,metaFile),'utf8'));
     const ids=new Set(meta.entries.map(e=>e.cardId));
     // Results merge both indexes. The vector must match its own space, while
     // labels/alternatives may belong to either catalog.
-    try {const other:IndexMeta=JSON.parse(await readFile(join(root,s.space==='whole-card'?'yugioh-index.meta.json':'yugioh-full-art.meta.json'),'utf8'));if(other.gameId===meta.gameId&&other.modelSha256===meta.modelSha256)for(const e of other.entries)ids.add(e.cardId);}catch{}
+    if(!v3)try {const other:IndexMeta=JSON.parse(await readFile(join(root,s.space==='whole-card'?'yugioh-index.meta.json':'yugioh-full-art.meta.json'),'utf8'));if(other.gameId===meta.gameId&&other.modelSha256===meta.modelSha256)for(const e of other.entries)ids.add(e.cardId);}catch{}
     return s.gameId===meta.gameId&&s.modelId===meta.modelId&&s.modelSha256===meta.modelSha256&&s.layoutKey===meta.layoutKey&&s.indexVersion===indexVersion(meta)&&Array.isArray(s.embedding)&&s.embedding.length===meta.dim&&ids.has(s.chosenCardId)&&Array.isArray(s.top5)&&s.top5.every(c=>ids.has(c.cardId));
   }catch{return false;}
 }

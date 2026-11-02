@@ -39,7 +39,7 @@ export function VisionResult({result,cards,busy,error,onConfirm}:{
     <div className={styles.resultLayout}>
       {image?<img className={styles.resultArt} src={image} width={360} height={524} alt={name} />:<div className={styles.resultArt}>Image unavailable</div>}
       <div className={styles.resultDetails}>
-        <span className={styles.eyebrow}>Card inspection</span><h2>{name}</h2>
+        <span className={styles.eyebrow}>Card inspection · {result!.timingsMs.total.toFixed(1)} ms/read</span><h2>{name}</h2>
         <p className={styles.tier} data-tier={result!.tier}>{result!.tier}</p>
         {detail?<>
           <p className={styles.cardType}>{[detail.type,detail.attribute].filter(Boolean).join(' · ')}</p>

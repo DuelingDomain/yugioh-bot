@@ -36,5 +36,6 @@ for (const file of ['LICENSE', 'ThirdPartyNotices.txt']) await copyFile(path.joi
 await copyFile(path.join(root, 'NOTICE'), path.join(out, 'NOTICE'));
 await copyFile(path.join(root, 'packages/vision/src/licenses/duel-lens.LICENSE'), path.join(out, 'models/LICENSE'));
 await copyFile(path.join(root, 'packages/vision/src/licenses/duel-lens.THIRD_PARTY_NOTICES.md'), path.join(out, 'models/THIRD_PARTY_NOTICES.md'));
+await copyFile(path.join(root, 'packages/vision/src/licenses/dinov3.LICENSE.md'), path.join(out, 'models/DINOv3-LICENSE.md'));
 await build({ entryPoints: [path.join(root, 'packages/vision/src/worker.ts')], outfile: path.join(out, 'worker.js'), bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true, legalComments: 'eof' });
 console.log(`Vision models, worker and ONNX runtime ready in ${out}`);

@@ -11,5 +11,7 @@ export const metadata: Metadata = {
 
 export default function VisionLabPage() {
   if (!fxLabEnabled()) notFound();
-  return <VisionLab />;
+  const embedder = process.env.VISION_EMBEDDER ?? 'dinov2-small-duel';
+  if (!['dinov2-small-duel', 'dinov3-small'].includes(embedder)) throw new Error('VISION_EMBEDDER must be dinov2-small-duel or dinov3-small');
+  return <VisionLab defaultEmbedder={embedder as 'dinov2-small-duel' | 'dinov3-small'} />;
 }
