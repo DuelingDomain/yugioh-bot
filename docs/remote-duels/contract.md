@@ -90,8 +90,8 @@ An action is a discriminated union validated by `remoteActionSchema`. Every acti
 | `deck.add` | `seat,cardId` | Owner adds one copy to the table deck; full validation required. |
 | `deck.flag.dismiss` | `flagId,reason` | Log a correction and dismiss proof without stopping play. |
 | `twin.merge` | `seat,keepInstanceId,removeInstanceId,reason` | Owner merges two same-card instances and removes the duplicate tile. |
-| `twin.place` | `seat`, `zone`, `card` | Field owner only. `card: {ref, cardId?, passcode?, name?, race?, slot?, faceUp?:true, position?:'attack'|'defense'}`; instance ref is unique within the seat. Defaults: face-up, attack. Public `name` is 1–200 trimmed chars, `race` 1–40; optional integer `slot` is 1–5. |
-| `twin.move` | `seat`, `zone`, `cardRef`, optional `slot,position` | Owner moves an existing instance or updates attack/defense orientation. An explicit slot replaces its old slot; omitting it preserves the slot within the same zone and clears it when changing zones. |
+| `twin.place` | `seat`, `zone`, `card`, optional `source: auto` | Field owner only. `card: {ref, cardId?, passcode?, name?, race?, slot?, faceUp?:true, position?:'attack'|'defense'}`; instance ref is unique within the seat. Numbered physical slots reject occupied placement/movement with 409: Main Monster/S/T 1–5, EMZ/pendulum 1–2; Field is unique, piles allow multiple cards, and legacy unspecified row slots remain unlocated. Defaults: face-up, attack. Public `name` is 1–200 trimmed chars, `race` 1–40; optional integer `slot` is 1–5. |
+| `twin.move` | `seat`, `zone`, `cardRef`, optional `slot,position,source:auto,name` | Owner moves an existing instance or updates attack/defense orientation. Automatic departures carry a public name in the same reversible action for the persisted log. An explicit slot replaces its old slot; omitting it preserves the slot within the same zone and clears it when changing zones. |
 | `twin.flip` | `seat`, `cardRef`, `faceUp` | Owner sets face visibility. |
 | `twin.remove` | `seat`, `cardRef` | Owner removes the instance. |
 | `log.note` | `text` (1–500 chars) | Shared note; also the explicit “Still playing” action. |
