@@ -5,8 +5,8 @@ import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/
 export function fieldPlacementProposals({track,seat,cardId,name,existing=false}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
   if(['GY','BANISHED','DECK','EXTRA'].includes(track.zone))return [];
-  if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...location}]:[];
-  return [{type:'twin.place',source:'auto',actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:track.position}}];
+  if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(track.bestMatch?{bestMatch:true}:{}),...location}]:[];
+  return [{type:'twin.place',source:'auto',actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:track.position}}];
 }
 
 /** Leave the playable field once; pile disappearance never guesses a destination. */

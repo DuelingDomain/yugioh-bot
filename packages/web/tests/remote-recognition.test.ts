@@ -154,9 +154,15 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {
   const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
   const track = {id:"physical-1",zone:"M3",position:"defense",faceDown:false} as import("@yugidraft/vision").FieldTrack;
-  const proposals = fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Dark Magician"});
+  const proposals = fieldPlacementProposals({track:{...track,bestMatch:true},seat:0,cardId:46986414,name:"Dark Magician"});
+  expect(proposals[0]).toMatchObject({card:{bestMatch:true}});
   expect(proposals.map(p=>p.type)).toEqual(["twin.place"]);
   expect(proposals[0]).toMatchObject({source:"auto",zone:"monster",card:{ref:"physical-1",slot:3,position:"defense"}});
+  const {ygoModule}=await import('@yugidraft/shared/remote');
+  const placed=ygoModule.reduce(ygoModule.initialState({seatCount:2}),{...proposals[0],idempotencyKey:'best-match'} as any);
+  expect(placed.seats[0].twin[0].bestMatch).toBe(true);
+  const corrected=ygoModule.reduce(placed,{type:'card.identified',actorSeat:0,seat:0,cardRef:'physical-1',cardId:89631139,name:'Blue-Eyes White Dragon',source:'click',idempotencyKey:'explicit-correction'});
+  expect(corrected.seats[0].twin[0]).toMatchObject({ref:'physical-1',cardId:89631139});expect(corrected.seats[0].twin[0].bestMatch).toBeUndefined();
 });
 it("automatic face-down placement sends no identity and an existing physical ref is never placed twice", async () => {
   const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
