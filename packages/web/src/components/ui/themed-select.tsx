@@ -83,6 +83,29 @@ if (typeof window !== "undefined") {
   }, true);
 }
 
+/** True when `position: fixed` inside this element is placed against the element and not the viewport (or the element clips it). */
+function holdsFixedChildren(el: Element): boolean {
+  const style = getComputedStyle(el);
+  const backdrop = style.backdropFilter || (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter || "none";
+  return style.transform !== "none" || style.translate !== "none" || style.rotate !== "none" || style.scale !== "none"
+    || style.perspective !== "none" || style.filter !== "none" || backdrop !== "none"
+    || /paint|layout|strict|content/.test(style.contain) || /transform|perspective|filter/.test(style.willChange)
+    || (style.containerType !== "" && style.containerType !== "normal");
+}
+
+/**
+ * Where to draw the list. In a modal dialog it goes inside that dialog, because a screen reader hides the content outside an `aria-modal` dialog.
+ * It stays on the page when the dialog (or a parent) would move or clip a fixed child.
+ */
+function listHost(trigger: Element | null): Element {
+  const dialog = trigger?.closest('[role="dialog"][aria-modal="true"], dialog') ?? null;
+  if (!dialog) return document.body;
+  for (let node: Element | null = dialog; node && node !== document.documentElement; node = node.parentElement) {
+    if (holdsFixedChildren(node)) return document.body;
+  }
+  return dialog;
+}
+
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
 
 /**
@@ -136,7 +159,7 @@ export function ThemedSelect<T extends string | number | boolean>({
     if (disabled || !choices.length) return;
     const start = at === "first" ? edge(1) : at === "last" ? edge(-1) : enabled(selectedIndex) ? selectedIndex : edge(1);
     setActive(start);
-    setHost(triggerRef.current?.closest('[role="dialog"], dialog') ?? document.body);
+    setHost(listHost(triggerRef.current));
     setInheritedFont(font === "inherit" && triggerRef.current ? getComputedStyle(triggerRef.current).fontFamily : undefined);
     setOpen(true);
   }, [choices.length, disabled, edge, enabled, font, selectedIndex]);
