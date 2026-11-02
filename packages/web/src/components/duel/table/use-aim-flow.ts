@@ -13,6 +13,7 @@ import { claimAimPress } from "../hover-drawer";
 import { seatBehindBoard } from "./seat-at-point";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /**
  * The aim of an attack, on top of a controller.
@@ -86,11 +87,7 @@ function seatOfNode(node: Element): number | null {
   return Number.isInteger(seat) ? seat : null;
 }
 
-const isTyping = (target: EventTarget | null): boolean => {
-  const node = target as HTMLElement | null;
-  if (!node || typeof node.tagName !== "string") return false;
-  return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
-};
+const isTyping = isTypingTarget;
 
 export interface AimFlowOptions {
   /** A menu or the pile viewer is open: Enter, Esc and the number keys leave the aim alone. */

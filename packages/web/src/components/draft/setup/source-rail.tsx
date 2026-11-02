@@ -48,6 +48,7 @@ import { segmentSlide, svButtonClass } from "@/components/sheet";
 import { useTabDirection, type PaneDirection } from "@/lib/tab-motion";
 import poolStyles from "../pool/pool.module.css";
 import styles from "./source-rail.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export type SourceTab = "cards" | "archetype" | "set" | "list" | "cubes";
 export type RailView = "sources" | "card";
@@ -73,11 +74,6 @@ export interface SourceRailProps {
   onCollapse?: () => void;
   cubeActions?: boolean;
   className?: string;
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return !!el && typeof el.matches === "function" && el.matches("input, textarea, select, [contenteditable='true'], [contenteditable='']");
 }
 
 /** The view of the column: Sources or Card. It follows the pin and the preview, and the switch overrides it by hand. */

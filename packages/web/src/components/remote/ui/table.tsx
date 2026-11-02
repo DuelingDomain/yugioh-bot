@@ -45,12 +45,13 @@ import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation} from '@yugidraft/vision';
 import { ThemedSelect } from "@/components/ui/themed-select";
+import { isTypingTarget } from "@/lib/typing-target";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
+const typing = isTypingTarget;
 
 type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; tier?: Tier; covered?: boolean; token?: number };
 type Pending = Proposal & { requestId?: string; run: () => void };

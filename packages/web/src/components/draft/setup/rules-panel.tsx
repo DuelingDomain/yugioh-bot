@@ -353,8 +353,8 @@ export function RulesMetaFields({ name, onNameChange, namePlaceholder, channelId
       </div>
       {discordEnabled && (
       <div className={`${styles.fld} ${styles.stack}`}>
-        <span className={styles.lb} aria-hidden="true">Discord channel</span>
-        <ThemedSelect className={styles.chanSel} label="Discord channel" hideLabel value={channelId} onChange={onChannelChange}
+        <label className={styles.lb} htmlFor="ts-discord-channel">Discord channel</label>
+        <ThemedSelect id="ts-discord-channel" className={styles.chanSel} label="Discord channel" hideLabel value={channelId} onChange={onChannelChange}
           choices={channels.map((c) => ({ value: c.id, label: `#${c.name}` }))} />
         <p className={styles.hh}>{channelHint ?? "The bot posts the lobby here. Players join from Discord."}</p>
       </div>

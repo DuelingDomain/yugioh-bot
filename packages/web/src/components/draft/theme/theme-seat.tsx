@@ -52,9 +52,10 @@ function SeatTheme({ player, table, cubes, isHost, controller, locked }: SeatThe
   };
   return (
     <div className={styles.seatTheme} data-field="true">
-      <span className={styles.themeLabel} aria-hidden="true">{label}</span>
+      <label className={styles.themeLabel} htmlFor={`theme-seat-${player.playerId}`}>{label}</label>
       <div className={styles.themePick}>
         <ThemedSelect
+          id={`theme-seat-${player.playerId}`}
           className={styles.themeSelect}
           label={label}
           hideLabel

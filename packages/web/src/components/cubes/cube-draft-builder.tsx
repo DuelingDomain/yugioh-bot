@@ -257,11 +257,12 @@ export function CubeDraftBuilder({
 
           {attachable.length > 0 && (
             <div>
-              <span className="label" aria-hidden="true">Or use a saved cube</span>
+              <label className="label" htmlFor="draft-attach-cube">Or use a saved cube</label>
               <div className={styles.search}>
                 <ThemedSelect
+                  id="draft-attach-cube"
                   className={styles.pick}
-                  label="Attach an existing cube"
+                  label="Or use a saved cube"
                   hideLabel
                   value={attachId}
                   onChange={setAttachId}

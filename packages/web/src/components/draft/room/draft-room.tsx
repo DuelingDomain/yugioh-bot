@@ -51,6 +51,7 @@ import { Tray } from "./tray";
 import { useMedia } from "./use-media";
 import { usePick, type PickAttempt } from "./use-pick";
 import { useRoomState } from "./use-room-state";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface DraftRoomProps {
   slug: string;
@@ -79,7 +80,7 @@ const parseNumberKey = (key: string): number | null => {
   return null;
 };
 
-const inField = (t: EventTarget | null) => t instanceof Element && !!t.closest("input, textarea, select");
+const inField = isTypingTarget;
 
 const canRestoreFocus = (el: HTMLElement | null | undefined): el is HTMLElement => {
   if (!el?.isConnected || el === document.body || el.closest("[inert], [hidden]") || el.matches(":disabled")) return false;

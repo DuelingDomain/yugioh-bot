@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { CameraAction, RoofCameraState } from "./roof-camera";
 import { roofKeyAction } from "./roof-camera";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface UseRoofKeysOptions {
   /** Receives each camera action a key maps to (the roof reducer's dispatch). */
@@ -28,11 +29,7 @@ export interface UseRoofKeysOptions {
   escapeFree?: boolean;
 }
 
-function typing(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  if (!node || typeof node.tagName !== "string") return false;
-  return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
-}
+const typing = isTypingTarget;
 
 /**
  * Window key handling of the roof camera: digits 1-4 focus a seat, and the letter keys of

@@ -15,6 +15,7 @@ import { HealthView } from "./views/health";
 import { VisionView } from "./views/vision";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface ConsoleActions {
   go: (view: View) => void;
@@ -142,7 +143,7 @@ export function AdminConsole() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const typing = target?.closest("input, textarea, select, [contenteditable='true']");
+      const typing = isTypingTarget(target);
       if (typing) { if (e.key === "Escape") (target as HTMLElement).blur(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key >= "1" && e.key <= String(VIEWS.length)) { go(VIEWS[Number(e.key) - 1]); return; }

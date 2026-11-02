@@ -162,8 +162,8 @@ export function PhraseSeed({
       </div>
       <div className={styles.seedActs}>
         <div className={styles.barCopies}>
-          <span aria-hidden="true">About</span>
-          <ThemedSelect hideLabel compact className={styles.sizeSelect} label="About" value={size} choices={SIZE_OPTIONS}
+          <label htmlFor="ts-about">About</label>
+          <ThemedSelect id="ts-about" hideLabel compact className={styles.sizeSelect} label="About" value={size} choices={SIZE_OPTIONS}
             onChange={setSize} disabled={loading || sending} />
         </div>
         <button type="button" className="btn btn-secondary" disabled={busy || loading || trimmed.length === 0} onClick={() => void load()} data-testid="phrase-preview">

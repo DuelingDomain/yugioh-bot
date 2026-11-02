@@ -50,8 +50,8 @@ export function AutoDetectLab() {
   return <section className={styles.capture} aria-label="Auto-detect lab">
     <div className={styles.controls}><button type="button" className={styles.primary} disabled={starting} onClick={()=>void start()}>{starting?'Starting…':'Start camera'}</button><button type="button" onClick={stop} disabled={!source&&!starting}>Stop</button>
       <label><input type="checkbox" checked={watch.enabled} onChange={e=>watch.setEnabled(e.target.checked)}/> Auto-detect cards</label>
-      <div className={styles.inlineSelect}><span aria-hidden="true">Compute</span><ThemedSelect hideLabel compact className={styles.computeSelect} label="Auto-detect compute" disabled={!!source} value={backend} choices={BACKEND_CHOICES} onChange={setBackend}/></div>
-      <div className={styles.inlineSelect}><span aria-hidden="true">Format</span><ThemedSelect hideLabel compact className={styles.formatSelect} label="Auto-detect format" disabled={!!source} value={format} choices={FORMAT_CHOICES} onChange={setFormat}/></div>
+      <div className={styles.inlineSelect}><label htmlFor="ts-compute">Compute</label><ThemedSelect id="ts-compute" hideLabel compact className={styles.computeSelect} label="Auto-detect compute" disabled={!!source} value={backend} choices={BACKEND_CHOICES} onChange={setBackend}/></div>
+      <div className={styles.inlineSelect}><label htmlFor="ts-format">Format</label><ThemedSelect id="ts-format" hideLabel compact className={styles.formatSelect} label="Auto-detect format" disabled={!!source} value={format} choices={FORMAT_CHOICES} onChange={setFormat}/></div>
       <button type="button" disabled={!source} onClick={()=>setCalibrating(true)}>{watch.calibration?'Recalibrate':'Calibrate zones'}</button>
     </div>
     <p role="status" data-testid="auto-detect-status">{watch.snapshot.status==='starting'?'Preparing card reader…':source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>

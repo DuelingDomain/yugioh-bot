@@ -7,8 +7,9 @@ import { Modal } from "@/components/ui/modal";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { getDuelRoom, listDuelPresets, reportEnabled, type DuelPreset } from "./api";
 import {
-  addMark, errorSignature, installReportCapture, isTypingTarget, marks, snapshotBuffers,
+  addMark, errorSignature, installReportCapture, marks, snapshotBuffers,
 } from "./report-buffers";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export const REPORT_CATEGORIES = [
   { id: "stall", label: "Stall (nothing happens)" },

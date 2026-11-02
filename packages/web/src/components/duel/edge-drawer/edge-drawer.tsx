@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { EdgeTab, type EdgeSide, type EdgeTone } from "./edge-tab";
 import styles from "./edge-drawer.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 /** What opened the drawer: a click on the tab, a key (Enter, Space or the shortcut), or the parent. Never a hover. */
 export type OpenVia = "click" | "key" | "api";
@@ -46,11 +47,7 @@ export function anyEdgeDrawerOpen(): boolean {
   return typeof document !== "undefined" && document.querySelector('[data-edge-drawer][data-state="open"]') !== null;
 }
 
-const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
-
-function typingTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(EDITABLE) !== null;
-}
+const typingTarget = isTypingTarget;
 
 /** The panel size when a drawer sets none (the same fallbacks as edge-drawer.module.css). */
 const DEFAULT_SIZE: Record<EdgeSide, string> = { left: "min(360px, 88vw)", right: "min(360px, 88vw)", bottom: "min(320px, 58dvh)" };

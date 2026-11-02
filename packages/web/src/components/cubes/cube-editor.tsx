@@ -33,6 +33,7 @@ import { CubeCheck } from "./cube-check";
 import { CUBE_TYPE_LABELS, cubeTypeHint, offeredCubeTypes, type CubeDraftType } from "@/lib/cube-type";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import styles from "./cubes.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 interface CubeDto {
   id: number;
@@ -68,11 +69,6 @@ function pasteLabelFor(base: string, existing: readonly string[]): string {
   let n = 2;
   while (names.has(`${base} ${n}`)) n += 1;
   return `${base} ${n}`;
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEnabled = false }: { cubeId: number; themeDraftsEnabled?: boolean; effectSearchEnabled?: boolean }) {

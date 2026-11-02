@@ -13,6 +13,7 @@ import {
 } from "./camera-model";
 import { targetChoices, targetHintSeat } from "./targets";
 import type { CameraAction, CameraLockReason, CameraState, TableController, TableLayout, TargetChoice } from "./types";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface UseCameraOptions {
   controller: TableController;
@@ -58,11 +59,7 @@ export interface UseCamera {
   escapeOwned: MutableRefObject<boolean>;
 }
 
-function typing(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  if (!node || typeof node.tagName !== "string") return false;
-  return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
-}
+const typing = isTypingTarget;
 
 /**
  * The camera of a table: the pure model and the keys. The view changes ONLY on a click or a key of the viewer. A

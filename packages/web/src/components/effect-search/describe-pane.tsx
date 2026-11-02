@@ -268,8 +268,8 @@ export function DescribePane({
           Exact text
         </label>
         <div className={styles.sort}>
-          <span aria-hidden="true">Sort by</span>
-          <ThemedSelect hideLabel compact className={styles.sortSelect} label="Sort by" value={sort} choices={SORT_OPTIONS}
+          <label htmlFor="ts-sort-by">Sort by</label>
+          <ThemedSelect id="ts-sort-by" hideLabel compact className={styles.sortSelect} label="Sort by" value={sort} choices={SORT_OPTIONS}
             onChange={setSort} testId="describe-sort" />
         </div>
       </div>

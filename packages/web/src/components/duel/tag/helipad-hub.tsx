@@ -5,6 +5,7 @@ import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { chainLinkLabel, type ResponseWindow } from "./tag-logic";
 import styles from "./tag-stage.module.css";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export interface HubSeatTone {
   rgb: string;
@@ -45,7 +46,7 @@ export function HelipadHub({ chain, anchorSeat, nameOf, toneOf, response, teamLa
       if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      if (isTypingTarget(target)) return;
       if (target?.closest?.("[role='dialog']")) return;
       const index = Number(event.key) - 1;
       if (Number.isInteger(index) && index >= 0 && index < pick.seats.length) {

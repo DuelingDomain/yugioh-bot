@@ -265,11 +265,12 @@ function BoxTools({ slug, cubes, table, controller, library, loadLibrary, onChan
 
       {attachable.length > 0 && (
         <div className={styles.toolRow}>
-          <span className="label" aria-hidden="true">Or use a saved cube</span>
+          <label className="label" htmlFor="theme-attach-cube">Or use a saved cube</label>
           <div className={styles.toolIn}>
             <ThemedSelect
+              id="theme-attach-cube"
               className={styles.toolSelect}
-              label="Attach an existing cube"
+              label="Or use a saved cube"
               hideLabel
               value={attachId}
               disabled={busy}

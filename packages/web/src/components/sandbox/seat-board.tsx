@@ -143,8 +143,8 @@ export function SeatBoard({
         <LpField state={state} seat={seat} act={actions.act} />
         {index > 0 ? (
           <div className={styles.botField}>
-            <span aria-hidden="true">Bot</span>
-            <ThemedSelect hideLabel compact className={styles.botSelect} label={`Bot for ${seat.toUpperCase()}`}
+            <label htmlFor={`bot-${seat}`}>Bot</label>
+            <ThemedSelect id={`bot-${seat}`} hideLabel compact className={styles.botSelect} label={`Bot for ${seat.toUpperCase()}`}
               value={state.run.bots[String(index) as "1" | "2" | "3"]} choices={BOT_CHOICES}
               onChange={(mode) => actions.act({ type: "setBotMode", seat: index as 1 | 2 | 3, mode })} />
           </div>

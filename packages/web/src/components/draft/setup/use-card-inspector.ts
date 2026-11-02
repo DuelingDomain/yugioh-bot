@@ -28,6 +28,7 @@
 
 import * as React from "react";
 import type { PoolCard, PoolCopies, PoolEditActions, PoolLane } from "./pool-browser-model";
+import { isTypingTarget } from "@/lib/typing-target";
 
 export type InspectorMode = "auto" | "pane" | "sheet";
 
@@ -76,12 +77,6 @@ function subscribePhone(onChange: () => void): () => void {
   return () => mq.removeEventListener?.("change", onChange);
 }
 const phoneNow = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE_QUERY).matches;
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el || typeof el.matches !== "function") return false;
-  return el.matches("input, textarea, select, [contenteditable='true'], [contenteditable='']");
-}
 
 export function useCardInspector(opts: UseCardInspectorOptions): CardInspectorController {
   const { main, extra, getCard, mode = "auto", leaveDelayMs = 180 } = opts;
