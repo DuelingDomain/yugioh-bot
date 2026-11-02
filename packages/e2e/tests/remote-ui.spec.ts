@@ -75,14 +75,23 @@ test.describe("remote duels screen, solo", () => {
     }
   });
 
-  test("click on the live feed opens the card popup, Esc closes it", async ({ page, context }) => {
+  test("click on the live feed opens the card popup, it stays open while the card is read, Esc closes it", async ({ page, context }) => {
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
     await page.goto(`/duels/remote/${slug}`);
-    await page.getByTestId("camera-on-feed").click();
+    await expect(async () => {
+      if (await page.getByTestId("camera-on-feed").count()) await page.getByTestId("camera-on-feed").click();
+      await expect(page.locator('[data-testid="feed-0"] video')).toBeVisible({ timeout: 4_000 });
+    }).toPass({ timeout: 40_000 });
     const video = page.locator('[data-testid="feed-0"] video');
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    // Record every time a popup layer leaves the page, so a self-closing popup is caught even between two polls.
+    await page.evaluate(() => {
+      const w = window as unknown as { __layerLog: string[] }; w.__layerLog = []; let was = false;
+      new MutationObserver(() => { const now = !!document.querySelector('[data-layer="tray"], [data-layer="card"]'); if (was && !now) w.__layerLog.push(`closed at ${Math.round(performance.now())}`); was = now; })
+        .observe(document.body, { childList: true, subtree: true });
+    });
     // Click on the first card of the fake camera frame (card centre at 26% x 49% of the picture).
     const at = async (fx: number, fy: number) => video.evaluate((v: HTMLVideoElement, [x, y]) => {
       const r = v.getBoundingClientRect(); const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
@@ -97,6 +106,9 @@ test.describe("remote duels screen, solo", () => {
     const popup = page.locator('[data-layer="tray"], [data-layer="card"]').first();
     await expect(popup).toBeVisible({ timeout: 2_000 });
     await shot(page, "live-click-reading");
+    // It stays open for at least 3 s while the card is read, even with nothing else happening.
+    for (let i = 0; i < 6; i++) { await page.waitForTimeout(500); await expect(popup).toBeVisible(); }
+    expect(await page.evaluate(() => (window as unknown as { __layerLog: string[] }).__layerLog)).toEqual([]);
     await expect(page.getByTestId("card-popover")).toBeVisible({ timeout: 90_000 });
     await expect(page.getByTestId("big-art")).toBeVisible();
     await expect(page.getByTestId("popover-name")).toHaveText("Dark Magician");
@@ -127,43 +139,6 @@ test.describe("remote duels screen, solo", () => {
     await page.getByTestId("camera-row").getByRole("button", { name: /Camera off/ }).evaluate((b: HTMLElement) => b.click());
     await expect(page.getByTestId("lock")).toHaveCount(0);
     await expect(page.getByTestId("reticle")).toHaveCount(0);
-  });
-
-  test("the card popup stays open while the card is read, in the camera-first layout", async ({ page, context }) => {
-    test.setTimeout(240_000);
-    const slug = await soloTable(context.request, 2);
-    await fakeCamera(page);
-    await page.goto(`/duels/remote/${slug}`);
-    await expect(async () => {
-      if (await page.getByTestId("camera-on-feed").count()) await page.getByTestId("camera-on-feed").click();
-      await expect(page.locator('[data-testid="feed-0"] video')).toBeVisible({ timeout: 4_000 });
-    }).toPass({ timeout: 40_000 });
-    const video = page.locator('[data-testid="feed-0"] video');
-    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
-    // Record every time a popup layer leaves the page, so a self-closing popup is caught even between two polls.
-    await page.evaluate(() => {
-      const w = window as unknown as { __layerLog: string[] }; w.__layerLog = []; let was = false;
-      new MutationObserver(() => { const now = !!document.querySelector('[data-layer="tray"], [data-layer="card"]'); if (was && !now) w.__layerLog.push(`closed at ${Math.round(performance.now())}`); was = now; })
-        .observe(document.body, { childList: true, subtree: true });
-    });
-    await page.getByTestId("feed-0").hover();
-    await page.waitForTimeout(500);
-    const p = await video.evaluate((v: HTMLVideoElement) => {
-      const r = v.getBoundingClientRect(); const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
-      const w = v.videoWidth * s; const h = v.videoHeight * s;
-      return { x: r.left + (r.width - w) / 2 + 0.338 * w, y: r.top + (r.height - h) / 2 + 0.486 * h };
-    });
-    await page.mouse.click(p.x, p.y);
-    const popup = page.locator('[data-layer="tray"], [data-layer="card"]').first();
-    await expect(popup).toBeVisible({ timeout: 2_000 });
-    // It stays open for at least 3 s, even with nothing else happening.
-    for (let i = 0; i < 6; i++) { await page.waitForTimeout(500); await expect(popup).toBeVisible(); }
-    expect(await page.evaluate(() => (window as unknown as { __layerLog: string[] }).__layerLog)).toEqual([]);
-    // And it still ends on the card.
-    await expect(page.getByTestId("card-popover")).toBeVisible({ timeout: 90_000 });
-    await expect(page.getByTestId("popover-name")).toHaveText("Dark Magician");
-    await page.waitForTimeout(1500);
-    await expect(page.getByTestId("card-popover")).toBeVisible();
   });
 
   test("a click where no card is found shows a small note, not a popup, and Search card opens the search", async ({ page, context }) => {
