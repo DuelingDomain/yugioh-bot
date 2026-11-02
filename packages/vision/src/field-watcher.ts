@@ -109,7 +109,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       await options.recognizer.prepare?.(preparation());
       if(generation!==epoch||disposed||t.read!==pending)return;
       const priors=options.getPriors?.();
-      const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:!!priors?.decklist?.length,earlyExitMargin:options.earlyExitMargin??.08});
+      const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:!!priors?.decklist?.length,earlyExitMargin:options.earlyExitMargin??.02});
       if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;}
     }catch{if(generation===epoch&&!disposed&&t.read===pending){metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
@@ -122,7 +122,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const origin=t.announced??t.view.card,pixels=evidence.appearance?.(card);
     if(!bound(t)||card.kind!==t.view.card.kind||(card.kind==='face-down')!==t.view.faceDown||card.confidence<.7||card.partial||card.covered||isCovered(card,cards)||!pixels?.length||
       (distance(origin,card)<=.04&&fieldOrientation(card,width,height,calibration)===t.view.position))return;
-    t.pose={card:structuredClone(card),origin:structuredClone(origin),appearance:pixels,at,samples:0};
+    t.pose={card:structuredClone(card),origin:structuredClone(origin),appearance:pixels,at,cleanAt:at,samples:1};
   }
   function confirmPoses(evidence:FieldAnalysis,at:number,width:number,height:number):boolean {
     let pending=false;
@@ -182,8 +182,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!reading&&tracks.some(t=>!t.view.removed&&t.clearCandidate&&sample.at-(t.clearCandidateAt??sample.at)<650&&(evidence.motionOutside?.(t.view.card)??1)<=.004)&&
         !tracks.some(t=>!t.view.removed&&t.view.state==='candidate')){status='watching';return;}
       if(!busy&&!reading&&confirmPoses(evidence,sample.at,current.width,current.height)){status='watching';return;}
-      const trackedMotion=!busy&&tracks.some(t=>t.view.state==='identified'&&!t.view.removed&&(evidence.motion(t.view.card)>.025||(t.identityAppearance?.length&&!matchesLook(t,evidence.appearance?.(t.view.card)))));
-      if(light&&!trackedMotion&&(!empty||busy||evidence.motion(mat)<=.004)) {
+      const trackedMotion=!busy&&tracks.some(t=>t.view.state==='identified'&&(t.view.removed?(evidence.motionOutside?.(t.view.card)??evidence.motion(mat))>.004:evidence.motion(t.view.card)>.025||(t.identityAppearance?.length&&!matchesLook(t,evidence.appearance?.(t.view.card)))));
+      if(light&&!trackedMotion&&(busy||evidence.motion(mat)<=.004)) {
         // Keep cached clicks fresh during input pressure and long detector gaps.
         // Pixel evidence can retain an outline, but only the detector restores one.
         if(busy)interruptWindow(true,true);status=busy?'busy':guarded?'budget':'watching';metrics.skipped++;
@@ -254,7 +254,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const sameSpot=overlap>=.84&&d<.012;
         const needsLook=!bound(t)&&t.view.state==='identified'&&t.view.card.kind==='face-up'&&!sameSpot&&(d>.02||overlap<.84||t.missed);
         const looks=c.kind==='face-up'&&((!t.identityAppearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.identityAppearance,appearance(c)));
-        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c)))))&&(!needsLook||looks)&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t,c))};
+        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c)))))&&(!needsLook||looks)&&(!bound(t)||!["GY","BANISHED"].includes(t.view.zone)||followsAppearance(t,c))&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t,c))};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
@@ -262,7 +262,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const incoming=cards.filter(c=>!taken.has(c));
       const lost=tracks.filter(t=>!matched.has(t)&&(t.view.state==='identified'||t.prompted)&&(t.view.removed?
         incoming.length===1&&t.view.card.kind===incoming[0].kind&&(incoming[0].kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(incoming[0])):sameFieldAppearance(t.identityAppearance,appearance(incoming[0]))):
-        sample.at-t.view.lastSeen<=Math.max(2500,removalMs)));
+        sample.at-t.view.lastSeen<=Math.max(2500,removalMs))).filter(t=>incoming.length!==1||followsAppearance(t,incoming[0]));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){
@@ -272,13 +272,19 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           else if(bound(lost[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
         }
       }
+      // Covered pile history remains in the authoritative twin list, not live
+      // detector capacity. Only the freshly observed top keeps a live outline.
+      for(const t of tracks)if(bound(t)&&['GY','BANISHED'].includes(t.view.zone)&&!matched.has(t)&&
+        cards.some(c=>mapFieldZone(c,calibration,[],options.format).zone===t.view.zone&&quadIou(c,t.view.card)>.35)){
+        t.view.visible=false;t.view.removed=true;t.pose=undefined;t.read=undefined;t.needsRead=false;t.best=undefined;
+      }
       const pileRead=(c:DetectedQuad)=>c.confidence>=.4&&['GY','BANISHED'].includes(mapFieldZone(c,calibration,cards,options.format).zone)&&tracks.some(t=>bound(t)&&!matched.has(t));
       for(const c of cards)if((c.confidence>=.7||pileRead(c))&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         if(calibration&&c.quad.map(p=>onMat(p,calibration)).some(p=>p.x<0||p.x>1||p.y<0||p.y>1))continue;
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
-        const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));
+        const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:!['GY','BANISHED'].includes(zone)&&k.zone===zone));
         const trusted=known?.card?known:undefined;
-        const t:InternalTrack={view:{id:trusted?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height,calibration),faceDown:trusted?.faceDown??c.kind==='face-down',cardId:trusted?.faceDown?undefined:trusted?.cardId,state:trusted?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(trusted?{announced:c,announcedZone:trusted.zone,announcedPosition:trusted.position??fieldOrientation(c,current.width,current.height,calibration),identityAppearance:appearance(c)}:{}),...(trusted?{resolvedAt:sample.at}:{}),binding:trusted?undefined:known,newOutline:!trusted,promptOnly:suppressed.some(q=>q.appearance?.length?sameFieldAppearance(q.appearance,appearance(c)):quadIou(q.card,c)>.5)?'suppressed':tracks.some(old=>!old.view.removed&&old.view.state==='identified'&&quadIou(old.view.card,c)>.84&&old.identityAppearance?.length&&!sameFieldAppearance(old.identityAppearance,appearance(c)))?'changed':undefined,missed:false,stableSince:sample.at,observations:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height,calibration),needsRead:!trusted||(!trusted.faceDown&&!trusted.cardId)};
+        const t:InternalTrack={view:{id:trusted?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height,calibration),faceDown:trusted?.faceDown??c.kind==='face-down',cardId:trusted?.faceDown?undefined:trusted?.cardId,state:trusted?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(trusted?{announced:c,announcedZone:trusted.zone,announcedPosition:trusted.position??fieldOrientation(c,current.width,current.height,calibration),identityAppearance:appearance(c)}:{}),...(trusted?{resolvedAt:sample.at}:{}),binding:trusted?undefined:known,newOutline:!trusted,promptOnly:suppressed.some(q=>q.appearance?.length?sameFieldAppearance(q.appearance,appearance(c)):quadIou(q.card,c)>.5)?'suppressed':tracks.some(old=>!['GY','BANISHED'].includes(zone)&&!old.view.removed&&old.view.state==='identified'&&quadIou(old.view.card,c)>.84&&old.identityAppearance?.length&&!sameFieldAppearance(old.identityAppearance,appearance(c)))?'changed':undefined,missed:false,stableSince:sample.at,observations:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height,calibration),needsRead:!trusted||(!trusted.faceDown&&!trusted.cardId)};
         t.appearance=appearance(c);tracks.push(t);matched.set(t,c);
       }
       // Simultaneous deck-search outlines stay private; a single clean new card
@@ -430,7 +436,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             const incomparable=t.identityEmbedding&&similarity===undefined;
             if(saved.strongSamples<3||incomparable||(similarity!==undefined&&similarity>.68)||sample.at<(t.resolvedAt??-Infinity)+5000){t.read=pending;continue;}
             t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.visible=true;
-            if(winner&&!['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
+            if(winner&&!['DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
             if(result&&result.tier!=='low match'){t.view.state='dismissed';continue;}
             t.view.state='prompt';
             emit('prompt',t,{result,reason:'changed',latencyMs:metrics.latencyMs});continue;
@@ -469,14 +475,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             }
             // No local tombstone after restart: reserve the existing pile ref
             // after the read instead of silently dismissing a recognized GY card.
-            const reserved=known?.find(card=>card.cardId===winner&&!tracks.some(other=>other!==t&&(other.view.id===card.id||other.binding?.id===card.id)));
+            const reserved=known?.find(card=>card.cardId===winner&&!['GY','BANISHED'].includes(card.zone)&&!tracks.some(other=>other!==t&&(other.view.id===card.id||other.binding?.id===card.id)));
             if(reserved)t.binding=reserved;
           }
           if(t.binding){
             if(!winner&&!t.binding.cardId&&!t.binding.faceDown&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=undefined;t.view.state='identified';t.view.visible=true;t.resolvedAt=sample.at;t.binding=undefined;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.needsRead=false;if(t.view.faceDown===false)emit('flipped',t);emit('moved',t);continue;}
             if((t.binding.faceDown?winner:t.binding.cardId||winner)&&!t.promptOnly){const reveal=t.binding.faceDown||!t.binding.cardId;t.view.id=t.binding.id;t.view.cardId=reveal?winner:t.binding.cardId;t.view.bestMatch=reveal?(result?.tier!=='sure'||!inDeck):undefined;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.resolvedAt=sample.at;t.binding=undefined;if(reveal)emit('placed',t,{result,latencyMs:metrics.latencyMs});else emit('moved',t);}
             else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
-          }else if(winner&&!t.promptOnly&&!pile){
+          }else if(winner&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)){
             t.view.bestMatch=result?.tier!=='sure'||!inDeck;t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;emit('placed',t,{result,latencyMs:metrics.latencyMs});
           }else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
 

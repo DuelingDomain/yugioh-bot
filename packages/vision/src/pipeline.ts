@@ -90,8 +90,8 @@ export class RecognitionPipeline {
     const usedIndices:number[]=[];
     const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; deferredAICrop?:DeferredAICrop; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
-    const earlyExitMargin=opts.earlyExitMargin??.08;
-    const clearShortlist=(list:Candidate[])=>decide(list,thresholds,this.profile.cardBack.cardId).confident && list[0].score-(list[1]?.score??0)>=earlyExitMargin && !this.confused(list) && (!opts.priors?.frameClasses?.length || opts.priors.frameClasses.includes(this.catalog.get(list[0].cardId)?.frameClass??''));
+    const earlyExitMargin=opts.earlyExitMargin??.02;
+    const clearShortlist=(list:Candidate[])=>(list[0]?.score??0)>=.84 && decide(list,thresholds,this.profile.cardBack.cardId).confident && list[0].score-(list[1]?.score??0)>=earlyExitMargin && !this.confused(list) && (!opts.priors?.frameClasses?.length || opts.priors.frameClasses.includes(this.catalog.get(list[0].cardId)?.frameClass??''));
     const gallerySearch=(vector:Float32Array,index:LoadedIndex):Candidate[]=>{
       const embedding={values:Array.from(vector),space:index===this.fullArtIndex?'whole-card':'art-box'};
       const scores=new Map<string|undefined,number>();
