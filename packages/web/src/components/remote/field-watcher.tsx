@@ -8,6 +8,7 @@ import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,applyVerifiedFieldMutation,StaleFieldPlacementError} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {projectFieldZone} from '@/lib/remote/field-legality';
+import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources} from './ui/recognizer';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,deckIdsOf,seenCardIds} from './ui/model';
@@ -41,6 +42,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
+  const prompted=useRef(new Set<string>());
   calibrationBusy.current=calibrating;
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
@@ -54,7 +56,7 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
   // A physical hint reserves a ref only. Omitting the quad forces a fresh identity read.
   const knownZone=(card:TwinCard)=>publicField(card.zone)?physical.current!.zones.get(card.ref)??toZone(card.zone,card.slot):toZone(card.zone,card.slot);
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
-  const offer=(event:FieldEvent)=>setPrompts(list=>[...list.filter(p=>p.track.id!==event.track.id).slice(-5),event]);
+  const offer=(event:FieldEvent)=>setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   function queue(work:(act:RoomMutation)=>Promise<void>) {
     return transaction(async(latest,act)=>{
@@ -153,10 +155,11 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
       if(existing)bindings.current.set(event.track.id,existing.ref);
       watch.confirm(event.track.id,track.cardId,existing?.ref);rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
-      setDeparture(null);setNotice(`${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
+      setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
     }finally{setPending(false);}
   }
   function handle(event:FieldEvent) {
+    if(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch))void saveLocalFieldDiagnostic(event,entries.current);
     if(event.type==='prompt'){
       if(event.reason==='pile'&&event.result?.tier==='sure'&&event.track.zone==='GY')void queue(act=>apply(event,act));
       else offer(event);
@@ -190,9 +193,11 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       }else if(event.type==='flipped'&&card.faceUp===event.track.faceDown)await act({type:'twin.flip',actorSeat:seat,seat,cardRef:card.ref,faceUp:!event.track.faceDown});
     });
   }
-  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,sourceKey:source,
+  const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,deviceKey:hub.cameraId,sourceKey:source,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;tracks.current=watch.snapshot.tracks;
+  const video=host?.querySelector('video')??null;
+  useEffect(()=>{if(!watch.calibrationNeeded||!video)return;const open=()=>{if(video.videoWidth)setCalibrating(true);};open();video.addEventListener('loadedmetadata',open);return()=>video.removeEventListener('loadedmetadata',open);},[watch.calibrationNeeded,video]);
   useEffect(()=>{
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
@@ -242,7 +247,6 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  const video=host?.querySelector('video')??null;
   const label=watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   return <>
     <FieldWatcherUI host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={!!watch.calibration} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
@@ -253,6 +257,6 @@ export function AutoFieldWatcher({room,transaction}:{room:RemoteRoom;transaction
       notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
-    {calibrating?<FieldCalibrationControl video={video} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}
+    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
   </>;
 }

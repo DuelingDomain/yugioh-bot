@@ -15,7 +15,7 @@ export function CardFace({ card, info }: { card: TwinCard; info?: CardInfo }) {
   const code = cardCode(card);
   const monster = isMonsterInfo(info);
   return <div className={`${s.cd} ${FRAME_CLASS[frameOf(info)]}`} style={{ "--h": hueOf(code ?? 1), "--shape": SHAPE } as React.CSSProperties}>
-    <div className={s.nm}>{cardName(card, info)}</div>
+    <div className={s.nm} title={card.bestMatch?'Best match · use Wrong card? to correct':undefined}>{card.bestMatch?'Best match · ':''}{cardName(card, info)}</div>
     <div className={s.art}>{code && !broken ? <img className={s.artImg} src={cardArt(code, "cropped")} alt="" loading="lazy" onError={() => setBroken(true)} /> : null}</div>
     <div className={s.st}>{monster ? <><b>{info?.atk ?? "?"}</b><b>{info?.def ?? "?"}</b></> : <b>{/trap/i.test(info?.type ?? "") ? "TRAP" : /spell/i.test(info?.type ?? "") ? "SPELL" : "?"}</b>}</div>
   </div>;

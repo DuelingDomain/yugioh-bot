@@ -753,15 +753,15 @@ describe('typed watcher zone projection',()=>{
   const old={ref:'reserved-spell',zone:'monster',slot:4,cardId:46986414,name:'Old mistaken identity',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'prompt',old.ref);try{await fixture.emit();fireEvent.click(await screen.findByRole('button',{name:/Solemn Judgment/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toHaveLength(1);expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:old.ref,cardId:41420027,zone:'spell-trap',slot:4});expect(fixture.post.mock.calls.some(([proposal])=>proposal.type==='twin.place')).toBe(false);}finally{fixture.dispose();}
  });
- it('reserves a projected physical spot after camera restart and reload without trusting its old identity',async()=>{
+ it('retains the owner twin identity at a projected physical spot after camera restart',async()=>{
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
    await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();await fixture.restart();
    expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M4'});
    expect(fixture.known()).toEqual([expect.objectContaining({id:'physical-typed',zone:'M4',cardId:'41420027'})]);expect(fixture.known()[0]).not.toHaveProperty('card');
-   const restarted=await readRestart(fixture.known,[physicalQuad('M')],()=>cards[2].cardId),prompt=restarted.events.find(event=>event.type==='prompt');
-   expect(restarted.events.some(event=>event.type==='placed')).toBe(false);expect(restarted.recognize).toHaveBeenCalledOnce();expect(prompt).toMatchObject({bindRef:'physical-typed',reason:'restart'});
-   Object.assign(fixture.track,prompt.track);await fixture.emit(prompt);fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn.*Spell\/Trap Zone 4/i}));
-   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2));expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:83764718,zone:'spell-trap',slot:4})]);expect(fixture.post.mock.calls.map(([p])=>p.type)).toEqual(['twin.place','card.identified']);
+   const restarted=await readRestart(fixture.known,[physicalQuad('M')],()=>cards[2].cardId);
+   expect(restarted.events.some(event=>event.type==='prompt'||event.type==='placed')).toBe(false);expect(restarted.recognize).toHaveBeenCalledOnce();
+   expect(restarted.events.find(event=>event.type==='moved')?.track).toMatchObject({id:'physical-typed',cardId:'41420027'});
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:4})]);
   }finally{fixture.dispose();}
  });
  it('keeps actual M4 and S4 cards independent after both virtual destinations were projected',async()=>{
@@ -770,7 +770,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin.map((card:any)=>[card.ref,card.slot])).toEqual([['physical-typed',4],['physical-s4',3]]);
    expect(fixture.known().map((card:any)=>[card.id,card.zone])).toEqual([['physical-typed','M4'],['physical-s4','S4']]);
    const restarted=await readRestart(fixture.known,[physicalQuad('M'),physicalQuad('S')],card=>card.quad[0].y<.5?cards[3].cardId:cards[4].cardId);
-   expect(restarted.events.filter(event=>event.type==='prompt').map(event=>[event.track.zone,event.bindRef])).toEqual([['M4','physical-typed'],['S4','physical-s4']]);expect(restarted.events.some(event=>event.type==='placed')).toBe(false);
+   expect(restarted.events.filter(event=>event.type==='moved').map(event=>[event.track.zone,event.track.id])).toEqual([['M4','physical-typed'],['S4','physical-s4']]);expect(restarted.events.some(event=>event.type==='placed'||event.type==='prompt')).toBe(false);
   }finally{fixture.dispose();}
  });
  it('does not steal a projected M4 reference for an unrelated physical S4 prompt',async()=>{
@@ -825,4 +825,18 @@ describe('typed watcher zone projection',()=>{
  it.each(['{','[]','{"old":"M99"}','{"old":{"zone":"M4","cardId":"41420027"}}'])('ignores invalid physical-hint storage %s without inferring a cross-row binding',async stored=>{
   sessionStorage.setItem(physicalHintsKey,stored);const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'old',zone:'spell-trap',slot:4,cardId:41420027,faceUp:true,position:'attack'}]);try{expect(fixture.known()[0]).toMatchObject({id:'old',zone:'S4'});expect(fixture.known()[0]).not.toHaveProperty('card');}finally{fixture.dispose();}
  });
+});
+
+// One integration scenario for the physical GY destination and its best-match twin.
+it('a placed best match follows its physical card into GY with one ref and no prompt',async()=>{
+ const fixture=await typedWatcherFixture(zoneEntries[0],'M4');
+ try{
+  fixture.track.bestMatch=true;await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'spell-trap',slot:4,bestMatch:true})]);
+  expect(screen.getByText(/Best match.*placed/)).toBeInTheDocument();
+  fixture.track.zone='GY';await fixture.emit({type:'moved'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'graveyard',bestMatch:true})]));
+  expect(fixture.post.mock.calls.map(([action]:any)=>action.type)).toEqual(['twin.place','twin.move']);
+  expect(screen.queryByTestId('field-watcher-prompt')).not.toBeInTheDocument();
+ }finally{fixture.dispose();}
 });

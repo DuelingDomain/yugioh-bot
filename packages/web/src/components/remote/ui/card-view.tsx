@@ -12,7 +12,7 @@ export type Subject = {
   /** null = no decklist to compare with. */
   notInDecklist: boolean | null; addErrors: string[]; via: string;
   /** How sure the reader was when it named this card (feed reads only). */
-  tier?: Tier; covered?: boolean;
+  tier?: Tier; covered?: boolean; bestMatch?:boolean;
 };
 
 function Art({ id }: { id: number }) {
@@ -31,6 +31,7 @@ const meta = (info: CardInfo | undefined) => info ? [info.type, info.attribute, 
 
 export function DeckBadges({ subject, warning }: { subject: Subject; warning?: string }) {
   return <div className={s.cbadges}>
+    {subject.bestMatch ? <span className={`${s.cb} ${s.w}`}>Best match</span> : null}
     {subject.notInDecklist === true ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span>
       : subject.notInDecklist === false ? <span className={`${s.cb} ${s.ok}`}><Icon name="check" />IN DECKLIST</span>
       : <span className={s.cb}>NO DECKLIST</span>}

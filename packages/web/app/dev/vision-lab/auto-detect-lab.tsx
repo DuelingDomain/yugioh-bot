@@ -34,11 +34,12 @@ export function AutoDetectLab() {
     async create(){reader.current??=createRecognizer({game:'yugioh',backend});return {recognizer:reader.current,buffer:{sample:()=>buffer.current?buffer.current.sample():Promise.reject(new Error('Waiting for camera'))},profile:yugioh,format,
       getPriors:()=>({decklist:current.current.deck.split(/[\s,]+/).filter(Boolean)}),cpuBusy:()=>current.current.calibrating,
       getKnownCards:()=>current.current.board.map(t=>({id:t.id,card:t.card,zone:t.zone,cardId:t.cardId,faceDown:t.faceDown,position:t.position}))};},
-    onEvent(event){setEvents(list=>[event,...list].slice(0,40));if(event.type==='placed')apply(event.track);
+    onEvent(event){setEvents(list=>[event,...list].slice(0,40));if(event.type==='placed'){apply(event.track);watch.confirm(event.track.id,event.track.cardId);}
       else if(event.type==='moved'||event.type==='flipped'){setBoard(list=>[...list.filter(t=>t.id!==event.track.id),event.track]);setDeparture(null);}
       else if(event.type==='removed'){
         if(!['GY','BANISHED','DECK','EXTRA'].includes(event.track.zone)&&current.current.board.some(t=>t.id===event.track.id)){setUndo(current.current.board);setBoard(list=>list.filter(t=>t.id!==event.track.id));setDeparture({track:event.track,destination:'GY'});}
       }else setPrompts(list=>[...list.filter(e=>e.track.id!==event.track.id),event]);}});
+  useEffect(()=>{if(watch.calibrationNeeded&&video.current?.videoWidth)setCalibrating(true);},[watch.calibrationNeeded,source]);
   const names=(t:FieldTrack)=>t.faceDown?'Face-down card':entries.get(t.cardId??'')?.name??'New card?';
   const metrics=watch.snapshot.metrics;
   const runtime=events.find(e=>e.result?.runtime)?.result?.runtime;
@@ -50,7 +51,7 @@ export function AutoDetectLab() {
       <button type="button" disabled={!source} onClick={()=>setCalibrating(true)}>{watch.calibration?'Recalibrate':'Calibrate zones'}</button>
     </div>
     <p role="status" data-testid="auto-detect-status">{watch.snapshot.status==='starting'?'Preparing card reader…':source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>
-    <p>Place a card and keep your hand clear. Reading starts after about half a second of stability and confirms on a later frame. Sure reads fill the local twin with Undo. Other reads offer five choices. Clear absences leave the field automatically with Undo.</p>
+    <p>Place a card and keep your hand clear. Reading starts after about half a second of stability and confirms on a later frame. Readable cards fill the local twin with Undo; uncertain names are labelled Best match. Only low matches ask once. Clear absences leave the field automatically with Undo.</p>
     <label>Deck card IDs (optional) <input aria-label="Auto-detect deck priors" value={deck} onChange={e=>setDeck(e.target.value)} placeholder="46986414, 89631139"/></label>
     <div style={{position:'relative',maxWidth:1100,background:'#18221c',minHeight:200}}>
       <video ref={video} autoPlay muted playsInline style={{display:'block',width:'100%'}}/>
@@ -62,7 +63,7 @@ export function AutoDetectLab() {
       </div>;}):null}
     </div>
     {error||watch.snapshot.error?<p role="alert">{error||watch.snapshot.error}</p>:null}
-    {calibrating?<FieldCalibrationControl video={video.current} format={format} onSave={value=>{watch.setCalibration(value);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}
+    {calibrating?<FieldCalibrationControl video={video.current} initialCalibration={watch.calibration} format={format} onSave={value=>{watch.setCalibration(value);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded)watch.setEnabled(false);setCalibrating(false);}}/>:null}
     <p>Detector {metrics.detectorMs.toFixed(1)} ms · interval {metrics.intervalMs.toFixed(0)} ms · inference duty {metrics.dutyPercent.toFixed(1)}% · latest placement {metrics.latencyMs.toFixed(0)} ms · {metrics.samples} samples / {metrics.skipped} skipped{runtime?` · WASM ${runtime.wasmThreads} threads · isolated ${runtime.crossOriginIsolated}`:''}</p>
     <p>Inference duty is elapsed inference work divided by its scheduled interval; use the offline benchmark for process CPU measurements.</p>
     {departure?<p role="status" data-testid="auto-detect-departure">{names(departure.track)} left the field → {departure.destination} {['GY','BANISHED','HAND','EXTRA'].map(destination=><button type="button" key={destination} disabled={departure.destination===destination} onClick={()=>setDeparture({...departure,destination})}>{destination==='EXTRA'?'Extra Deck':destination}</button>)}</p>:null}
