@@ -28,6 +28,7 @@ function toCardSummary(c: {
   name: string;
   type: string;
   frameType: string;
+  race?: string;
   attribute?: string;
   level?: number;
   effectText: string;
@@ -42,6 +43,7 @@ function toCardSummary(c: {
     name: c.name,
     type: c.type,
     frameType: c.frameType,
+    race: c.race,
     attribute: c.attribute,
     level: c.level,
     effectText: c.effectText,
@@ -243,6 +245,7 @@ async function handlePOST(request: Request) {
     name: c.name,
     type: c.type,
     frameType: c.frameType,
+    race: c.race,
     attribute: c.attribute,
     level: c.level,
     effectText: c.effectText,

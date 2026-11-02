@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CardSummary } from "@/lib/card-types";
 
 /** Card details the table screen needs: name, type line, ATK/DEF and text. Shared by every component. */
-export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "attribute" | "level" | "effectText" | "atk" | "def">;
+export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "race" | "attribute" | "level" | "effectText" | "atk" | "def">;
 
 const cache = new Map<number, CardInfo>();
 const inflight = new Map<number, Promise<void>>();

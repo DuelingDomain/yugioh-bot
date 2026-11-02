@@ -121,6 +121,14 @@ describe("POST /api/cards/resolve", () => {
     });
   });
 
+  it('preserves full Spell/Trap subtype facts for remote legal-zone projection',async()=>{
+    await setupDb();const Database=(await import('better-sqlite3')).default,db=new Database(process.env.DATABASE_PATH!);
+    seedCard(db,76375913,'Mystic Mine');db.prepare("update card_catalog set type='Spell Card',frame_type='spell',race='Field' where ygoprodeck_id=?").run(76375913);db.close();
+    const {POST}=await import('../app/api/cards/resolve/route');
+    const response=await POST(new Request('http://localhost/api/cards/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customCardIds:[76375913]})}));
+    expect(response.status).toBe(200);expect((await response.json()).cards[0]).toMatchObject({id:76375913,type:'Spell Card',race:'Field'});
+  });
+
   it("syncs a requested set before resolving it, so an unsynced set returns its cards", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-sets-"));
     tempDirs.push(tempDir);
