@@ -15,7 +15,7 @@ export interface Recognizer {
   prepare(opts?:PrepareOptions):Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
-  detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
+  detectCards(frame: ImageBitmap | ImageData, opts?:Pick<RecognizeOptions,'region'>): Promise<DetectedQuad[]>;
   /** Local name/tier only, without a crop, AI request or correction history. Same-frame outlines only. */
   peek(frame: ImageBitmap | ImageData, opts: PeekOptions): Promise<PeekResult>;
   /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
@@ -94,12 +94,13 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         if(result.timingsMs)result.timingsMs.roundTrip=performance.now()-start;return result;
       } finally { inFlight = false; }
     },
-    async detectCards(frame) {
+    async detectCards(frame, opts = {}) {
+      validateOptions(opts);
       if(disposed) throw new Error('Recognizer is disposed');
       if(inFlight) throw new Error('Recognition is already in progress');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       inFlight=true;
-      try { await initialize(); if(disposed) throw new Error('Recognizer is disposed'); return await request({type:'detect',frame},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[]; }
+      try { await initialize(); if(disposed) throw new Error('Recognizer is disposed'); return await request({type:'detect',frame,opts},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[]; }
       finally {inFlight=false;}
     },
     async askAI(result, options={}) {
