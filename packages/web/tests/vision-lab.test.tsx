@@ -114,7 +114,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("createImageBitmap", createBitmap);
   fetcher.mockReset().mockImplementation(async (url,init) => {
-    if(String(url).endsWith('/api/cards/resolve')){const ids=JSON.parse(init.body).customCardIds??[];return Response.json({cards:catalogFacts.filter(card=>ids.includes(card.id))});}
+    if(String(url).endsWith('/api/cards/resolve')){const body=JSON.parse(init.body),ids=body.lookupIds??body.customCardIds??[];return Response.json({cards:catalogFacts.filter(card=>ids.includes(card.id))});}
     return Response.json(String(url).includes("remote-vision/feedback")?{enabled:false,askedAt:1,collectionEnabled:true}:{entries:cards});
   });
   vi.stubGlobal("fetch", fetcher);
@@ -708,7 +708,7 @@ describe('remote room navigation',()=>{
   });
 });
 
-async function typedWatcherFixture(entry:typeof cards[number],zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>){
+async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:string},zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>){
  const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations'),{ygoModule}=await import('@yugidraft/shared/remote');
  let room:any={guildId:'g',slug:'typed-zone',mySeat:0,lastSeq:0,status:'active',format:{id:'normal'},seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=twins;
  const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,lastSeen:1000};
@@ -786,6 +786,21 @@ describe('typed watcher zone projection',()=>{
  });
  it('abstains when the full type is unavailable instead of using an index-frame guess',async()=>{
   const fixture=await typedWatcherFixture(zoneEntries[5],'M4');try{await fixture.emit();await screen.findByText(/Card type is unknown/);expect(fixture.post).not.toHaveBeenCalled();expect(fixture.confirm).not.toHaveBeenCalled();}finally{fixture.dispose();}
+ });
+ it('keeps a manual move bound until the physical card changes column',async()=>{
+  const {announceManualMove}=await import('../src/lib/remote/manual-moves');
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');
+  try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   const card=fixture.room().state.seats[0].twin[0];
+   fixture.setTwins([{...card,zone:'spell-trap',slot:3}]);
+   act(()=>announceManualMove({slug:'typed-zone',seat:0,ref:card.ref}));
+   await fixture.emit({type:'moved'});expect(fixture.post).toHaveBeenCalledOnce();
+   expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'spell-trap',slot:3});
+   fixture.track.zone='M5';await fixture.emit({type:'moved'});
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));
+   expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'spell-trap',slot:5});
+  }finally{fixture.dispose();}
  });
  it('corrects a live move while keeping the bound ref independent of its physical row',async()=>{
   const old={ref:'bound-spell',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
