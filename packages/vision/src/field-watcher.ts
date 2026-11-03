@@ -14,7 +14,7 @@ export interface FieldTrack {
 }
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
 export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number> }
-export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; bindRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'; source:'auto'; timing?:FieldTiming };
+export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; bindRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'; source:'auto'; destination?:'DECK'; timing?:FieldTiming };
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 export interface FieldSnapshot { status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; piles?:{zone:'DECK'|'EXTRA';card:DetectedQuad}[]; metrics:FieldMetrics; error?:string }
 export interface FieldBuffer { sample(options?:{maxAgeMs?:number}):Promise<{frame:FieldFrame;at:number}> }
@@ -48,11 +48,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const gallery=options.gallery??createFieldIdentityGallery();
   const tracks:InternalTrack[]=[],listeners=new Set<(event:FieldEvent)=>void>(),updates=new Set<()=>void>(),retained=new Set<FieldFrame>();
   // Deck stacks are observations, never physical field tracks or identity reads.
-  const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean}>();
+  const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean;appearance?:number[]}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined;
-  let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity;
+  let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity,deckTouchedAt=-Infinity;
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   const epochAt=()=>performance.timeOrigin;
@@ -82,8 +82,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // A uniform sleeve can match the mat. Unchanged card pixels are never
     // evidence of departure, even when the detector is between samples.
     const clear=!sameFieldAppearance(t.identityAppearance??t.appearance,pixels)&&!evidence.occluded?.(t.view.card)&&
-      halo?.length&&halo.length===t.halo?.length&&halo.filter((v,i)=>Math.abs(v-t.halo![i])>.06).length/halo.length<=.08&&
-      clearFieldBackground(pixels,t.halo);
+      clearFieldBackground(pixels,halo);
     t.clearCandidate=!!clear;if(clear)t.clearCandidateAt??=at;else t.clearCandidateAt=undefined;
     if(!clear||evidence.motion(t.view.card)>.01){resetAbsence(t);return;}
     t.view.visible=false;t.missed=true;invalidateRead(t);t.best=undefined;
@@ -91,7 +90,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     t.clearWindowAt??=at;t.missingAt=at;t.missingSamples++;
     if(t.missingSamples<3||at-t.clearWindowAt<removalMs)return;
     t.view.removed=true;t.restoredAt=undefined;
-    if(t.view.state==='identified'||t.placeholder)emit('removed',t);
+    if(t.view.state==='identified'||t.placeholder)emit('removed',t,deckTouchedAt>=t.view.lastSeen-250&&at-deckTouchedAt<=Math.max(2500,removalMs+500)?{destination:'DECK'}:{});
     if(t.view.state!=='identified')t.view.state='dismissed';
   }
   async function startRead(t:InternalTrack,frame:FieldFrame,card:DetectedQuad,crop:RGBAImage|undefined,at:number,generation:number) {
@@ -191,6 +190,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
       if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
       const evidence=analyze(current);
+      // Deck identity stays private. Its motion still supplies a destination
+      // for a field card whose own footprint becomes clear in this window.
+      const deck=piles.get('DECK');
+      if(deck&&evidence.motion(deck.card)>.025)deckTouchedAt=sample.at;
       const difference=evidence.motionRegion,localizedDifference=!!difference&&difference.w*difference.h>=.001&&difference.w*difference.h<=.35;
       if(difference)recentMotion={region:difference,at:sample.at,since:recentMotion&&sample.at-recentMotion.at<=250?recentMotion.since:sample.at};
       for(const t of [...tracks]){
@@ -328,7 +331,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // Unknown observations retain a verified stack; a confident front clears it.
         // Detector absence expires it after three seconds. Never infer its count.
         pile.down=pile.gate.update(observation,sample.at).state==='down'||pile.down&&!(observation.state==='up'&&observation.confidence>=.8);
-        pile.card=c;pile.at=sample.at;piles.set(zone,pile);
+        const pixels=evidence.appearance?.(c);
+        if(zone==='DECK'&&(evidence.motion(c)>.025||pile.appearance?.length&&!sameFieldAppearance(pile.appearance,pixels)||
+          !piles.has(zone)&&tracks.some(t=>!t.view.removed&&(t.missed||t.clearCandidate))))deckTouchedAt=sample.at;
+        pile.appearance=pixels;pile.card=c;pile.at=sample.at;piles.set(zone,pile);
       }
       // Cached field outlines cannot prove deck absence.
       if(!readyRead&&!faceSamples)for(const [zone,pile] of piles)if(!seenPiles.has(zone)&&sample.at-pile.at>3000)piles.delete(zone);

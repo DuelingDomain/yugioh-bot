@@ -586,3 +586,46 @@ it('one physical pile arrival stays one entry across 21 scans; a second field de
   act({type:'undo',targetActionId:state.undo!.actionId});
   expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
 });
+
+// Native-frame replay for the owner regressions. Only the detector/read is fake.
+async function ownerFieldRig(){
+  const {createFieldWatcher,createFieldCalibration,yugioh}=await import('@yugidraft/vision');
+  const quad=(x=.47,y=.30,down=false)=>({kind:down?'face-down' as const:'face-up' as const,confidence:.95,partial:false,quad:[{x,y},{x:x+.06,y},{x:x+.06,y:y+.156},{x,y:y+.156}]});
+  const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+  for(let py=0;py<height;py++)for(let px=0;px<width;px++){
+    const x=px/width,y=py/height;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    data.set([...rgb,255],(py*width+px)*4);
+  }
+  const front={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
+  const frame={width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData;
+  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,halo:.45,down:false,reads:0,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[]};
+  const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>state.at,hidden:()=>false,clone:async f=>f,
+    getKnownCards:()=>state.known,getPriors:()=>({decklist:['100']}),buffer:{sample:async()=>({frame,at:state.at})},
+    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async()=>{state.reads++;return {candidates:[{cardId:state.identity,score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
+    analyze:()=>({crop:c=>state.down||c.kind==='face-down'?back:front,motion:c=>c.quad[0].x>.9?state.motion:0,occluded:c=>c.quad[0].x<.9&&state.occluded,sharpness:()=>20,
+      appearance:c=>state.absent&&c.quad[0].x===.47?Array(12).fill(.2):Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(state.halo)}),
+  });
+  watcher.subscribe(e=>{state.events.push(e);if(e.type==='placed')watcher.confirm(e.track.id,e.track.cardId,e.track.id,false);});
+  return {state,watcher,quad,async tick(count=1,ms=100){for(let i=0;i<count;i++){state.at+=ms;await watcher.tick();await Promise.resolve();}},dispose:()=>watcher.dispose()};
+}
+
+it.each([false,true])('a clear field departure clears an old hand halo and detects deck return=%s',async deck=>{
+  const r=await ownerFieldRig();
+  try{
+    if(deck)r.state.outlines.push(r.quad(.93,.7,true));
+    await r.tick(8);const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.zone).toBe('M3');
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];
+    r.state.occluded=true;r.state.absent=true;r.state.outlines=deck?[r.quad(.93,.7,true)]:[];r.state.motion=.2;
+    await r.tick(4);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+    r.state.occluded=false;r.state.motion=0;r.state.halo=.2;await r.tick(8);
+    const removed=r.state.events.filter(e=>e.type==='removed');expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatchObject({track:{id:first.track.id,removed:true},...(deck?{destination:'DECK'}:{})});
+    const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
+    const {describeEvent}=await import('../src/components/remote/ui/describe');
+    const proposal=fieldDepartureProposal({ref:first.track.id,zone:'monster',slot:3,cardId:100,name:'Kashtira Fenrir',faceUp:true,position:'attack'},0,deck?'deck':undefined)!;
+    expect(proposal.zone).toBe(deck?'deck':'hand');
+    if(deck){expect(proposal.faceUp).toBe(false);expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');}
+    await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
+  }finally{r.dispose();}
+});

@@ -36,7 +36,7 @@ function readPhysicalZones(key:string):Map<string,FieldZone> {
 }
 type Entry={cardId:string;passcode:number;name:string};
 type Departure={ref:string;name:string;zone:string};
-const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['extra','Extra Deck']] as const;
+const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['deck','Deck'],['extra','Extra Deck']] as const;
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
 export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{room:RemoteRoom;transaction:RoomTransaction;diagnosticsAllowed?:boolean}) {
   const hub=useVideoHub(),seat=room.mySeat,source=hub.sourceFor(seat);
@@ -307,11 +307,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       if(!live()||!card)return;
       if(event.type==='removed') {
         if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
-        const proposal=fieldDepartureProposal(card,seat);if(!proposal)return;
+        const proposal=fieldDepartureProposal(card,seat,event.destination==='DECK'?'deck':undefined);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         const updated=await act({...proposal,...(card.faceUp?{name}:{})});
         if(!live()||!watch.isRemoved(card.ref))return;
-        setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending'});setNotice(`${name} left the field · ${updated?'auto':'update failed'}`);setUndoId(updated?.state.undo?.actionId??'');return;
+        setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending'});setNotice(`${name} ${proposal.zone==='deck'?'returned to Deck':'left the field'} · ${updated?'auto':'update failed'}`);setUndoId(updated?.state.undo?.actionId??'');return;
       }
       if(event.type==='moved') {
         if(!publicField(card.zone)&&!recentFieldDeparture(card,serverNow())){await apply(event,act);return;}
