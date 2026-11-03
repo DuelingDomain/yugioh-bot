@@ -519,7 +519,7 @@ it('camera writes retry with the same action key and expose a final failure',asy
 
 it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
  const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');
- const {createFieldCalibration,fieldMatPoint,mapFieldZone,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
+ const {createFieldCalibration,fieldMatPoint,fieldZoneAt,mapFieldZone,onMat,zoneCellAt,FIELD_ZONE_PITCH,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
  const {remoteFieldTracksSchema}=await import('@yugidraft/shared/remote');
  const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache');
  const points=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
@@ -527,12 +527,20 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   const calibration=createFieldCalibration(points,{playerSide,mirrored:false},spacing);
   const cells=fieldGridCells('normal',spacing),main=cells.filter(c=>/^M/.test(c.zone));
   expect(calibration.zoneSpacing).toBe(spacing);
-  expect(main[2].w).toBeCloseTo(.164*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
+  expect(main[2].w).toBeCloseTo(FIELD_ZONE_PITCH*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
   for(const cell of main.slice(1,4)){
-   const x=cell.x+cell.w/2,y=.38,quad=[[-.079,-.045],[.079,-.045],[.079,.045],[-.079,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
+   const x=cell.x+cell.w/2,y=.38,hw=.4*cell.w,quad=[[-hw,-.045],[hw,-.045],[hw,.045],[-hw,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
    expect(mapFieldZone({quad,kind:'face-down',confidence:.9,partial:false},calibration).zone).toBe(cell.zone);
    expect(straddledZones(quad,calibration,cells)).toBeNull();
   }
+  // Edited zones: M3 reaches over the right half of M2, and DECK moves off the mat. Assignment, the cells and the straddle check agree.
+  const base=fieldGridCells('normal',1),m3=base.find(c=>c.zone==='M3')!,zones={M3:{x:m3.x-.5*m3.w,y:m3.y,w:1.5*m3.w,h:m3.h},DECK:{x:1.05,y:.56,w:.14,h:.44}};
+  const edited=createFieldCalibration(points,{playerSide,mirrored:false},spacing,zones),editedCells=fieldGridCells('normal',edited);
+  const read=(x:number,y:number,half:number)=>{const quad=[[-half,-.045],[half,-.045],[half,.045],[-half,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},edited));return {quad,kind:'face-down' as const,confidence:.9,partial:false};};
+  const m2=editedCells.find(c=>c.zone==='M2')!,deck=editedCells.find(c=>c.zone==='DECK')!,overlap=read(m2.x+.75*m2.w,.38,.2*m2.w);
+  expect(zoneCellAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),editedCells)?.zone).toBe(mapFieldZone(overlap,edited).zone);
+  expect(fieldZoneAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),edited,'normal')).toBe('M2');expect(straddledZones(overlap.quad,edited,editedCells)).toBeNull();
+  expect(mapFieldZone(read(deck.x+deck.w/2,.78,.04),edited).zone).toBe('DECK');expect(mapFieldZone(read(.5+(.92-.5)*spacing,.78,.04),edited).zone).not.toBe('DECK');
   expect(rotateFieldCalibration(calibration,180).zoneSpacing).toBe(spacing);expect(mirrorFieldCalibration(calibration).zoneSpacing).toBe(spacing);
   const message={type:'field.tracks',cards:[],calibration};expect(remoteFieldTracksSchema.safeParse(message).success).toBe(true);
   const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);expect(cache.calibration(0)?.zoneSpacing).toBe(spacing);

@@ -594,8 +594,11 @@ test.describe("remote lobby camera step", () => {
     await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.3");
     expect(await gridWidth()).toBeGreaterThan(narrow + 50);
     // Edit zones: select M3, drag one edge handle, press Done. The saved rectangle is the one the table draws below.
-    const m3 = () => view.locator('polygon[data-zone="M3"]').getAttribute("points");
-    const before = await m3();
+    const zonePoints = (zone: string) => view.locator(`polygon[data-zone="${zone}"]`);
+    const before = (await zonePoints("M3").getAttribute("points"))!, m4Before = (await zonePoints("M4").getAttribute("points"))!;
+    // After a spacing change the cells still do not overlap: M3 ends left of where M4 starts.
+    const xRange = async (zone: string) => { const xs = (await zonePoints(zone).getAttribute("points"))!.split(" ").map(pair => Number(pair.split(",")[0])); return [Math.min(...xs), Math.max(...xs)]; };
+    expect((await xRange("M3"))[1]).toBeLessThanOrEqual((await xRange("M4"))[0] + 1);
     await view.getByTestId("lobby-zones-edit").click();
     const editor = view.getByTestId("zone-editor");
     await expect(editor).toBeVisible();
@@ -608,7 +611,9 @@ test.describe("remote lobby camera step", () => {
     await page.mouse.down(); await page.mouse.move(grip.x + grip.width / 2 + 40, grip.y + grip.height / 2, { steps: 6 }); await page.mouse.up();
     await shot(page, "lobby-zones-edited");
     await view.getByTestId("zone-editor-done").click();
-    expect(await m3()).not.toBe(before);
+    // The edit is read with a poll, not once: the view redraws after Done. Only M3 changes.
+    await expect(zonePoints("M3")).not.toHaveAttribute("points", before);
+    await expect(zonePoints("M4")).toHaveAttribute("points", m4Before);
     await view.getByTestId("lobby-zones-view-done").click();
     await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");
