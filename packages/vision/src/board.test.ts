@@ -115,14 +115,15 @@ const fieldCrop=(c:DetectedQuad)=>{
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
+  let detectorCost=0;
   let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async()=>{detects++;at+=detectorCost;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -523,7 +524,7 @@ test('quiet empty-mat pixel checks skip inference but new motion starts detectio
  const watcher=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,buffer:{sample:async()=>({frame:frame as ImageData,at})},
   recognizer:{detectCards:async(_f,opts)=>{scopes.push(!!opts?.region);active++;maxActive=Math.max(maxActive,active);await Promise.resolve();active--;return moving&&!opts?.region?[{...card(.3,.3),kind:'face-down'}]:[];},recognize:async()=>sureResult()},
   analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.8),motion:()=>moving?.2:0,...(moving?{motionRegion:{x:.3,y:.3,w:.15,h:.25}}:{}),sharpness:()=>20})});
- try{await watcher.tick();moving=true;at+=100;await watcher.tick();assert.deepEqual(scopes,[false,true,false]);assert.equal(maxActive,1);assert.equal(watcher.getSnapshot().tracks.length,1);}
+ try{await watcher.tick();moving=true;at+=2500;await watcher.tick();assert.deepEqual(scopes,[false,true,false]);assert.equal(maxActive,1);assert.equal(watcher.getSnapshot().tracks.length,1);}
  finally{watcher.dispose();}
  // A localized difference must wake detection even below whole-mat motion,
  // and an unchanged front returned by the crop must not hide the new back.
@@ -764,4 +765,41 @@ test('owner adjacent move: a revealed Set identity follows its new front while a
  assert.ok(r.events.some(e=>e.track.id!==id&&e.track.cardId==='B'&&e.track.zone==='M3'&&e.type==='placed'));
  assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
  }
+});
+
+test('a same-class white Set confirms fresh pixels without another slow detector pass',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ r.outlines=[card(.43,.38,.1,.259)];for(let i=0;i<12;i++)await r.tick(100);
+ const id=r.events.find(e=>e.type==='placed')!.track.id;
+ r.watcher.confirm(id,'A');r.known=[{id,zone:'M3',cardId:'A',faceDown:false}];r.events.length=0;
+ r.cropAt=()=>({width:96,height:140,data:new Uint8ClampedArray(96*140*4).fill(245)});
+ r.outlines=[{...card(.407,.421,.146,.178),kind:'face-up',confidence:.45}];r.appearance=Array(12).fill(.96);
+ r.detectorCost=200;const before=r.detects,from=r.at;
+ r.motion=.2;await r.tick(33);r.motion=0;
+ for(let i=0;i<10&&!r.events.some(e=>e.type==='flipped');i++)await r.tick(67);
+ assert.ok(r.events.some(e=>e.type==='flipped'&&e.track.id===id&&e.track.faceDown));
+ assert.equal(r.detects-before,1,'a validated outline supports the unchanged pixel samples');
+ assert.ok(r.at-from<500,`Set took ${r.at-from} ms`);
+ assert.equal(r.reads,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+});
+
+test('a slow first detector pass leaves time for three fresh Set confirmation frames',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.outlines=[];await r.tick(1000);
+ r.outlines=[{...card(.407,.421,.146,.178),kind:'face-down',confidence:.65}];r.appearance=Array(12).fill(.9);
+ r.detectorCost=300;const before=r.detects,from=r.at;r.motion=.2;await r.tick(33);r.motion=0;
+ for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(67);
+ assert.ok(r.events.some(e=>e.type==='placed'&&e.track.faceDown));
+ assert.equal(r.detects-before,1,'fresh pixels finish the gate without rerunning inference');
+ assert.ok(r.at-from<600,`Set took ${r.at-from} ms`);assert.equal(r.reads,0);r.watcher.dispose();
+});
+
+test('pixel confirmation does not lower the measured detector duty budget',async()=>{
+ const r=fieldRig();for(let i=0;i<8;i++)await r.tick(100);r.detectorCost=200;for(let i=0;i<20;i++)await r.tick(500);
+ const id=r.events.find(e=>e.type==='placed')!.track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A',faceDown:false}];
+ r.outlines=[{...card(.3,.3),kind:'face-down'}];r.appearance=Array(12).fill(.9);r.events.length=0;
+ r.motion=.2;await r.tick(33);r.motion=0;
+ for(let i=0;i<10&&!r.events.some(e=>e.type==='flipped');i++)await r.tick(67);
+ assert.ok(r.events.some(e=>e.type==='flipped'));assert.ok(r.watcher.getSnapshot().metrics.intervalMs>750,'idle scans retain the actual inference cost');r.watcher.dispose();
 });
