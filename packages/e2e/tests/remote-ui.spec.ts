@@ -1423,6 +1423,10 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
 
 test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep face state',async({page,context})=>{
   test.setTimeout(120_000);
+  await page.addInitScript(()=>{
+    (window as any).fieldTimings=[];
+    window.addEventListener('remote-field-latency',event=>(window as any).fieldTimings.push((event as CustomEvent).detail));
+  });
   const origin=process.env.E2E_REMOTE_UI_URL??process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,2);
@@ -1511,6 +1515,8 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   const resetTiming=await change(true);
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000,intervals:[25]}).toBe(false);
   const reset=await room();
+  expect(reset.events.filter((e:any)=>e.action.type==='twin.remove')).toHaveLength(0);
+  expect(reset.events.filter((e:any)=>e.action.type==='twin.flip')).toHaveLength(2);
   for(const seats of [new Set([0]),new Set([1]),new Set<number>()]) {
     const view=projectRemoteState(reset.state,seats);
     expect(view.seats[0].twin).toHaveLength(1);
@@ -1528,9 +1534,14 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
   await page.keyboard.press('Escape');
   const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;
-  console.log(JSON.stringify({backend:await page.getByTestId('recognition-backend').first().getAttribute('data-backend'),
+  const backend=await page.getByTestId('recognition-backend').first().getAttribute('data-backend');
+  console.log(JSON.stringify({backend,
     setRenderMs:setTiming.renderMs,revealRenderMs:flipTiming.renderMs,resetRenderMs:resetTiming.renderMs,
     setServerMs:eventDelay(set,'twin.place',setTiming),revealServerMs:eventDelay(flipped,'twin.flip',flipTiming)}));
+  if(process.env.E2E_LATENCY_REPORT){
+    mkdirSync(process.env.E2E_LATENCY_REPORT,{recursive:true});
+    writeFileSync(`${process.env.E2E_LATENCY_REPORT}/timings-${test.info().repeatEachIndex}.json`,JSON.stringify({backend,setTiming,flipTiming,resetTiming,stages:await page.evaluate(()=>(window as any).fieldTimings)},null,2));
+  }
   await page.getByRole('button',{name:'Camera off',exact:true}).click();
   // Manual same-slot setting uses twin.move and retains the same public knowledge.
   for(const [index,action] of [{type:'twin.move',zone:'hand',faceUp:false},{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
