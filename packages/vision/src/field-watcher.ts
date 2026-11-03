@@ -689,7 +689,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             }
             // No local tombstone after restart: reserve the existing pile ref
             // after the read instead of silently dismissing a recognized GY card.
-            const reserved=[...(known??[])].reverse().find(card=>card.cardId===winner&&(!publicPile(card.zone)||pileAvailable(card))&&!tracks.some(other=>other!==t&&(other.view.id===card.id||other.binding?.id===card.id)));
+            const available=[...(known??[])].reverse().filter(card=>card.cardId===winner&&(!publicPile(card.zone)||pileAvailable(card))&&!tracks.some(other=>other!==t&&(other.view.id===card.id||other.binding?.id===card.id)));
+            // After a restart, an unseen field owner outranks an ordinary hand
+            // copy. There is no time limit on correcting its physical zone.
+            const owner=!known?.some(card=>card.cardId===winner&&publicPile(card.zone))&&available.find(card=>!['HAND','DECK','EXTRA','GY','BANISHED'].includes(card.zone));
+            const reserved=owner||available[0];
             if(reserved)t.binding=reserved;
             else if(awaitingPile){t.read=pending;continue;}
           }

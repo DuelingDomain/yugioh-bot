@@ -124,6 +124,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // The physical card can move while its prompt waits; keep its reservation.
       existing=bound??twins.find(c=>publicField(c.zone)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
+    if(existing&&entry&&!publicField(existing.zone)&&publicField(fieldZoneLocation(track.zone).zone)&&
+      !twins.some(c=>['graveyard','banished'].includes(c.zone)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}))){
+      // Reader reservations are inferred. An absent field owner takes priority
+      // over a private ref unless a second current physical copy is witnessed.
+      for(const copy of twins.filter(c=>(publicField(c.zone)||c.zone==='hand'&&c.departedFrom&&publicField(c.departedFrom.zone))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))-Number(publicField(a.zone)))){
+        if(copy.ref===existing.ref)continue;
+        const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
+        const other=watch.getTrack(copy.ref)??(cached?watch.getTrack(cached.id):undefined);
+        if(other&&simultaneousFieldCopies(track,other,true))continue;
+        if(other?.visible&&!other.removed)return {existing:undefined,blocked:true};
+        existing=copy;break;
+      }
+    }
     if(!existing&&entry){
       const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))*4+Number(!!b.departedFrom)*2+Number(recentFieldDeparture(b,serverNow()))-Number(publicField(a.zone))*4-Number(!!a.departedFrom)*2-Number(recentFieldDeparture(a,serverNow())));
       for(const copy of copies){

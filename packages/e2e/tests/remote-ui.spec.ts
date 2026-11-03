@@ -1214,6 +1214,29 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     expect(state.seats[0].twin[0]).toMatchObject({ref:'still-there',zone:origin});
     expect(state.twinConfirmation).toBeUndefined();
   }
+  const {createFieldWatcher,createFieldCalibration,yugioh}=await import('@yugidraft/vision');
+  const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+  for(let py=0;py<height;py++)for(let px=0;px<width;px++){
+    const x=px/width,y=py/height;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    data.set([...rgb,255],(py*width+px)*4);
+  }
+  for(const reverse of [false,true]){
+    let at=1_000_000_000;const events:any[]=[];
+    const card={kind:'face-up',confidence:.95,partial:false,quad:[{x:.634,y:.3},{x:.694,y:.3},{x:.694,y:.456},{x:.634,y:.456}]} as const;
+    const known:any[]=[{id:'field-owner',zone:'M3',cardId:'97522863'},{id:'hand-copy',zone:'HAND',cardId:'97522863'}];
+    if(reverse)known.reverse();
+    const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>at,hidden:()=>false,clone:async f=>f,getKnownCards:()=>known,
+      buffer:{sample:async()=>({frame:{width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData,at})},
+      recognizer:{detectCards:async()=>[structuredClone(card)] as any,recognize:async()=>({candidates:[{cardId:'97522863',score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:[1,0]},timingsMs:{total:1},backend:'wasm'}) as any},
+      analyze:()=>({crop:()=>({width,height,data}),motion:()=>0,sharpness:()=>20,appearance:()=>Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(.2)})});
+    watcher.subscribe(event=>events.push(event));
+    try{for(let n=0;n<12;n++){at+=100;await watcher.tick();await Promise.resolve();}
+      const arrival=events.find(event=>['placed','moved'].includes(event.type));
+      expect(arrival?.track).toMatchObject({id:'field-owner',zone:'M4',cardId:'97522863'});
+      expect(events.filter(event=>event.type==='prompt')).toEqual([]);
+    }finally{watcher.dispose();}
+  }
   const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;
@@ -1350,6 +1373,24 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await place(1080,50);await check('extra',undefined,false);
   await place(720);await check('monster',2,true);
   await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await page.waitForTimeout(2700);await place(550);
+  await page.getByTestId('camera-on-feed').click();
+  await check('monster',3,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  // Restart with an expired field departure and an ordinary hand copy of X.
+  // The inferred hand reservation must not replace the recorded field owner.
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  const beforeRestart=await room();
+  const handCopy=await context.request.post(`${path}/actions`,{data:{baseSeq:beforeRestart.lastSeq,action:{type:'twin.place',actorSeat:0,seat:0,zone:'hand',anotherCopy:true,card:{ref:'ordinary-hand-copy',cardId,name,faceUp:false,position:'attack'},idempotencyKey:crypto.randomUUID()}}});
+  expect(handCopy.ok()).toBe(true);
+  await page.waitForTimeout(2700);await place(550);
+  await page.getByTestId('camera-on-feed').click();
+  await expect.poll(async()=>{
+    const twins=(await room()).state.seats[0].twin;
+    return {count:twins.length,field:twins.filter((c:any)=>c.zone==='monster').map((c:any)=>({ref:c.ref,slot:c.slot})),hand:twins.filter((c:any)=>c.zone==='hand').map((c:any)=>c.ref)};
+  }).toEqual({count:2,field:[{ref,slot:3}],hand:['ordinary-hand-copy']});
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   expect(writes.every(write=>write.status===200)).toBe(true);expect(errors).toEqual([]);
   console.log(JSON.stringify({scenario:'owner lifecycle',backend:process.env.E2E_RECOGNITION_MODE??'cpu',writes:writes.map(w=>w.action.type)}));
   await page.getByRole('button',{name:'Camera off',exact:true}).click();
