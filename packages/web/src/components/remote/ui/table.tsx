@@ -578,6 +578,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const cancelAttack = () => { if (attack && mayResolve) void act({ type: "attack.resolve", actorSeat: resolveActor, attackId: attack.id, outcome: "cancelled" }); };
 
   // ---- arrow ----
+  // On a phone the voice dock is fixed, and the phase rail sticks right above it: the rail reads the dock's real height.
+  const appRef = useRef<HTMLDivElement>(null); const dockRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const app = appRef.current; const dock = dockRef.current; if (!app || !dock) return;
+    const measure = () => app.style.setProperty("--dockh", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
+    measure(); if (typeof ResizeObserver === "undefined") return;
+    const watcher = new ResizeObserver(measure); watcher.observe(dock); return () => watcher.disconnect();
+  }, []);
   const stage = useRef<HTMLElement>(null); const [arrow, setArrow] = useState<{ d: string; mx: number; my: number } | null>(null);
   useLayoutEffect(() => {
     const root = stage.current; if (!attack || !root) { setArrow(null); return; }
@@ -920,7 +928,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
   });
-  return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -929,8 +937,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
-        <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
-          onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
@@ -966,7 +972,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <footer className={s.dock} aria-label="Voice and undo">
+      <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
+        onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
+      <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
         <MicSection state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
         <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false }) : trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
