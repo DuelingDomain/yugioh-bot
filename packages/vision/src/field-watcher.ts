@@ -34,7 +34,7 @@ interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:Rec
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
-interface InternalTrack { early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 // Periodic full-frame pass: ~300 ms on WebGPU, 500+ ms on CPU (by detector
 // EMA over the duty budget, backing off to 1.5 s). Busy/hidden ticks skip it.
 // The art window of a card quad (portrait corner order): reads and their
@@ -108,10 +108,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // A clearly different embedding is another physical card (a swap), not a re-guess.
   const lockHolds=(lock:IdentityLock|undefined,result?:RecognitionResult,look?:number[]):lock is IdentityLock=>{if(!lock)return false;const similarity=fieldEmbeddingSimilarity(lock.embedding,result?.identityEmbedding);
     return similarity!==undefined?similarity>.68:!lock.look?.length||!look?.length||sameRotatedFieldAppearance(lock.look,look);};
+  // Skin over more than 2% of a new card delays its first read, for at most
+  // HAND_WAIT_MS: glare or a warm sleeve must never block a read for ever.
+  const HAND_WAIT_MS=600;
+  const handBlocks=(t:InternalTrack,touched=0)=>{
+    if(touched<=.02){t.handWaitAt=undefined;return false;}
+    t.handWaitAt??=now();if(now()-t.handWaitAt<HAND_WAIT_MS){note(t,`read waits for the hand to leave the card (skin ${Math.round(touched*100)}%)`);return true;}
+    note(t,`hand gate timed out after ${HAND_WAIT_MS} ms (skin ${Math.round(touched*100)}%); reading anyway`);return false;
+  };
   const beatsLock=(lock:{score:number},result?:RecognitionResult)=>!!result&&result.tier==='sure'&&(result.candidates[0]?.score??0)>=lock.score+LOCK_MARGIN;
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
-    if(type==='placed'&&t.view.cardId&&!t.view.faceDown&&extra.result?.tier==='sure'&&extra.result.candidates[0]?.cardId===t.view.cardId){
+    if(type==='placed'&&t.view.cardId&&!t.view.faceDown&&extra.result?.tier==='sure'&&!extra.result.quality.fallback&&!extra.result.quality.covered&&!extra.result.quality.partial&&extra.result.candidates[0]?.cardId===t.view.cardId&&!t.view.bestMatch){
       const lock=lockFor(t.view.id);if(!lock||lock.cardId!==t.view.cardId)locks.set(t.view.id,{cardId:t.view.cardId,score:extra.result.candidates[0].score,at:now(),embedding:extra.result.identityEmbedding,look:t.identityAppearance?.slice()});
     }
     if(type==='prompt'){
@@ -181,7 +189,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(reading||t.read||!t.needsRead)return;
     // A first read waits for the first frame without a hand on the card: an
     // embed of card plus fingers is rarely sure and costs a second read.
-    if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&(latestEvidence?.touched?.(card)??0)>.02){note(t,'read waits for the hand to leave the card');return;}
+    if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&handBlocks(t,latestEvidence?.touched?.(card)))return;
+    t.handWaitAt=undefined;
     const pending:PendingRead={at,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
     t.read=pending;t.needsRead=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
@@ -578,9 +587,27 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.view.visible=false;
           invalidateRead(t);
           t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;if(!t.view.removed&&detectorRan)note(t,'no detector outline this scan');
+          // Detector absence: no outline on a field card's spot in two full
+          // passes over 1 s, no hand on it and only camera-noise motion. This
+          // does not depend on the mat colour (glare, tinted light, zone lines).
+          if(detectorRan&&!region&&!t.view.removed&&fieldZone(t.view.zone)&&(t.view.state==='identified'||t.placeholder)){
+            const spotSeen=detected.some(d=>quadIou(d,t.view.card)>=.1),handOn=evidence.occluded?.(t.view.card)||(evidence.touched?.(t.view.card)??0)>.02;
+            // Relative, not absolute: pixels that still look like this card mean a detector miss.
+            const stillLooks=t.view.card.kind==='face-up'&&!!t.identityAppearance?.length&&matchesLook(t,evidence.appearance?.(t.view.card));
+            if(spotSeen||handOn||stillLooks||evidence.motion(t.view.card)>.06){t.fullMisses=0;t.fullMissAt=undefined;note(t,spotSeen?'an outline still covers its spot':handOn?'a hand is over its spot':stillLooks?'its spot still looks like the card':'its spot is moving');}
+            else{
+              t.fullMissAt??=sample.at;t.fullMisses=(t.fullMisses??0)+1;
+              const pendingNew=tracks.some(o=>o!==t&&!o.view.removed&&o.view.state==='candidate'&&o.read&&!o.read.result&&sample.at-o.view.firstSeen<2500);
+              if(t.fullMisses>=2&&sample.at-t.fullMissAt>=1000&&!pendingNew){
+                note(t,`no outline in ${t.fullMisses} full passes over ${Math.round(sample.at-t.fullMissAt)} ms`);
+                t.view.removed=true;t.restoredAt=undefined;t.fullMisses=0;t.fullMissAt=undefined;emit('removed',t);if(t.view.state!=='identified')t.view.state='dismissed';
+              }
+            }
+          }
           // The lightweight observation above already checked clear mat.
           continue;
         }
+        t.fullMisses=0;t.fullMissAt=undefined;
         t.previewEligible=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&!cards.some(other=>other!==c&&quadIou(c,other)>0);
         proposePose(t,c,cards,evidence,sample.at,current.width,current.height);
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);t.view.lastSeen=sample.at;t.view.card=c;
@@ -718,7 +745,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(clean&&t.early&&t.view.state==='identified'&&!t.read&&!reading&&t.observations>=1&&still){t.early=undefined;t.confirming=true;t.needsRead=true;}
         t.observations++;
         const score=evidence.sharpness(c);
-        if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&(evidence.touched?.(c)??0)>.02))t.best={frame:current,card:structuredClone(c),score,crop};
+        if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&c.kind==='face-up'&&handBlocks(t,evidence.touched?.(c))))t.best={frame:current,card:structuredClone(c),score,crop};
         const movingKnown=t.view.state==='identified'&&!t.needsRead&&t.view.faceDown===(c.kind==='face-down');
         if(movingKnown?(t.observations<2||sample.at-t.stableSince<100):score<12)continue;
         const wasFaceDown=t.view.faceDown;
@@ -863,13 +890,27 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
           }else if(winner&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)){
             t.view.bestMatch=result?.tier!=='sure'||!inDeck;t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;if(earlyNow){t.early={card:structuredClone(pending.card??c),art:pending.art};t.identityAppearance=undefined;stage(t,'early');}emit('placed',t,{result,latencyMs:metrics.latencyMs});
-          }else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
+          }else if(t.view.state==='candidate'&&!t.promptOnly&&!pile&&result?.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&
+            result.tier!=='low match'){
+            // Never stay in Reading: an unsure or flagged read (glare) reads once
+            // more, then the top match is placed as a Best match (Wrong card? fixes
+            // it; it is not locked). The reason is in Debug.
+            const why=[result.tier,...(['fallback','covered','partial'] as const).filter(k=>result.quality[k])].join(', ');
+            t.unsureReads=(t.unsureReads??0)+1;
+            if(t.unsureReads<2&&sample.at-t.view.firstSeen<1500){t.needsRead=true;note(t,`read not sure (${why}); reading again`);}
+            else {
+              t.view.bestMatch=true;t.view.state='identified';t.view.visible=true;t.view.cardId=result.candidates[0].cardId;t.identityAppearance=pixels;t.identityEmbedding=result.identityEmbedding;
+              t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;note(t,`best match after ${t.unsureReads} unsure read(s) (${why})`);
+              emit('placed',t,{result,latencyMs:metrics.latencyMs});
+            }
+         }else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
 
         }
         if(!t.needsRead){t.best=undefined;continue;}
         if(reading)continue;
         if(t.view.faceDown){t.needsRead=false;t.best=undefined;continue;}
-        const best=t.best!;
+        if(!t.best)continue;
+        const best=t.best;
         await startRead(t,best.frame,best.card,best.crop,sample.at,generation);t.best=undefined;
       }
       if(tracks.some(t=>t.best?.frame===current)){retained.add(current);current=undefined;}

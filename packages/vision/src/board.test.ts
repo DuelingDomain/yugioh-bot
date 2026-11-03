@@ -116,14 +116,14 @@ const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
   let detectorCost=0;
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number}})=>{detects++;at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number}})=>{detects++;at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
-    analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
+    analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -202,11 +202,14 @@ test('departure needs repeated clear mat samples, never motion, stationary hands
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.outlines=[];
   await r.tick(100);await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
   await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
-  for(const obstacle of ['stationary-hand','halo','no-halo','motion','cpu'] as const){
-    const q=fieldRig();if(obstacle==='no-halo')q.halo=undefined;for(let i=0;i<6;i++)await q.tick();q.outlines=[];
-    if(obstacle==='stationary-hand')q.appearance=Array(12).fill(.7);
-    if(obstacle==='halo')q.halo=Array(192).fill(.3);
-    if(obstacle==='motion')q.motion=.015;
+  // Owner rule: detector absence removes a card unless a hand (skin) covers the
+  // spot, the spot still shows the card, it moves, or the CPU is busy. The mat
+  // colour and its surround do not matter.
+  for(const obstacle of ['stationary-hand','card-still-there','motion','cpu'] as const){
+    const q=fieldRig();for(let i=0;i<6;i++)await q.tick();q.outlines=[];
+    if(obstacle==='stationary-hand'){q.appearance=Array(12).fill(.7);q.touchedAt=()=>.3;}
+    if(obstacle==='card-still-there')q.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);
+    if(obstacle==='motion')q.motion=.2;
     if(obstacle==='cpu')q.busy=true;
     for(let i=0;i<24;i++)await q.tick(300);
     assert.equal(q.events.filter(e=>e.type==='removed').length,0,obstacle);q.watcher.dispose();
@@ -321,13 +324,6 @@ test('absence verification backs off when slow detections cannot accumulate cont
   assert.equal(events.some(e=>e.type==='removed'),false);assert.ok(watcher.getSnapshot().metrics.intervalMs>200);watcher.dispose();
 });
 
-test('a stationary arm over the last clear halo suppresses removal until the surround clears',async()=>{
-  let at=0,outlines=[card(.3,.3)],halo=Array(12).fill(.2);const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getPriors:()=>({decklist:['A']}),now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,halo:()=>halo,appearance:()=>Array(12).fill(outlines.length?.6:.2)}),clone:async f=>f});
-  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
-  outlines=[];halo=Array(12).fill(.7);for(let i=0;i<12;i++){at+=333;await watcher.tick();}assert.equal(events.filter(e=>e.type==='removed').length,0);
-  halo=Array(12).fill(.2);for(let i=0;i<9;i++){at+=333;await watcher.tick();}assert.equal(events.filter(e=>e.type==='removed').length,1);watcher.dispose();
-});
 test('stopping a watcher during inference discards its late placement result',async()=>{
   let at=0,resolve!:(result:RecognitionResult)=>void;const delayed=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
   const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>delayed},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
@@ -761,6 +757,25 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  for(const ref of ['link',id])assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===ref&&e.track.zone!=='GY'),`${ref} leaves the field`);
  assert.ok(r.at-clearedFrom<=3500,`empty mat cleared after ${r.at-clearedFrom} ms`);
  assert.equal(r.events.slice(before).some(e=>e.type==='removed'&&['gy-old',s3Set.track.id].includes(e.track.id)),false,'piles stay');
+ // Owner on :3000, monitor glare: a blue-white cast and an uneven glare ring
+ // around M4. An arm rests by the new card (skin on its crop) and every read
+ // is flagged covered. The card still gets a best match (never "Reading"
+ // forever), the watcher never errors, and the card leaves when it is lifted.
+ const m4=card(.54,.35,.1,.15),glare=Array.from({length:288},(_,i)=>i%3===2?.95:.8),dragon=Array.from({length:288},(_,i)=>((Math.floor(i/3)*13+(i%3)*41)%233)/255);
+ const inM4=(c:DetectedQuad)=>{const x=zones.fieldCenter(c).x;return x>.5&&x<.6;};
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'}];r.identityAt=()=>'D';r.decklist=['A','B','C','D'];
+ r.halo=Array.from({length:192},(_,i)=>(i%24)/24);r.touchedAt=c=>inM4(c)?.05:0;r.qualityAt=()=>({covered:true});
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:inM4(c)?dragon:glare;
+ const glareFrom=r.at,beforeGlare=r.events.length;r.outlines=[{...gy},m4];
+ for(let i=0;i<30&&!r.events.slice(beforeGlare).some(e=>e.type==='placed'&&e.track.zone==='M4');i++)await r.tick(100);
+ const named=r.events.slice(beforeGlare).find(e=>e.type==='placed'&&e.track.zone==='M4');
+ assert.ok(named&&named.track.cardId==='D'&&named.track.bestMatch,'a glare card gets a best match, never Reading forever');
+ assert.ok(r.at-glareFrom<=2500,`named after ${r.at-glareFrom} ms`);assert.notEqual(r.watcher.getSnapshot().status,'error');
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id:named.track.id,zone:'M4',cardId:'D'}];r.touchedAt=undefined;
+ const goneFrom=r.at;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:glare;
+ for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
+ assert.ok(r.at-goneFrom<=2000,`removed after ${r.at-goneFrom} ms`);
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
