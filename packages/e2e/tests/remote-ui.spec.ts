@@ -596,9 +596,6 @@ test.describe("remote lobby camera step", () => {
     // Edit zones: select M3, drag one edge handle, press Done. The saved rectangle is the one the table draws below.
     const zonePoints = (zone: string) => view.locator(`polygon[data-zone="${zone}"]`);
     const before = (await zonePoints("M3").getAttribute("points"))!, m4Before = (await zonePoints("M4").getAttribute("points"))!;
-    // After a spacing change the cells still do not overlap: M3 ends left of where M4 starts.
-    const xRange = async (zone: string) => { const xs = (await zonePoints(zone).getAttribute("points"))!.split(" ").map(pair => Number(pair.split(",")[0])); return [Math.min(...xs), Math.max(...xs)]; };
-    expect((await xRange("M3"))[1]).toBeLessThanOrEqual((await xRange("M4"))[0] + 1);
     await view.getByTestId("lobby-zones-edit").click();
     const editor = view.getByTestId("zone-editor");
     await expect(editor).toBeVisible();

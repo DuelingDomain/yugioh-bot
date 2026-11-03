@@ -539,6 +539,8 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   const base=fieldGridCells('normal',1),m3=base.find(c=>c.zone==='M3')!,zones={M3:{x:m3.x-.5*m3.w,y:m3.y,w:1.5*m3.w,h:m3.h},DECK:{x:1.05,y:.56,w:.14,h:.44}};
   const edited=createFieldCalibration(points,{playerSide,mirrored:false},spacing,zones),editedCells=fieldGridCells('normal',edited);
   const read=(x:number,y:number,half:number)=>{const quad=[[-half,-.045],[half,-.045],[half,.045],[-half,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},edited));return {quad,kind:'face-down' as const,confidence:.9,partial:false};};
+  // Overrides are stored at spacing 1 and follow the spacing like the other zones.
+  const editedM3=editedCells.find(c=>c.zone==='M3')!;expect(editedM3.w).toBeCloseTo(zones.M3.w*spacing);expect(editedM3.x).toBeCloseTo(.5+(zones.M3.x-.5)*spacing);
   const m2=editedCells.find(c=>c.zone==='M2')!,deck=editedCells.find(c=>c.zone==='DECK')!,overlap=read(m2.x+.75*m2.w,.38,.2*m2.w);
   expect(zoneCellAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),editedCells)?.zone).toBe(mapFieldZone(overlap,edited).zone);
   expect(fieldZoneAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),edited,'normal')).toBe('M2');expect(straddledZones(overlap.quad,edited,editedCells)).toBeNull();
