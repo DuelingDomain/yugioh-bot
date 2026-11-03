@@ -268,7 +268,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,twinPlacementGuard:3,fieldFaceState:1,pileArrivalGuard:2};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2};
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
             const twin=card.cardRef ? before.seats[command.seat].twin.find(c=>c.ref===card.cardRef) : undefined;

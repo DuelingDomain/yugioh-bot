@@ -38,7 +38,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       // Never merge that explicit ref into an older hidden copy's history.
       const code=card.cardId??card.passcode,copyKey=code?context.facts?.[code]?.copyKey:undefined;
       const sameFieldInstance=!!twin&&remoteFieldZone(twin.zone)&&checks.instances.some(i=>i.seat===action.seat&&i.public&&i.copyKey===copyKey&&i.zone===twin.zone&&!remoteLocationsDistinct(i,twin));
-      const freshTwin=(!context.replay||context.twinPlacementGuard===3)&&!!twin&&!sameFieldInstance&&!checks.instances.some(i=>i.seat===action.seat&&i.refs.includes(twin.ref));
+      const freshTwin=(!context.replay||(context.twinPlacementGuard??0)>=3)&&!!twin&&!sameFieldInstance&&!checks.instances.some(i=>i.seat===action.seat&&i.refs.includes(twin.ref));
       const distinct=freshTwin||context.showCardsSetFromDeck!==undefined && !!twin && next.effectTracking?.origins.some(o=>o.seat===action.seat && o.ref===twin.ref);
       observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity, distinct } : card);
       next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,
@@ -64,7 +64,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   if (action.type === "twin.place") {
     const proof = action.copyProof, at = action.at ?? next.updatedAt;
     const currentRule = !context.replay || (context.twinPlacementGuard ?? 0) >= 2;
-    const newCopy = (!context.replay || context.twinPlacementGuard === 3) ? true : currentRule ? action.anotherCopy === true || !!proof && proof.at <= at && at - proof.at <= 5000
+    const newCopy = (!context.replay || (context.twinPlacementGuard ?? 0) >= 3) ? true : currentRule ? action.anotherCopy === true || !!proof && proof.at <= at && at - proof.at <= 5000
       : context.twinPlacementGuard !== undefined && (action.source === "auto" ? !!proof && proof.at <= at && at - proof.at <= 5000 : action.anotherCopy === true);
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
     observe(action.seat, { ...twin, cardRef: twin.ref, newCopy });

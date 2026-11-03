@@ -612,16 +612,58 @@ async function ownerFieldRig(){
   const front={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
   const frame={width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData;
   const spot=(c:{quad:{x:number;y:number}[]})=>`${c.quad[0].x}/${c.quad[0].y}`;
-  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,extraMotion:0,halo:.45,down:false,reads:0,tier:'sure' as import('@yugidraft/vision').RecognitionTier,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[],empty:new Set<string>(),faces:new Map<string,{id:string;look:number[];embedding:number[]}>()};
+  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,extraMotion:0,halo:.45,down:false,reads:0,readWait:undefined as Promise<void>|undefined,tier:'sure' as import('@yugidraft/vision').RecognitionTier,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[],empty:new Set<string>(),faces:new Map<string,{id:string;look:number[];embedding:number[]}>()};
   const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>state.at,hidden:()=>false,clone:async f=>f,
     getKnownCards:()=>state.known,getPriors:()=>({decklist:['100']}),buffer:{sample:async()=>({frame,at:state.at})},
-    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async(_frames,opts)=>{state.reads++;const face=opts?.card&&state.faces.get(spot(opts.card));return {candidates:[{cardId:face?.id??state.identity,score:.95}],tier:state.tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:face?.embedding??state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
+    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async(_frames,opts)=>{state.reads++;if(state.readWait)await state.readWait;const face=opts?.card&&state.faces.get(spot(opts.card));return {candidates:[{cardId:face?.id??state.identity,score:.95}],tier:state.tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:face?.embedding??state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
     analyze:()=>({crop:c=>state.down||c.kind==='face-down'?back:front,motion:c=>c.quad[0].x>.83?state.motion:c.quad[0].x<.16?state.extraMotion:0,occluded:c=>c.quad[0].x<.9&&state.occluded,sharpness:()=>20,
       appearance:c=>state.empty.has(spot(c))||state.absent&&c.quad[0].x===.47?Array(12).fill(.2):state.faces.get(spot(c))?.look??Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(state.halo)}),
   });
   watcher.subscribe(e=>{state.events.push(e);if(e.type==='placed')watcher.confirm(e.track.id,e.track.cardId,e.track.id,false);});
   return {state,watcher,quad,async tick(count=1,ms=100){for(let i=0;i<count;i++){state.at+=ms;await watcher.tick();await Promise.resolve();}},dispose:()=>watcher.dispose()};
 }
+
+it('a flip beside a column boundary retains its settled zone through both face gates',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.outlines=[r.quad(.536)];await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.zone).toBe('M3');
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];
+    r.state.down=true;r.state.outlines=[r.quad(.541,.30,true)];await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({zone:'M3',faceDown:true});
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100',faceDown:true}];
+    r.state.down=false;r.state.outlines=[r.quad(.539)];await r.tick(10);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({zone:'M3',faceDown:false});
+    expect(r.state.events.filter(e=>e.type==='moved'&&e.track.zone!=='M3')).toEqual([]);
+  }finally{r.dispose();}
+});
+
+it('a pending identity transfer cannot send the source card to hand',async()=>{
+  const r=await ownerFieldRig();let release:()=>void=()=>{};
+  try{
+    await r.tick(8);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];
+    r.state.readWait=new Promise<void>(resolve=>{release=resolve;});
+    r.state.empty.add('0.47/0.3');r.state.halo=.2;
+    r.state.faces.set('0.7/0.3',{id:'100',look:Array.from({length:12},(_,i)=>i%2?.1:.9),embedding:[1,0]});r.state.outlines=[r.quad(.70)];
+    await r.tick(8);
+    expect(r.state.events.filter(e=>e.type==='removed')).toEqual([]);
+    release();await r.tick(12);
+    expect(r.state.events.filter(e=>e.type==='moved').at(-1)?.track).toMatchObject({id:first.track.id,removed:false});
+  }finally{release();r.dispose();}
+});
+
+it('a low-confidence reveal keeps a usable identity prompt for the same Set ref',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.down=true;r.state.outlines=[r.quad(.47,.30,true)];await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone:'M3',faceDown:true}];
+    r.state.down=false;r.state.tier='low match';r.state.outlines=[r.quad()];await r.tick(12);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({state:'prompt',zone:'M3',faceDown:false,visible:true});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toEqual([expect.objectContaining({track:expect.objectContaining({id:first.track.id}),reason:'uncertain'})]);
+  }finally{r.dispose();}
+});
 
 it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an old hand halo and detects private destination=%s',async destination=>{
   const r=await ownerFieldRig();

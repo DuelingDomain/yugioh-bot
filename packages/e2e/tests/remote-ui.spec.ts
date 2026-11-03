@@ -1179,15 +1179,241 @@ test("create screen and lobby expose the default-on Deck publicity rule",async({
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
 const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
 const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
+test('field watcher owner: one card completes the full physical lifecycle',async({page,context})=>{
+  test.setTimeout(240_000);
+  // A human choice must survive a frozen visibility flag and one bad HTTP frame.
+  const {fieldEvidenceMatches,applyVerifiedFieldMutation}=await import('../../web/src/lib/remote/field-proposals');
+  const track={id:'prompt-card',revision:4,state:'prompt',visible:false,removed:false,faceDown:false,lastSeen:performance.now()} as any;
+  const event={type:'prompt',track:{...track},source:'auto'} as any;
+  expect(fieldEvidenceMatches(event,track)).toBe(false);
+  expect(fieldEvidenceMatches(event,track,true)).toBe(true);
+  for(const stale of [{...track,removed:true},{...track,revision:5},{...track,faceDown:true},{...track,state:'dismissed'},{...track,lastSeen:performance.now()-1600}])expect(fieldEvidenceMatches(event,stale,true)).toBe(false);
+  const confirmed:any[]=[],saved={state:{undo:{actionId:''}}};
+  const identified={type:'card.identified',source:'auto',actorSeat:0,seat:0,cardRef:track.id,cardId:97522863,zone:'monster',slot:3} as const;
+  expect(await applyVerifiedFieldMutation(event,()=>track,async(proposal,id)=>{confirmed.push(proposal);saved.state.undo.actionId=id!;track.visible=false;track.lastSeen-=1600;return saved as any;},identified,true)).toBe(saved);
+  expect(confirmed).toEqual([identified]);
+  const {ygoModule,remoteActionSchema}=await import('../../shared/src/remote/index');
+  for(const [delay,slot,version,expected] of [[1000,3,undefined,1],[2600,3,undefined,2],[1000,4,undefined,2],[1000,3,3,2],[1000,3,4,1],[1000,3,5,1]] as const){
+    let state=ygoModule.initialState({seatCount:2}),at=0;
+    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}),version?{replay:true,twinPlacementGuard:version}:undefined);
+    act({type:'twin.place',zone:'monster',card:{ref:'lifted',cardId:97522863,name:'The Man with the Mark',slot:3,faceUp:true,position:'attack'}});
+    at=1000;act({type:'twin.move',source:'auto',cardRef:'lifted',zone:'hand'});
+    at+=delay;act({type:'twin.place',source:'auto',zone:'monster',card:{ref:'new-outline',slot,faceUp:false,position:'defense'}});
+    expect(state.seats[0].twin).toHaveLength(expected);
+    if(expected===1){expect(state.seats[0].twin[0]).toMatchObject({ref:'lifted',name:'The Man with the Mark',zone:'monster',slot:3,faceUp:false});expect(state.seats[0].twin[0].departedFrom).toBeUndefined();}
+  }
+  // Field ownership has no expiry. Only a surviving field/pile witness proves
+  // a second copy; an old automatic hand departure retains its field origin.
+  for(const departed of [false,true]){
+    let state=ygoModule.initialState({seatCount:2}),at=0;
+    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}));
+    const card={cardId:97522863,name:'The Man with the Mark',faceUp:true,position:'attack'};
+    act({type:'twin.place',zone:'monster',card:{...card,ref:'field-owner',slot:3}});
+    if(departed){at=1000;act({type:'twin.move',source:'auto',cardRef:'field-owner',zone:'hand'});}
+    at=1_000_000_000;act({type:'twin.place',source:'auto',zone:'monster',card:{...card,ref:'late-read',slot:4}});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'field-owner',zone:'monster',slot:4})]);
+    expect(state.twinConfirmation).toBeUndefined();
+  }
+  for(const origin of ['monster','graveyard','banished'] as const){
+    let state=ygoModule.initialState({seatCount:2});
+    const card={cardId:97522863,name:'The Man with the Mark',faceUp:true,position:'attack'};
+    for(const [at,zone,ref,slot] of [[0,origin,'still-there',3],[1_000_000_000,'monster','new-copy',4]] as const){
+      state=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',source:'auto',actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),zone,card:{...card,ref,slot},...(at&&origin==='monster'?{copyProof:{simultaneousQuads:2,at}}:{})}));
+    }
+    expect(state.seats[0].twin).toHaveLength(2);
+    expect(state.seats[0].twin[0]).toMatchObject({ref:'still-there',zone:origin});
+    expect(state.twinConfirmation).toBeUndefined();
+  }
+  const {createFieldWatcher,createFieldCalibration,yugioh}=await import('@yugidraft/vision');
+  const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+  for(let py=0;py<height;py++)for(let px=0;px<width;px++){
+    const x=px/width,y=py/height;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    data.set([...rgb,255],(py*width+px)*4);
+  }
+  for(const reverse of [false,true]){
+    let at=1_000_000_000;const events:any[]=[];
+    const card={kind:'face-up',confidence:.95,partial:false,quad:[{x:.634,y:.3},{x:.694,y:.3},{x:.694,y:.456},{x:.634,y:.456}]} as const;
+    const known:any[]=[{id:'field-owner',zone:'M3',cardId:'97522863'},{id:'hand-copy',zone:'HAND',cardId:'97522863'}];
+    if(reverse)known.reverse();
+    const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>at,hidden:()=>false,clone:async f=>f,getKnownCards:()=>known,
+      buffer:{sample:async()=>({frame:{width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData,at})},
+      recognizer:{detectCards:async()=>[structuredClone(card)] as any,recognize:async()=>({candidates:[{cardId:'97522863',score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:[1,0]},timingsMs:{total:1},backend:'wasm'}) as any},
+      analyze:()=>({crop:()=>({width,height,data}),motion:()=>0,sharpness:()=>20,appearance:()=>Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(.2)})});
+    watcher.subscribe(event=>events.push(event));
+    try{for(let n=0;n<12;n++){at+=100;await watcher.tick();await Promise.resolve();}
+      const arrival=events.find(event=>['placed','moved'].includes(event.type));
+      expect(arrival?.track).toMatchObject({id:'field-owner',zone:'M4',cardId:'97522863'});
+      expect(events.filter(event=>event.type==='prompt')).toEqual([]);
+    }finally{watcher.dispose();}
+  }
+  const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
+  const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;
+  const writes:any[]=[],errors:string[]=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  page.on('console',message=>{if(message.text().includes('[remote field]'))console.log(message.text());});
+  page.on('response',response=>{if(response.url().endsWith(`${path}/actions`)&&response.request().method()==='POST')writes.push({action:response.request().postDataJSON().action,status:response.status()});});
+  const cardId=97522863,name='The Man with the Mark';
+  await page.route('**/api/cards/resolve',route=>route.fulfill({json:{cards:[{id:cardId,name,type:'Effect Monster',frameType:'effect',race:'Spellcaster',effectText:''}]}}));
+  await appearingCamera(page,process.env.E2E_OWNER_CARD??new URL('../../../data/vision/benchmark/field-watcher/97522863.jpg',import.meta.url).pathname);
+  // Optional deterministic inference replays provider timing and result shapes;
+  // the camera pixels, analyzer, tracker and application remain the real path.
+  if(process.env.E2E_SCENARIO_WORKER==='1')await page.route('**/dev/vision-assets/yugioh-index.meta.json',route=>route.fulfill({json:{entries:[{cardId:String(cardId),passcode:cardId,name},{cardId:'46986414',passcode:46986414,name:'Dark Magician'}]}}));
+  if(process.env.E2E_SCENARIO_WORKER==='1')await page.addInitScript(backend=>{
+    const NativeWorker=window.Worker;
+    window.Worker=class extends EventTarget {
+      onmessage:((event:MessageEvent)=>void)|null=null;onerror=null;onmessageerror=null;
+      constructor(url:string|URL,options?:WorkerOptions){super();if(!String(url).includes('vision-lab/assets/worker.js'))return new NativeWorker(url,options) as any;}
+      terminate(){}
+      postMessage(message:any){
+        const physical=(window as any).fieldTest.snapshot(),{x,y,defense,back,visible,covered}=physical;
+        const w=defense?262:180,h=defense?180:262;
+        const card={quad:[{x:x/1280,y:y/720},{x:(x+w)/1280,y:y/720},{x:(x+w)/1280,y:(y+h)/720},{x:x/1280,y:(y+h)/720}],kind:(window as any).fieldScenarioKind??(back?'face-down':'face-up'),confidence:(window as any).fieldScenarioConfidence??.95,partial:false};
+        if(message.type==='detect')(window as any).fieldScenarioDetectedConfidence=card.confidence;
+        const result=message.type==='detect'?(visible&&!covered?[card]:[]):message.type==='recognize'?{
+          candidates:[{cardId:'97522863',score:.9},{cardId:'46986414',score:.5}],tier:(window as any).fieldScenarioTier??'not sure',
+          quality:{sharpness:80,detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],fallback:false,partial:false,covered:false,faceDown:false},
+          identityEmbedding:{space:'art-box',values:[1,0]},timingsMs:{total:68},backend,
+        }:{backend};
+        message.frame?.close?.();for(const frame of message.frames??[])frame.close?.();
+        setTimeout(()=>{const event=new MessageEvent('message',{data:{id:message.id,result,detectorBackend:backend,backendStatus:{backend,models:[{model:'detector',backend,gpu:{modelPath:'fp32'}}]}}});this.onmessage?.(event);this.dispatchEvent(event);},message.type==='detect'?68:20);
+      }
+    } as any;
+  },process.env.E2E_RECOGNITION_MODE==='gpu'?'webgpu':'wasm');
+  await page.addInitScript(()=>{
+    const calibration={version:1,layout:2,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
+    for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
+  });
+  await page.addInitScript(mode=>localStorage.setItem('dd-remote-recognition-mode',mode),process.env.E2E_RECOGNITION_MODE??'cpu');
+  if(process.env.E2E_SCENARIO_CHOICE==='1')await page.addInitScript(()=>(window as any).fieldScenarioTier='low match');
+  await page.goto(`/duels/remote/${slug}`);
+  await expect(async()=>{
+    const camera=page.getByTestId('camera-on-feed');if(await camera.count())await camera.click();
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:10_000});
+  }).toPass({timeout:90_000});
+  const room=async()=>context.request.get(path).then(r=>r.json());let ref:string|undefined;
+  const check=async(zone:string,slot:number|undefined,faceUp:boolean,position='attack')=>{
+    await expect.poll(async()=>{
+      const twin=(await room()).state.seats[0].twin;
+      return {cards:twin.map((c:any)=>({ref:c.ref,zone:c.zone,slot:c.slot,faceUp:c.faceUp,position:c.position,cardId:c.cardId})),hand:twin.filter((c:any)=>c.zone==='hand').length,gy:twin.filter((c:any)=>c.zone==='graveyard').length,banished:twin.filter((c:any)=>c.zone==='banished').length,deck:twin.filter((c:any)=>c.zone==='deck').length,extra:twin.filter((c:any)=>c.zone==='extra').length};
+    },{timeout:20_000}).toEqual({cards:[{ref:ref??expect.any(String),zone,slot,faceUp,position,cardId}],hand:Number(zone==='hand'),gy:Number(zone==='graveyard'),banished:Number(zone==='banished'),deck:Number(zone==='deck'),extra:Number(zone==='extra')});
+    const twin=(await room()).state.seats[0].twin;ref??=twin[0].ref;
+    if(zone==='monster')await expect(page.getByTestId('field-0').locator(`[data-zone="m${slot}"]`)).toHaveAttribute('aria-label',faceUp?new RegExp(name):/Face-down/);
+  };
+  const place=async(x:number,y=315,down=false,rotated=down)=>page.evaluate(({x,y,down,rotated})=>{const camera=(window as any).fieldTest;camera.back(down?'#1e3cbe':'');camera.place(x,y,rotated);},{x,y,down,rotated});
+  await place(550);
+  if(process.env.E2E_SCENARIO_CHOICE==='1'){
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await page.evaluate(()=>((window as any).fieldTest).cover(true));
+    await page.waitForTimeout(1800);
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await expect(page.getByRole('status').filter({hasText:'Card is moving or covered. Keep it still, then choose again.'})).toBeVisible();
+    await page.evaluate(()=>((window as any).fieldTest).cover(false));
+    await page.waitForTimeout(500);
+    if(process.env.E2E_SCENARIO_WORKER==='1'){
+      await page.evaluate(()=>(window as any).fieldScenarioConfidence=.65);
+      await expect.poll(()=>page.evaluate(()=>(window as any).fieldScenarioDetectedConfidence)).toBe(.65);
+      await page.waitForTimeout(200);
+    }
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await page.evaluate(()=>{(window as any).fieldScenarioTier='not sure';delete (window as any).fieldScenarioConfidence;});
+  }
+  await check('monster',3,true);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  if(process.env.E2E_SCENARIO_COVER!=='0'){
+    await page.evaluate(()=>((window as any).fieldTest).cover(true));
+    await page.getByRole('button',{name:'Camera off',exact:true}).click();
+    await page.getByTestId('camera-on-feed').click();
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await page.waitForTimeout(6500);await check('monster',3,true);
+    await page.evaluate(()=>((window as any).fieldTest).cover(false));await check('monster',3,true);
+  }
+  await place(509,356,true);await check('monster',3,false,'defense');
+  const beforeFlip=(await room()).events.length;
+  if(process.env.E2E_SCENARIO_REVEAL==='1')await page.evaluate(()=>(window as any).fieldScenarioTier='low match');
+  if(process.env.E2E_SCENARIO_WORKER==='1'){
+    // The raw detector still reports the back while the lifted front crosses
+    // toward M2. An incomplete face gate must not send any field move.
+    await page.evaluate(()=>(window as any).fieldScenarioKind='face-down');
+    await place(620);await page.waitForTimeout(450);
+    await check('monster',3,false,'defense');
+    expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move')).toEqual([]);
+    await page.evaluate(()=>delete (window as any).fieldScenarioKind);
+  }
+  await place(550);
+  if(process.env.E2E_SCENARIO_REVEAL==='1'){
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+  }
+  await check('monster',3,true);
+  const revealed=(await room()).events.slice(beforeFlip);
+  expect(revealed.filter((e:any)=>e.action.type==='twin.flip'&&e.action.faceUp)).toHaveLength(1);
+  expect(revealed.find((e:any)=>e.action.type==='twin.flip'&&e.action.faceUp).action).toMatchObject({cardRef:ref,cardId,name,source:'auto'});
+  expect(revealed.filter((e:any)=>['twin.place','card.identified'].includes(e.action.type))).toEqual([]);
+  if(process.env.E2E_SCENARIO_REVEAL==='1'){
+    // The same physical track can ask again at a later face revision.
+    await place(509,356,true);await check('monster',3,false,'defense');
+    await page.evaluate(()=>(window as any).fieldScenarioTier='low match');
+    await place(550);
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await check('monster',3,true);await expect(prompt).toHaveCount(0);
+    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+  }
+  await place(509,356,false,true);await check('monster',3,true,'defense');
+  await place(550);await check('monster',3,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await page.waitForTimeout(100);
+  await place(550);await check('monster',3,true);
+  expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move'&&e.action.zone==='monster'&&e.action.slot!==3)).toHaveLength(0);
+  await place(375);await check('monster',4,true);
+  await page.waitForTimeout(3000);
+  await place(550);await check('monster',3,true);
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  expect(writes.filter(write=>write.action.type==='twin.move'&&write.action.zone==='hand')).toEqual([]);
+  await place(30);await check('graveyard',undefined,true);
+  await place(720);await check('monster',2,true);
+  expect(writes.filter(write=>write.action.type==='twin.move'&&write.action.zone==='hand')).toEqual([]);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  await place(720);await check('monster',2,true);
+  await place(30,450);await check('banished',undefined,true);
+  await place(720);await check('monster',2,true);
+  await place(30,50);await check('deck',undefined,false);
+  await place(720);await check('monster',2,true);
+  await place(1080,50);await check('extra',undefined,false);
+  await place(720);await check('monster',2,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await page.waitForTimeout(2700);await place(550);
+  await page.getByTestId('camera-on-feed').click();
+  await check('monster',3,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  // Restart with an expired field departure and an ordinary hand copy of X.
+  // The inferred hand reservation must not replace the recorded field owner.
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  const beforeRestart=await room();
+  const handCopy=await context.request.post(`${path}/actions`,{data:{baseSeq:beforeRestart.lastSeq,action:{type:'twin.place',actorSeat:0,seat:0,zone:'hand',anotherCopy:true,card:{ref:'ordinary-hand-copy',cardId,name,faceUp:false,position:'attack'},idempotencyKey:crypto.randomUUID()}}});
+  expect(handCopy.ok()).toBe(true);
+  await page.waitForTimeout(2700);await place(550);
+  await page.getByTestId('camera-on-feed').click();
+  await expect.poll(async()=>{
+    const twins=(await room()).state.seats[0].twin;
+    return {count:twins.length,field:twins.filter((c:any)=>c.zone==='monster').map((c:any)=>({ref:c.ref,slot:c.slot})),hand:twins.filter((c:any)=>c.zone==='hand').map((c:any)=>c.ref)};
+  }).toEqual({count:2,field:[{ref,slot:3}],hand:['ordinary-hand-copy']});
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  expect(writes.every(write=>write.status===200)).toBe(true);expect(errors).toEqual([]);
+  console.log(JSON.stringify({scenario:'owner lifecycle',backend:process.env.E2E_RECOGNITION_MODE??'cpu',writes:writes.map(w=>w.action.type)}));
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+});
 async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   const data=readFileSync(cardFile).toString('base64');
   await page.addInitScript(async ({data,guided})=>{
     if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let back='',stacks=false,sleeve:ImageBitmap|null=null;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as any).fieldTest={texture:async(on=true)=>{sleeve=on?await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob()):null;paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let back='',stacks=false,sleeve:ImageBitmap|null=null;let covered=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();if(covered){ctx.fillStyle='#bb8c68';ctx.fillRect(x-150,y-150,(defense?262:180)+300,(defense?180:262)+300);}for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={snapshot:()=>({visible,x,y,defense,back,covered}),cover:(value:boolean)=>{covered=value;paint();},texture:async(on=true)=>{sleeve=on?await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob()):null;paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
