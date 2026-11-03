@@ -489,6 +489,16 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
     expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
     expect(s.room.state.identified).toEqual(before.state.identified);
+    // The camera saw the whole GY picked up: one action moves every GY card to
+    // the hand, and one Undo puts the pile back.
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-1", cardId: 14558127 } });
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-2", cardId: 46986414 } });
+    const pile = structuredClone(s.room.state.seats[0].twin);
+    s.act({ type: "pile.lift", seat: 0, zone: "graveyard", cardRefs: ["gy-1", "gy-2"], source: "auto", idempotencyKey: "gy-lift" });
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "hand").map(c => c.ref).sort()).toEqual(["gy-1", "gy-2"]);
+    expect(s.room.state.undo!.actionId).toBe("gy-lift");
+    s.act({ type: "undo", targetActionId: "gy-lift" });
+    expect(s.room.state.seats[0].twin).toEqual(pile);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {

@@ -69,10 +69,11 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
     observe(action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
-  if (action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove") {
-    const instance = checks.instances.find(i => i.seat === action.seat && i.refs.includes(action.cardRef));
+  const movedSeat = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" || action.type === "pile.lift" ? action.seat : -1;
+  for (const cardRef of action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [action.cardRef] : action.type === "pile.lift" ? action.cardRefs : []) {
+    const instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));
     if (instance) {
-      const twin = next.seats[action.seat].twin.find(c => c.ref === action.cardRef);
+      const twin = next.seats[movedSeat].twin.find(c => c.ref === cardRef);
       if (!twin) { instance.public = false; instance.anchored = false; delete instance.zone; delete instance.slot; }
       else {
         instance.zone = twin.zone; instance.slot = remotePhysicalSlot(twin.zone, twin.slot);

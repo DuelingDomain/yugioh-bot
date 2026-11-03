@@ -775,7 +775,18 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const goneFrom=r.at;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:glare;
  for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
- assert.ok(r.at-goneFrom<=2000,`removed after ${r.at-goneFrom} ms`);
+ assert.ok(r.at-goneFrom<=1500,`removed after ${r.at-goneFrom} ms`);
+ // Piles: out of view is gone. No Deck on this mat shows as missing; a Deck
+ // stack makes it present. The whole GY stack is picked up: GY is missing
+ // after 2 full scans (the glue lifts all GY cards in one action).
+ assert.ok(r.watcher.getSnapshot().missingPiles?.includes('DECK'),'no Deck on the mat');
+ const cal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]),dcell=zones.fieldZoneCells('normal',cal.zoneSpacing,cal.zones).find(c=>c.zone==='DECK')!;
+ const dc=zones.fieldMatPoint({x:dcell.x+dcell.w/2,y:dcell.y+dcell.h/2},cal),deckOutline={...card(dc.x-.04,dc.y-.06,.08,.12),kind:'face-down' as const,confidence:.9};
+ r.outlines=[{...gy},deckOutline];for(let i=0;i<10;i++)await r.tick(100);
+ assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false,'the Deck stack is back on the mat');
+ const liftFrom=r.at;r.outlines=[deckOutline];for(let i=0;i<20&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
+ assert.ok(r.watcher.getSnapshot().missingPiles?.includes('GY'),'the GY stack was picked up');assert.ok(r.at-liftFrom<=1500,`GY missing after ${r.at-liftFrom} ms`);
+ assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false);
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
