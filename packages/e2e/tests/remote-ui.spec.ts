@@ -593,6 +593,22 @@ test.describe("remote lobby camera step", () => {
     await view.getByTestId("lobby-zones-spacing").fill("1.3");
     await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.3");
     expect(await gridWidth()).toBeGreaterThan(narrow + 50);
+    // Edit zones: select M3, drag one edge handle, press Done. The saved rectangle is the one the table draws below.
+    const m3 = () => view.locator('polygon[data-zone="M3"]').getAttribute("points");
+    const before = await m3();
+    await view.getByTestId("lobby-zones-edit").click();
+    const editor = view.getByTestId("zone-editor");
+    await expect(editor).toBeVisible();
+    await shot(page, "lobby-zones-edit");
+    const cell = (await editor.locator('polygon[data-zone="M3"]').boundingBox())!;
+    await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
+    await expect(view.getByTestId("zone-editor-status")).toContainText("1 selected: M3");
+    const grip = (await view.getByTestId("zone-handle-e").boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down(); await page.mouse.move(grip.x + grip.width / 2 + 40, grip.y + grip.height / 2, { steps: 6 }); await page.mouse.up();
+    await shot(page, "lobby-zones-edited");
+    await view.getByTestId("zone-editor-done").click();
+    expect(await m3()).not.toBe(before);
     await view.getByTestId("lobby-zones-view-done").click();
     await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");
