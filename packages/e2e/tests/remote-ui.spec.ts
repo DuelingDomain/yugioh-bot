@@ -703,6 +703,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
+    // Notices (here the undo toast) sit in the notification stack beside the thumbnails, never over the camera. Recognition prompts use the same stack.
+    await page.keyboard.press("Control+z");
+    const toasts = page.getByTestId("toasts"); await expect(toasts).toContainText("Undid");
+    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock").boundingBox()]);
+      return !!a && !!b && !!c && (a.x >= b.x + b.width - 1 || a.y >= b.y + b.height - 1) && a.x >= c.x - 1 && a.y >= c.y - 1; };
+    expect(await apart()).toBe(true);
+    await expect(page.getByTestId("notify-dock").getByTestId("toasts")).toBeVisible();
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     // A click on a thumbnail makes that camera the large one, with its own labelled "Show virtual field" button. W switches the view.
     await page.getByTestId("thumb-1").click(); await expect(page.getByTestId("thumb-0")).toBeVisible(); await expect(page.getByTestId("thumb-1")).toHaveCount(0);

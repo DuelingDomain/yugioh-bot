@@ -117,6 +117,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const nameOfCard = (id: number | undefined) => info(id)?.name;
 
   // ---- toasts, banner, peek ----
+  const [dockEl, setDockEl] = useState<HTMLElement | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
   const toast = useCallback((text: ReactNode, ms = 2800) => { const id = ++toastId.current; setToasts(list => [...list.slice(-2), { id, text }]); setTimeout(() => setToasts(list => list.filter(item => item.id !== id)), ms); }, []);
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
@@ -920,7 +921,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
   });
   return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
-    <AutoFieldWatcher room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
+    <AutoFieldWatcher dock={dockEl} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}
@@ -938,6 +939,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
+        <div ref={setDockEl} className={s.notifyDock} role="region" aria-label="Card detection notifications" data-testid="notify-dock" />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -992,7 +994,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
-    {tray ? <RecognitionTray key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
+    {tray ? <RecognitionTray dock={dockEl} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
@@ -1016,6 +1018,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         } : undefined} />;
     })() : null}
     <Peek peek={peek} />
-    <Toasts items={toasts} />
+    <Toasts items={toasts} dock={dockEl} />
   </div>;
 }
