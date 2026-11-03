@@ -15,6 +15,10 @@ export interface TensorLike {
 /** The part of an ONNX Runtime InferenceSession we use. */
 export interface SessionLike {
   run(feeds: Record<string, unknown>): Promise<Record<string, TensorLike | undefined>>;
+  /** The GPUDevice that owns GPU-resident outputs (web WebGPU sessions only). */
+  readonly gpuDevice?: unknown;
+  /** Called when a GPU-resident output reads back bad: the next run uses another graph or WASM. */
+  reportGpuFailure?(e: unknown): Promise<void>;
 }
 
 /** ONNX Runtime's Tensor constructor (ort.Tensor), for either runtime. */

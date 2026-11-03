@@ -14,6 +14,7 @@ import type { RGBAImage } from '../pixels';
 import { decodeCards, type CardBox } from './decode';
 import { boxCorners, type Pt } from './geometry';
 import { toModelInput } from './preprocess';
+import { onGpu, readDetectorMaps, type GpuDeviceForReadback, type MaybeGpuTensor } from './gpu-readback';
 import { refineCard, type Refined } from './refine';
 import { CARD_DETECTOR, type CardDetectorSpec, type CardKind } from './spec';
 
@@ -72,6 +73,8 @@ export function refined(img: RGBAImage, card: DetectedCard): DetectedCard {
 export interface Timings {
   preprocessMs: number;
   runMs: number;
+  /** GPU-resident outputs' sparse readback (0 when the run returned CPU tensors, as on WASM). */
+  readbackMs: number;
   decodeMs: number;
   refineMs: number;
 }
@@ -141,29 +144,51 @@ export function createCardDetector(deps: CardDetectorDeps): OwnCardDetector {
 
   async function findCards(img: RGBAImage, opts: FindOptions = {}): Promise<DetectedCard[]> {
     const t0 = now();
-    const input = toModelInput(img, { longSide: opts.longSide ?? spec.longSide, align: spec.align, fill: spec.fill, enlarge: opts.enlarge });
+    const input = toModelInput(img, { longSide: opts.longSide ?? spec.longSide, align: spec.align, fill: spec.fill, enlarge: opts.enlarge, reuse: true });
     const t1 = now();
-    const out = await deps.session.run({ [spec.inputName]: new deps.Tensor('float32', input.data, [1, 3, input.height, input.width]) });
+    const minScore = opts.minScore ?? spec.minScore;
+    const feeds = () => ({ [spec.inputName]: new deps.Tensor('float32', input.data, [1, 3, input.height, input.width]) });
+    let out = await deps.session.run(feeds());
     const t2 = now();
-    const heat = out[spec.outputs.heat];
-    const box = out[spec.outputs.box];
-    const peak = out[spec.outputs.peak];
+    let maps: { heat: ArrayLike<number>; box: ArrayLike<number>; peak: ArrayLike<number> | null } | undefined;
+    const outputs = () => [out[spec.outputs.heat], out[spec.outputs.box], out[spec.outputs.peak]] as (MaybeGpuTensor | undefined)[];
+    let [heat, box, peak] = outputs();
     if (!heat || !box) throw new Error(`The card detector has no "${spec.outputs.heat}"/"${spec.outputs.box}" output`);
     const [, k, gh, gw] = heat.dims;
     const channels = box.dims[1];
     if (k !== spec.classes.length || (channels !== 6 && channels !== 14) || gh !== input.height / spec.stride || gw !== input.width / spec.stride) {
+      for (const t of [heat, box, peak]) if (onGpu(t)) t!.dispose?.();
       throw new Error(`The card detector's outputs [${heat.dims}] / [${box.dims}] don't match its spec`);
     }
+    if (onGpu(heat) || onGpu(box) || onGpu(peak)) {
+      // WebGPU with GPU-resident outputs: read back heat/peak and only the peak cells' box values.
+      try {
+        if (!deps.session.gpuDevice || !onGpu(heat) || !onGpu(box) || !onGpu(peak)) throw new Error('GPU outputs without their device');
+        const read = await readDetectorMaps(deps.session.gpuDevice as GpuDeviceForReadback, heat, peak!, box, minScore);
+        maps = read;
+      } catch (error) {
+        for (const t of [heat, box, peak]) if (t?.location === 'gpu-buffer') t.dispose?.();
+        // Same guard as a failed run: switch graph or provider, then run again (CPU outputs on WASM).
+        await deps.session.reportGpuFailure?.(error);
+        out = await deps.session.run(feeds());
+        [heat, box, peak] = outputs();
+        if (!heat || !box) throw error;
+        // The float32 graph is on the GPU too: read it the same way (a second failure throws).
+        if (onGpu(heat)) maps = await readDetectorMaps(deps.session.gpuDevice as GpuDeviceForReadback, heat, peak!, box, minScore);
+      }
+    }
+    maps ??= { heat: heat.data!, box: box!.data!, peak: peak?.data ?? null };
+    const t2b = now();
     const cards = decodeCards(
-      { heat: heat.data, box: box.data, boxChannels: channels, peak: peak?.data ?? null, classes: spec.classes, gh, gw },
-      { stride: spec.stride, minScore: opts.minScore ?? spec.minScore, nmsIoU: spec.nmsIoU, maxDetections: spec.maxDetections },
+      { heat: maps.heat, box: maps.box, boxChannels: channels, peak: maps.peak, classes: spec.classes, gh, gw },
+      { stride: spec.stride, minScore, nmsIoU: spec.nmsIoU, maxDetections: spec.maxDetections },
     )
       // a card whose centre falls in the padding is outside the image
       .filter((b) => b.cx < input.contentWidth && b.cy < input.contentHeight)
       .map((b) => toScreenshot(b, input.scaleX, input.scaleY));
     const t3 = now();
     const result = opts.refine ? cards.map((c) => refined(img, c)) : cards;
-    last = { preprocessMs: t1 - t0, runMs: t2 - t1, decodeMs: t3 - t2, refineMs: now() - t3 };
+    last = { preprocessMs: t1 - t0, runMs: t2 - t1, readbackMs: t2b - t2, decodeMs: t3 - t2b, refineMs: now() - t3 };
     return result;
   }
 
