@@ -50,6 +50,8 @@ export async function embedImages(
   Tensor: TensorCtor,
   spec: EmbeddingModelSpec,
   images: RGBAImage[],
+  /** Optional profile sink: preprocess / inference (incl. readback) / pool, summed over chunks. */
+  timings?: { preprocess: number; run: number; pool: number },
 ): Promise<Float32Array[]> {
   const s = spec.inputSize;
   const plane = 3 * s * s;
@@ -57,12 +59,16 @@ export async function embedImages(
   const vectors: Float32Array[] = [];
   for (let start = 0; start < images.length; start += chunk) {
     const part = images.slice(start, start + chunk);
+    const t0 = performance.now();
     const batch = part.length===1 ? preprocess(part[0],spec) : new Float32Array(part.length * plane);
     if(part.length>1)part.forEach((im, i) => batch.set(preprocess(im, spec), i * plane));
+    const t1 = performance.now();
     const out = await session.run({ [spec.inputName]: new Tensor('float32', batch, [part.length, 3, s, s]) });
+    const t2 = performance.now();
     const t = out[spec.outputName];
     if (!t) throw new Error(`Model has no output "${spec.outputName}" (got: ${Object.keys(out).join(', ') || 'none'})`);
     for (const v of poolOutput(t, spec.pooling, part.length)) vectors.push(l2normalize(v));
+    if (timings) { timings.preprocess += t1 - t0; timings.run += t2 - t1; timings.pool += performance.now() - t2; }
   }
   return vectors;
 }

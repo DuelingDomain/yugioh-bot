@@ -72,6 +72,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const beginTiming=(t:InternalTrack,at:number)=>{if(t.timingOpen)return;t.timingOpen=true;t.timing={id:`${session}:${++timingSerial}`,originAt:epochAt()+at,stagesMs:{capture:0},durationsMs:{}};};
   const stage=(t:InternalTrack,name:string,at=now())=>{if(t.timing){const value=Math.max(0,epochAt()+at-t.timing.originAt);t.timing.stagesMs[name]??=value;t.timing.stagesMs[`${name}Last`]=value;}};
   let timingSerial=0;
+  // Profile counters on the open timing (reads started/dropped, detector passes, motion resets).
+  const count=(t:InternalTrack,name:string)=>{if(t.timing&&t.timingOpen)t.timing.durationsMs[`n.${name}`]=(t.timing.durationsMs[`n.${name}`]??0)+1;};
   const notify=()=>{for(const listener of updates)listener();};
   // Once attached to a twin, only an explicit owner correction changes identity.
   const bound=(t:InternalTrack)=>t.view.state==='identified'&&t.resolvedAt!==undefined;
@@ -124,7 +126,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // At most six native originals, shared among all tracks rather than one clone per card.
     while(retained.size>6){const frame=retained.values().next().value!;for(const t of tracks)if(t.best?.frame===frame)t.best=undefined;closeFieldFrame(frame);retained.delete(frame);}
   }
-  function invalidateRead(t:InternalTrack) {if(t.read){t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
+  function invalidateRead(t:InternalTrack) {if(t.read){count(t,'readsDropped');t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
   // Pixel evidence remains available while the inference worker is occupied.
   // Missing outlines alone never remove a card: the whole footprint and its
   // original halo must agree with clear mat, including at the camera edge.
@@ -154,7 +156,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(reading||t.read||!t.needsRead)return;
     const pending:PendingRead={at,appearance:t.appearance?.slice(),crop};
     t.read=pending;t.needsRead=false;
-    const input=await clone(frame);
+    const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
     if(generation!==epoch||disposed||t.read!==pending||!tracks.includes(t)){closeFieldFrame(input);return;}
     reading=read(t,input,card,pending,generation).finally(()=>{reading=undefined;});
   }
@@ -165,7 +167,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(saved.state==='prompt')emit('prompt',t,{result:saved.result,reason:saved.reason??'uncertain'});
     else if(saved.state==='identified'&&t.resolvedAt===undefined&&saved.result)emit('placed',t,{result:saved.result});
   }
-  function resetFace(t:InternalTrack){t.face?.gate.reset();t.face?.setGate?.reset();if(t.face){t.face.pendingAt=undefined;t.face.transitionAt=undefined;t.face.outlineAppearance=undefined;}}
+  function resetFace(t:InternalTrack){if(t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined)count(t,'faceResets');t.face?.gate.reset();t.face?.setGate?.reset();if(t.face){t.face.pendingAt=undefined;t.face.transitionAt=undefined;t.face.outlineAppearance=undefined;}}
   function resetAbsence(t:InternalTrack,preserveWindow=false){t.missingSamples=0;t.missingAt=undefined;if(!preserveWindow)t.clearWindowAt=undefined;}
   function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;piles.clear();for(const t of tracks){resetFace(t);t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
   const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===options.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
@@ -542,7 +544,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const moved=distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position;
           if(moved)t.moveAt??=sample.at;else t.moveAt=undefined;
         }
-        if(!t.timing)beginTiming(t,t.view.firstSeen);stage(t,'detectorDone');if(t.timing){t.timing.durationsMs.detector=metrics.detectorMs;for(const [key,value] of Object.entries(options.recognizer.detectorTimingsMs??{}))t.timing.durationsMs[`detector.${key}`]=value;}stage(t,'tracker');if(t.timing)t.timing.durationsMs.capture=captureMs;
+        if(!t.timing)beginTiming(t,t.view.firstSeen);if(detectorRan)count(t,'detects');stage(t,'detectorDone');if(t.timing){t.timing.durationsMs.detector=metrics.detectorMs;for(const [key,value] of Object.entries(options.recognizer.detectorTimingsMs??{}))t.timing.durationsMs[`detector.${key}`]=value;}stage(t,'tracker');if(t.timing)t.timing.durationsMs.capture=captureMs;
         const pixels=appearance(c);
         const publicIdentity=bound(t)&&!t.view.faceDown?options.getKnownCards?.().find(k=>k.id===t.view.id&&!k.faceDown)?.cardId:undefined;
         if(publicIdentity&&publicIdentity!==t.view.cardId){if(t.face)t.face.setCardId=undefined;gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}

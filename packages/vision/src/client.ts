@@ -122,7 +122,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
         const start=performance.now();
         const result=await request({ type: 'recognize', frames, opts }, [...new Set(transfers)]) as RecognitionResult;
-        if(result.timingsMs)result.timingsMs.roundTrip=performance.now()-start;return result;
+        if(result.timingsMs){result.timingsMs.roundTrip=performance.now()-start;result.timingsMs.transfer=Math.max(0,result.timingsMs.roundTrip-(result.timingsMs.worker??0)-(result.timingsMs.queue??0));}return result;
       } finally { inFlight = false; }
     },
     async detectCards(frame, opts = {}) {
@@ -131,7 +131,10 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if(inFlight) throw new Error('Recognition is already in progress');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       inFlight=true;
-      try { await initialize(); if(disposed) throw new Error('Recognizer is disposed'); return await request({type:'detect',frame,opts},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[]; }
+      try { await initialize(); if(disposed) throw new Error('Recognizer is disposed');
+        const start=performance.now(),result=await request({type:'detect',frame,opts},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[];
+        if(detectorTimingsMs){detectorTimingsMs.roundTrip=performance.now()-start;detectorTimingsMs.transfer=Math.max(0,detectorTimingsMs.roundTrip-(detectorTimingsMs.worker??0)-(detectorTimingsMs.queue??0));}
+        return result; }
       finally {inFlight=false;}
     },
     async askAI(result, options={}) {

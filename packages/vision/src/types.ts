@@ -91,7 +91,7 @@ export interface RecognitionResult {
   identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
   quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
-  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number };
+  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */
   runtime?: { crossOriginIsolated: boolean; wasmThreads: number; simd: boolean };

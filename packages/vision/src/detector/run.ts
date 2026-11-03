@@ -2,13 +2,18 @@
 // Modified: profile geometry and application-neutral contracts. See licenses/duel-lens.LICENSE.
 import type { SessionLike, TensorCtor } from '../embed';
 import type { RGBAImage } from '../pixels';
-import { createCardDetector, type DetectedCard } from './detector';
+import { createCardDetector, type DetectedCard, type Timings } from './detector';
 import { refineCard } from './refine';
 import { CARD_DETECTOR } from './spec';
 import type { Point } from '../types';
 import { clipToConvex, polygonArea } from '../geometry';
+/** Stage timings of the last detect() call in this realm (profile only). */
+export let lastDetectTimings: Timings | null = null;
 export async function detect(session: SessionLike, Tensor: TensorCtor, image: RGBAImage, longSide: number, minScore: number = CARD_DETECTOR.minConfidence, enlarge = false): Promise<DetectedCard[]> {
-  return createCardDetector({ session, Tensor }).findCards(image, { longSide, minScore, enlarge });
+  const detector = createCardDetector({ session, Tensor });
+  const cards = await detector.findCards(image, { longSide, minScore, enlarge });
+  lastDetectTimings = detector.last;
+  return cards;
 }
 
 function contains(pts: Point[], p: Point): boolean {

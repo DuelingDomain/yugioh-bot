@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
 import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
@@ -99,6 +100,26 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
         #{t.id.slice(-4)} {t.state}{t.faceDown ? " · down" : " · up"}{t.cardId ? ` · ${t.cardId}` : ""}{t.visible ? "" : " · hidden"} — {debug?.reasons[t.id] || "…"}</span>; })}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
         {view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}</span>
+      <FieldProfilePanel />
     </div>
   </>;
+}
+
+const ms = (v: number | undefined) => v === undefined || !Number.isFinite(v) ? "–" : String(Math.round(v));
+/** Placement profile (owner debug): last event per stage plus rolling p50/p90 over the last 50 placements. */
+function FieldProfilePanel() {
+  const { last, rows } = useFieldProfile();
+  if (!last) return null;
+  const d = last.detail, stat = (pick: (r: (typeof rows)[number]) => number | undefined) => { const v = rows.map(pick).filter((x): x is number => x !== undefined && Number.isFinite(x)); return `${ms(percentile(v, .5))}/${ms(percentile(v, .9))}`; };
+  const detail: [string, string][] = [
+    ["frame grab", "capture"], ["read clone", "readClone"], ["det preprocess", "detector.preprocess"], ["det inference", "detector.run"], ["det decode", "detector.decode"], ["det post", "detector.post"], ["det pixels", "detector.pixels"], ["det queue", "detector.queue"], ["det transfer", "detector.transfer"],
+    ["read queue", "queue"], ["read pixels", "pixels"], ["warp", "warp"], ["emb preprocess", "embedPreprocess"], ["emb inference", "embedRun"], ["search", "search"], ["encode", "encode"], ["read transfer", "transfer"],
+  ];
+  return <span style={{ left: 8, top: 8, position: "absolute", background: "rgb(0 0 0/.82)", color: "#e8f6ff", fontSize: 10, lineHeight: 1.3, padding: "4px 6px", whiteSpace: "pre", fontFamily: "ui-monospace,monospace" }} data-testid="field-debug-profile">
+    {`last ${last.type} ${ms(last.totalMs)} ms   (p50/p90 of ${rows.length})\n`}
+    {PROFILE_SEGMENTS.map(k => `${k.padEnd(7)}${ms(last.segments[k]).padStart(6)}  ${stat(r => r.segments[k]).padStart(11)}`).join("\n")}
+    {`\n${"total".padEnd(7)}${ms(last.totalMs).padStart(6)}  ${stat(r => r.totalMs).padStart(11)}\n`}
+    {detail.map(([name, key]) => `${name.padEnd(15)}${ms(d[key]).padStart(5)}  ${stat(r => r.detail[key]).padStart(9)}`).join("\n")}
+    {`\nreads ${d["n.reads"] ?? 0} · dropped ${d["n.readsDropped"] ?? 0} · embeds ${d.embedCount ?? 0} · det passes ${d["n.detects"] ?? 0} · face resets ${d["n.faceResets"] ?? 0}`}
+  </span>;
 }
