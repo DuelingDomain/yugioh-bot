@@ -3,7 +3,7 @@ import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } fro
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline, type DeferredAICrop } from './pipeline';
 import { embedImages } from './embed';
-import { detect } from './detector/run';
+import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
 import { detectScene } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
@@ -161,7 +161,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(message.type==='detect') {
           const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
-          reply({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:performance.now()-start-pixelsMs,worker:performance.now()-start}});return;
+          const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
+          // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
+          const split=last?{preprocess:last.preprocessMs,run:last.runMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.decodeMs)}:{};
+          reply({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:detectMs,...split,worker:performance.now()-start}});return;
         }
         if(message.type==='aiCrop') {
           const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');

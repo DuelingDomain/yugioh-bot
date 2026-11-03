@@ -85,7 +85,8 @@ export class RecognitionPipeline {
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
     const start = performance.now();
     const ranked = frames.map((frame, index) => ({ frame, index, sharpness: sharpness(frame, opts.clickPoint) })).sort((a, b) => b.sharpness - a.sharpness).slice(0, opts.maxFrames ?? 3);
-    const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0 };
+    const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0, embedPreprocess: 0, embedRun: 0, embedCount: 0 };
+    const embedSplit = { preprocess: 0, run: 0, pool: 0 };
     const frameEvidence:RecognitionEvidence['frames']=[];
     const usedIndices:number[]=[];
     const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; deferredAICrop?:DeferredAICrop; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
@@ -186,7 +187,8 @@ export class RecognitionPipeline {
         let vector=embedded.get(image);
         if(!vector) {
           const started=performance.now();
-          [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[image]);
+          [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[image],embedSplit);
+          timings.embedPreprocess=embedSplit.preprocess;timings.embedRun=embedSplit.run;timings.embedCount++;
           if(vector.length!==this.index.meta.dim)throw new Error('Model embedding dimension mismatch');
           timings.embed+=performance.now()-started;embedded.set(image,vector);
         }
