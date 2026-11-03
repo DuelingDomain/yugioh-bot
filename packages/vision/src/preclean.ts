@@ -150,6 +150,8 @@ export function degradeLighting(img: RGBAImage, kind: 'blue' | 'purple' | 'white
 }
 
 /**
+ * Benchmark only: the detector keeps raw frames, because frame cast removal gave no recall gain
+ * on the owner webcam frames or the synthetic casts (scripts/vision/benchmark-preclean.ts).
  * Frame-level cast gains (robust gray-world): per-channel mean of mid-luminance pixels sampled on a
  * grid, scaled so every channel matches the gray mean. Cheap (every 4th pixel in x and y).
  */

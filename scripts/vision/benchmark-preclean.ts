@@ -50,8 +50,8 @@ for(const photo of manifest) {
 }
 for(const arg of process.argv.slice(2)) {
   const [file,box,name]=arg.split(':');
-  const expected=name?meta.entries.find(e=>e.name===name)?.cardId:undefined;
-  await run('owner',`${file.split('/').pop()!.slice(11,24)}@${box}`,await rgba(file,box.split(',').map(Number)),expected);
+  const expected=name&&name!=='scene'?meta.entries.find(e=>e.name===name)?.cardId:undefined;
+  await run(name==='scene'?'owner-scene':'owner',`${file.split('/').pop()!.slice(11,24)}@${box}`,await rgba(file,box.split(',').map(Number)),expected);
 }
 // Crop cost alone (295x430 warp).
 const sample=await rgba(join(data,'benchmark',manifest[0].file));
@@ -68,7 +68,7 @@ for(const set of sets) {
   const ok=(f:(r:Row)=>RecognitionResult)=>labelled.length?`${labelled.filter(r=>top(f(r))===r.expected).length}/${labelled.length}`:'-';
   console.log([set,g.length,ok(r=>r.raw),ok(r=>r.ab),g.filter(r=>r.raw.tier==='sure').length,g.filter(r=>r.ab.tier==='sure').length,mean(r=>r.raw.candidates[0]?.score??0),mean(r=>r.ab.candidates[0]?.score??0),g.filter(r=>r.ab.preclean?.used==='clean').length,g.reduce((s,r)=>s+r.rawDet,0),g.reduce((s,r)=>s+r.castDet,0)].join(' | '));
 }
-for(const r of rows.filter(r=>r.set==='owner'||top(r.raw)!==top(r.ab)))
+for(const r of rows.filter(r=>r.set.startsWith('owner')||top(r.raw)!==top(r.ab)))
   console.log(`${r.set} ${r.id}: raw ${names.get(top(r.raw)!)??top(r.raw)} ${r.raw.tier} ${r.raw.candidates[0]?.score.toFixed(3)} | A/B ${names.get(top(r.ab)!)??top(r.ab)} ${r.ab.tier} ${r.ab.candidates[0]?.score.toFixed(3)} used=${r.ab.preclean?.used} glare=${((r.ab.preclean?.glare??0)*100).toFixed(1)}% gains=${r.ab.preclean?.gains?.map(v=>v.toFixed(2)).join(',')} expected=${r.expected?names.get(r.expected):'?'}`);
 const abExtra=rows.filter(r=>r.ab.preclean?.gains).map(r=>r.ab.timingsMs.total-r.raw.timingsMs.total);
 console.log(`preclean crop ${(ms/20).toFixed(2)} ms; frame cast estimate ${(fms/20).toFixed(2)} ms (${sample.width}x${sample.height}); A/B second pass mean +${(abExtra.reduce((a,b)=>a+b,0)/Math.max(1,abExtra.length)).toFixed(0)} ms on ${abExtra.length}/${rows.length} reads`);
