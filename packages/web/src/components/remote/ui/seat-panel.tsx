@@ -7,6 +7,7 @@ import { Icon } from "./icons";
 import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, type ZoneKey } from "./model";
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
+import { NotifyDock } from "./notify-dock";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -23,6 +24,8 @@ export function parseLpInput(raw: string): number | null {
 export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
 
 export type SeatPanelProps = {
+  /** Called with this seat's notification slot (a portal target) when it mounts and unmounts. Not rendered in webcam only. */
+  onDock?: (seat: number, node: HTMLElement | null) => void;
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
   marks: FeedMark[]; reticles: FeedReticle[]; onBegin: (seat: number, start: FeedStart) => void; onMiss: (seat: number) => void; onSearch: (seat: number, start: FeedStart) => void; onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReset: (seat: number) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
@@ -107,6 +110,7 @@ export function SeatPanel(p: SeatPanelProps) {
       </button>
     </header>
     {p.thumb ? <button type="button" className={s.thumbhit} onClick={p.onFocus} data-testid={`thumb-${p.seat}`} aria-label={`Show ${p.name}'s camera large`} title={`Show ${p.name}'s camera large`} /> : null}
+    {p.onDock && !p.webcamOnly ? <NotifyDock seat={p.seat} onSlot={p.onDock} /> : null}
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.webcamOnly ? p.onZoneCard : undefined} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         below={p.cameraControl}

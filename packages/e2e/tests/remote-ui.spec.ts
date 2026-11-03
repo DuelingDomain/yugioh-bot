@@ -724,10 +724,10 @@ test.describe("remote duels screen, moving cards by hand", () => {
     // Notices (here the undo toast) sit in the notification stack beside the thumbnails, never over the camera. Recognition prompts use the same stack.
     await page.keyboard.press("Control+z");
     const toasts = page.getByTestId("toasts"); await expect(toasts).toContainText("Undid");
-    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock").boundingBox()]);
+    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock--1").boundingBox()]);
       return !!a && !!b && !!c && (a.x >= b.x + b.width - 1 || a.y >= b.y + b.height - 1) && a.x >= c.x - 1 && a.y >= c.y - 1; };
     expect(await apart()).toBe(true);
-    await expect(page.getByTestId("notify-dock").getByTestId("toasts")).toBeVisible();
+    await expect(page.getByTestId("notify-dock--1").getByTestId("toasts")).toBeVisible();
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     // A click on a thumbnail makes that camera the large one, with its own labelled "Show virtual field" button. W switches the view.
     await page.getByTestId("thumb-1").click(); await expect(page.getByTestId("thumb-0")).toBeVisible(); await expect(page.getByTestId("thumb-1")).toHaveCount(0);
@@ -735,6 +735,15 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
     await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+    // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
+    await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");
+    await expect(mine.getByTestId("toasts")).toContainText("Undid"); await expect(page.getByTestId("notify-dock-1")).toHaveAttribute("data-count", "0");
+    await expect(page.getByTestId("notify-count-0")).toHaveText("1");
+    const grip = mine.getByRole("button", { name: /Move notifications/ }); const before = (await mine.boundingBox())!;
+    await grip.focus(); await page.keyboard.press("ArrowLeft"); await expect.poll(async () => (await mine.boundingBox())!.x).toBeLessThan(before.x - 8);
+    await page.getByTestId("notify-toggle-0").click(); await expect(mine.getByTestId("toasts")).toBeHidden();
+    await page.getByTestId("notify-toggle-0").click(); await expect(mine.getByTestId("toasts")).toBeVisible();
+    await mine.getByRole("button", { name: "Reset notification position" }).click(); await expect.poll(async () => Math.abs((await mine.boundingBox())!.x - before.x)).toBeLessThan(2);
   });
 
   test("piles: the Graveyard and Banished keep their order, the viewer lists them newest first, a drag brings a card back, Undo restores the order", async ({ page, context }) => {

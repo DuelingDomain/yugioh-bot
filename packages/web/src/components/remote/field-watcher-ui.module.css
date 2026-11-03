@@ -16,7 +16,14 @@
 .prompt{width:300px;padding:14px}
 /* In the notification stack beside the field: in flow, as wide as the stack. */
 .prompt.docked,.notice.docked{position:static;z-index:auto;width:100%;max-width:100%;max-height:none;overflow:visible;box-shadow:0 12px 36px rgb(0 0 0/.6)}
-.prompt.docked{padding:10px}
+.prompt.docked{padding:8px 10px}
+/* Compact: one-line candidate rows, full name on hover. */
+.prompt.docked strong{font-size:14px}
+.prompt.docked .zone{margin:4px 0 8px;font-size:11.5px;line-height:1.3}
+.prompt.docked .choices{gap:4px}
+.prompt.docked .choices button{min-height:28px;padding:4px 8px;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;width:100%}
+.prompt.docked .dismiss{margin-top:6px;min-height:28px;font-size:12.5px}
+.notice.docked{padding:8px 10px;font-size:12.5px}
 .prompt header{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .prompt strong{font-size:18px;line-height:1.2}
 .queue{flex:none;color:var(--gold-ink);font-size:12px;font-weight:600}

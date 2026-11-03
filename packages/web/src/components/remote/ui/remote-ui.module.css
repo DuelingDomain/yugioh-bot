@@ -500,12 +500,22 @@
 .toasts{position:fixed;left:50%;bottom:calc(var(--dock) + 14px);transform:translateX(-50%);z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
-/* Notification stack: recognition prompts, notices and toasts live here, beside the field, never over a camera image.
-   Both views: bottom-right of the table. Webcam only: the thumbnail column. */
-.notifyDock{position:absolute;right:var(--gap);bottom:calc(var(--gap) + 66px);z-index:60;width:min(340px,32vw);max-height:min(62%,560px);overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
-@media (max-width:1500px){.notifyDock{width:min(280px,24vw)}}
-.notifyDock>*{pointer-events:auto}
-.notifyDock:empty{display:none}
+/* Notification stack: recognition prompts, notices and toasts live here, never over a camera image.
+   Both views: one stack per seat panel, beside that player's own virtual field (draggable, minimizable). Webcam only: one stack in the thumbnail column. */
+.seatDock{position:absolute;right:10px;bottom:76px;z-index:30;width:min(280px,calc(100% - 20px));max-height:min(62%,420px);display:flex;flex-direction:column;justify-content:flex-end;gap:4px;pointer-events:none;overscroll-behavior:contain}
+.seatDock>*{pointer-events:auto}
+.seatDock[data-count="0"]{display:none}
+.ndHead{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 2px;border:1px solid var(--line2);border-radius:8px;background:rgb(20 13 38/.96);font-size:11px;line-height:1.2}
+.ndGrip{display:grid;place-items:center;width:22px;height:22px;flex:none;padding:0;border:0;border-radius:5px;background:transparent;color:var(--ink2);cursor:grab;touch-action:none}
+.ndGrip:active{cursor:grabbing}.ndGrip .ic{width:14px;height:14px}
+.ndTitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gold-ink);font-weight:700;letter-spacing:.04em}
+.ndCount{flex:none;min-width:18px;padding:1px 6px;border-radius:9px;background:var(--gold);color:#1b1204;font-weight:700;text-align:center}
+.ndBtn{flex:none;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:5px;background:var(--p2);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.ndBtn:hover{border-color:var(--pen)}
+.ndSlot{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto}
+.ndSlot[hidden]{display:none}
+.stageDock{position:absolute;right:var(--gap);bottom:var(--gap);width:min(300px,32vw);max-height:min(62%,560px)}
+.app:not([data-wc]) .stageDock{display:none}
 .toastsDocked{display:flex;flex-direction:column;gap:6px;pointer-events:none}
 .toastsDocked:empty{display:none}
 .toastsDocked .toast{padding:8px 12px;font-size:13px;line-height:1.35}
@@ -606,7 +616,7 @@
 .thumblp{display:none;margin-left:auto;font-weight:800;font-size:14px;color:var(--ink)}
 .thumbhit{display:none}
 @media (min-width:901px){
-  .app[data-wc] .notifyDock{width:var(--thumbw);bottom:var(--gap)}
+  .app[data-wc] .stageDock{width:var(--thumbw);bottom:var(--gap)}
   .app[data-wc] .stage{--thumbw:clamp(190px,14vw,280px);grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
   .app[data-wc][data-mode] .stage{grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
   .app[data-wc] .rail{grid-area:auto;grid-column:1 / -1;grid-row:1}
@@ -645,7 +655,8 @@
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
-  .notifyDock{position:fixed;left:8px;right:8px;bottom:calc(var(--bar,0px) + var(--dock) + 8px);width:auto;max-height:40dvh}
+  .stageDock{position:fixed;left:8px;right:8px;bottom:calc(var(--bar,0px) + var(--dock) + 8px);width:auto;max-height:40dvh}
+  .seatDock{bottom:12px;max-height:46%}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}

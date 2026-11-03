@@ -18,6 +18,7 @@ const PATHS = {
   phone: <><rect x="7" y="2.5" width="10" height="19" rx="2" /><path d="M11 18.5h2" /></>,
   camoff: <><path d="M4 7h3l2-3h6l2 3h3v13H4z" /><path d="M3 3l18 18" /></>,
   hand: <path d="M4 20l1-5L16 4l4 4L9 19z" />,
+  grip: <path d="M9 5v.01M15 5v.01M9 12v.01M15 12v.01M9 19v.01M15 19v.01" strokeWidth="3" strokeLinecap="round" />,
   sword: <path d="M14 4h6v6L10 20l-6-6zM5 19l-2 2M8 16l-3 3" />,
 } as const;
 
