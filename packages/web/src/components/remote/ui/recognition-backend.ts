@@ -67,10 +67,25 @@ export function reportReadTime(ms: number) { if (load().backend) update({ ms: Ma
 export function reportGpuFailure(error?: unknown) {
   if (forcedCpu || load().backend !== "webgpu") return false;
   forcedCpu = true;
-  update({ backend: "wasm", ms: null, note: `Recognition worker failed: ${error instanceof Error ? error.message : String(error ?? "unknown worker error")}`, generation: load().generation + 1 });
+  const reason = `Recognition worker failed: ${error instanceof Error ? error.message : String(error ?? "unknown worker error")}`;
+  lastGpuLoss = { reason, at: Date.now() };
+  console.warn("[remote recognition] GPU lost, CPU until retry:", reason);
+  update({ backend: "wasm", ms: null, note: reason, generation: load().generation + 1 });
   for (const reset of resetters) reset();
+  // A lost GPU device often comes back (driver reset, tab in background). Try
+  // the GPU again after 30 s, up to three times per page.
+  if (gpuRetries < 3) setTimeout(() => {
+    if (!forcedCpu || load().mode === "cpu") return;
+    gpuRetries++; forcedCpu = false;
+    update({ backend: null, ms: null, note: "", generation: load().generation + 1 });
+    for (const reset of resetters) reset();
+  }, GPU_RETRY_MS);
   return true;
 }
+const GPU_RETRY_MS = 30_000;
+let gpuRetries = 0, lastGpuLoss: { reason: string; at: number } | undefined;
+/** The last reason the reader left the GPU in this page, for the Debug view. */
+export const gpuLossReason = () => lastGpuLoss;
 
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export function useRecognitionBackend(): RecognitionBackendState { return useSyncExternalStore(subscribe, load, () => DEFAULT); }

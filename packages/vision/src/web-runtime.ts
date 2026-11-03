@@ -358,7 +358,7 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   const gpu = await openWebGpu();
   let active: Opened = gpu ?? (await openWasm());
   let ep: RuntimeSession['ep'] = gpu ? 'webgpu' : 'wasm';
-  let runs = 0;
+  let runs = 0, gpuRetries = 0;
   const compiledShapes = new Set<string>();
   model = null;
 
@@ -374,6 +374,18 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     const dropped = active;
     active = await openWasm();
     ep = 'wasm';
+    // A lost device or a one-off failure is often temporary: reopen WebGPU in
+    // the background after 30 s (three tries); a stuck run never retries.
+    if (!stuckRun && gpuRetries < 3) setTimeout(() => {
+      gpuRetries++;
+      void openWebGpu().then(reopened => {
+        if (!reopened || ep !== 'wasm') return;
+        const cpu = active; active = reopened; ep = 'webgpu'; runs = 0; compiledShapes.clear();
+        fallbackReason = undefined; gpuDiagnostics?.attempts.push(`${what}: WebGPU reopened after: ${errorText(e)}`);
+        console.info(`[DuelLens] ${what}: back on WebGPU`);
+        cpu.session.release?.().catch(() => {});
+      }).catch(() => {});
+    }, 30_000);
     if (stuckRun) {
       stuckGpu.add(dropped.ort);
       void stuckRun.then(
