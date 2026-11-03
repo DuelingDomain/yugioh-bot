@@ -54,7 +54,8 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
     return () => {
       document.removeEventListener("keydown", key, true); document.removeEventListener("focusin", contain);
       document.body.style.overflow = overflow;
-      const target = opener?.isConnected ? opener : restore.current?.();
+      // After a Save the opener is gone (the page falls back to the body), so the Expand button takes focus.
+      const target = opener && opener !== document.body && opener.isConnected ? opener : restore.current?.();
       target?.focus({ preventScroll: true });
     };
   }, []);
