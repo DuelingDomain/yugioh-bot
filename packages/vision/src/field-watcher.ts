@@ -22,7 +22,7 @@ export interface FieldSnapshot { status:'stopped'|'starting'|'watching'|'hidden'
 export interface FieldBuffer { sample(options?:{maxAgeMs?:number}):Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone|'HAND'; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
-  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&Partial<Pick<Recognizer,'prepare'|'detectorBackend'|'detectorTimingsMs'>>; buffer:FieldBuffer; profile:GameProfile;
+  recognizer:Pick<Recognizer,'detectCards'|'recognize'>&Partial<Pick<Recognizer,'prepare'|'detectorBackend'|'detectorTimingsMs'|'separateDetector'>>; buffer:FieldBuffer; profile:GameProfile;
   getPriors?:()=>RecognitionPriors|undefined; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
@@ -351,7 +351,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
         return;
       }
-      if(reading) {
+      // One shared worker: a detector pass would wait behind the read, so the
+      // tick only samples pixels. A separate detector worker keeps detecting.
+      if(reading&&!options.recognizer.separateDetector) {
         for(const t of tracks)if(evidence.occluded?.(t.view.card)||evidence.motion(t.view.card)>.025||(t.identityAppearance?.length&&t.view.card.kind==='face-up'&&!matchesLook(t,evidence.appearance?.(t.view.card)))){t.view.visible=false;resetFace(t);}
         // Keep sampling motion/appearance while the worker embeds. Never infer
         // stillness or disappearance from a stale outline during this interval.

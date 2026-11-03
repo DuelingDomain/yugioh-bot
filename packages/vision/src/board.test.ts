@@ -340,13 +340,15 @@ test('a new card gets a short sampling burst even while placement motion is clea
   r.motion=0;for(let i=0;i<7;i++)await r.tick(250);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
 test('tracking continues during a slow read and motion invalidates the late identity',async()=>{
+ for(const split of [false,true]){
   let at=0,sampled=0,detects=0,motion=0,resolve!:(r:RecognitionResult)=>void;
   const pending=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{detects++;return [card(.3,.3)];},recognize:()=>pending},buffer:{sample:async()=>{sampled++;return {frame:frame as ImageData,at};}},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>motion,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{separateDetector:split,detectCards:async()=>{detects++;return [card(.3,.3)];},recognize:()=>pending},buffer:{sample:async()=>{sampled++;return {frame:frame as ImageData,at};}},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>motion,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
   for(let i=0;i<3;i++){at+=250;await watcher.tick();}
-  motion=.3;at+=250;await watcher.tick();assert.equal(sampled,4);assert.equal(detects,1);
+  motion=.3;at+=250;await watcher.tick();assert.equal(sampled,4);if(split)assert.ok(detects>1,'a separate detector worker keeps detecting during a read');else assert.equal(detects,1);
   resolve(sureResult());await new Promise(done=>setImmediate(done));motion=0;at+=250;await watcher.tick();
   assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'candidate');watcher.dispose();
+ }
 });
 test('dismissal while the sharpest-frame clone is pending cannot start a stale read',async()=>{
   let at=0,clones=0,reads=0,unblock!:(value:ImageData)=>void;
