@@ -26,6 +26,19 @@ export interface InputOptions {
   fill: number;
   /** Scale up small images to `longSide` too (the drag case's crops); default only shrinks. */
   enlarge?: boolean;
+  /**
+   * Write into this realm's scratch tensor instead of a new 6 MB array (960px frames). Only for a caller that
+   * finishes its session run before the next toModelInput() (the detector: one run at a time per worker).
+   */
+  reuse?: boolean;
+}
+
+// Keyed by length: watcher passes alternate a 448px motion crop and the 960px full frame.
+const scratch = new Map<number, Float32Array>(), scratchTmp = new Map<number, Float32Array>();
+function reused(pool: Map<number, Float32Array>, size: number): Float32Array {
+  let buffer = pool.get(size);
+  if (!buffer) { if (pool.size >= 3) pool.delete(pool.keys().next().value!); buffer = new Float32Array(size); pool.set(size, buffer); }
+  return buffer;
 }
 
 /** 2×2 box average (odd trailing row/column dropped): a Retina capture halved. */
@@ -90,7 +103,8 @@ export function toModelInput(image: RGBAImage, opts: InputOptions): ModelInput {
   const W = Math.ceil(cw / opts.align) * opts.align;
   const H = Math.ceil(ch / opts.align) * opts.align;
   const plane = W * H;
-  const data = new Float32Array(3 * plane).fill(opts.fill / 255);
+  const data = opts.reuse ? reused(scratch, 3 * plane) : new Float32Array(3 * plane);
+  data.fill(opts.fill / 255);
   let img = image;
   while (img.width >= cw * 2 && img.height >= ch * 2) img = halve(img);
   const src = img.data;
@@ -108,7 +122,8 @@ export function toModelInput(image: RGBAImage, opts: InputOptions): ModelInput {
     const hx = taps(img.width, cw);
     const vy = taps(img.height, ch);
     // horizontal pass: every source row, cw columns, RGB interleaved
-    const tmp = new Float32Array(img.height * cw * 3);
+    const tmpSize = img.height * cw * 3;
+    const tmp = opts.reuse ? reused(scratchTmp, tmpSize) : new Float32Array(tmpSize);
     for (let y = 0; y < img.height; y++) {
       const rowIn = y * img.width * 4;
       const rowOut = y * cw * 3;

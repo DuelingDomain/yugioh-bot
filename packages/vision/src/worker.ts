@@ -5,6 +5,7 @@ import { RecognitionPipeline, type DeferredAICrop } from './pipeline';
 import { embedImages } from './embed';
 import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
+import { CARD_DETECTOR } from './detector/spec';
 import { detectScene } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
@@ -16,19 +17,44 @@ import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, PeekOptions
 import type { RGBAImage } from './pixels';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
-let detectorSession:ModelSession|undefined;
-let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string}|undefined;
-async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runtimeBase:string) {
-  configuration={profile,backend,runtimeBase};
-  detectorSession=await createModelSession(profile.detector.url,profile.detector.sha256,backend,runtimeBase,profile.detector.webgpu);
-  sessions.push(detectorSession);
+let detectorSession:ModelSession|undefined,detectorLoading:Promise<ModelSession>|undefined,embedderSession:ModelSession|undefined;
+/**
+ * 'both': one worker runs every request (phones, low memory, WASM by default).
+ * 'scene': the detector only, for outline passes; 'read': the embedder and index, its own detector
+ * created only when a read has no outline. A split recognizer runs one of each, so a detector pass
+ * never waits behind a read (client.ts).
+ */
+type Role='both'|'scene'|'read';
+let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string;role:Role;threads?:number}|undefined;
+const DETECTOR_GPU_OUTPUTS=[CARD_DETECTOR.outputs.heat,CARD_DETECTOR.outputs.box,CARD_DETECTOR.outputs.peak];
+function ensureDetector():Promise<ModelSession> {
+  const {profile,backend,runtimeBase,threads}=configuration!;
+  detectorLoading??=createModelSession(profile.detector.url,profile.detector.sha256,backend,runtimeBase,profile.detector.webgpu,{threads,gpuOutputs:DETECTOR_GPU_OUTPUTS})
+    .then(session=>detectorSession=session,error=>{detectorLoading=undefined;throw error;});
+  return detectorLoading;
 }
-let sessions: ModelSession[] = [];
+/** The read worker's detector, created on its first use (watcher reads pass their outline and never run it). */
+const lazyDetector:ModelSession={
+  get backend(){return detectorSession?.backend??embedderSession?.backend??'wasm';},
+  get fallbackReason(){return detectorSession?.fallbackReason;},
+  get gpuDiagnostics(){return detectorSession?.gpuDiagnostics;},
+  get gpuDevice(){return detectorSession?.gpuDevice;},
+  reportGpuFailure:async e=>{await detectorSession?.reportGpuFailure?.(e);},
+  run:async feeds=>(await ensureDetector()).run(feeds),
+  release:async()=>{await detectorSession?.release();},
+};
+async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runtimeBase:string,role:Role,threads?:number) {
+  configuration={profile,backend,runtimeBase,role,threads};
+  if(role==='read')return;
+  const detector=await ensureDetector();
+  // The scene worker serves outlines straight away: compile its kernels outside placement latency.
+  if(role==='scene')await detect(detector,Tensor,{width:448,height:448,data:new Uint8ClampedArray(448*448*4).fill(114)},448);
+}
 function backendStatus(): BackendStatus {
-  const models = sessions.map((session, i) => ({
-    model: i === 0 ? 'detector' : 'embedder', backend: session.backend,
+  const models = ([['detector',detectorSession],['embedder',embedderSession]] as const).flatMap(([model,session])=>session?[{
+    model, backend: session.backend,
     fallbackReason: session.fallbackReason, gpu: session.gpuDiagnostics,
-  }));
+  }]:[]);
   const failed = models.filter(m => m.backend === 'wasm' && m.fallbackReason);
   const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1
     ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
@@ -36,7 +62,7 @@ function backendStatus(): BackendStatus {
     fallbackReason: reasons.length ? reasons.join('; ') : undefined, models };
 }
 function reply(message: object) {
-  scope.postMessage({ ...message, backendStatus: backendStatus(), detectorBackend: detectorSession?.backend });
+  scope.postMessage({ ...message, backendStatus: backendStatus(), detectorBackend: detectorSession?.backend, role: configuration?.role });
 }
 let preparedOptions:PrepareOptions={};
 let learningCache:LearningCache|undefined;
@@ -70,8 +96,9 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
       else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
     }
     // Sequential session creation avoids simultaneous WASM runtime initialization.
-    const detector = detectorSession!;
-    const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu); sessions.push(embedder);
+    const role=configuration!.role;
+    const detector = role==='read' ? lazyDetector : detectorSession!;
+    const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads:configuration!.threads});
     let fullArtIndex:LoadedIndex|undefined;
     if(profile.fullArtIndex) {
       const reply=await fetch(profile.fullArtIndex.metaUrl);
@@ -86,7 +113,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     pipeline = new RecognitionPipeline(profile, index, detector, embedder, Tensor, fullArtIndex);
     // Compile kernels outside placement/click latency. Never use this warm-up as evidence.
     await embedImages(embedder,Tensor,profile.embedding,[{width:8,height:8,data:new Uint8ClampedArray(8*8*4).fill(128)}]);
-    await detect(detector,Tensor,{width:448,height:448,data:new Uint8ClampedArray(448*448*4).fill(114)},448);
+    if(role!=='read')await detect(detector,Tensor,{width:448,height:448,data:new Uint8ClampedArray(448*448*4).fill(114)},448);
     prepareSearch(index);if(fullArtIndex)prepareSearch(fullArtIndex);
     clearInterval(learningTimer);
     learningCache=new LearningCache(async()=>{
@@ -102,8 +129,8 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     learningTimer=setInterval(()=>{void learningCache?.refresh();},60_000);
 
   } catch (error) {
-    await Promise.allSettled(sessions.filter(s=>s!==detectorSession).map(s => s.release()));
-    sessions=detectorSession?[detectorSession]:[];pipeline=undefined;throw error;
+    await embedderSession?.release().catch(()=>{});
+    embedderSession=undefined;pipeline=undefined;throw error;
   }
 }
 let pixelCanvas:OffscreenCanvas|undefined;
@@ -134,7 +161,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:Pick<RecognizeOptions,'region'> } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:Pick<RecognizeOptions,'region'> } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -142,13 +169,13 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   queue = queue.then(async () => {
     const queueMs=performance.now()-receivedAt;
     try {
-      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); reply({ id: message.id, result: null, detectorBackend:detectorSession!.backend }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); reply({ id: message.id, result: null }); }
       else {
-        if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
+        if(!configuration)throw new Error('Recognizer has not initialized');
         if (message.type === 'checkWebGpu') {
-          const { profile, backend, runtimeBase } = configuration;
-          const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu);
-          sessions.push(embedder);
+          const { profile, backend, runtimeBase, threads } = configuration;
+          const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads});
+          const detectorSession = await ensureDetector();
           const timings: Record<string, number> = {};
           let start = performance.now();
           await embedImages(embedder, Tensor, profile.embedding, [{ width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4).fill(128) }]);
@@ -159,12 +186,13 @@ scope.onmessage = (event: MessageEvent<Request>) => {
           reply({ id: message.id, result: { ...backendStatus(), timingsMs: timings, runtime: runtimeDiagnostics() } }); return;
         }
         if(message.type==='detect') {
+          const detectorSession=await ensureDetector();
           const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
-          const split=last?{preprocess:last.preprocessMs,run:last.runMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.decodeMs)}:{};
-          reply({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:detectMs,...split,worker:performance.now()-start}});return;
+          const split=last?{preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};
+          reply({id:message.id,result,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:detectMs,...split,worker:performance.now()-start}});return;
         }
         if(message.type==='aiCrop') {
           const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');
@@ -179,7 +207,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
             if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
             preparedOptions=message.opts;
           }
-          reply({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'},detectorBackend:detectorSession.backend});return;}
+          reply({id:message.id,result:{backend:backendStatus().backend}});return;}
         if(learningCache) {
           const learning=learningCache.current();
           pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});

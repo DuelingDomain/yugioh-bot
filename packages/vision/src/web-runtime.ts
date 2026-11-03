@@ -53,6 +53,10 @@ export interface WebRuntimeDeps {
   fetch?: typeof fetch;
   crossOriginIsolated?: boolean;
   hardwareConcurrency?: number;
+  /** WASM threads for this worker (a split recognizer gives each worker its share); default wasmThreads(cores). */
+  wasmThreads?: number;
+  /** Outputs a WebGPU session keeps in GPU buffers (the caller reads back only what it needs and disposes them). */
+  gpuOutputs?: readonly string[];
 }
 
 export interface WebRuntime {
@@ -90,7 +94,7 @@ export function webRuntime(deps: WebRuntimeDeps = {}): WebRuntime {
   // A string prefix makes ORT load its own .mjs/.wasm from the package (never a CDN),
   // so its thread workers start from that file rather than from the offscreen bundle.
   ort.env.wasm.wasmPaths = getURL('ort/');
-  ort.env.wasm.numThreads = isolated ? wasmThreads(cores) : 1;
+  ort.env.wasm.numThreads = isolated ? Math.max(1, Math.floor(deps.wasmThreads ?? wasmThreads(cores))) : 1;
   // This shipped binary contains fixed-width SIMD; require feature detection explicitly.
   ort.env.wasm.simd = true;
 
@@ -246,11 +250,16 @@ export interface RuntimeSession extends SessionLike {
   readonly ep: 'webgpu' | 'wasm';
   readonly fallbackReason: string | undefined;
   readonly gpuDiagnostics: WebGpuDiagnostics | undefined;
+  /** The GPUDevice of the active WebGPU session (output buffers kept on the GPU belong to it); undefined on WASM. */
+  readonly gpuDevice: unknown;
+  /** A GPU-resident output proved bad after run() returned: switch graph or provider as a failed run would. */
+  reportGpuFailure(e: unknown): Promise<void>;
   release(): Promise<void>;
 }
 
 interface Opened {
   ort: WebOrt;
+  device?: GpuDeviceLike;
   session: { run(feeds: Record<string, unknown>): Promise<Record<string, TensorLike | undefined>>; release?(): Promise<void> };
 }
 
@@ -271,6 +280,9 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** False when a float32 output holds a NaN or an infinity (a plain loop: a detector output is about 1M floats). */
 function isFinite32(t: TensorLike | undefined): boolean {
+  // A GPU-resident output throws on .data; its reader checks what it reads back.
+  const location = (t as { location?: string } | undefined)?.location;
+  if (location && location !== 'cpu') return true;
   if (!(t?.data instanceof Float32Array)) return true;
   const d = t.data;
   for (let i = 0; i < d.length; i++) if (d[i] - d[i] !== 0) return false;
@@ -301,8 +313,12 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   });
   /** A WebGPU session, created after the ones before it: see gpuCreates. */
   const createOnGpu = (ort: WebOrt, bytes: Uint8Array, device?: GpuDeviceLike): Promise<Opened> => {
-    const options = device ? { ...WEBGPU_SESSION_OPTIONS, executionProviders: [{ name: 'webgpu', device }] } : WEBGPU_SESSION_OPTIONS;
-    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(() => create(ort, bytes, options));
+    const base = device ? { ...WEBGPU_SESSION_OPTIONS, executionProviders: [{ name: 'webgpu', device }] } : WEBGPU_SESSION_OPTIONS;
+    // GPU-resident outputs need our own device to read them back sparsely.
+    const options = device && deps.gpuOutputs?.length
+      ? { ...base, preferredOutputLocation: Object.fromEntries(deps.gpuOutputs.map(name => [name, 'gpu-buffer' as const])) }
+      : base;
+    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(async () => ({ ...(await create(ort, bytes, options as ortWasm.InferenceSession.SessionOptions)), device }));
     gpuCreates.set(ort, created.catch(() => {}));
     return created;
   };
@@ -397,9 +413,30 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     }
   }
 
+  /**
+   * A WebGPU run failed (or its GPU-resident output read back non-finite): an fp16 graph is replaced by
+   * the float32 graph on the same GPU first (true: run again on it), otherwise WASM takes over (false).
+   */
+  async function gpuFailed(e: unknown): Promise<boolean> {
+    // An fp16 session may load successfully, then fail during shader compilation.
+    // Try the float32 graph on the same GPU before selecting CPU.
+    if (deps.gpuFp32ModelPath && gpuDiagnostics && gpuDiagnostics.modelPath === deps.gpuModelPath) {
+      gpuDiagnostics.attempts.push(`fp16 inference failed: ${errorText(e)}; retry float32 WebGPU`);
+      const replacement = await openWebGpu(true);
+      if (replacement) {
+        void active.session.release?.().catch(() => {});
+        active = replacement; runs = 0; compiledShapes.clear();
+        return true;
+      }
+    }
+    await toWasm('failed', new Error([errorText(e), fallbackReason].filter(Boolean).join('; ')));
+    return false;
+  }
+
   const session: RuntimeSession = {
     get fallbackReason() { return fallbackReason; },
     get gpuDiagnostics() { return gpuDiagnostics; },
+    get gpuDevice() { return ep === 'webgpu' ? active.device : undefined; },
     get ep() {
       return ep;
     },
@@ -421,23 +458,13 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
           throw new Error('an output that is not finite');
         } catch (e) {
           if (e instanceof WebGpuTimeout) await toWasm('got stuck', e, running);
-          else {
-            // An fp16 session may load successfully, then fail during shader compilation.
-            // Try the float32 graph on the same GPU before selecting CPU.
-            if (deps.gpuFp32ModelPath && gpuDiagnostics && gpuDiagnostics.modelPath === deps.gpuModelPath) {
-              gpuDiagnostics.attempts.push(`fp16 inference failed: ${errorText(e)}; retry float32 WebGPU`);
-              const replacement = await openWebGpu(true);
-              if (replacement) {
-                void active.session.release?.().catch(() => {});
-                active = replacement; runs = 0; compiledShapes.clear();
-                return session.run(feeds);
-              }
-            }
-            await toWasm('failed', new Error([errorText(e), fallbackReason].filter(Boolean).join('; ')));
-          }
+          else if (await gpuFailed(e)) return session.run(feeds);
         }
       }
       return active.session.run(feeds);
+    },
+    async reportGpuFailure(e) {
+      if (ep === 'webgpu') await gpuFailed(e);
     },
     release: async () => {
       await active.session.release?.();
