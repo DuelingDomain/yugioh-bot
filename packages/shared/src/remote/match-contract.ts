@@ -7,7 +7,15 @@ export type RemoteSideDeckChanges = Pick<DuelDeck, "main" | "extra" | "side">;
 export type RemoteGameResult = {
   n: number; winnerSeat: number | null; reason: "lp" | "concede" | "declared" | "timeout"; endedAt: number;
 };
-export type RemoteSiding = { deadline: number; ready: number[]; extendedFor: number[] };
+export type RemoteSiding = {
+  /** Last seat's siding deadline; the game never starts just because one seat expires. */
+  deadline: number;
+  /** Optional only for snapshots recorded before explicit seat deadlines. */
+  seatDeadlines?: Record<number, number>;
+  /** Set when everyone is ready but the chooser has not picked a first player. */
+  firstChoiceDeadline?: number;
+  ready: number[]; extendedFor: number[];
+};
 export type RemoteMatch = {
   bestOf: RemoteBestOf;
   games: RemoteGameResult[];
@@ -21,6 +29,7 @@ export type RemoteMatch = {
 
 export const REMOTE_SIDE_MS = 180_000;
 export const REMOTE_SIDE_DECK_MS = 300_000;
+export const REMOTE_FIRST_CHOICE_MS = 20_000;
 export const remoteBestOfSchema = z.union([z.literal(1), z.literal(3)]);
 const codes = z.array(z.number().int().positive().max(0xffffffff));
 export const remoteSideDeckChangesSchema = z.strictObject({
