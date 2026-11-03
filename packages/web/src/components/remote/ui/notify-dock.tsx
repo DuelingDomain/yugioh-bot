@@ -16,7 +16,7 @@ const readOffset = (seat: number): Offset => {
  * A header (shown only while something is waiting) holds the drag handle, a minimize button that leaves a small chip with a count, and a reset.
  * Content is portaled into `data-notify-slot`; the position is kept per device.
  */
-export function NotifyDock({ seat, onSlot, stage }: { stage?: boolean; seat: number; onSlot: (seat: number, node: HTMLElement | null) => void }) {
+export function NotifyDock({ seat, onSlot }: { seat: number; onSlot: (seat: number, node: HTMLElement | null) => void }) {
   const root = useRef<HTMLDivElement>(null); const slot = useRef<HTMLDivElement | null>(null);
   const [count, setCount] = useState(0); const [open, setOpen] = useState(true); const [offset, setOffset] = useState<Offset>({ dx: 0, dy: 0 });
   const drag = useRef<{ x: number; y: number; from: Offset } | null>(null);
@@ -52,7 +52,7 @@ export function NotifyDock({ seat, onSlot, stage }: { stage?: boolean; seat: num
     if (!move) return; event.preventDefault(); event.stopPropagation(); save(clamp({ dx: offset.dx + move[0], dy: offset.dy + move[1] }, offset));
   };
   const reset = () => save({ dx: 0, dy: 0 });
-  return <div ref={root} className={`${s.seatDock} ${stage ? s.stageDock : ""}`} data-seat-dock={seat} data-count={count} data-open={open ? "1" : "0"} role="region" aria-label="Card detection notifications" data-testid={`notify-dock-${seat}`}
+  return <div ref={root} className={s.seatDock} data-seat-dock={seat} data-count={count} data-open={open ? "1" : "0"} role="region" aria-label="Card detection notifications" data-testid={`notify-dock-${seat}`}
     style={{ transform: `translate(${offset.dx}px, ${offset.dy}px)` }}>
     {count > 0 ? <div className={s.ndHead} onDoubleClick={reset}>
       <button type="button" className={s.ndGrip} aria-label="Move notifications. Drag, or use the arrow keys. Double click to reset." title="Drag to move. Double click to reset." onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}>

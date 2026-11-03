@@ -501,7 +501,7 @@
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
 /* Notification stack: recognition prompts, notices and toasts live here, never over a camera image.
-   Both views: one stack per seat panel, beside that player's own virtual field (draggable, minimizable). Webcam only: one stack in the thumbnail column. */
+   Both views: one stack per seat panel, beside that player's own virtual field (draggable, minimizable). Webcam only: the same, beside that player's own feed. */
 .seatDock{position:absolute;right:10px;bottom:76px;z-index:30;width:min(280px,calc(100% - 20px));max-height:min(62%,420px);display:flex;flex-direction:column;justify-content:flex-end;gap:4px;pointer-events:none;overscroll-behavior:contain}
 .seatDock>*{pointer-events:auto}
 .seatDock[data-count="0"]{display:none}
@@ -514,8 +514,6 @@
 .ndBtn:hover{border-color:var(--pen)}
 .ndSlot{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto}
 .ndSlot[hidden]{display:none}
-.stageDock{position:absolute;right:var(--gap);bottom:var(--gap);width:min(300px,32vw);max-height:min(62%,560px)}
-.app:not([data-wc]) .stageDock{display:none}
 .toastsDocked{display:flex;flex-direction:column;gap:6px;pointer-events:none}
 .toastsDocked:empty{display:none}
 .toastsDocked .toast{padding:8px 12px;font-size:13px;line-height:1.35}
@@ -590,72 +588,42 @@
 .app{-webkit-touch-callout:none}
 .app :is(input,textarea,[contenteditable]){-webkit-touch-callout:default}
 @container seat (max-aspect-ratio:1.55){
-  .seat[data-wc]:not([data-thumb]) .sbody{justify-content:center}
-  .seat[data-wc]:not([data-thumb]) .feedcol{flex:0 1 auto;width:100%}
-  .seat[data-wc]:not([data-thumb]) .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 190px) * var(--vr)));max-height:none}
+  .seat[data-wc] .sbody{justify-content:center}
+  .seat[data-wc] .feedcol{flex:0 1 auto;width:100%}
+  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 190px) * var(--vr)));max-height:none}
 }
 @container seat (min-aspect-ratio:1.55){
-  .seat[data-wc]:not([data-thumb]) .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
-  .seat[data-wc]:not([data-thumb]) .feedcol{--cellw:calc(100cqw - 26px - 128px);justify-content:center}
-  .seat[data-wc]:not([data-thumb]) .fside{align-self:center;justify-content:flex-start}
-  .seat[data-wc]:not([data-thumb]) .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
-  .seat[data-wc]:not([data-thumb]) .lpn{font-size:34px}
-  .seat[data-wc]:not([data-thumb]) .lpin{width:100%;margin:0;order:4}
-  .seat[data-wc]:not([data-thumb]) .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
-  .seat[data-wc]:not([data-thumb]) .lpbtn button{height:28px}
+  .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
+  .seat[data-wc] .feedcol{--cellw:calc(100cqw - 26px - 128px);justify-content:center}
+  .seat[data-wc] .fside{align-self:center;justify-content:flex-start}
+  .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
+  .seat[data-wc] .lpn{font-size:34px}
+  .seat[data-wc] .lpin{width:100%;margin:0;order:4}
+  .seat[data-wc] .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
+  .seat[data-wc] .lpbtn button{height:28px}
 }
 
-.seat[data-thumb] .nofeed{padding:4px;gap:4px;font-size:11px}
-.seat[data-thumb] .nofeed :is(span,button){display:none}
-/* Webcam only, desktop: one camera large (the focused seat, yours by default) and the other seats as small thumbnails in a column.
-   A click on a thumbnail swaps the focus. The rail stays on top, LP is a column beside the large camera. */
+/* Webcam only: every seat keeps the normal table grid, so all camera feeds get the same width. Each seat shows its slim header, its feed at 16:9 and its notices. */
 .vhide{border-color:rgb(232 185 79/.55);color:var(--gold-ink);display:inline-flex;align-items:center;gap:6px}
 .vhide:hover{border-color:var(--gold);background:rgb(232 185 79/.12)}
 .vhide kbd{padding:1px 4px;font-size:10px}
 @container seat (max-width:760px){.vhide kbd{display:none}}
-.thumblp{display:none;margin-left:auto;font-weight:800;font-size:14px;color:var(--ink)}
-.thumbhit{display:none}
-@media (min-width:901px){
-  .app[data-wc] .stageDock{width:var(--thumbw);bottom:var(--gap)}
-  .app[data-wc] .stage{--thumbw:clamp(190px,14vw,280px);grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
-  .app[data-wc][data-mode] .stage{grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
-  .app[data-wc] .rail{grid-area:auto;grid-column:1 / -1;grid-row:1}
-  .app[data-wc] .seat{grid-area:auto;grid-column:2;grid-row:auto}
-  .app[data-wc] .seat:not([data-thumb]){grid-column:1;grid-row:2 / -1}
-  .app[data-wc] .seat[data-thumb]{cursor:pointer;align-self:start;height:calc(var(--thumbw) * .5625 + 28px)}
-  .app[data-wc] .seat[data-thumb] .sh{padding:4px 8px;min-height:28px}
-  .app[data-wc] .seat[data-thumb] .nm{font-size:14px}
-  .app[data-wc] .seat[data-thumb] :is(.wcpiles,.sundo,.tag.you,.micI,.hl,.sp,.vtog,.fside,.tag.nextt){display:none}
-  .app[data-wc] .seat[data-thumb] .thumblp{display:block}
-  .app[data-wc] .seat[data-thumb] .sbody{padding:0 6px 6px}
-  .app[data-wc] .seat[data-thumb] .feedcol{--cellw:calc(var(--thumbw) - 14px);flex:none;min-height:0}
-  .app[data-wc] .seat[data-thumb] .feedcol>:not(.cams){display:none}
-  .app[data-wc] .seat[data-thumb] .thumbhit{display:block;position:absolute;inset:0;z-index:5;border:0;border-radius:inherit;background:transparent;cursor:pointer}
-  .app[data-wc] .seat[data-thumb] .thumbhit:hover,.app[data-wc] .seat[data-thumb] .thumbhit:focus-visible{box-shadow:inset 0 0 0 2px var(--gold);background:rgb(232 185 79/.06)}
-}
+.seat[data-wc]{grid-template-columns:minmax(0,1fr)}
+.seat[data-wc] .sh{overflow:hidden}
+/* Every feed gets the same height budget, so a seat with the camera controls row and a seat without it show equal feeds. */
+.seat[data-wc] .feedcol:not(:has(.camsel)){padding-bottom:42px}
+.seat[data-wc] .sh{min-width:0}
+@container seat (max-width:560px){.seat[data-wc] :is(.tag.you,.hlt,.sul){display:none}.seat[data-wc] .vhide{padding:0 6px}}
+.seat[data-wc] .seatDock{bottom:8px;max-height:min(34%,240px)}
 @media (max-width:900px){
   .vlong{display:none}
   .viewseg button{padding:6px 9px}
   .wcbattle{top:8px}
-  /* Webcam only on a phone: the focused camera is full width, the other seats are thumbnails in a row under it. */
-  .app[data-wc] .stage{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
-  .app[data-wc] .stage>*{flex:0 0 100%}
-  .app[data-wc] .stage>.seat:not([data-thumb]){order:2}
-  .app[data-wc] .stage>.seat[data-thumb]{order:3;flex:0 0 calc((100% - 20px) / 3);position:relative;cursor:pointer}
-  .app[data-wc] .seat[data-thumb] :is(.wcpiles,.sundo,.tag.you,.micI,.hl,.sp,.vtog,.fside,.tag.nextt,.lp){display:none}
-  .app[data-wc] .seat[data-thumb] .sh{padding:4px 6px;min-height:26px}
-  .app[data-wc] .seat[data-thumb] .nm{font-size:13px}
-  .app[data-wc] .seat[data-thumb] .thumblp{display:block;font-size:12px}
-  .app[data-wc] .seat[data-thumb] .sbody{padding:0 4px 4px}
-  .app[data-wc] .seat[data-thumb] .feedcol>:not(.cams){display:none}
-  .app[data-wc] .seat[data-thumb] .thumbhit{display:block;position:absolute;inset:0;z-index:5;border:0;border-radius:inherit;background:transparent}
-  .app[data-wc] .stage>.rail{order:1}.app[data-wc] .stage>.lpstrip{order:0}
 }
 
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
-  .stageDock{position:fixed;left:8px;right:8px;bottom:calc(var(--bar,0px) + var(--dock) + 8px);width:auto;max-height:40dvh}
   .seatDock{bottom:12px;max-height:46%}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}

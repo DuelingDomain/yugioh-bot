@@ -708,8 +708,10 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
-    // My camera is the large one. The other seat is a thumbnail.
-    await expect(page.getByTestId("thumb-1")).toBeVisible(); await expect(page.getByTestId("thumb-0")).toHaveCount(0);
+    // Every camera feed has the same size, side by side. No seat is a thumbnail.
+    await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeHidden();
+    const widths = await Promise.all([0, 1].map(seat => page.getByTestId(`feed-box-${seat}`).evaluate(el => el.getBoundingClientRect().width)));
+    expect(Math.abs(widths[0] - widths[1])).toBeLessThanOrEqual(2);
     // The Graveyard and Banished counts sit in the seat header, one click from their pile.
     await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
     // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
@@ -721,16 +723,15 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
-    // Notices (here the undo toast) sit in the notification stack beside the thumbnails, never over the camera. Recognition prompts use the same stack.
+    // Notices (here the undo toast) sit in my own seat's stack, never over the camera. Recognition prompts use the same stack.
     await page.keyboard.press("Control+z");
     const toasts = page.getByTestId("toasts"); await expect(toasts).toContainText("Undid");
-    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock--1").boundingBox()]);
+    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock-0").boundingBox()]);
       return !!a && !!b && !!c && (a.x >= b.x + b.width - 1 || a.y >= b.y + b.height - 1) && a.x >= c.x - 1 && a.y >= c.y - 1; };
     expect(await apart()).toBe(true);
-    await expect(page.getByTestId("notify-dock--1").getByTestId("toasts")).toBeVisible();
+    await expect(page.getByTestId("notify-dock-0").getByTestId("toasts")).toBeVisible(); await shot(page, "webcam-only-notice-1920");
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-    // A click on a thumbnail makes that camera the large one, with its own labelled "Show virtual field" button. W switches the view.
-    await page.getByTestId("thumb-1").click(); await expect(page.getByTestId("thumb-0")).toBeVisible(); await expect(page.getByTestId("thumb-1")).toHaveCount(0);
+    // W switches the view. Each seat has its own "Hide virtual field" button.
     await expect(page.getByTestId("field-toggle-1")).toContainText("Show virtual field");
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
     await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();

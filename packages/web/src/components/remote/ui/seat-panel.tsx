@@ -41,7 +41,6 @@ export type SeatPanelProps = {
   /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
   undo?: SeatUndo;
   /** The virtual field is hidden. The camera feed takes its space. */ webcamOnly?: boolean;
-  /** Webcam only, not the focused seat: a small camera thumbnail. A click makes it the focused seat. */ thumb?: boolean; onFocus?: () => void;
   /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** Camera card info for webcam only (click and hover), and the card actions on right click or long press (always). Same shapes as on the feed. */
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
@@ -82,7 +81,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={p.webcamOnly || undefined} data-thumb={p.thumb || undefined} data-swapping={swapping || undefined}>
+  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={p.webcamOnly || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
@@ -98,8 +97,7 @@ export function SeatPanel(p: SeatPanelProps) {
         aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${p.undo.reason ? p.undo.reason + ". " : ""}Shortcut Ctrl Z` : "Nothing to undo"}
         title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
         <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
-      {p.thumb ? <span className={`${s.thumblp} ${s.num}`} data-testid={`thumb-lp-${p.seat}`}>{p.lp}</span> : null}
-      {p.onToggleView && !p.thumb ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
+      {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
         title={p.webcamOnly ? "Show the virtual fields again (W)" : "Hide the virtual fields. The camera takes the screen (W)"}>
         {p.webcamOnly ? "Show virtual field" : "Hide virtual field"} <kbd>W</kbd></button> : null}
       {p.webcamOnly ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
@@ -109,8 +107,7 @@ export function SeatPanel(p: SeatPanelProps) {
         <span className={s.sig}><i /><i /><i /><i /></span><i className={s.hlt}>{p.health.label}</i>
       </button>
     </header>
-    {p.thumb ? <button type="button" className={s.thumbhit} onClick={p.onFocus} data-testid={`thumb-${p.seat}`} aria-label={`Show ${p.name}'s camera large`} title={`Show ${p.name}'s camera large`} /> : null}
-    {p.onDock && !p.webcamOnly ? <NotifyDock seat={p.seat} onSlot={p.onDock} /> : null}
+    {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} /> : null}
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.webcamOnly ? p.onZoneCard : undefined} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         below={p.cameraControl}

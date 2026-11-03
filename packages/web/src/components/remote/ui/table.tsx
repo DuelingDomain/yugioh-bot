@@ -118,10 +118,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const nameOfCard = (id: number | undefined) => info(id)?.name;
 
   // ---- toasts, banner, peek ----
-  const [dockEl, setDockEl] = useState<HTMLElement | null>(null);
-  // One notification slot per seat panel (Both view). Webcam only uses the one beside the thumbnails.
+  // One notification slot per seat panel, beside that player's own feed or field.
   const [seatDocks, setSeatDocks] = useState<Record<number, HTMLElement | null>>({});
-  const onStageDock = useCallback((_seat: number, node: HTMLElement | null) => setDockEl(node), []);
   const onSeatDock = useCallback((seat: number, node: HTMLElement | null) => setSeatDocks(old => old[seat] === node ? old : { ...old, [seat]: node }), []);
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
   const toast = useCallback((text: ReactNode, ms = 2800) => { const id = ++toastId.current; setToasts(list => [...list.slice(-2), { id, text }]); setTimeout(() => setToasts(list => list.filter(item => item.id !== id)), ms); }, []);
@@ -265,9 +263,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setWebcamOnlyState(next);
     try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
   }, []);
-  // Webcam only shows one camera large (yours by default) and the other seats as small thumbnails. A click on a thumbnail swaps the focus.
-  const [focusPick, setFocusPick] = useState<number | null>(null);
-  const focusSeat = [focusPick, mySeat, state.turnSeat].find(seat => seat !== null && seatIds.includes(seat)) ?? seatIds[0];
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -926,7 +921,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
   });
   return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
-    <AutoFieldWatcher dock={webcamOnly ? dockEl : seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
+    <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}
@@ -944,7 +939,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
-        <NotifyDock seat={-1} stage onSlot={onStageDock} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -961,7 +955,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onDock={onSeatDock} thumb={webcamOnly && seat !== focusSeat} onFocus={() => setFocusPick(seat)} onToggleView={() => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onDock={onSeatDock} onToggleView={() => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
@@ -999,7 +993,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
-    {tray ? <RecognitionTray dock={webcamOnly ? dockEl : seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
+    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
@@ -1023,6 +1017,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         } : undefined} />;
     })() : null}
     <Peek peek={peek} />
-    <Toasts items={toasts} dock={webcamOnly ? dockEl : seatDocks[mySeat] ?? null} />
+    <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
   </div>;
 }
