@@ -4,13 +4,15 @@ import type { DetectedQuad, Point } from './types';
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
 export type FieldFormat = 'normal' | 'domain' | 'genesys' | 'genesys-domain';
 export const hasExtraMonsterZones = (format:FieldFormat='normal') => format==='normal'||format==='domain';
-/** One M/S column in mat units. The pile columns beside them are a little wider than this, so a deck-sized card fits with a margin. */
+/** One column in mat units. The mat has 7 equal columns (Field/Extra, M1-M5/S1-S5, GY/Deck/Banished), as on the real mat. */
 export const FIELD_ZONE_PITCH=.136;
+/** One row in mat units: three equal rows (Extra Monster + Banished, monsters, spells/traps), so every zone is one card-sized slot. */
+export const FIELD_ROW=1/3;
 export const normalizeZoneSpacing=(value=1)=>Number.isFinite(value)?Math.max(.85,Math.min(1.4,value)):1;
 /** Horizontal zoom around M3/S3: spacing scales both the pitch and cell width. */
 export const fieldZoneLayout=(zoneSpacing=1)=>{const spacing=normalizeZoneSpacing(zoneSpacing),pitch=FIELD_ZONE_PITCH*spacing;return {pitch,start:.5-2.5*pitch,end:.5+2.5*pitch,minX:.5-.5*spacing,maxX:.5+.5*spacing};};
 const FIELD_ZONE_START=.5-2.5*FIELD_ZONE_PITCH,FIELD_ZONE_END=.5+2.5*FIELD_ZONE_PITCH;
-const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=FIELD_ZONE_START+FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+2*FIELD_ZONE_PITCH)||(x>=FIELD_ZONE_START+3*FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+4*FIELD_ZONE_PITCH));
+const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<FIELD_ROW&&((x>=FIELD_ZONE_START+FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+2*FIELD_ZONE_PITCH)||(x>=FIELD_ZONE_START+3*FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+4*FIELD_ZONE_PITCH));
 /** A zone rectangle in mat units (0..1 across and down, seen from the owner's seat). */
 export interface ZoneRect { x: number; y: number; w: number; h: number }
 /** Per-zone rectangles the player moved or resized, by zone id. Other zones keep the default layout. */
@@ -35,16 +37,17 @@ export const unscaleZoneRect=(r:ZoneRect,zoneSpacing=1):ZoneRect=>{const spacing
 /**
  * The single zone geometry: the default Master Rule layout (zoneSpacing widens it around M3/S3), with the player's
  * per-zone rectangles on top. Overrides are kept at spacing 1 and scaled with the spacing, so the gaps stay as edited.
- * GY and the M row are as tall as a card; Banished beside the Extra Monster row is the one short zone.
+ * Every zone is one slot of the same size: 7 columns by 3 rows. The top row holds the two Extra Monster Zones (above M2 and M4)
+ * and Banished (above GY); Field and Extra sit left of the M and S rows, GY and Deck right of them.
  */
 export function fieldZoneCells(format: FieldFormat = 'normal', zoneSpacing = 1, zones?: ZoneOverrides): FieldZoneCell[] {
-  const emz = hasExtraMonsterZones(format), { pitch, start, end, minX, maxX } = fieldZoneLayout(zoneSpacing), side = start - minX;
+  const emz = hasExtraMonsterZones(format), { pitch, start, end } = fieldZoneLayout(zoneSpacing), R = FIELD_ROW;
   const base: FieldZoneCell[] = [
-    { zone: 'FIELD', label: 'Field', x: minX, y: 0, w: side, h: .56 }, { zone: 'EXTRA', label: 'Extra', x: minX, y: .56, w: side, h: .44 },
-    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: maxX - end, h: .2 }, { zone: 'GY', label: 'GY', x: end, y: .2, w: maxX - end, h: .36 }, { zone: 'DECK', label: 'Deck', x: end, y: .56, w: maxX - end, h: .44 },
-    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: emz ? .2 : 0, w: pitch, h: emz ? .36 : .56 })),
-    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: .56, w: pitch, h: .44 })),
-    ...(emz ? [{ zone: 'EMZ1', label: 'EMZ', x: start + pitch, y: 0, w: pitch, h: .2 }, { zone: 'EMZ2', label: 'EMZ', x: start + 3 * pitch, y: 0, w: pitch, h: .2 }] : []),
+    { zone: 'FIELD', label: 'Field', x: start - pitch, y: R, w: pitch, h: R }, { zone: 'EXTRA', label: 'Extra', x: start - pitch, y: 2 * R, w: pitch, h: R },
+    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: pitch, h: R }, { zone: 'GY', label: 'GY', x: end, y: R, w: pitch, h: R }, { zone: 'DECK', label: 'Deck', x: end, y: 2 * R, w: pitch, h: R },
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: R, w: pitch, h: R })),
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: 2 * R, w: pitch, h: R })),
+    ...(emz ? [{ zone: 'EMZ1', label: 'EMZ', x: start + pitch, y: 0, w: pitch, h: R }, { zone: 'EMZ2', label: 'EMZ', x: start + 3 * pitch, y: 0, w: pitch, h: R }] : []),
   ];
   const own = normalizeZones(zones);
   return own ? base.map(c => own[c.zone] ? { ...c, ...scaleZoneRect(own[c.zone], zoneSpacing) } : c) : base;
@@ -67,9 +70,9 @@ export function zoneCellAt<T extends ZoneRect>(point: Point, cells: readonly T[]
 function bandZone({ x: mx, y }: Point, zoneSpacing: number | undefined, format: FieldFormat): FieldZone {
   const x = .5 + (mx - .5) / normalizeZoneSpacing(zoneSpacing);
   if (inExtraMonsterRow({ x, y }, format)) return x < .5 ? 'EMZ1' : 'EMZ2';
-  if (x < FIELD_ZONE_START) return y < .56 ? 'FIELD' : 'EXTRA';
-  if (x >= FIELD_ZONE_END - 1e-9) return y < .2 ? 'BANISHED' : y < .56 ? 'GY' : 'DECK';
-  return `${y < .56 ? 'M' : 'S'}${Math.max(1, Math.min(5, Math.floor((x - FIELD_ZONE_START) / FIELD_ZONE_PITCH) + 1))}` as FieldZone;
+  if (x < FIELD_ZONE_START) return y < 2 * FIELD_ROW ? 'FIELD' : 'EXTRA';
+  if (x >= FIELD_ZONE_END - 1e-9) return y < FIELD_ROW ? 'BANISHED' : y < 2 * FIELD_ROW ? 'GY' : 'DECK';
+  return `${y < 2 * FIELD_ROW ? 'M' : 'S'}${Math.max(1, Math.min(5, Math.floor((x - FIELD_ZONE_START) / FIELD_ZONE_PITCH) + 1))}` as FieldZone;
 }
 /**
  * The one "which zone is at this mat point" rule, for card assignment, hover and click, straddle checks and the editor.
@@ -96,8 +99,8 @@ export function fieldZoneBounds(calibration?: Pick<FieldCalibration, 'zoneSpacin
 export type PlayerSide = 'bottom' | 'left' | 'top' | 'right';
 export interface FieldOrientation { playerSide: PlayerSide; mirrored: boolean }
 /** Corners are image-clockwise from image top-left. Missing orientation is legacy/unconfirmed. */
-/** `layout: 2` = made with the current zone layout (wider piles). A saved calibration without it lines its zones up differently and must be checked again. */
-export const FIELD_ZONE_LAYOUT = 2;
+/** `layout: 3` = made with the current zone layout (7 columns by 3 rows of equal slots). A saved calibration without it lines its zones up differently and must be checked again. */
+export const FIELD_ZONE_LAYOUT = 3;
 export interface FieldCalibration { version: 1; layout?: typeof FIELD_ZONE_LAYOUT; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number; zones?: ZoneOverrides }
 export const DEFAULT_FIELD_ORIENTATION: FieldOrientation = {playerSide:'bottom',mirrored:false};
 const sides: PlayerSide[] = ['bottom','left','top','right'];
@@ -190,7 +193,7 @@ export function createTwoCardCalibration(cards:DetectedQuad[],monsterIndex?:numb
       const ordered=cycle(other,second),shapeError=Math.sqrt(ordered.reduce((sum,p,i)=>sum+(p.x-center.x-rectangle[i].x)**2+(p.y-center.y-rectangle[i].y)**2,0)/4);if(shapeError>.15)continue;
       const b=cycle(outlines[1],second),world=[...rectangle,...rectangle.map(p=>({x:p.x+4*pitch,y:p.y}))],image=[...a,...b],h=fitPlane(world,image);
       const error=Math.sqrt(world.reduce((sum,p,i)=>{const q=project(h,p);return sum+(q.x-image[i].x)**2+(q.y-image[i].y)**2;},0)/8);if(error>.12*Math.sqrt(polygonArea(a)))continue;
-      const width=pitch/FIELD_ZONE_PITCH,height=(aspect+pitch-1)/.4,corners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-.38)*height})),denominators=corners.map(p=>h[6]*p.x+h[7]*p.y+1);
+      const width=pitch/FIELD_ZONE_PITCH,height=(aspect+pitch-1)/FIELD_ROW,corners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-1.5*FIELD_ROW)*height})),denominators=corners.map(p=>h[6]*p.x+h[7]*p.y+1);
       if(!denominators.every(w=>w>1e-6)&&!denominators.every(w=>w< -1e-6))continue;
       const calibration=createFieldCalibration(corners.map(p=>project(h,p)));if(!best||error<best.error)best={error,calibration};
     }
@@ -225,7 +228,7 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
       const b=cycle(outlines[1],second,reverse),world=[...rectangle,...rectangle.map(p=>({x:p.x+4*pitch,y:p.y+rowPitch}))],image=[...a,...b],h=fitPlane(world,image);
       const error=Math.sqrt(world.reduce((sum,p,i)=>{const q=project(h,p);return sum+(q.x-image[i].x)**2+(q.y-image[i].y)**2;},0)/8);
       if(error>.12*Math.sqrt(polygonArea(a)))continue;
-      const width=pitch/FIELD_ZONE_PITCH,height=rowPitch/.4,worldCorners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-.38)*height}));
+      const width=pitch/FIELD_ZONE_PITCH,height=rowPitch/FIELD_ROW,worldCorners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-1.5*FIELD_ROW)*height}));
       const denominators=worldCorners.map(p=>h[6]*p.x+h[7]*p.y+1);
       if(!denominators.every(w=>w>1e-6)&&!denominators.every(w=>w< -1e-6))continue;
       const playerCorners=worldCorners.map(p=>project(h,p)),middle=fieldCenter({quad:playerCorners});
@@ -247,8 +250,8 @@ export function fieldOrientation(card:DetectedQuad,width:number,height:number,ca
   const p=card.quad.map(q=>{
     if(!calibration)return {x:q.x*width,y:q.y*height};
     const mat=onMat(q,calibration);
-    // A row pitch spans .4. Portrait cards are 59:86.
-    return {x:mat.x/(FIELD_ZONE_PITCH*normalizeZoneSpacing(calibration?.zoneSpacing)),y:mat.y/.4*(86/59)};
+    // A row pitch spans one third. Portrait cards are 59:86.
+    return {x:mat.x/(FIELD_ZONE_PITCH*normalizeZoneSpacing(calibration?.zoneSpacing)),y:mat.y/FIELD_ROW*(86/59)};
   });
   const edges=p.map((a,i)=>{const b=p[(i+1)%4];return {dx:b.x-a.x,dy:b.y-a.y,length:Math.hypot(b.x-a.x,b.y-a.y)};}).sort((a,b)=>b.length-a.length);
   const axis=edges[0];return Math.abs(axis.dx)>Math.abs(axis.dy)*1.15?'defense':'attack';

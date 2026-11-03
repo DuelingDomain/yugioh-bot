@@ -529,22 +529,25 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   const calibration=createFieldCalibration(points,{playerSide,mirrored:false},spacing);
   const cells=fieldGridCells('normal',spacing),main=cells.filter(c=>/^M/.test(c.zone));
   expect(calibration.zoneSpacing).toBe(spacing);
+  // Every zone is one slot of the same size, and EMZ sits right above M2 and M4.
+  for(const c of cells){expect(c.w).toBeCloseTo(main[0].w);expect(c.h).toBeCloseTo(main[0].h);}
+  expect(cells.find(c=>c.zone==='EMZ1')!.x).toBeCloseTo(main[1].x);expect(cells.find(c=>c.zone==='EMZ2')!.x).toBeCloseTo(main[3].x);
   expect(main[2].w).toBeCloseTo(FIELD_ZONE_PITCH*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
   for(const cell of main.slice(1,4)){
-   const x=cell.x+cell.w/2,y=.38,hw=.4*cell.w,quad=[[-hw,-.045],[hw,-.045],[hw,.045],[-hw,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
+   const x=cell.x+cell.w/2,y=cell.y+cell.h/2,hw=.4*cell.w,hh=.4*cell.h,quad=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
    expect(mapFieldZone({quad,kind:'face-down',confidence:.9,partial:false},calibration).zone).toBe(cell.zone);
    expect(straddledZones(quad,calibration,cells)).toBeNull();
   }
   // Edited zones: M3 reaches over the right half of M2, and DECK moves off the mat. Assignment, the cells and the straddle check agree.
   const base=fieldGridCells('normal',1),m3=base.find(c=>c.zone==='M3')!,zones={M3:{x:m3.x-.5*m3.w,y:m3.y,w:1.5*m3.w,h:m3.h},DECK:{x:1.05,y:.56,w:.14,h:.44}};
   const edited=createFieldCalibration(points,{playerSide,mirrored:false},spacing,zones),editedCells=fieldGridCells('normal',edited);
-  const read=(x:number,y:number,half:number)=>{const quad=[[-half,-.045],[half,-.045],[half,.045],[-half,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},edited));return {quad,kind:'face-down' as const,confidence:.9,partial:false};};
+  const read=(x:number,y:number,half:number)=>{const quad=[[-half,-.1],[half,-.1],[half,.1],[-half,.1]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},edited));return {quad,kind:'face-down' as const,confidence:.9,partial:false};};
   // Overrides are stored at spacing 1 and follow the spacing like the other zones.
   const editedM3=editedCells.find(c=>c.zone==='M3')!;expect(editedM3.w).toBeCloseTo(zones.M3.w*spacing);expect(editedM3.x).toBeCloseTo(.5+(zones.M3.x-.5)*spacing);
-  const m2=editedCells.find(c=>c.zone==='M2')!,deck=editedCells.find(c=>c.zone==='DECK')!,overlap=read(m2.x+.75*m2.w,.38,.2*m2.w);
+  const m2=editedCells.find(c=>c.zone==='M2')!,deck=editedCells.find(c=>c.zone==='DECK')!,overlap=read(m2.x+.75*m2.w,m2.y+m2.h/2,.2*m2.w);
   expect(zoneCellAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),editedCells)?.zone).toBe(mapFieldZone(overlap,edited).zone);
   expect(fieldZoneAt(onMat({x:overlap.quad.reduce((t,p)=>t+p.x,0)/4,y:overlap.quad.reduce((t,p)=>t+p.y,0)/4},edited),edited,'normal')).toBe('M2');expect(straddledZones(overlap.quad,edited,editedCells)).toBeNull();
-  expect(mapFieldZone(read(deck.x+deck.w/2,.78,.04),edited).zone).toBe('DECK');expect(mapFieldZone(read(.5+(.92-.5)*spacing,.78,.04),edited).zone).not.toBe('DECK');
+  expect(mapFieldZone(read(deck.x+deck.w/2,deck.y+deck.h/2,.04),edited).zone).toBe('DECK');expect(mapFieldZone(read(.5+(.92-.5)*spacing,deck.y+deck.h/2,.04),edited).zone).not.toBe('DECK');
   expect(rotateFieldCalibration(calibration,180).zoneSpacing).toBe(spacing);expect(mirrorFieldCalibration(calibration).zoneSpacing).toBe(spacing);
   const message={type:'field.tracks',cards:[],calibration};expect(remoteFieldTracksSchema.safeParse(message).success).toBe(true);
   const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);expect(cache.calibration(0)?.zoneSpacing).toBe(spacing);

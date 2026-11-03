@@ -117,7 +117,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
         </svg>}
         {calibrationCards.map((card,i)=>{const x=card.quad.reduce((sum,p)=>sum+p.x,0)/4,y=card.quad.reduce((sum,p)=>sum+p.y,0)/4;return <button key={i} type="button" className={g.cardChoice} style={{left:`${x*100}%`,top:`${y*100}%`}} onClick={()=>chooseMonster(i)}>This is the monster</button>;})}
         {editing?null:points.map((point,i)=><button type="button" key={i} disabled={busy} className={g.handle} aria-label={`${cornerNames[i]} grid corner`} style={{left:`${point.x*100}%`,top:`${point.y*100}%`}} onPointerDown={event=>{if(!handStep)begin(event,i);}} onClick={()=>chooseHand(i)} onKeyDown={event=>adjust(event,i)}>{i+1}</button>)}
-        {editing?null:<button type="button" disabled={busy} className={`${g.handle} ${g.move}`} aria-label="Move field grid" style={{left:`${matPoint(.5,.56).x*100}%`,top:`${matPoint(.5,.56).y*100}%`}} onPointerDown={event=>{if(!handStep&&!calibrationCards.length)begin(event,null);}} onKeyDown={event=>adjust(event,null)}>↔</button>}
+        {editing?null:<button type="button" disabled={busy} className={`${g.handle} ${g.move}`} aria-label="Move field grid" style={{left:`${matPoint(.5,2/3).x*100}%`,top:`${matPoint(.5,2/3).y*100}%`}} onPointerDown={event=>{if(!handStep&&!calibrationCards.length)begin(event,null);}} onKeyDown={event=>adjust(event,null)}>↔</button>}
       </div>:<p>Start your camera before calibrating.</p>}
       {editing?<ZoneEditorToolbar editor={editor} onCancel={()=>setEditing(false)} onDone={next=>{setZones(Object.keys(next).length?next:undefined);setEditing(false);}}/>:null}
       {error?<p role="alert">{error}</p>:null}

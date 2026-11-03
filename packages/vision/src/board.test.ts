@@ -252,7 +252,7 @@ test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   assert.deepEqual(zones.fieldZoneLocation('EMZ2'),{zone:'extra-monster',slot:2});
 });
 test('EMZ outlines do not shift uncalibrated main-row ordering',()=>{
-  const main=[card(.25,.3,.04,.06),card(.65,.3,.04,.06)],extra=[card(.35,.05,.04,.06),card(.61,.05,.04,.06)];
+  const main=[card(.25,.5,.04,.06),card(.65,.5,.04,.06)],extra=[card(.35,.05,.04,.06),card(.61,.05,.04,.06)];
   assert.equal(zones.mapFieldZone(main[1],undefined,main).zone,'M4');
   assert.equal(zones.mapFieldZone(main[1],undefined,[...main,...extra]).zone,'M4');
 });
@@ -472,7 +472,7 @@ test('review S2: a five-card fan and three new separate outlines cannot auto-pla
   for(const spacing of [.035,.14]){const r=fieldRig();r.outlines=Array.from({length:5},(_,i)=>card(.2+i*spacing,.3,.08,.12));for(let i=0;i<20;i++)await r.tick();assert.equal(r.events.some(e=>e.type==='placed'),false);assert.ok(r.events.filter(e=>e.type==='prompt').length<=1);r.watcher.dispose();}
 });
 test('review F: uncalibrated M2/M4 columns stay absolute when other cards appear',()=>{
-  const pair=[card(.34,.3,.04,.06),card(.6,.3,.04,.06)];assert.equal(zones.mapFieldZone(pair[0],undefined,pair).zone,'M2');assert.equal(zones.mapFieldZone(pair[1],undefined,pair).zone,'M4');
+  const pair=[card(.34,.5,.04,.06),card(.6,.5,.04,.06)];assert.equal(zones.mapFieldZone(pair[0],undefined,pair).zone,'M2');assert.equal(zones.mapFieldZone(pair[1],undefined,pair).zone,'M4');
 });
 
 test('review E: a removed monster reappearing on GY moves its original ref, never places another',async()=>{
