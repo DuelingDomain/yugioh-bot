@@ -101,9 +101,11 @@ export const cellKeyOf = (card: TwinCard, twin: readonly TwinCard[] = [card]): Z
 
 export const cardCode = (card: Pick<TwinCard, "cardId" | "passcode">) => card.cardId ?? card.passcode;
 /** An automatic placement may move an existing twin and retain its authoritative ref. */
-export function placedTwin(twins:readonly TwinCard[], card:Pick<TwinCard,"ref"|"zone"|"slot"|"cardId"|"passcode"|"name">):TwinCard|undefined {
+export function placedTwin(twins:readonly TwinCard[], card:Pick<TwinCard,"ref"|"zone"|"slot"|"cardId"|"passcode"|"name">&Partial<Pick<TwinCard,"faceUp">>):TwinCard|undefined {
+  // The reducer may keep another ref: a face-down return reuses the card that
+  // just left this slot, so an unnamed Set is found by its slot and face.
   return twins.find(t=>t.ref===card.ref) ?? twins.find(t=>t.zone===card.zone && t.slot===card.slot &&
-    (cardCode(card)!==undefined ? cardCode(t)===cardCode(card) : !!card.name && t.name===card.name));
+    (cardCode(card)!==undefined ? cardCode(t)===cardCode(card) : card.name ? t.name===card.name : card.faceUp!==undefined && t.faceUp===card.faceUp));
 }
 export function cardName(card: TwinCard, info?: CardInfo): string { return card.name ?? info?.name ?? (cardCode(card) ? `Card ${cardCode(card)}` : "Unknown card"); }
 /** The card frame kinds the field draws. They follow the online duel board, where the printed frame shows the type. */

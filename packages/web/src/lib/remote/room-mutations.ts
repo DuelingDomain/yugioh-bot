@@ -1,5 +1,9 @@
 import type { RemoteActionProposal, RemoteRoom } from '@yugidraft/shared/remote';
 export type RoomMutation = (proposal:RemoteActionProposal,idempotencyKey?:string)=>Promise<RemoteRoom|null>;
+/** The server's last refusal text for a table action, for notices and the Debug view. */
+let lastActionError:{message:string;at:number}|undefined;
+export function noteRemoteActionError(error:unknown){lastActionError={message:error instanceof Error?error.message:String(error),at:Date.now()};}
+export const remoteActionError=()=>lastActionError;
 export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
 /** Manual reads, prompts and watcher changes share one queue and returned state. */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation) {

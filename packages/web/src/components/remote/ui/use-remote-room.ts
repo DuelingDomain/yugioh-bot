@@ -1,5 +1,6 @@
 "use client";
 
+import { noteRemoteActionError } from "@/lib/remote/room-mutations";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -96,7 +97,7 @@ export function useRemoteRoom(slug: string) {
       return updated;
     } catch (e) {
       if(tableKey.current!==slug)return null;
-      setError((e as Error).message);
+      noteRemoteActionError(e);setError((e as Error).message);
       try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
     }

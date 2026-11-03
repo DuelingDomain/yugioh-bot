@@ -724,6 +724,14 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const provisional=r.events.find(e=>e.type==='placed'&&e.track.zone==='M3'&&e.track.faceDown);if(provisional)assert.equal(r.events.find(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='M3')?.replacesRef,provisional.track.id);
  assert.equal(snap.tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
  const debug=snap.debug!;assert.ok(debug.detections.some(d=>d.zone==='M3'&&d.use.startsWith('track')),'the debug overlay shows the raw M3 outline and its track');
+ // The owner clears the mat: every field card leaves within ~2 s, including a
+ // twin the watcher never tracked (an EMZ Link); the GY pile stays.
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'},{id:'link',zone:'EMZ1',cardId:'L'}];
+ r.motionRegion=undefined;r.motionAt=undefined;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?under:mat;const clearedFrom=r.at;
+ for(let i=0;i<40&&!['link',id].every(ref=>r.events.some(e=>e.type==='removed'&&e.track.id===ref&&e.track.zone!=='GY'));i++)await r.tick(100);
+ for(const ref of ['link',id])assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===ref&&e.track.zone!=='GY'),`${ref} leaves the field`);
+ assert.ok(r.at-clearedFrom<=3500,`empty mat cleared after ${r.at-clearedFrom} ms`);
+ assert.equal(r.events.some(e=>e.type==='removed'&&e.track.id==='gy-old'),false,'piles stay');
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
