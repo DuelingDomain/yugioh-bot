@@ -65,9 +65,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     // Legacy row twins without a slot do not identify a physical position.
     if (shape === "row" && physicalSlot === undefined) return;
     if (context?.replay) return;
+    // A Trap Monster holds its Spell & Trap Zone; Pendulum Zones 1/2 are S1/S5.
+    const heldSlot = zone === "spell-trap" ? physicalSlot : zone === "pendulum" ? (physicalSlot === 1 ? 1 : physicalSlot === 2 ? 5 : undefined) : undefined;
     remoteAssert(!s.twin.some(card => card.ref !== exceptRef && (card.zone === zone &&
       (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot) ||
-      zone === "spell-trap" && card.trapZone === physicalSlot)),
+      card.trapZone !== undefined && card.trapZone === heldSlot)),
     "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");
   };
   const endTurn = () => {
@@ -209,7 +211,6 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
-  clearZoneLinks(next);
   applyRemoteEffectTracking(next, state, deckAction, context);
   next = applyLiveDeckChecks(next, deckAction, context);
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
@@ -218,6 +219,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) { next.ended = true; next.winnerSeat = living[0]?.seat ?? null; next.attack = null; }
+  // After merges and eliminations, so no hold or link points to a card that is gone.
+  clearZoneLinks(next);
   rememberRemoteAction(state, next, action);
   return next;
 }
