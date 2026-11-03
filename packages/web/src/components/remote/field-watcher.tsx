@@ -125,7 +125,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       existing=bound??twins.find(c=>publicField(c.zone)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(!existing&&entry){
-      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(recentFieldDeparture(b,serverNow()))*2+Number(publicField(b.zone))-Number(recentFieldDeparture(a,serverNow()))*2-Number(publicField(a.zone)));
+      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))*4+Number(!!b.departedFrom)*2+Number(recentFieldDeparture(b,serverNow()))-Number(publicField(a.zone))*4-Number(!!a.departedFrom)*2-Number(recentFieldDeparture(a,serverNow())));
       for(const copy of copies){
         const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
         // Events precede the React snapshot render. Both witnesses must be read

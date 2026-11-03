@@ -81,6 +81,13 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     return {noop:true};
   }
   if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return;
+  if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 5) && action.source === "auto" && remoteFieldZone(action.zone) &&
+      !matches.some(t => pileZone(t.zone))) {
+    // A missed field card still owns its identity, even after a long correction.
+    // Automatic departures retain that origin; ordinary hand copies do not.
+    const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone));
+    if (owner) return {ref:owner.ref,card:owner};
+  }
   const field = exact && remoteFieldZone(exact.zone) ? exact : recent ?? matches.find(t => remoteFieldZone(t.zone));
   if (field) return {ref:field.ref,card:field};
   // An automatic pile top is an observation, not evidence of another copy.

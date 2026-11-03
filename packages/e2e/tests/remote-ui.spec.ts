@@ -1192,6 +1192,28 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     expect(state.seats[0].twin).toHaveLength(expected);
     if(expected===1)expect(state.seats[0].twin[0]).toMatchObject({ref:'lifted',name:'The Man with the Mark',zone:'monster',slot:3,faceUp:false});
   }
+  // Field ownership has no expiry. Only a surviving field/pile witness proves
+  // a second copy; an old automatic hand departure retains its field origin.
+  for(const departed of [false,true]){
+    let state=ygoModule.initialState({seatCount:2}),at=0;
+    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}));
+    const card={cardId:97522863,name:'The Man with the Mark',faceUp:true,position:'attack'};
+    act({type:'twin.place',zone:'monster',card:{...card,ref:'field-owner',slot:3}});
+    if(departed){at=1000;act({type:'twin.move',source:'auto',cardRef:'field-owner',zone:'hand'});}
+    at=1_000_000_000;act({type:'twin.place',source:'auto',zone:'monster',card:{...card,ref:'late-read',slot:4}});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'field-owner',zone:'monster',slot:4})]);
+    expect(state.twinConfirmation).toBeUndefined();
+  }
+  for(const origin of ['monster','graveyard','banished'] as const){
+    let state=ygoModule.initialState({seatCount:2});
+    const card={cardId:97522863,name:'The Man with the Mark',faceUp:true,position:'attack'};
+    for(const [at,zone,ref,slot] of [[0,origin,'still-there',3],[1_000_000_000,'monster','new-copy',4]] as const){
+      state=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',source:'auto',actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),zone,card:{...card,ref,slot},...(at&&origin==='monster'?{copyProof:{simultaneousQuads:2,at}}:{})}));
+    }
+    expect(state.seats[0].twin).toHaveLength(2);
+    expect(state.seats[0].twin[0]).toMatchObject({ref:'still-there',zone:origin});
+    expect(state.twinConfirmation).toBeUndefined();
+  }
   const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;
@@ -1283,6 +1305,10 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await place(550);await check('monster',3,true);
   expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move'&&e.action.zone==='monster'&&e.action.slot!==3)).toHaveLength(0);
   await place(375);await check('monster',4,true);
+  await page.waitForTimeout(3000);
+  await place(550);await check('monster',3,true);
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  expect(writes.filter(write=>write.action.type==='twin.move'&&write.action.zone==='hand')).toEqual([]);
   await place(30);await check('graveyard',undefined,true);
   await place(720);await check('monster',2,true);
   expect(writes.filter(write=>write.action.type==='twin.move'&&write.action.zone==='hand')).toEqual([]);

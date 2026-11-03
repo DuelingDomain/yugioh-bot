@@ -57,7 +57,7 @@ export type RemoteReductionContext = {
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
-  twinPlacementGuard?: 1 | 2 | 3 | 4;
+  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5;
   pileArrivalGuard?: 1 | 2;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
