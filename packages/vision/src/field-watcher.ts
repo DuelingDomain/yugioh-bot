@@ -65,6 +65,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const notify=()=>{for(const listener of updates)listener();};
   // Once attached to a twin, only an explicit owner correction changes identity.
   const bound=(t:InternalTrack)=>t.view.state==='identified'&&t.resolvedAt!==undefined;
+  // Detector centres shift as a card turns over or rotates. Retain the settled
+  // cell until its centre actually travels, through both face gates and reads.
+  const settledZone=(t:InternalTrack,card:DetectedQuad,cards:DetectedQuad[])=>
+    t.announced&&t.announcedZone&&(t.resolvedAt!==undefined||t.binding)&&distance(t.announced,card)<=.04
+      ?t.announcedZone:mapFieldZone(card,calibration,cards,options.format).zone;
   const matchesLook=(t:InternalTrack,pixels?:number[])=>bound(t)?sameRotatedFieldAppearance(t.identityAppearance,pixels):sameFieldAppearance(t.identityAppearance,pixels);
   const departureDestination=(t:InternalTrack,at:number):Pick<FieldEvent,'destination'>=>{
     const touched=Math.max(deckTouchedAt,extraTouchedAt);
@@ -177,7 +182,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       t.view.visible=false;
       if(pose.samples<2||at-pose.cleanAt<100)continue;
       const card=pose.card,position=fieldOrientation(card,width,height,calibration);
-      t.view.card=card;t.view.zone=mapFieldZone(card,calibration,[],options.format).zone;t.view.position=position;t.view.lastSeen=at;t.view.visible=true;t.view.removed=false;
+      t.view.zone=settledZone(t,card,[]);t.view.card=card;t.view.position=position;t.view.lastSeen=at;t.view.visible=true;t.view.removed=false;
       t.anchor=card;t.kind=card.kind;t.position=position;t.appearance=pixels;t.halo=evidence.halo?.(card);t.missed=false;t.reappeared=false;t.stableSince=pose.cleanAt;t.observations=pose.samples;resetAbsence(t);
       t.pose=undefined;t.announced=card;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;emit('moved',t);
     }
@@ -457,7 +462,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         proposePose(t,c,cards,evidence,sample.at,current.width,current.height);
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);t.view.lastSeen=sample.at;t.view.card=c;
         // Uncalibrated ordering is assigned at settlement, then kept until the card actually moves.
-        if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards,options.format).zone;
+        if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=settledZone(t,c,cards);
         const position=fieldOrientation(c,current.width,current.height,calibration);
         if(t.view.state==='identified'&&t.announced){
           const moved=distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position;

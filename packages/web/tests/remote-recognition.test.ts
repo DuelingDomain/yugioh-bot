@@ -623,6 +623,21 @@ async function ownerFieldRig(){
   return {state,watcher,quad,async tick(count=1,ms=100){for(let i=0;i<count;i++){state.at+=ms;await watcher.tick();await Promise.resolve();}},dispose:()=>watcher.dispose()};
 }
 
+it('a flip beside a column boundary retains its settled zone through both face gates',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.outlines=[r.quad(.536)];await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.zone).toBe('M3');
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];
+    r.state.down=true;r.state.outlines=[r.quad(.541,.30,true)];await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({zone:'M3',faceDown:true});
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100',faceDown:true}];
+    r.state.down=false;r.state.outlines=[r.quad(.539)];await r.tick(10);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({zone:'M3',faceDown:false});
+    expect(r.state.events.filter(e=>e.type==='moved'&&e.track.zone!=='M3')).toEqual([]);
+  }finally{r.dispose();}
+});
+
 it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an old hand halo and detects private destination=%s',async destination=>{
   const r=await ownerFieldRig();
   try{
