@@ -514,3 +514,26 @@ it('camera writes retry with the same action key and expose a final failure',asy
  await expect(retryFieldMutation(post,proposal,'flip-key',()=>true,failed)).rejects.toThrow(/save/i);
  post.mockClear();expect(await retryFieldMutation(post,proposal,'stale-key',()=>false,failed)).toBeNull();expect(post).not.toHaveBeenCalled();
 });
+
+it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
+ const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');
+ const {createFieldCalibration,fieldMatPoint,mapFieldZone,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
+ const {remoteFieldTracksSchema}=await import('@yugidraft/shared/remote');
+ const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache');
+ const points=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+ for(const spacing of [.85,1,1.4])for(const playerSide of ['bottom','top','left','right'] as const){
+  const calibration=createFieldCalibration(points,{playerSide,mirrored:false},spacing);
+  const cells=fieldGridCells('normal',spacing),main=cells.filter(c=>/^M/.test(c.zone));
+  expect(calibration.zoneSpacing).toBe(spacing);
+  expect(main[2].w).toBeCloseTo(.164*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
+  for(const cell of main.slice(1,4)){
+   const x=cell.x+cell.w/2,y=.38,quad=[[-.079,-.045],[.079,-.045],[.079,.045],[-.079,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
+   expect(mapFieldZone({quad,kind:'face-down',confidence:.9,partial:false},calibration).zone).toBe(cell.zone);
+   expect(straddledZones(quad,calibration,cells)).toBeNull();
+  }
+  expect(rotateFieldCalibration(calibration,180).zoneSpacing).toBe(spacing);expect(mirrorFieldCalibration(calibration).zoneSpacing).toBe(spacing);
+  const message={type:'field.tracks',cards:[],calibration};expect(remoteFieldTracksSchema.safeParse(message).success).toBe(true);
+  const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);expect(cache.calibration(0)?.zoneSpacing).toBe(spacing);
+ }
+ expect(createFieldCalibration(points).zoneSpacing).toBe(1);
+});

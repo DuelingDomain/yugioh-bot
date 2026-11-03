@@ -29,7 +29,7 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
   const calibration = own ? grid.calibration : remoteCalibration;
   // Own feed: the shared rule (zones placed on the mat). Others: any grid the owner shares.
   const calibrated = own ? !!grid.placed : !!calibration;
-  const cells = useMemo(() => fieldGridCells(grid.format), [grid.format]);
+  const cells = useMemo(() => fieldGridCells(grid.format,calibration?.zoneSpacing), [grid.format,calibration?.zoneSpacing]);
   const defaultSide = own ? grid.defaultSide : undefined;
   const shown = displayCalibration(calibration, defaultSide);
   const projected = useMemo(() => cells.map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);

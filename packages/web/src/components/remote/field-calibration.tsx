@@ -3,7 +3,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { createFieldCalibration, createTwoCardCalibration, orientFieldFromHands, fieldMatPoint, hasExtraMonsterZones, type DetectedQuad, type FieldCalibration, type FieldFormat, type FieldOrientation } from '@yugidraft/vision';
-import { fieldGridCells } from '@/lib/remote/zone-grid';
+import { fieldGridCells,normalizeZoneSpacing } from '@/lib/remote/zone-grid';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { FieldOrientationControls } from './field-orientation';
 import table from './ui/remote-ui.module.css';
@@ -28,12 +28,13 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     return canvas.toDataURL('image/jpeg',.75);
   });
   const [points,setPoints]=useState<Point[]>(()=>initialCalibration?.corners.map(point=>({...point}))??[{x:.08,y:.08},{x:.92,y:.08},{x:.92,y:.92},{x:.08,y:.92}]),[error,setError]=useState('');
+  const [zoneSpacing,setZoneSpacing]=useState(()=>normalizeZoneSpacing(initialCalibration?.zoneSpacing));
   const [orientation,setOrientation]=useState<FieldOrientation|undefined>(initialCalibration?.orientation);
   const [calibrationCards,setCalibrationCards]=useState<DetectedQuad[]>([]);
   const [handStep,setHandStep]=useState<'left'|'right'|null>(initialCalibration?.orientation?null:'left');
   const leftHand=useRef<number|null>(null);
   const [gridHeight,setGridHeight]=useState(()=>1000*(video?.videoWidth&&video.videoHeight?video.videoHeight/video.videoWidth:9/16)),[busy,setBusy]=useState(false);
-  const preview=useMemo(()=>{try{return createFieldCalibration(points,orientation);}catch{return undefined;}},[points,orientation]);
+  const preview=useMemo(()=>{try{return createFieldCalibration(points,orientation,zoneSpacing);}catch{return undefined;}},[points,orientation,zoneSpacing]);
   const matPoint=(x:number,y:number)=>preview?fieldMatPoint({x,y},preview):{x:points.reduce((sum,p)=>sum+p.x,0)/4,y:points.reduce((sum,p)=>sum+p.y,0)/4};
   async function quickCalibration(){
     if(!detectCalibrationCards||!video?.videoWidth||!video.videoHeight)return;
@@ -47,7 +48,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     finally{if(request===generation.current)setBusy(false);}
   }
   function chooseMonster(index:number){
-    try{const grid=createTwoCardCalibration(calibrationCards,index);setPoints(grid.corners);setOrientation(grid.orientation);setCalibrationCards([]);setError('');}
+    try{const grid=createTwoCardCalibration(calibrationCards,index);setPoints(grid.corners);setOrientation(grid.orientation);setZoneSpacing(normalizeZoneSpacing(grid.zoneSpacing));setCalibrationCards([]);setError('');}
     catch(e){setError((e as Error).message);}
   }
   function chooseHand(corner:number){
@@ -56,7 +57,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     try{const grid=orientFieldFromHands(preview,leftHand.current!,corner);setOrientation(grid.orientation);setHandStep(null);setError('');}
     catch(e){setError((e as Error).message);}
   }
-  const cells=fieldGridCells(format);
+  const cells=fieldGridCells(format,preview?.zoneSpacing);
   const move=(original:Point[],corner:number|null,dx:number,dy:number)=>{
     if(corner===null){dx=Math.max(-Math.min(...original.map(p=>p.x)),Math.min(1-Math.max(...original.map(p=>p.x)),dx));dy=Math.max(-Math.min(...original.map(p=>p.y)),Math.min(1-Math.max(...original.map(p=>p.y)),dy));}
     setPoints(original.map((point,i)=>corner===null||corner===i?{x:clamp(point.x+dx),y:clamp(point.y+dy)}:point));setError('');
@@ -97,7 +98,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
         <p>Move the grid or adjust its four corners until the zones line up. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right. Arrow keys adjust a focused handle; hold Shift for larger steps.</p>
         <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
       </div>
-      {preview?<FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setHandStep(null);setCalibrationCards([]);}}/>:null}
+      {preview?<FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setZoneSpacing(normalizeZoneSpacing(grid.zoneSpacing));setHandStep(null);setCalibrationCards([]);}}/>:null}
       <p>{handStep==='left'?'Tap the corner nearest your LEFT hand.':handStep==='right'?'Now tap the corner nearest your RIGHT hand.':orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
       <button type="button" className={table.btn} disabled={busy} onClick={()=>{setCalibrationCards([]);setHandStep('left');leftHand.current=null;}}>Set side from near corners</button>
       {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
@@ -112,7 +113,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
       </div>:<p>Start your camera before calibrating.</p>}
       {error?<p role="alert">{error}</p>:null}
       <footer className={s.calibrationFooter}><span role="status">Save once for this seat and camera on this device.</span>
-        <button type="button" className={table.btn} disabled={!image||busy||!orientation||!!handStep||!!calibrationCards.length} onClick={()=>{try{onSave(createFieldCalibration(points,orientation));}catch(e){setError((e as Error).message);}}}>Save calibration</button>
+        <button type="button" className={table.btn} disabled={!image||busy||!orientation||!!handStep||!!calibrationCards.length} onClick={()=>{try{onSave(createFieldCalibration(points,orientation,zoneSpacing));}catch(e){setError((e as Error).message);}}}>Save calibration</button>
         <button type="button" className={table.btn} onClick={onCancel}>Cancel calibration</button>
       </footer>
     </div>

@@ -41,7 +41,7 @@ function pickRecord(seatKey:string,deviceKey?:string,label?:string):SavedRecord|
   // Another camera for the same seat: keep which side the player sits on, but not the other camera's corners.
   const orientation=last.calibration?.orientation;
   if(!orientation)return undefined;
-  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation),placed:false};}catch{return undefined;}
+  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation,last.calibration?.zoneSpacing),placed:false};}catch{return undefined;}
 }
 function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
   try {
@@ -55,7 +55,7 @@ const isPlaced=(saved:SavedRecord,calibration?:FieldCalibration)=>saved.placed??
 /** Lobby and table share the same seat + camera record, including orientation and whether the zones were placed. */
 export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean} {
   try {
-    const saved=readSaved(seatKey,deviceKey,label),calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation):undefined;
+    const saved=readSaved(seatKey,deviceKey,label),calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,saved.calibration.zoneSpacing):undefined;
     return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration)};
   }catch{return {placed:false};}
 }

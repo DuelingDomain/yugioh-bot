@@ -230,9 +230,9 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.15},{x:.85,y:.95},{x:.15,y:.9}]);
   assert.equal(zones.mapFieldZone(card(.44,.35,.04,.06),calibration).zone,'M3');
   assert.equal(zones.mapFieldZone(card(.44,.68,.04,.06),calibration).zone,'S3');
-  assert.equal(zones.mapFieldZone(card(.84,.35,.04,.06)).zone,'GY');
-  assert.equal(zones.mapFieldZone(card(.84,.7,.04,.06)).zone,'DECK');
-  assert.equal(zones.mapFieldZone(card(.1,.7,.04,.06)).zone,'EXTRA');
+  assert.equal(zones.mapFieldZone(card(.93,.35,.04,.06)).zone,'GY');
+  assert.equal(zones.mapFieldZone(card(.93,.7,.04,.06)).zone,'DECK');
+  assert.equal(zones.mapFieldZone(card(.03,.7,.04,.06)).zone,'EXTRA');
   assert.equal(zones.mapFieldZone(card(.35,.05,.04,.06)).zone,'EMZ1');
   assert.equal(zones.fieldOrientation(card(.3,.3,.3,.12),1920,1080),'defense');
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
@@ -266,7 +266,7 @@ test('known instances emit moves and recalibration remaps settled cards',async()
   const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{throw new Error('known must not reread');}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',card:card(.3,.3),zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
   watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   outlines=[card(.4,.3)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}assert.ok(events.some(e=>e.type==='moved'));
-  watcher.setCalibration(zones.createFieldCalibration([{x:.4,y:.1},{x:.95,y:.95}]));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
+  watcher.setCalibration(zones.createFieldCalibration([{x:.45,y:.1},{x:.95,y:.95}]));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   assert.equal(watcher.getSnapshot().tracks[0].zone,'FIELD');assert.ok(events.some(e=>e.type==='moved'&&e.track.zone==='FIELD'));watcher.dispose();
 });
 test('the adaptive CPU guard permits slow samples to settle instead of resetting forever',async()=>{
@@ -486,8 +486,8 @@ test('a different face revealed after a flip never restores the hidden old ident
  const r=fieldRig();for(let i=0;i<7;i++)await r.tick();r.outlines=[{...card(.3,.3),kind:'face-down'}];r.appearance=Array(12).fill(.8);for(let i=0;i<7;i++)await r.tick();
  r.identity='B';r.outlines=[card(.3,.3)];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.at(-1)?.type,'placed');assert.equal(r.events.at(-1)?.track.cardId,'B');r.watcher.dispose();
 });
-test('calibrated candidates outside the mat are rejected',async()=>{
- for(const corner of [{x:.4,y:.4},{x:.34,y:.2}]){const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
+test('calibrated candidate centres outside the mat are rejected',async()=>{
+ for(const corner of [{x:.4,y:.4},{x:.4,y:.2}]){const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
 });
 
 test('Undo suppression belongs to physical appearance, not every later card in the same column',async()=>{
@@ -727,5 +727,16 @@ test('owner white back: a calibrated face-up M3 becomes a sideways revealed Set 
   const from=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='flipped');i++)await r.tick(33);
   const set=r.events.find(e=>e.type==='flipped');assert.ok(set,`${kind}: ${JSON.stringify(r.watcher.getSnapshot())}`);
   assert.equal(set.track.id,id);assert.equal(set.track.zone,'M3');assert.equal(set.track.position,'defense');assert.equal(set.track.faceDown,true);assert.ok(r.at-from<400);assert.equal(r.reads,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ }
+});
+
+
+test('centre assignment accepts full camera quads that cross calibrated field and side-zone edges',async()=>{
+ const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}],{playerSide:'bottom',mirrored:false});
+ for(const [x,zone] of [[.045,'FIELD'],[.955,'GY'],[.5,'M3']] as const){
+  const r=fieldRig();r.watcher.setCalibration(calibration);
+  const quad=[{x:x-.055,y:.3},{x:x+.055,y:.3},{x:x+.055,y:.46},{x:x-.055,y:.46}].map(p=>zones.fieldMatPoint(p,calibration));
+  r.outlines=[{quad,kind:'face-up',confidence:.95,partial:false}];for(let i=0;i<8;i++)await r.tick(100);
+  assert.equal(r.watcher.getSnapshot().tracks.length,1,zone);assert.equal(r.watcher.getSnapshot().tracks[0].zone,zone);r.watcher.dispose();
  }
 });

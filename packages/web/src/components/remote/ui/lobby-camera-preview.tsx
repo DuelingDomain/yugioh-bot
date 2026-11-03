@@ -71,7 +71,7 @@ function useQr(url: string) {
 function PreviewGrid({calibration,format,kind,guess=false}:{calibration?:FieldCalibration;format:FieldFormat;kind:"webcam"|"phone";guess?:boolean}){
   const grid=displayCalibration(calibration,defaultSideFor(kind));
   return <svg className={s.fieldGrid} viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden data-guess={guess||undefined}>
-    {fieldGridCells(format).map(cell=>{const {corners,center}=projectCell(cell,grid);return <g key={cell.zone}>
+    {fieldGridCells(format,grid.zoneSpacing).map(cell=>{const {corners,center}=projectCell(cell,grid);return <g key={cell.zone}>
       <polygon points={corners.map(p=>`${p.x*1000},${p.y*1000}`).join(' ')}/>
       <text x={center.x*1000} y={center.y*1000}>{cell.label}</text>
     </g>;})}

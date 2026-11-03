@@ -4,11 +4,15 @@ import type { DetectedQuad, Point } from './types';
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
 export type FieldFormat = 'normal' | 'domain' | 'genesys' | 'genesys-domain';
 export const hasExtraMonsterZones = (format:FieldFormat='normal') => format==='normal'||format==='domain';
-const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=.308&&x<=.436)||(x>=.564&&x<=.692));
+export const FIELD_ZONE_PITCH=.164;
+export const normalizeZoneSpacing=(value=1)=>Number.isFinite(value)?Math.max(.85,Math.min(1.4,value)):1;
+/** Horizontal zoom around M3/S3: spacing scales both the pitch and cell width. */
+export const fieldZoneLayout=(zoneSpacing=1)=>{const spacing=normalizeZoneSpacing(zoneSpacing),pitch=FIELD_ZONE_PITCH*spacing;return {pitch,start:.5-2.5*pitch,end:.5+2.5*pitch,minX:.5-.5*spacing,maxX:.5+.5*spacing};};
+const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=.254&&x<=.418)||(x>=.582&&x<=.746));
 export type PlayerSide = 'bottom' | 'left' | 'top' | 'right';
 export interface FieldOrientation { playerSide: PlayerSide; mirrored: boolean }
 /** Corners are image-clockwise from image top-left. Missing orientation is legacy/unconfirmed. */
-export interface FieldCalibration { version: 1; corners: Point[]; orientation?: FieldOrientation }
+export interface FieldCalibration { version: 1; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number }
 export const DEFAULT_FIELD_ORIENTATION: FieldOrientation = {playerSide:'bottom',mirrored:false};
 const sides: PlayerSide[] = ['bottom','left','top','right'];
 function orient(point:Point, orientation:FieldOrientation, inverse=false):Point {
@@ -22,11 +26,11 @@ function orient(point:Point, orientation:FieldOrientation, inverse=false):Point 
 /** Rotate the mapping in image coordinates; the video pixels themselves stay untouched. */
 export function rotateFieldCalibration(calibration:FieldCalibration, degrees:90|180):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
-  return createFieldCalibration(calibration.corners,{...orientation,playerSide:sides[(sides.indexOf(orientation.playerSide)+degrees/90)%4]});
+  return createFieldCalibration(calibration.corners,{...orientation,playerSide:sides[(sides.indexOf(orientation.playerSide)+degrees/90)%4]},calibration.zoneSpacing);
 }
 export function mirrorFieldCalibration(calibration:FieldCalibration):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
-  return createFieldCalibration(calibration.corners,{...orientation,mirrored:!orientation.mirrored});
+  return createFieldCalibration(calibration.corners,{...orientation,mirrored:!orientation.mirrored},calibration.zoneSpacing);
 }
 /** The two near corners, identified by the player's LEFT then RIGHT hand, remove mirror ambiguity. */
 export function orientFieldFromHands(calibration:FieldCalibration,left:number,right:number):FieldCalibration {
@@ -34,7 +38,7 @@ export function orientFieldFromHands(calibration:FieldCalibration,left:number,ri
     const orientation={playerSide,mirrored};
     const nearLeft=orient({x:0,y:1},orientation),nearRight=orient({x:1,y:1},orientation);
     const index=(p:Point)=>unitCorners.findIndex(c=>c.x===p.x&&c.y===p.y);
-    if(index(nearLeft)===left&&index(nearRight)===right)return createFieldCalibration(calibration.corners,orientation);
+    if(index(nearLeft)===left&&index(nearRight)===right)return createFieldCalibration(calibration.corners,orientation,calibration.zoneSpacing);
   }
   throw new Error('Choose two adjacent corners along your edge of the mat.');
 }
@@ -64,13 +68,13 @@ function plane(calibration:FieldCalibration){let value=planes.get(calibration);i
 /** Project a mat point into normalized camera pixels; the preview and tracker share this map. */
 export const fieldMatPoint=(point:Point,calibration:FieldCalibration):Point=>project(plane(calibration).forward,orient(point,calibration.orientation??DEFAULT_FIELD_ORIENTATION));
 /** Clockwise TL, TR, BR, BL of the owner's mat. Two opposite corners also work. */
-export function createFieldCalibration(points: Point[], orientation?:FieldOrientation): FieldCalibration {
+export function createFieldCalibration(points: Point[], orientation?:FieldOrientation,zoneSpacing=1): FieldCalibration {
   const corners=points.length===2?[points[0],{x:points[1].x,y:points[0].y},points[1],{x:points[0].x,y:points[1].y}]:points;
   if(corners.length!==4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1) || polygonArea(corners)<.02) throw new Error('Invalid field calibration: click opposite corners or four clockwise mat corners');
   const crosses=corners.map((a,i)=>{const b=corners[(i+1)%4],c=corners[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
   if(crosses.some(c=>c<=0))throw new Error('Invalid field calibration: corners must be clockwise from top left');
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
-  return {version:1,corners:corners.map(p=>({...p})),...(orientation?{orientation:{...orientation}}:{})};
+  return {version:1,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(orientation?{orientation:{...orientation}}:{})};
 }
 /** True inverse homography for a flat mat under perspective; matrices stay out of persisted data. */
 export function onMat(p:Point, calibration?:FieldCalibration):Point {
@@ -100,7 +104,7 @@ export function createTwoCardCalibration(cards:DetectedQuad[],monsterIndex?:numb
       const ordered=cycle(other,second),shapeError=Math.sqrt(ordered.reduce((sum,p,i)=>sum+(p.x-center.x-rectangle[i].x)**2+(p.y-center.y-rectangle[i].y)**2,0)/4);if(shapeError>.15)continue;
       const b=cycle(outlines[1],second),world=[...rectangle,...rectangle.map(p=>({x:p.x+4*pitch,y:p.y}))],image=[...a,...b],h=fitPlane(world,image);
       const error=Math.sqrt(world.reduce((sum,p,i)=>{const q=project(h,p);return sum+(q.x-image[i].x)**2+(q.y-image[i].y)**2;},0)/8);if(error>.12*Math.sqrt(polygonArea(a)))continue;
-      const width=pitch/.128,height=(aspect+pitch-1)/.4,corners=unitCorners.map(p=>({x:(p.x-.244)*width,y:(p.y-.38)*height})),denominators=corners.map(p=>h[6]*p.x+h[7]*p.y+1);
+      const width=pitch/FIELD_ZONE_PITCH,height=(aspect+pitch-1)/.4,corners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-.38)*height})),denominators=corners.map(p=>h[6]*p.x+h[7]*p.y+1);
       if(!denominators.every(w=>w>1e-6)&&!denominators.every(w=>w< -1e-6))continue;
       const calibration=createFieldCalibration(corners.map(p=>project(h,p)));if(!best||error<best.error)best={error,calibration};
     }
@@ -135,7 +139,7 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
       const b=cycle(outlines[1],second,reverse),world=[...rectangle,...rectangle.map(p=>({x:p.x+4*pitch,y:p.y+rowPitch}))],image=[...a,...b],h=fitPlane(world,image);
       const error=Math.sqrt(world.reduce((sum,p,i)=>{const q=project(h,p);return sum+(q.x-image[i].x)**2+(q.y-image[i].y)**2;},0)/8);
       if(error>.12*Math.sqrt(polygonArea(a)))continue;
-      const width=pitch/.128,height=rowPitch/.4,worldCorners=unitCorners.map(p=>({x:(p.x-.244)*width,y:(p.y-.38)*height}));
+      const width=pitch/FIELD_ZONE_PITCH,height=rowPitch/.4,worldCorners=unitCorners.map(p=>({x:(p.x-(.5-2*FIELD_ZONE_PITCH))*width,y:(p.y-.38)*height}));
       const denominators=worldCorners.map(p=>h[6]*p.x+h[7]*p.y+1);
       if(!denominators.every(w=>w>1e-6)&&!denominators.every(w=>w< -1e-6))continue;
       const playerCorners=worldCorners.map(p=>project(h,p)),middle=fieldCenter({quad:playerCorners});
@@ -150,14 +154,14 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
   return best.calibration;
 }
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
-  const {x,y}=fieldCenter({quad:card.quad.map(p=>onMat(p,calibration))});
+  const center=onMat(fieldCenter(card),calibration),x=.5+(center.x-.5)/normalizeZoneSpacing(calibration?.zoneSpacing),y=center.y;
   let zone:FieldZone;
   if(inExtraMonsterRow({x,y},format))zone=x<.5?'EMZ1':'EMZ2';
-  else if(x<.18)zone=y<.56?'FIELD':'EXTRA';
-  else if(x>.82)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
+  else if(x<.09)zone=y<.56?'FIELD':'EXTRA';
+  else if(x>=.91-1e-9)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
   else {
     const row=y<.56?'M':'S';
-    const col=Math.max(1,Math.min(5,Math.floor((x-.18)/.128)+1));
+    const col=Math.max(1,Math.min(5,Math.floor((x-.09)/FIELD_ZONE_PITCH)+1));
     zone=`${row}${col}` as FieldZone;
   }
   return {zone,calibrated:!!calibration};
@@ -167,8 +171,8 @@ export function fieldOrientation(card:DetectedQuad,width:number,height:number,ca
   const p=card.quad.map(q=>{
     if(!calibration)return {x:q.x*width,y:q.y*height};
     const mat=onMat(q,calibration);
-    // Five column pitches span .64; a row pitch spans .4. Portrait cards are 59:86.
-    return {x:mat.x/.128,y:mat.y/.4*(86/59)};
+    // A row pitch spans .4. Portrait cards are 59:86.
+    return {x:mat.x/(FIELD_ZONE_PITCH*normalizeZoneSpacing(calibration?.zoneSpacing)),y:mat.y/.4*(86/59)};
   });
   const edges=p.map((a,i)=>{const b=p[(i+1)%4];return {dx:b.x-a.x,dy:b.y-a.y,length:Math.hypot(b.x-a.x,b.y-a.y)};}).sort((a,b)=>b.length-a.length);
   const axis=edges[0];return Math.abs(axis.dx)>Math.abs(axis.dy)*1.15?'defense':'attack';
