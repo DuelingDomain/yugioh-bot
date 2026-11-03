@@ -136,11 +136,18 @@ test('field watcher waits for stillness, reads once with deck priors and binds t
   r.watcher.dispose();
 });
 test('field watcher rejects motion, low confidence, partial and covered placements',async()=>{
-  for(const obstacle of ['motion','confidence','partial','covered','phone']) {
+  for(const obstacle of ['motion','moving-back','confidence','partial','covered','phone']) {
     const r=fieldRig();if(obstacle==='motion')r.motion=.2;
+    else if(obstacle==='moving-back'){r.motion=.2;r.appearance=Array(12).fill(.2);r.outlines=[{...card(.3,.3),kind:'face-down'}];}
     else if(obstacle==='phone')r.outlines=[{...card(.3,.3,.08,.25),kind:'face-down',confidence:.45}];
     else r.outlines=[{...card(.3,.3),...(obstacle==='confidence'?{confidence:.45}:obstacle==='partial'?{partial:true}:{covered:true})}];
-    for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0,obstacle);assert.equal(r.events.length,0,obstacle);r.watcher.dispose();
+    for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0,obstacle);assert.equal(r.events.length,0,obstacle);
+    if(obstacle==='moving-back'){
+      r.outlines=[];r.motion=0;await r.tick(33);await r.tick(67);assert.equal(r.events.length,0,'clear mat cannot confirm a stale moving outline');
+      await r.tick(33);assert.equal(r.watcher.getSnapshot().tracks.length,0,'a detector miss and clear mat retire an unplaced back quietly');
+      const detects=r.detects;await r.tick(33);assert.equal(r.detects,detects,'retired draws do not keep inference running before the next Set');
+    }
+    r.watcher.dispose();
   }
 });
 test('uncertain results prompt with five alternatives, require confirmation and do not retry',async()=>{
