@@ -85,7 +85,8 @@
 .tbox .tm{font:600 12px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
 .tbox .you{font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:3px 7px 2px;border-radius:4px;background:var(--gold);color:#1b1204;box-shadow:0 0 14px rgb(232 185 79/.6);animation:youpulse 2s ease-in-out infinite}
 @keyframes youpulse{50%{box-shadow:0 0 22px rgb(232 185 79/.95)}}
-.order{display:flex;align-items:center;gap:4px}
+@media (prefers-reduced-motion:reduce){.tbox .you{animation:none}}
+.order{display:flex;align-items:center;gap:4px;min-width:0;max-width:28vw;overflow:hidden}
 .order i{display:flex;align-items:center;gap:5px;font-style:normal;font-size:12px;font-weight:600;color:var(--ink3);padding:3px 7px;border:1px solid var(--line);border-radius:999px;white-space:nowrap}
 .order i.on{border-color:var(--gold);color:var(--gold-ink);background:var(--gold-soft)}
 .order i.nx{border-style:dashed;color:var(--ink2)}
@@ -95,8 +96,8 @@
 .phases li{position:relative;z-index:1}
 .ph{position:relative;display:flex;align-items:center;gap:8px;height:40px;padding:0 15px 0 11px;background:var(--p0);border:1px solid var(--line);color:var(--ink3);border-radius:999px;font:600 15px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;transition:background .25s,color .25s,box-shadow .25s,border-color .25s}
 .ph .dot{width:15px;height:15px;border-radius:50%;border:2px solid var(--ink3);background:var(--p0);flex:none;transition:.3s var(--ease)}
-.ph:hover:not(:disabled){color:var(--ink);border-color:var(--pen)}
-.ph:disabled{cursor:default}
+.ph:hover:not(:disabled):not([aria-disabled]){color:var(--ink);border-color:var(--pen)}
+.ph:disabled,.ph[aria-disabled]{cursor:default}
 .ph.done{color:var(--ink2)}.ph.done .dot{background:var(--pen-deep);border-color:var(--pen)}
 .ph.on{color:#1b1204;background:var(--gold);border-color:var(--gold-ink);font-weight:800;font-size:16px;padding:0 17px 0 12px;box-shadow:0 0 0 4px rgb(232 185 79/.18),0 0 28px rgb(232 185 79/.6)}
 .ph.on .dot{background:#1b1204;border-color:#1b1204}
@@ -107,7 +108,7 @@
 .pass.hot{background:var(--gold);color:#1b1204;box-shadow:0 0 0 4px rgb(232 185 79/.18),0 0 26px rgb(232 185 79/.5);animation:hot 1.6s ease-in-out infinite}
 @keyframes hot{50%{box-shadow:0 0 0 7px rgb(232 185 79/.10),0 0 34px rgb(232 185 79/.35)}}
 .pass .pip{width:8px;height:8px;border:0}
-@media (max-width:1300px){.order{display:none}.tbox .tn b{max-width:190px;font-size:19px}}
+@media (max-width:1500px){.order{display:none}.tbox .tn b{max-width:190px;font-size:19px}}
 
 /* ============ seat ============ */
 .seat{--c:167 139 255;container:seat/size;position:relative;display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;min-width:0;background:linear-gradient(180deg,var(--p1),var(--p0));border:1px solid var(--line);border-radius:10px;overflow:hidden;transition:border-color .4s,box-shadow .4s}
@@ -507,7 +508,7 @@
 .peek .k{font:700 9.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;border:1px solid rgb(232 185 79/.45);color:var(--gold-ink);border-radius:3px;padding:3px 5px;flex:none}
 .peek .tbar{position:absolute;left:0;bottom:0;height:3px;background:var(--gold);width:100%;transform-origin:left;animation:tb 3.4s linear forwards}
 @keyframes tb{to{transform:scaleX(0)}}
-.toasts{position:fixed;left:50%;bottom:calc(var(--dock) + var(--rail) + var(--gap) + 14px);transform:translateX(-50%);z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toasts{position:fixed;left:50%;bottom:calc(var(--dock) + var(--rail) + var(--gap) + 14px);transform:translateX(-50%);z-index:320;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
 /* Notification stack: recognition prompts, notices and toasts live here, never over a camera image.

@@ -64,9 +64,10 @@ export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot
     event.preventDefault(); buttons[to]?.focus();
   };
   return <div className={`${s.rail} ${mine ? s.mine : ""}`} data-testid="rail" data-mine={mine || undefined} role="group" aria-label="Turn and phase">
+    <span className={s.sr} role="status" aria-live="polite" data-testid="rail-live">{mine ? "Your turn. " : ""}{current?.name ?? "Table"}&apos;s turn, turn {turn}, {PHASE_LONG[phase] ?? phase}.</span>
     <div className={s.tbox}><span className={s.pip} style={{ "--c": current?.color } as React.CSSProperties} />
       <div className={s.tn}>
-        <span className={s.tcap}>{mine ? <span className={s.you} data-testid="your-turn" role="status">Your turn</span> : null}<span className={s.tm}>Turn {turn}</span></span>
+        <span className={s.tcap}>{mine ? <span className={s.you} data-testid="your-turn">Your turn</span> : null}<span className={s.tm}>Turn {turn}</span></span>
         <b data-testid="turn-name">{current?.name ?? "Table"}&apos;s turn</b></div></div>
     <div className={s.order} aria-label="Turn order">
       {players.map(p => <i key={p.seat} className={`${p.seat === turnSeat ? s.on : p.seat === nextSeat ? s.nx : ""}`}><span className={s.pip} style={{ "--c": p.color } as React.CSSProperties} />{p.name}</i>)}
@@ -74,7 +75,7 @@ export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot
     <ol className={s.phases} aria-label="Phases" onKeyDown={onKeys}>
       {PHASES.map((p, i) => <li key={p.id}>
         <button type="button" className={`${s.ph} ${i < at ? s.done : ""} ${i === at ? s.on : ""}`} aria-current={i === at ? "step" : undefined} data-phase={p.id} data-testid={`phase-${p.id}`}
-          disabled={!canAct} aria-label={`${PHASE_LONG[p.id] ?? p.id}${i === at ? ", current" : i < at ? ", go back to this phase" : ""}`} onClick={() => click(p.id, i)}>
+          aria-disabled={!canAct || undefined} aria-label={`${PHASE_LONG[p.id] ?? p.id}${i === at ? ", current" : i < at ? ", go back to this phase" : ""}${canAct ? "" : ", not your turn"}`} onClick={() => { if (canAct) click(p.id, i); }}>
           <span className={s.dot} />{PHASE_SHORT[p.id] ?? p.id}</button>
       </li>)}
     </ol>

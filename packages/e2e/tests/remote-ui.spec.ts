@@ -26,8 +26,8 @@ async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
 }
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
-async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registeredDeck=false) {
-  const created = await api.post("/api/remote", { data: { gameId: "ygo", seatCount, solo: true } });
+async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registeredDeck=false, bestOf: 1 | 3 = 1) {
+  const created = await api.post("/api/remote", { data: { gameId: "ygo", seatCount, solo: true, bestOf } });
   expect(created.status()).toBe(201); const room = await created.json();
   if(registeredDeck){
     const {decks}=await (await api.get('/api/decks')).json();
@@ -244,6 +244,19 @@ test.describe("remote duels screen, solo", () => {
     await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: before.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
     const refused = await context.request.post(`/api/remote/${slug}/activity`, { data: {} });
     expect(refused.status()).toBe(409);
+  });
+
+  test("best of 3: a result can be undone from the result screen", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2, false, 3);
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("rail")).toBeVisible({ timeout: 30_000 });
+    const room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    const ended = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+    expect(ended.status(), await ended.text()).toBe(200);
+    await expect(page.getByTestId("match-result")).toBeVisible({ timeout: 15_000 });
+    await shot(page, "match-result-undo-1920");
+    await page.getByTestId("match-undo").click();
+    await expect(page.getByTestId("match-result")).toHaveCount(0);
   });
 
   // Camera / field swap: per viewer and per seat, animated, remembered, keyboard reachable, and cards keep their own click.

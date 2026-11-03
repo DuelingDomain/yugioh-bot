@@ -61,3 +61,39 @@
 .buttons > * { width: 100%; }
 @media (min-width: 901px) { .panel { grid-template-rows: minmax(0, 1fr) auto auto auto auto auto; } }
 @media (prefers-reduced-motion: reduce) { .timerBar i { transition: none; } }
+
+/* ---- errors, pending declaration, mixed clocks ---- */
+.resultError {
+  margin: 0; padding: 10px 14px; border: 1px solid var(--duel-loss, #e45a4d); border-radius: 10px; background: rgb(228 90 77 / 0.12);
+  color: var(--duel-loss-ink, #ffb4aa); font-size: 14px; text-align: center;
+}
+.pending {
+  position: fixed; z-index: 110; left: 50%; top: calc(var(--hdr, 52px) + 14px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 24px)); padding: 9px 14px; border: 1px solid var(--line2, #4a3d6e);
+  border-radius: 999px; background: rgb(20 13 38 / 0.97); box-shadow: 0 12px 36px rgb(0 0 0 / 0.55); color: var(--ink, #efe7d5); font-size: 14px;
+}
+.pendingDot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--gold, #e8b94f); animation: pendingPulse 1.4s ease-in-out infinite; }
+@keyframes pendingPulse { 50% { opacity: 0.35; } }
+.readyWins { margin-left: auto; padding-right: 12px; color: var(--duel-ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.timerNote { color: var(--duel-ink-3); font-size: 12px; text-align: center; }
+.reopen {
+  position: fixed; z-index: 120; left: 50%; bottom: calc(var(--dock, 56px) + 16px); transform: translateX(-50%); min-height: 40px; padding: 0 18px; border-radius: 999px;
+  border: 1px solid var(--gold, #e8b94f); background: rgb(20 13 38 / 0.97); color: var(--gold-ink, #f4d690); font: 700 14px/1 inherit; cursor: pointer;
+}
+
+/* ---- Ready and the first-player choice stay at the bottom on a phone, above the deck editor ---- */
+.sticky { display: grid; gap: 10px; min-width: 0; }
+@media (max-width: 900px) {
+  .sticky {
+    position: sticky; bottom: 0; z-index: 5; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); margin-inline: -14px;
+    border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.22)); background: rgb(6 10 19 / 0.96); box-shadow: 0 -10px 24px rgb(0 0 0 / 0.45);
+  }
+  .plain > .sticky { width: 100%; margin-inline: 0; }
+  .plain { align-content: start; padding-bottom: 0; }
+  .sidingRoot .panel { display: contents; }
+  .sidingRoot .panel > :not(.sticky) { margin-inline: 14px; }
+  .sidingRoot .panel > :first-child { margin-top: 10px; }
+  .sidingRoot .panel > * + * { margin-top: 8px; }
+  .sidingRoot .panel > .sticky { margin: 8px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { .pendingDot { animation: none; } }
