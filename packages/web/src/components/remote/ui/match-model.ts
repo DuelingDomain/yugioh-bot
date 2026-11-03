@@ -1,5 +1,5 @@
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import { REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, type RemoteGameResult, type RemoteMatch, type RemoteRoom, type RemoteSiding } from "@yugidraft/shared/remote";
+import { REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteSideDeadline, type RemoteGameResult, type RemoteMatch, type RemoteRoom, type RemoteSiding } from "@yugidraft/shared/remote";
 
 export type Match = RemoteMatch;
 export type MatchGame = RemoteGameResult;
@@ -49,10 +49,9 @@ export function reasonLine(game: MatchGame | undefined, name: (seat: number) => 
   return winnerSeat === null ? "Both players ran out of Life Points." : `${who(winnerSeat)} reduced the last opponent to 0 Life Points.`;
 }
 
-/** When a seat's siding clock ends. A table with a mix of physical and deck seats gives the physical seats 2 minutes less. */
+/** When a seat's siding clock ends (the server gives each seat its own cutoff). */
 export function seatDeadline(siding: MatchSiding, seat: number): number {
-  if (siding.extendedFor.length === 0 || siding.extendedFor.includes(seat)) return siding.deadline;
-  return siding.deadline - (SIDE_DECK_MS - SIDE_MS);
+  return remoteSideDeadline(siding, seat);
 }
 
 /** "3:00". */

@@ -227,7 +227,10 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
   const finalLeft = siding ? siding.deadline - clockNow : 0;
   const mixed = !!siding && siding.extendedFor.length > 0 && siding.extendedFor.length < room.seats.length;
   const waitsForOthers = expired && finalLeft > 0;
-  const locked = busy || imReady || expired || mySeat < 0 || room.solo;
+  // Everyone is Ready and the first-player choice is open: the server runs a short choice clock.
+  const choiceEnd = siding?.firstChoiceDeadline;
+  const choiceLeft = choiceEnd !== undefined ? choiceEnd - clockNow : null;
+  const locked = busy || imReady || expired || mySeat < 0;
 
   // A clock check at the end: never a game loss, and the server sweeps the room too.
   const timeoutSent = useRef<number | null>(null);
@@ -237,6 +240,14 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     const timer = window.setTimeout(() => { timeoutSent.current = siding.deadline; void act({ type: "side.timeout", actorSeat: seatNo }); }, wait);
     return () => window.clearTimeout(timer);
   }, [siding, now, act, seatNo]);
+  // The choice clock and each seat's own clock end earlier than the final deadline: the server applies them, a check just asks sooner.
+  const choiceSent = useRef<number | null>(null);
+  const choiceAt = siding?.firstChoiceDeadline;
+  useEffect(() => {
+    if (choiceAt === undefined || choiceSent.current === choiceAt) return undefined;
+    const timer = window.setTimeout(() => { choiceSent.current = choiceAt; void act({ type: "side.timeout", actorSeat: seatNo }); }, Math.max(0, choiceAt - now()) + 1500);
+    return () => window.clearTimeout(timer);
+  }, [choiceAt, now, act, seatNo]);
 
   // `act` never throws: a refused action comes back as null and the table shows the reason through `error`.
   const run = useCallback(async (job: () => Promise<unknown>) => {
@@ -275,10 +286,12 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     return act({ type: "side.ready", actorSeat: seatNo, seat: seatNo });
   });
   const unready = () => run(() => act({ type: "side.unready", actorSeat: seatNo, seat: seatNo }));
-  const first = (seat: number) => run(() => act({ type: "match.first", actorSeat: seatNo, seatGoesFirst: seat }));
+  const first = (seat: number) => run(() => act({ type: "match.first", actorSeat: chooseAs, seatGoesFirst: seat }));
 
   const chooser = match.firstChooser ?? null;
-  const iChoose = chooser !== null && chooser === mySeat && !room.solo;
+  const iChoose = chooser !== null && (chooser === mySeat || room.solo) && mySeat >= 0;
+  // On a solo test table the player also acts for the seat that chooses.
+  const chooseAs = room.solo && chooser !== null ? chooser : seatNo;
   const seats = room.seats.map(item => item.seat);
   const gameNo = match.games.length + 1;
   const score = matchScore(match, room.seatCount, mySeat);
@@ -305,7 +318,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     ? <div className={seriesStyles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
       <p className={seriesStyles.firstHead}>{iChoose ? chooserWhy : `${name(chooser as number)} chooses who goes first`}</p>
       {iChoose ? <div className={seriesStyles.firstRow}>
-        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0}
+        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0 || (choiceLeft !== null && choiceLeft <= 0)}
           data-testid={`first-choice-${seat === mySeat ? "me" : seat}`} onClick={() => void first(seat)}>{seat === mySeat ? "I go first" : `${name(seat)} first`}</button>)}
       </div> : null}
       <p className={seriesStyles.firstNote}>{match.firstSeat !== undefined ? `${name(match.firstSeat)} goes first.` : fallbackNote}</p>
@@ -313,11 +326,12 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
 
   const buttons = <div className={s.buttons}>
     {imReady
-      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || room.solo} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
-      : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || room.solo || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
+      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
+      : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
   </div>;
   const waitingFirst = everyoneReady && match.firstSeat === undefined && chooser !== null;
-  const status = waitingFirst ? (iChoose ? `Everyone is ready. Choose who goes first. The game starts in ${clock(Math.max(0, finalLeft))}.` : `Everyone is ready. Waiting for ${name(chooser as number)} to choose who goes first (${clock(Math.max(0, finalLeft))}).`)
+  const firstLeft = Math.max(0, Math.ceil((choiceLeft ?? finalLeft) / 1000));
+  const status = waitingFirst ? (iChoose ? `Everyone is ready. Choose who goes first: ${firstLeft} s left, then the default player goes first.` : `Everyone is ready. Waiting for ${name(chooser as number)} to choose who goes first (${firstLeft} s).`)
     : waitsForOthers ? `Your time is up. The next game starts in ${clock(finalLeft)}.`
     : expired ? "Time is up. The next game starts now."
     : imReady ? "You are ready. Waiting for the other players."

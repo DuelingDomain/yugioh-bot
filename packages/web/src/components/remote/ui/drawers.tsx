@@ -51,8 +51,8 @@ export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConce
       {extra}
       {onConcede || declare ? <div className={s.concede}>
         {confirm ? <>
-          <p>Give up this game? You lose it right away.</p>
-          <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => { setConfirm(false); onConcede?.(); }} data-testid="concede-yes">Yes, I lose</button>
+          <p>{seats.length > 2 ? "Give up this game? You are out of it right away. The others play on." : "Give up this game? You lose it right away."}</p>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => { setConfirm(false); onConcede?.(); }} data-testid="concede-yes">{seats.length > 2 ? "Yes, I am out" : "Yes, I lose"}</button>
           <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => setConfirm(false)}>Keep playing</button>
         </> : choosing && declare ? <>
           <p>Who won? The other players must agree before the game ends.</p>

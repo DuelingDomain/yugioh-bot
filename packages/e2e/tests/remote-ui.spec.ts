@@ -223,6 +223,7 @@ test.describe("remote duels screen, solo", () => {
     expect(ended.status(), await ended.text()).toBe(200);
     await expect(page.getByTestId("table-ended")).toContainText("This table has ended.", { timeout: 15_000 });
     await expect(page.getByTestId("new-table")).toHaveAttribute("href", "/duels/remote");
+    await page.getByTestId("match-view-board").click();
     await page.getByTestId("feed-0").hover();
     await page.waitForTimeout(500);
     const p = await video.evaluate((v: HTMLVideoElement) => {
