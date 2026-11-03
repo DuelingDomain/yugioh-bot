@@ -23,7 +23,7 @@ export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, 
 }
 
 type Placement = Extract<RemoteAction, { type: "twin.place" }>;
-type Reuse = { ref: string; card?: TwinCard } | { pending: true };
+type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true };
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
 const zoneLabel = (card: { zone: string; slot?: number }) => card.zone === "monster" ? `M${card.slot ?? ""}`
   : card.zone === "spell-trap" ? `S${card.slot ?? ""}` : card.zone === "extra-monster" ? `EMZ${card.slot ?? ""}` : card.zone;
@@ -57,12 +57,19 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   if (action.anotherCopy) return;
   const at = action.at ?? state.updatedAt, proof = action.copyProof;
   const exact = matches.find(t => t.ref === action.card.ref);
-  if (exact && exact.zone === action.zone && remotePhysicalSlot(exact.zone, exact.slot) === remotePhysicalSlot(action.zone, action.card.slot)) return {ref:exact.ref,card:exact};
+  if (exact && exact.zone === action.zone && remotePhysicalSlot(exact.zone, exact.slot) === remotePhysicalSlot(action.zone, action.card.slot)) {
+    if ((!context?.replay || context.pileArrivalGuard === 1) && action.source === "auto" && pileZone(action.zone)) return {noop:true};
+    return {ref:exact.ref,card:exact};
+  }
   if (proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000 && matches.some(t => remoteFieldZone(t.zone))) return;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
   const field = exact && remoteFieldZone(exact.zone) ? exact : recent ?? matches.find(t => remoteFieldZone(t.zone));
   if (field) return {ref:field.ref,card:field};
+  // An automatic pile top is an observation, not evidence of another copy.
+  // A new physical copy needs a field origin or an explicit copy/fromRef action.
+  if ((!context?.replay || context.pileArrivalGuard === 1) && action.source === "auto" && pileZone(action.zone) &&
+      matches.some(t => t.zone === action.zone)) return {noop:true};
 }
 
 /** Version 2 origin prompts are retained only for recorded event replay. */

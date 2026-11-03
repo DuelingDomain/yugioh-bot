@@ -554,3 +554,35 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
  ]);});
  expect(maxActive).toBe(1);expect(bases).toEqual([0,1]);expect(room.lastSeq).toBe(2);
 });
+
+
+it('one physical pile arrival stays one entry across 21 scans; a second field departure stays distinct',async()=>{
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,context?:any)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:++serial,idempotencyKey:`pile-scan-${serial}`,...input}),context);
+  const card={cardId:100,name:'The Man with the Mark',faceUp:true};
+  act({type:'twin.place',zone:'monster',card:{...card,ref:'physical-one',slot:3}});
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'arrival'}});
+  const arrivalUndo=state.undo?.actionId;
+  for(let i=0;i<21;i++)act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:`rescan-${i}`}});
+  expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-one',zone:'graveyard'})]);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'physical-one'}});
+  expect(state.undo?.actionId).toBe(arrivalUndo);
+  act({type:'twin.place',zone:'monster',anotherCopy:true,card:{...card,ref:'physical-two',slot:4}});
+  act({type:'twin.move',source:'auto',cardRef:'physical-two',zone:'hand'});
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'second-arrival'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard').map(c=>c.ref)).toEqual(['physical-one','physical-two']);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'banished-top'}});
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'banished-rescan'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(1);
+  // Historical events keep their accepted copy semantics; new events record the guard.
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'legacy-copy'}},{replay:true,twinPlacementGuard:3});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'guarded-replay'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:1});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+  act({type:'twin.remove',cardRef:'legacy-copy'});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(1);
+  act({type:'undo',targetActionId:state.undo!.actionId});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+});

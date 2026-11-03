@@ -128,6 +128,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
+      if (reuse && "noop" in reuse) return next;
       if (reuse && "pending" in reuse) return next;
       if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
       const ref = reuse?.ref ?? action.card.ref;

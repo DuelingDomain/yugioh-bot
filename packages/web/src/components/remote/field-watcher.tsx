@@ -106,7 +106,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     }).catch(error=>{console.error('[remote field] update failed',error);if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event});setNotice('Could not save the field update. Use Retry field update.');}});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
-    const reusable=(card:TwinCard)=>publicField(card.zone)||recentFieldDeparture(card,serverNow());
+    const reusable=(card:TwinCard)=>publicField(card.zone)||recentFieldDeparture(card,serverNow())||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone;
     let existing=twins.find(c=>c.ref===track.id&&reusable(c));
     const sameSlot=(c:typeof twins[number])=>knownZone(c)===track.zone;
     const owns=(t:FieldTrack,ref:string)=>(bindings.current.get(t.id)??t.id)===ref;
@@ -119,7 +119,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       existing=bound??twins.find(c=>publicField(c.zone)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(!existing&&entry){
-      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(recentFieldDeparture(b,serverNow()))-Number(recentFieldDeparture(a,serverNow())));
+      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(recentFieldDeparture(b,serverNow()))*2+Number(publicField(b.zone))-Number(recentFieldDeparture(a,serverNow()))*2-Number(publicField(a.zone)));
       for(const copy of copies){
         const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
         // Events precede the React snapshot render. Both witnesses must be read
@@ -199,6 +199,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const resolved=resolveExisting(event,track,entry,twins);
     if(resolved.blocked){offer({...event,type:'prompt',reason:'uncertain'});return;}
     existing=resolved.existing;
+    if(existing&&['GY','BANISHED'].includes(track.zone)&&existing.zone===location.zone&&existing.faceUp===!track.faceDown&&entry&&sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})){
+      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);return;
+    }
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
     const placementRef=track.id;

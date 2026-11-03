@@ -58,6 +58,7 @@ export type RemoteReductionContext = {
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
   twinPlacementGuard?: 1 | 2 | 3;
+  pileArrivalGuard?: 1;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
 };
