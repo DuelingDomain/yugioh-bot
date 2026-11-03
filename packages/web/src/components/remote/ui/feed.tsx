@@ -356,7 +356,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (hoverTip && !f && p && event.pointerType === "mouse") {
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
       if (found && area) {
-        const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 44 ? y - 42 : y + 16; const flip = left > area.width - 230;
+        const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
         setTip(old => old && old.label === found.label && old.detail === found.detail && old.flip === flip ? old : { left, top, flip, ...found });
         if (tipBox.current) { tipBox.current.style.left = `${left}px`; tipBox.current.style.top = `${top}px`; }
       } else setTip(null);
