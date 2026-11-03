@@ -500,6 +500,18 @@
 .toasts{position:fixed;left:50%;bottom:calc(var(--dock) + 14px);transform:translateX(-50%);z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
+/* Notification stack: recognition prompts, notices and toasts live here, beside the field, never over a camera image.
+   Both views: bottom-right of the table. Webcam only: the thumbnail column. */
+.notifyDock{position:absolute;right:var(--gap);bottom:calc(var(--gap) + 66px);z-index:60;width:min(340px,32vw);max-height:min(62%,560px);overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
+@media (max-width:1500px){.notifyDock{width:min(280px,24vw)}}
+.notifyDock>*{pointer-events:auto}
+.notifyDock:empty{display:none}
+.toastsDocked{display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.toastsDocked:empty{display:none}
+.toastsDocked .toast{padding:8px 12px;font-size:13px;line-height:1.35}
+/* Card popup inside the stack: small art beside the text, no pointer arrow. */
+.pop.big.show.docked{position:static;display:grid;grid-template-columns:96px minmax(0,1fr);--aw:96px;width:100%;max-width:100%;max-height:none;padding:10px;gap:8px 10px;left:auto!important;top:auto!important;right:auto;bottom:auto;box-shadow:0 12px 36px rgb(0 0 0/.6)}
+.pop.big.show.docked::before{display:none!important}
 
 /* ============ overlay: banner + arrow ============ */
 .banner{position:absolute;inset:var(--rail) 0 0 0;display:grid;place-items:center;pointer-events:none;z-index:8;overflow:hidden}
@@ -594,6 +606,7 @@
 .thumblp{display:none;margin-left:auto;font-weight:800;font-size:14px;color:var(--ink)}
 .thumbhit{display:none}
 @media (min-width:901px){
+  .app[data-wc] .notifyDock{width:var(--thumbw);bottom:var(--gap)}
   .app[data-wc] .stage{--thumbw:clamp(190px,14vw,280px);grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
   .app[data-wc][data-mode] .stage{grid-template-columns:minmax(0,1fr) var(--thumbw);grid-template-rows:var(--rail) repeat(3,auto) minmax(0,1fr);grid-template-areas:none}
   .app[data-wc] .rail{grid-area:auto;grid-column:1 / -1;grid-row:1}
@@ -632,6 +645,8 @@
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
+  .notifyDock{position:fixed;left:8px;right:8px;bottom:calc(var(--bar,0px) + var(--dock) + 8px);width:auto;max-height:40dvh}
+  .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
   .shell{display:block;height:auto}

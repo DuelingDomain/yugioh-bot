@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cardArt, isMonsterInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
@@ -42,14 +43,15 @@ export function placePopup(at: PopAt, w: number, h: number, vw: number, vh: numb
  * The frame of the card popups (tray and identified card): fixed beside the clicked card with a small pointer.
  * On a phone or a narrow window the CSS turns it into a bottom sheet and the position is ignored.
  */
-export function PopupFrame({ at, layer, label, busy, testid, className, children }: {
-  at: PopAt; layer: string; label: string; busy?: boolean; testid: string; className?: string; children: ReactNode;
+export function PopupFrame({ at, layer, label, busy, testid, className, dock, children }: {
+  /** With `dock`, the popup sits in the notification stack beside the field instead of beside the clicked card. */
+  dock?: HTMLElement | null; at: PopAt; layer: string; label: string; busy?: boolean; testid: string; className?: string; children: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const key = `${at.anchor ? `${Math.round(at.anchor.left)},${Math.round(at.anchor.top)},${Math.round(at.anchor.right)},${Math.round(at.anchor.bottom)}` : "-"}|${at.feed ? `${Math.round(at.feed.left)},${Math.round(at.feed.top)},${Math.round(at.feed.right)},${Math.round(at.feed.bottom)}` : "-"}`;
   useLayoutEffect(() => {
-    const node = box.current; if (!node) return;
+    const node = box.current; if (!node || dock) return;
     const place = () => setPlaced(old => {
       const next = placePopup(at, node.offsetWidth, node.offsetHeight, window.innerWidth, window.innerHeight);
       return old && old.left === next.left && old.top === next.top && old.side === next.side && old.arrow === next.arrow ? old : next;
@@ -60,11 +62,12 @@ export function PopupFrame({ at, layer, label, busy, testid, className, children
     return () => { observer.disconnect(); window.removeEventListener("resize", place); };
     // `key` stands for the two boxes in `at`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, dock]);
   const style: CSSProperties = placed ? { left: placed.left, top: placed.top, ["--arrow" as string]: `${placed.arrow}px` } : { left: 8, top: 8, visibility: "hidden" };
-  return <div ref={box} className={`${s.pop} ${s.big} ${s.show} ${className ?? ""}`} data-layer={layer} data-side={placed?.side ?? "none"} role="dialog" aria-label={label} aria-busy={busy} style={style} data-testid={testid}>
+  const frame = <div ref={box} className={`${s.pop} ${s.big} ${s.show} ${dock ? s.docked : ""} ${className ?? ""}`} data-layer={layer} data-side={dock ? "none" : placed?.side ?? "none"} role="dialog" aria-label={label} aria-busy={busy} style={dock ? undefined : style} data-testid={testid}>
     {children}
   </div>;
+  return dock ? createPortal(frame, dock) : frame;
 }
 
 /** The large card picture. `id` null shows the shimmer while the reader works. */

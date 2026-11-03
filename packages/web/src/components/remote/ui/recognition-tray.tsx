@@ -25,8 +25,8 @@ export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voi
  * its full text and tier. When the reader is not sure, a slim strip of the top 5 guesses lets the person choose:
  * keys 1-5 pick, arrows move the preview, Enter picks the previewed card, typing searches the whole catalog.
  */
-export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, aiAllowed }: {
-  tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
+export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, aiAllowed, dock }: {
+  dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
@@ -77,7 +77,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
   const ownerLine = `${tray.ownerName}'s field cam`;
   const info = current ? cardInfo(current.cardId) : undefined;
   const label = reading ? "Reading card" : placing ? "Card found" : "Which card is this?";
-  return <PopupFrame at={tray.at} layer="tray" label={label} busy={reading || placing} testid="recognition-tray" className={s.bigTray}>
+  return <PopupFrame dock={dock} at={tray.at} layer="tray" label={label} busy={reading || placing} testid="recognition-tray" className={s.bigTray}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close without choosing" onClick={onClose}><Icon name="x" /></button>
     <BigArt id={reading || !current ? null : current.cardId} reading={reading} label={reading ? undefined : "No card to show"} />
     <div className={s.bmain}>

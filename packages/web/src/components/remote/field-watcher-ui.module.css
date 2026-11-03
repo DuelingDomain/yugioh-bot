@@ -14,6 +14,9 @@
 .announcement{position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .prompt,.notice{position:fixed;z-index:220;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;overscroll-behavior:contain;border:1px solid var(--gold);border-radius:10px;background:linear-gradient(180deg,#1a1030,var(--p0));box-shadow:0 16px 50px rgb(0 0 0/.65)}
 .prompt{width:300px;padding:14px}
+/* In the notification stack beside the field: in flow, as wide as the stack. */
+.prompt.docked,.notice.docked{position:static;z-index:auto;width:100%;max-width:100%;max-height:none;overflow:visible;box-shadow:0 12px 36px rgb(0 0 0/.6)}
+.prompt.docked{padding:10px}
 .prompt header{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .prompt strong{font-size:18px;line-height:1.2}
 .queue{flex:none;color:var(--gold-ink);font-size:12px;font-weight:600}

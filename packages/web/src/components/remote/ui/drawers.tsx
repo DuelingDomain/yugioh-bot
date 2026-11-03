@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { LogKind } from "./describe";
 import type { Health } from "./video-hub";
@@ -111,8 +112,9 @@ export function Peek({ peek }: { peek: PeekState }) {
 }
 
 export type ToastItem = { id: number; text: ReactNode };
-export function Toasts({ items }: { items: ToastItem[] }) {
-  return <div className={s.toasts} role="status" aria-live="polite" data-testid="toasts">{items.map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
+export function Toasts({ items, dock }: { items: ToastItem[]; dock?: HTMLElement | null }) {
+  const list = <div className={dock ? s.toastsDocked : s.toasts} role="status" aria-live="polite" data-testid="toasts">{items.map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
+  return dock ? createPortal(list, dock) : list;
 }
 
 export function Banner({ banner }: { banner: { id: number; small: string; big: string } | null }) {

@@ -529,7 +529,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <span>No card here</span>
         <button type="button" onClick={() => { const at = miss; setMiss(null); onSearch(seat, { x: at.x, y: at.y, anchor: around(at), feed: feedRect() }); }} data-testid="no-card-search">Search card</button>
       </div> : null}
-      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
+      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b className={s.sr}>{r.text}</b></div>) : null}
     </div>
     <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
