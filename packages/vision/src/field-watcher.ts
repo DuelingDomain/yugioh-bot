@@ -51,7 +51,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
-  let timer:ReturnType<typeof setTimeout>|undefined,ema=0,busyUntil=0,observer:PerformanceObserver|undefined,calibration=options.calibration,reading:Promise<void>|undefined;
+  let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined;
   let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity;
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
@@ -129,7 +129,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   const idle=()=>{
     const nav=typeof navigator==='undefined'?undefined:navigator as Navigator&{scheduling?:{isInputPending():boolean}};
-    return (!reading&&options.cpuBusy?.()) || now()<busyUntil || nav?.scheduling?.isInputPending();
+    // A completed main-thread task says nothing about current input pressure.
+    // Worker scans already obey their duty budget; fresh frames must keep the
+    // face gate progressing while unrelated rendering/network work settles.
+    return (!reading&&options.cpuBusy?.()) || nav?.scheduling?.isInputPending();
   };
   function proposePose(t:InternalTrack,card:DetectedQuad,cards:DetectedQuad[],evidence:FieldAnalysis,at:number,width:number,height:number) {
     const origin=t.announced??t.view.card,pixels=evidence.appearance?.(card);
@@ -165,7 +168,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     return [...piles.values()].some(p=>!p.down&&at-p.firstSeen<1500)||tracks.some(t=>
       t.view.state==='candidate'&&at-Math.max(t.view.firstSeen,t.face?.transitionAt??-Infinity)<1500&&(t.view.card.confidence>=.7||backOutline(t.view.card))&&!t.view.card.partial&&!t.view.card.covered||
       t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down')&&at-(t.face?.transitionAt??at)<1500&&at-t.view.lastSeen<450||
-      t.face?.pendingAt!==undefined&&at-t.face.pendingAt<1500||t.pose&&at-t.pose.at<600||t.read&&at-t.read.at<1500||
+      t.face?.pendingAt!==undefined&&at-t.face.pendingAt<1500||t.face?.transitionAt!==undefined&&at-t.face.transitionAt<1500||t.pose&&at-t.pose.at<600||t.read&&at-t.read.at<1500||
       t.missingSamples>0&&at-(t.clearWindowAt??at)<removalMs+1500);
   };
   async function tick() {
@@ -175,8 +178,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(busy&&empty){status='busy';metrics.skipped++;interruptWindow();notify();return;}
     const pileBurst=()=>[...piles.values()].some(p=>!p.down&&now()-p.firstSeen<1500);
     const faceBurst=pileBurst()||tracks.some(t=>t.face?.pendingAt!==undefined&&now()-t.face.pendingAt<1500);
-    const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
-    const generation=epoch;inFlight=true;const start=now();const samplesBefore=metrics.samples;let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
+    // Quiet empty fields need fewer background scans, which can block arrivals.
+    // Keep a bounded retry so a stationary card recovers from a detector miss.
+    const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&
+      now()-lastDetectionAt<(empty&&!tracks.length&&!piles.size&&!suppressed.length?Math.max(2000,metrics.intervalMs):metrics.intervalMs));
+    const generation=epoch;inFlight=true;const start=now();let detectorRan=false,current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const captureAt=now(),sample=await options.buffer.sample({maxAgeMs:30}),captureMs=now()-captureAt;current=sample.frame;
       if(generation!==epoch||disposed)return;
@@ -249,7 +255,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // A tiny appearance patch can match the mat after a moving card leaves.
       // Only a new detector result can confirm a candidate on clear background.
       const cachedTracks=tracks.filter(t=>t.view.state!=='candidate'||t.view.card.kind!=='face-down'||!clearFieldBackground(evidence.appearance?.(t.view.card),evidence.halo?.(t.view.card)));
-      const faceSamples=cachedTracks.some(t=>t.face?.pendingAt!==undefined||t.read?.result||t.view.state==='candidate'&&t.newOutline||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&now()-lastDetectionAt<450&&
+      // Leave a bounded confirmation window after inference returns. Its input
+      // timestamp includes the model's own wait; it is not the result's age.
+      const confirmationAge=Math.max(450,Math.min(1000,metrics.detectorMs+250));
+      const faceSamples=cachedTracks.some(t=>t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.read?.result||t.view.state==='candidate'&&t.newOutline||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&now()-lastDetectionAt<confirmationAge&&
         cachedTracks.every(t=>t.view.removed||t.view.state==='candidate'&&!t.view.visible&&!t.read&&t.face?.pendingAt===undefined||sample.at-t.view.lastSeen<450&&!t.view.card.partial&&!t.view.card.covered&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card)))&&evidence.motion(mat)<=.004;
       let detected:DetectedQuad[],region:FractionalBox|undefined;
@@ -258,15 +267,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // or changed/occluded pixels must go through detection as usual.
         // The outline's detector age is bounded above, independently of the
         // physical track's age (a moving draw may have created it earlier).
-        detected=cachedTracks.filter(t=>!t.view.removed&&(t.view.visible||t.read||t.face?.pendingAt!==undefined||t.newOutline&&faceSamples&&sample.at-t.view.lastSeen<450&&!t.view.card.partial&&!t.view.card.covered||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&evidence.motion(t.view.card)<=.025&&
+        detected=cachedTracks.filter(t=>!t.view.removed&&(t.view.visible||t.read||t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.newOutline&&faceSamples&&sample.at-t.view.lastSeen<450&&!t.view.card.partial&&!t.view.card.covered||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
       }else{
       if(pixelBurst()&&sample.at-lastDetectionAt<(options.recognizer.detectorBackend==='webgpu'?Math.max(100,metrics.intervalMs):100))return;
+      detectorRan=true;
       detectFrame=await clone(current);
       // Discover new outlines in the recent motion crop, including all live
       // tracks so association and overlap checks still see the whole field.
       // Periodic full scans catch stationary cards missed outside that crop.
-      if(recentMotion&&sample.at-recentMotion.at<1500&&sample.at-lastFullDetectionAt<2000){
+      // A new localized change is useful even after a long idle interval. Quiet
+      // periodic scans still cover the full frame; cropped misses retry below.
+      if(recentMotion&&sample.at-recentMotion.at<1500&&(localizedDifference||sample.at-lastFullDetectionAt<2000)){
         const boxes=[recentMotion.region,...tracks.filter(t=>!t.view.removed).map(t=>boundsOf(t.view.card.quad))];
         const x=Math.max(0,Math.min(...boxes.map(b=>b.x))-.06),y=Math.max(0,Math.min(...boxes.map(b=>b.y))-.08);
         const right=Math.min(1,Math.max(...boxes.map(b=>b.x+b.w))+.06),bottom=Math.min(1,Math.max(...boxes.map(b=>b.y+b.h))+.08);
@@ -417,7 +429,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const faceState=t.face??={gate:createFaceStateHysteresis({sustainMs:120,minSamples:3}),setCardId:t.binding?.faceDown?t.binding.cardId:undefined};
         // The latest detector's appearance validates a new outline or changed
         // face without overwriting identity or re-running inference.
-        if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down'))&&c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
+        // A white/art sleeve can retain the detector's front class. Its fresh
+        // outline still supports pixel confirmation when the bound face changes.
+        if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down')||bound(t)&&!matchesLook(t,pixels))&&c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
         // Bound cards need fresh face pixels in either direction, even when a
         // plain sleeve has a weak/wrong detector class. New fronts keep .7.
         const boundOutline=c.confidence>=.4&&cardAspect(c)&&!!(t.setRecovery||t.binding?.faceDown||bound(t));
@@ -626,7 +640,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(detectFrame)closeFieldFrame(detectFrame);if(current)closeFieldFrame(current);
       const elapsed=Math.max(0,now()-start);
       // Startup/model downloads and occasional recognition are not the continuous detector load.
-      if(metrics.samples>samplesBefore)ema=ema?ema*.8+elapsed*.2:Math.min(elapsed,80);
+      // Cheap cached pixel samples are not detector measurements. Mixing them
+      // into the EMA makes idle scans run too often and blocks the next arrival.
+      if(detectorRan)ema=ema?ema*.8+elapsed*.2:Math.min(elapsed,80);
       // A bounded placement burst takes priority over the idle CPU budget. With
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
@@ -641,12 +657,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();if(active)scheduleAfter(Math.max(0,Math.min(pixelBurst()?33:66,metrics.intervalMs)-(now()-start)));},0);}
   function scheduleAfter(delay:number) {if(active)timer=setTimeout(()=>schedule(),delay);}
-  function stop() {active=false;epoch++;clearTimeout(timer);observer?.disconnect();observer=undefined;interruptWindow();status='stopped';notify();}
+  function stop() {active=false;epoch++;clearTimeout(timer);interruptWindow();status='stopped';notify();}
   return {
     tick,
     start() {
       if(active||disposed)return;active=true;status=options.recognizer.prepare?'starting':'watching';notify();
-      if(typeof PerformanceObserver!=='undefined')try {observer=new PerformanceObserver(list=>{if(list.getEntries().some(e=>e.duration>50))busyUntil=now()+250;});observer.observe({entryTypes:['longtask']});}catch{/* Not supported by every browser. */}
       if(options.recognizer.prepare) {
         const generation=epoch;
         void options.recognizer.prepare(preparation()).then(()=>{if(generation===epoch&&!disposed&&active){status='watching';schedule();notify();}}).catch(cause=>{if(generation===epoch&&!disposed){active=false;status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;notify();}});
