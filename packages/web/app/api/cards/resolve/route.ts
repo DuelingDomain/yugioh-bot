@@ -3,7 +3,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { CardFetchLimitError, createCardLookupBudget, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo, parseDeckSuggestionQuery, type CardEffectSearchResult } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createCardLookupBudget, loadEngineCardFacts, applyEngineCardFacts, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo, parseDeckSuggestionQuery, type CardEffectSearchResult } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -18,6 +18,9 @@ import { lowConfidenceReading, searchIntentTarget, readFormatQuery } from "@yugi
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
+
+/** Spell/Trap rows already fetched again this process because neither the engine nor the catalog knew their subtype. */
+const subtypeRefetched = new Set<number>();
 
 /** Remote card lookups one description search may start for hits missing from the display cache. */
 const EFFECT_SEARCH_LOOKUP_LIMIT = 8;
@@ -37,6 +40,8 @@ function toCardSummary(c: {
   imageUrl: string;
   imageUrlSmall: string;
 }): CardSummary {
+  // One card-facts source for every client: engine cards.cdb type bits first, then our catalog row.
+  c = applyEngineCardFacts(c, loadEngineCardFacts().get(c.ygoprodeckId));
   return {
     id: c.ygoprodeckId,
     prerelease: c.prerelease,
@@ -155,7 +160,15 @@ async function handlePOST(request: Request) {
       return NextResponse.json({ error: "lookupIds must be up to 200 positive card ids." }, { status: 400 });
     }
     const wanted = [...new Set(ids as number[])];
-    await ensureCatalogCards(catalog, wanted, createCardLookupBudget());
+    const budget = createCardLookupBudget();
+    await ensureCatalogCards(catalog, wanted, budget);
+    // Online fallback (card database API) for a Spell/Trap that the engine does not have and our row has no subtype for.
+    const engine = loadEngineCardFacts();
+    for (const card of catalog.findByIds(wanted)) {
+      if (engine.has(card.ygoprodeckId) || card.race || card.prerelease || !/spell|trap/i.test(card.type) || subtypeRefetched.has(card.ygoprodeckId)) continue;
+      subtypeRefetched.add(card.ygoprodeckId);
+      try { await catalog.syncCardById(card.ygoprodeckId, { lookupBudget: budget }); } catch { /* Keep the cached row. */ }
+    }
     const cards = catalog.findByIds(wanted).map(toCardSummary);
     const found = new Set(cards.map((card) => card.id));
     return NextResponse.json({ cards, unknownIds: wanted.filter((id) => !found.has(id)) }, { headers: { "Cache-Control": "private, no-store" } });

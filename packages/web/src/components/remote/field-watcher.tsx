@@ -8,7 +8,7 @@ import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,fieldCandidateFitsZone,hardFieldZone,fieldZoneLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
+import {projectFieldZone,fieldCandidateFitsZone,hardFieldZone,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -565,7 +565,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===card.ref);
         if(!live()||!latest||toZone(latest.zone,latest.slot)!==zone||manual.current.has(card.ref))return;
         const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...fieldZoneLocation(target),...(latest.position?{position:latest.position}:{})});
-        if(updated){setNotice(`${latest.name??'Card'} → ${fieldZoneLabel(target)} · zone rule`);setUndoId(updated.state.undo?.actionId??'');}
+        if(updated){
+          const rule=`${latest.name??'Card'}: ${target==='FIELD'?'Field Spell → Field Zone':'Link Monster → Monster Zone'}`;
+          setNotice(rule);setUndoId(updated.state.undo?.actionId??'');
+          // A log line, not an undo step: Undo still reverts the move itself.
+          try{await act({type:'log.note',actorSeat:seat,text:rule});}catch(error){console.info('[remote field] zone rule note skipped',error);}
+        }
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

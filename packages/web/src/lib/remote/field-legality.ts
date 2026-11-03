@@ -1,7 +1,10 @@
 import { fieldZoneLocation, hasExtraMonsterZones, type FieldFormat, type FieldZone } from '@yugidraft/vision';
 
-/** Card facts from our catalog. `effectText` decides the soft rules (Set as Spell, Equip, Trap Monster). */
-export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null; effectText?:string|null };
+/**
+ * Card facts from /api/cards/resolve: engine cards.cdb type bits first (Spell/Trap subtype in `race`, a Trap
+ * Monster's Level, Link frame), then our catalog row. `effectText` decides the soft rules (Set as Spell, Equip).
+ */
+export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null; effectText?:string|null; level?:number|null };
 /** `trapZone`: a Trap Monster keeps this Spell & Trap Zone occupied while it is a monster. */
 type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
@@ -30,7 +33,9 @@ function cardKind(facts:FieldZoneFacts|undefined) {
     pendulum:monster&&/\bpendulum\b/i.test(type),
     extra:monster&&/\b(fusion|synchro|xyz|link)\b/i.test(type),
     link:monster&&(/\blink\b/i.test(type)||facts?.frameType==='link'),
-    trapMonster:trap&&(/\bmonster\b/i.test(type)||TRAP_MONSTER.test(text)),
+    trapMonster:trap&&((facts?.level??0)>0||/\bmonster\b/i.test(type)||TRAP_MONSTER.test(text)),
+    /** A Spell with no known subtype: it may be a Field Spell, so FIELD is never marked for it. */
+    spellSubtypeUnknown:spell&&!facts?.race?.trim(),
     spellTrapText:monster&&SPELL_TRAP_TEXT.test(text),
     equip:monster&&(/\bunion\b/i.test(type)||EQUIP_TEXT.test(text))};
 }
@@ -46,6 +51,16 @@ export function equipSourceOnField<T extends {zone:string;faceUp?:boolean}>(twin
   return twins.some(card=>!!card.faceUp&&ON_FIELD.has(card.zone)&&equipsMonsters(factsOf(card)));
 }
 
+
+/** The full card type for the inspector: "Field Spell", "Continuous Trap", "Trap Monster", "Link-2 Monster" … */
+export function cardTypeLine(facts:FieldZoneFacts|undefined):string {
+  if(!facts)return '';
+  const kind=cardKind(facts),race=facts.race?.trim();
+  if(kind.spell)return race?`${race} Spell`:'Spell Card';
+  if(kind.trap)return `${race?`${race} Trap`:'Trap Card'}${kind.trapMonster&&(facts.level??0)>0?' · Trap Monster':''}`;
+  if(kind.link)return `Link-${facts.level??'?'} ${/link monster/i.test(facts.type)?'Monster':facts.type}`;
+  return facts.type;
+}
 
 export function fieldZoneLabel(zone:string):string {
   if(/^M[1-5]$/.test(zone))return `Main Monster Zone ${zone.slice(1)}`;
@@ -66,7 +81,7 @@ export function fieldZoneCheck(facts:FieldZoneFacts|undefined,zone:string,slot?:
   if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(destination))return;
   const kind=cardKind(facts);
   if(!kind.known)return;
-  if(destination==='field')return kind.field?undefined:'Only Field Spells normally belong in the Field Spell Zone.';
+  if(destination==='field')return kind.field||kind.spellSubtypeUnknown?undefined:'Only Field Spells normally belong in the Field Spell Zone.';
   if(kind.field)return 'Field Spells normally belong in the Field Spell Zone.';
   if(destination==='monster')return kind.monster||kind.trapMonster?undefined:kind.trap?'This Trap has no Trap Monster text.':'Spell Cards normally belong outside Main Monster Zones.';
   if(destination==='extra-monster')return kind.extra||kind.pendulum?undefined:'Extra Monster Zones require Fusion, Synchro, Xyz, or Link Monsters.';

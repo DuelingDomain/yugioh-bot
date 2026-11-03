@@ -10,6 +10,7 @@ export * from "./genesys-points-sync.js";
 export * from "./card-lookup-budget.js";
 export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
 export * from "./card-artworks.js";
+export * from "./engine-card-facts.js";
 export * from "./card-fetch.js";
 export * from "./cubes.js";
 export * from "./cube-seed.js";

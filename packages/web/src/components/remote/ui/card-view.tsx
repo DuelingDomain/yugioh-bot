@@ -6,6 +6,7 @@ import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
+import { cardTypeLine } from "@/lib/remote/field-legality";
 
 /** One card the table is looking at: from a feed click, the field, or the tray. */
 export type Subject = {
@@ -28,7 +29,8 @@ function Stats({ info }: { info: CardInfo | undefined }) {
   if (!isMonsterInfo(info)) return null;
   return <div className={`${s.dstat} ${s.num}`}><span><small>ATK</small>{info?.atk ?? "?"}</span>{isLinkInfo(info) ? null : <span><small>DEF</small>{info?.def ?? "?"}</span>}</div>;
 }
-const meta = (info: CardInfo | undefined) => info ? [info.type, info.attribute, info.level ? `Level ${info.level}` : ""].filter(Boolean).join(" · ") : "Loading card…";
+/** Full type from the shared card-facts resolver ("Field Spell", "Link-2 Monster"); Level only for non-Link monsters. */
+const meta = (info: CardInfo | undefined) => info ? [cardTypeLine(info), info.attribute, info.level && !/spell|trap/i.test(info.type) && info.frameType !== "link" && !/link/i.test(info.type) ? `Level ${info.level}` : ""].filter(Boolean).join(" · ") : "Loading card…";
 
 export function DeckBadges({ subject, warning }: { subject: Subject; warning?: string }) {
   return <div className={s.cbadges}>

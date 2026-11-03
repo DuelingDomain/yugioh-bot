@@ -445,6 +445,20 @@ it('field legality: nullable catalog race does not invent a Field Spell subtype'
  const facts:import('../src/lib/remote/field-legality').FieldZoneFacts={type:'Spell Card',race:null};
  expect(projectFieldZone({zone:'S4',facts,twins:[]}).zone).toBe('S4');
  expect(manualFieldZoneWarning(facts,'spell-trap',4)).toBeUndefined();
+ // ... and an unknown subtype is never "Check zone?" in FIELD.
+ const {fieldZoneCheck,cardTypeLine,hardFieldZone}=await import('../src/lib/remote/field-legality');
+ expect(fieldZoneCheck(facts,'field')).toBeUndefined();
+ // Owner, Treasures of the Kings: our catalog row has no subtype; the engine cards.cdb type bits (Spell|Field) are
+ // the first source, so it is a Field Spell: S1 goes to FIELD at once, FIELD gets no mark, the inspector says "Field Spell".
+ const {applyEngineCardFacts}=await import('../../shared/src/services/engine-card-facts');
+ const treasures=applyEngineCardFacts({type:'Spell Card',frameType:'spell',race:undefined as string|undefined,effectText:'This card\'s name becomes "Temple of the Kings" while in the Field Zone.'},{type:0x80002,level:0,def:0});
+ expect(treasures.race).toBe('Field');expect(hardFieldZone(treasures,'S1',[],'self')).toBe('FIELD');
+ expect(fieldZoneCheck(treasures,'field')).toBeUndefined();expect(cardTypeLine(treasures)).toBe('Field Spell');
+ // Other type lines from the same resolver: a Quick-Play Spell, a Trap Monster (a Trap with a Level), a Link Monster.
+ expect(cardTypeLine(applyEngineCardFacts({type:'Spell Card',frameType:'spell'},{type:0x10002,level:0,def:0}))).toBe('Quick-Play Spell');
+ const apophis=applyEngineCardFacts({type:'Trap Card',frameType:'trap',effectText:'Fixture'},{type:0x20004,level:4,def:1400});
+ expect(cardTypeLine(apophis)).toBe('Continuous Trap · Trap Monster');expect(fieldZoneCheck(apophis,'monster',3)).toBeUndefined();
+ expect(cardTypeLine(applyEngineCardFacts({type:'Link Monster',frameType:'link'},{type:0x4000021,level:2,def:0x28}))).toBe('Link-2 Monster');
 });
 it('field legality: pile observations remain unchanged for adapter policy',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
