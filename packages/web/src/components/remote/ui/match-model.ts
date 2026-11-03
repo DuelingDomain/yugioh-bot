@@ -1,29 +1,15 @@
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, type RemoteGameResult, type RemoteMatch, type RemoteRoom, type RemoteSiding } from "@yugidraft/shared/remote";
 
-/**
- * The match record, mirrored from docs/remote-duels/match-flow.md (feat/remote-match). One swap point: when the backend
- * is merged, import these types from `@yugidraft/shared/remote` and delete the copies here.
- */
-export type MatchGame = { n: number; winnerSeat: number | null; reason: "lp" | "concede" | "declared" | "timeout"; endedAt: number };
-export type MatchSiding = { deadline: number; ready: number[]; extendedFor: number[] };
-export type Match = {
-  bestOf: 1 | 3;
-  games: MatchGame[];
-  phase: "duel" | "result" | "siding" | "done";
-  siding?: MatchSiding;
-  winnerSeat?: number | null;
-  pendingResult?: { id: string; winnerSeat: number | null; confirmed: number[] };
-  firstChooser?: number | null;
-  firstSeat?: number;
-};
-
-export const SIDE_MS = 180_000;
-export const SIDE_DECK_MS = 300_000;
+export type Match = RemoteMatch;
+export type MatchGame = RemoteGameResult;
+export type MatchSiding = RemoteSiding;
+export const SIDE_MS = REMOTE_SIDE_MS;
+export const SIDE_DECK_MS = REMOTE_SIDE_DECK_MS;
 
 /** The match of a room. A room from before matches counts as one game in progress. */
-export function matchOf(room: Pick<RemoteRoom, "state"> & { bestOf?: 1 | 3 }): Match {
-  const match = (room.state as { match?: Match }).match;
+export function matchOf(room: Pick<RemoteRoom, "state" | "bestOf">): Match {
+  const match = room.state.match as Match | undefined;
   return match ?? { bestOf: room.bestOf ?? 1, games: [], phase: "duel" };
 }
 
@@ -73,11 +59,6 @@ export function seatDeadline(siding: MatchSiding, seat: number): number {
 export function clock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-/** A match action. The backend adds these names to the action union; until it is merged they pass through one cast. */
-export function matchAction(action: { type: string; actorSeat: number } & Record<string, unknown>): RemoteActionProposal {
-  return action as unknown as RemoteActionProposal;
 }
 
 /** The deck of a seat, as the server holds it now (swaps included). Null: the seat plays with physical cards only. */

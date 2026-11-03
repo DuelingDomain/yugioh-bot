@@ -18,7 +18,7 @@ import {
   hasMarks, isExtraDeckType, isMarkedIn, isMarkedOut, NO_MARKS, planSideDeck, toggleIn, toggleOut, type SideMarks, type SwapSection,
 } from "@/components/duel/side-deck-model";
 import {
-  attachedDeck, clock, HEADLINE, matchAction, matchScore, outcomeFor, reasonLine, seatDeadline, SIDE_DECK_MS, SIDE_MS, winsBySeat, type Match,
+  attachedDeck, clock, HEADLINE, matchScore, outcomeFor, reasonLine, seatDeadline, SIDE_DECK_MS, SIDE_MS, winsBySeat, type Match,
 } from "./match-model";
 import s from "./match-ui.module.css";
 
@@ -172,7 +172,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act }: {
   useEffect(() => {
     if (!siding || timeoutSent.current === siding.deadline) return undefined;
     const wait = Math.max(0, siding.deadline - now()) + 1500;
-    const timer = window.setTimeout(() => { timeoutSent.current = siding.deadline; void act(matchAction({ type: "side.timeout", actorSeat: seatNo })); }, wait);
+    const timer = window.setTimeout(() => { timeoutSent.current = siding.deadline; void act({ type: "side.timeout", actorSeat: seatNo }); }, wait);
     return () => window.clearTimeout(timer);
   }, [siding, now, act, seatNo]);
 
@@ -197,7 +197,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act }: {
   const save = useCallback(async () => {
     if (saving.current || plan.reason || !changed) return;
     saving.current = true;
-    try { await act(matchAction({ type: "side.swap", actorSeat: seatNo, deckChanges: { main: plan.deck.main, extra: plan.deck.extra, side: plan.deck.side } })); } finally { saving.current = false; }
+    try { await act({ type: "side.swap", actorSeat: seatNo, deckChanges: { main: plan.deck.main, extra: plan.deck.extra, side: plan.deck.side } }); } finally { saving.current = false; }
   }, [plan, changed, act, seatNo]);
   // A complete swap is saved on its own, so the clock ending never loses it.
   useEffect(() => {
@@ -208,10 +208,10 @@ export function SidingScreen({ room, match, mySeat, name, now, act }: {
 
   const ready = () => run(async () => {
     if (changed) { if (plan.reason) return; await save(); }
-    await act(matchAction({ type: "side.ready", actorSeat: seatNo, seat: seatNo }));
+    await act({ type: "side.ready", actorSeat: seatNo, seat: seatNo });
   });
-  const unready = () => run(() => act(matchAction({ type: "side.unready", actorSeat: seatNo, seat: seatNo })));
-  const first = (seat: number) => run(() => act(matchAction({ type: "match.first", actorSeat: seatNo, seatGoesFirst: seat })));
+  const unready = () => run(() => act({ type: "side.unready", actorSeat: seatNo, seat: seatNo }));
+  const first = (seat: number) => run(() => act({ type: "match.first", actorSeat: seatNo, seatGoesFirst: seat }));
 
   const chooser = match.firstChooser ?? null;
   const iChoose = chooser !== null && chooser === mySeat && !room.solo;

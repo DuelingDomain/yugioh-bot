@@ -39,7 +39,7 @@ import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
 import { DeclareConfirm, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
-import { matchAction, matchOf } from "./match-model";
+import { matchOf } from "./match-model";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
@@ -208,7 +208,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const matchSeat = mySeat >= 0 ? mySeat : 0;
   const [matchBusy, setMatchBusy] = useState(false);
   const [boardView, setBoardView] = useState(false);
-  const matchStep = (action: Parameters<typeof matchAction>[0]) => { setMatchBusy(true); void act(matchAction(action)).finally(() => setMatchBusy(false)); };
+  const matchStep = (action: RemoteActionProposal) => { setMatchBusy(true); void act(action).finally(() => setMatchBusy(false)); };
   const declareResult = !solo && mySeat >= 0 && live ? {
     choices: declareChoices(room.seats.map(seat => ({ seat: seat.seat, name: seat.displayName })), mySeat),
     waiting: match.pendingResult ? (match.pendingResult.confirmed.includes(mySeat) ? "Waiting for the other players to agree." : null) : null,
@@ -953,7 +953,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || (state.ended && !(state as { match?: unknown }).match) ? <div className={s.ended} role="status" data-testid="table-ended">
+        {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
