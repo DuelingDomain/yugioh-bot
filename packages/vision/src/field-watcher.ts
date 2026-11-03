@@ -177,7 +177,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
     const generation=epoch;inFlight=true;const start=now();const samplesBefore=metrics.samples;let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
-      const captureAt=now(),sample=await options.buffer.sample(pixelBurst()?{maxAgeMs:40}:undefined),captureMs=now()-captureAt;current=sample.frame;
+      const captureAt=now(),sample=await options.buffer.sample({maxAgeMs:40}),captureMs=now()-captureAt;current=sample.frame;
       if(generation!==epoch||disposed)return;
       if(sample.at<=lastFrameAt){metrics.skipped++;return;}
       lastFrameAt=sample.at;
