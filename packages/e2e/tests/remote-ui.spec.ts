@@ -1423,12 +1423,19 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
 
 test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep face state',async({page,context})=>{
   test.setTimeout(120_000);
+  const writes:{type:string;baseSeq:number;status:number;recovery:boolean}[]=[];let recovery=false;
+  page.on('response',response=>{
+    if(!response.url().endsWith('/actions')||response.request().method()!=='POST')return;
+    const body=response.request().postDataJSON();writes.push({type:body.action?.type,baseSeq:body.baseSeq,status:response.status(),recovery});
+  });
   await page.addInitScript(()=>{
     (window as any).fieldTimings=[];
+    (window as any).fieldDetections=[];(window as any).fieldLongTasks=[];
+    new PerformanceObserver(list=>(window as any).fieldLongTasks.push(...list.getEntries().map(e=>({at:e.startTime,duration:e.duration})))).observe({entryTypes:['longtask']});
     window.addEventListener('remote-field-latency',event=>(window as any).fieldTimings.push((event as CustomEvent).detail));
     const NativeWorker=window.Worker;
     window.Worker=class extends NativeWorker {
-      constructor(url:string|URL,options?:WorkerOptions){super(url,options);this.addEventListener('message',event=>{if(event.data?.result?.runtime)(window as any).fieldRuntime=event.data.result.runtime;});}
+      constructor(url:string|URL,options?:WorkerOptions){super(url,options);this.addEventListener('message',event=>{if(event.data?.result?.runtime)(window as any).fieldRuntime=event.data.result.runtime;if(Array.isArray(event.data?.result))(window as any).fieldDetections.push({at:performance.now(),cards:event.data.result});});}
     };
   });
   const origin=process.env.E2E_REMOTE_UI_URL??process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
@@ -1466,19 +1473,26 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
     // Finish the preceding UI/setup work before the next physical action.
     // The measured interval still starts at the actual camera pixel change.
     await page.waitForTimeout(350);
-    return page.evaluate(({down,colour})=>new Promise<{renderMs:number;changedAt:number}>((resolve,reject)=>{
+    const result=await page.evaluate(({down,colour})=>new Promise<{renderMs:number;changedAt:number;placeholderRenderMs?:number}>((resolve,reject)=>{
     const cell=document.querySelector('[data-testid="field-0"] [data-zone="m3"]')!;
     const start=performance.now(),changedAt=performance.timeOrigin+start;
+    let placeholderRenderMs:number|undefined;
     const timer=setTimeout(()=>{observer.disconnect();reject(new Error('Face state did not render'));},30_000);
     const observer=new MutationObserver(()=>{
       const label=cell.getAttribute('aria-label')??'',marker=!!document.querySelector('[data-testid="set-marker"]');
+      if(label.includes('unidentified card'))placeholderRenderMs??=performance.now()-start;
       if(down?label.includes('Face-down')&&marker:label.includes('Stardust Dragon')&&!label.includes('Face-down')&&!marker){
-        observer.disconnect();clearTimeout(timer);resolve({renderMs:performance.now()-start,changedAt});
+        observer.disconnect();clearTimeout(timer);resolve({renderMs:performance.now()-start,changedAt,placeholderRenderMs});
       }
     });
     observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-label']});
     const camera=(window as any).fieldTest;camera.back(down?colour:'');camera.place(down?509:550,down?356:315,down);
     }),{down,colour});
+    if(process.env.E2E_LATENCY_REPORT){
+      mkdirSync(process.env.E2E_LATENCY_REPORT,{recursive:true});
+      writeFileSync(`${process.env.E2E_LATENCY_REPORT}/event-${test.info().repeatEachIndex}-${result.changedAt}.json`,JSON.stringify({...result,down,colour,...await page.evaluate(()=>({stages:(window as any).fieldTimings,detections:(window as any).fieldDetections,longTasks:(window as any).fieldLongTasks,timeOrigin:performance.timeOrigin}))},null,2));
+    }
+    return result;
   };
   const shots = async (label:string) => {
     if(!SHOTS)return;
@@ -1542,21 +1556,12 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await cell.click();
   await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
   await page.keyboard.press('Escape');
-  // Reproduce the owner's second flip: a Revealed sideways Set turns upright.
-  // One refused save must refresh/retry, rather than leave a silent stale Set.
-  const retryKeys:string[]=[];let refused=false;
-  await page.route(`**/api/remote/${slug}/actions`,async route=>{
-    const body=route.request().postDataJSON();
-    if(body.action?.type==='twin.flip'&&body.action.faceUp){
-      retryKeys.push(body.action.idempotencyKey);
-      if(!refused){refused=true;await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Table changed; retry with its latest sequence'})});return;}
-    }
-    await route.continue();
-  });
+  // Normal repeated reveal must save once, without a conflict/retry.
   const revealAgainTiming=await change(false);
-  expect(refused).toBe(true);expect(retryKeys).toHaveLength(2);expect(retryKeys[0]).toBe(retryKeys[1]);
   expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:true,position:'attack'})]);
-  await page.unroute(`**/api/remote/${slug}/actions`);
+  expect(writes.map(write=>write.type)).toEqual(['twin.place','twin.flip','twin.flip','twin.flip']);
+  expect(writes.every(write=>write.status===200)).toBe(true);
+  for(let i=1;i<writes.length;i++)expect(writes[i].baseSeq).toBe(writes[i-1].baseSeq+1);
   // Three adjacent physical centres remain M2/M3/M4. Stale virtual fronts
   // have no quad and must yield to the newly read top-1, without a chooser.
   const ghosts=['stale-left','stale-right'];
@@ -1580,23 +1585,53 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   const whiteResetTiming=await change(true,'#f5f5f5');
   expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:false,position:'defense',publicIdentity:true})]);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  // Test conflict recovery separately from normal-play latency.
+  // One refused save must refresh/retry, rather than leave a silent stale Set.
+  recovery=true;
+  const retryKeys:string[]=[];let refused=false;
+  await page.route(`**/api/remote/${slug}/actions`,async route=>{
+    const body=route.request().postDataJSON();
+    if(body.action?.type==='twin.flip'&&body.action.faceUp){
+      retryKeys.push(body.action.idempotencyKey);
+      if(!refused){refused=true;await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Table changed; retry with its latest sequence'})});return;}
+    }
+    await route.continue();
+  });
+  const recoveryTiming=await change(false);
+  expect(refused).toBe(true);expect(retryKeys).toHaveLength(2);expect(retryKeys[0]).toBe(retryKeys[1]);
+  expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:true,position:'attack'})]);
+  await page.unroute(`**/api/remote/${slug}/actions`);
+  recovery=false;
+  // A new front first receives a Reading placeholder, then one identity write.
+  await page.evaluate(()=>((window as any).fieldTest).clear());
+  await expect.poll(async()=>(await room()).state.seats[0].twin.filter((card:any)=>card.zone!=='hand'),{timeout:15_000,intervals:[50]}).toHaveLength(0);
+  await page.waitForTimeout(2700); // The departed card is outside the physical reconnection window.
+  const placeholderStart=(await room()).events.length;
+  const revealAfterPlaceholderTiming=await change(false);
+  const afterPlaceholder=await room();
+  expect(afterPlaceholder.events.slice(placeholderStart).map((event:any)=>event.action.type)).toEqual(['twin.place','card.identified']);
+  expect(writes.slice(-2).map(write=>write.type)).toEqual(['twin.place','card.identified']);
+  expect(writes.at(-1)!.baseSeq).toBe(writes.at(-2)!.baseSeq+1);
+  const manualCard=afterPlaceholder.state.seats[0].twin.find((card:any)=>card.zone==='monster'&&card.slot===3);
+  await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  expect(writes.filter(write=>!write.recovery&&write.status!==200)).toEqual([]);
   const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;
   const backend=await page.getByTestId('recognition-backend').first().getAttribute('data-backend');
   const runtime=await page.evaluate(()=>(window as any).fieldRuntime);
   console.log(JSON.stringify({backend,runtime,
-    setRenderMs:setTiming.renderMs,revealRenderMs:flipTiming.renderMs,resetRenderMs:resetTiming.renderMs,revealAgainRenderMs:revealAgainTiming.renderMs,whiteResetRenderMs:whiteResetTiming.renderMs,
+    setRenderMs:setTiming.renderMs,revealRenderMs:flipTiming.renderMs,resetRenderMs:resetTiming.renderMs,revealAgainRenderMs:revealAgainTiming.renderMs,whiteResetRenderMs:whiteResetTiming.renderMs,revealAfterPlaceholderRenderMs:revealAfterPlaceholderTiming.renderMs,
     setServerMs:eventDelay(set,'twin.place',setTiming),revealServerMs:eventDelay(flipped,'twin.flip',flipTiming)}));
   if(process.env.E2E_LATENCY_REPORT){
     mkdirSync(process.env.E2E_LATENCY_REPORT,{recursive:true});
-    writeFileSync(`${process.env.E2E_LATENCY_REPORT}/timings-${test.info().repeatEachIndex}.json`,JSON.stringify({backend,runtime,setTiming,flipTiming,resetTiming,revealAgainTiming,whiteResetTiming,stages:await page.evaluate(()=>(window as any).fieldTimings)},null,2));
+    writeFileSync(`${process.env.E2E_LATENCY_REPORT}/timings-${test.info().repeatEachIndex}.json`,JSON.stringify({backend,runtime,setTiming,flipTiming,resetTiming,revealAgainTiming,whiteResetTiming,revealAfterPlaceholderTiming,recoveryTiming,writes,stages:await page.evaluate(()=>(window as any).fieldTimings)},null,2));
   }
   await page.getByRole('button',{name:'Camera off',exact:true}).click();
   // Manual same-slot setting uses twin.move and retains the same public knowledge.
   for(const [index,action] of [{type:'twin.move',zone:'hand',faceUp:false},{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
     const latest=await room();
-    const response=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:latest.lastSeq,action:{...action,actorSeat:0,seat:0,cardRef:card.ref,idempotencyKey:`revealed-set-${index}`}}});
+    const response=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:latest.lastSeq,action:{...action,actorSeat:0,seat:0,cardRef:manualCard.ref,idempotencyKey:`revealed-set-${index}`}}});
     expect(response.ok(),await response.text()).toBe(true);
-    if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
+    if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref).cardId).toBeUndefined();
   }
-  expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0]).toMatchObject({ref:card.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
+  expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)).toMatchObject({ref:manualCard.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
 });
