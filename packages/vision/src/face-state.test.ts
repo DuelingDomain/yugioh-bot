@@ -62,14 +62,14 @@ import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
 test('fresh Set settles from independent pixels and a reveal reads its front once with a new timing origin',async()=>{
- let at=0,down=true,reads=0,phone=true;
+ let at=0,down=true,reads=0,phone=true,detects=0,motion=0;
  const back=image(()=>[15,15,15]);
  const outline=():DetectedQuad=>({kind:down?'face-down':'face-up',confidence:down?.55:.99,partial:false,quad:[{x:.3,y:.3},{x:phone?.42:.5,y:.3},{x:phone?.42:.5,y:.5},{x:.3,y:.5}]});
  const events:FieldEvent[]=[];
  const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,
   buffer:{sample:async()=>({frame:{width:120,height:176,data:front.data} as ImageData,at})},clone:async f=>f,
-  analyze:()=>({crop:()=>down?back:front,motion:()=>0,sharpness:()=>20,appearance:()=>Array(288).fill(down?.1:.6)}),
-  recognizer:{detectCards:async()=>[outline()],recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{fallback:false,covered:false,partial:false,faceDown:false},timingsMs:{embed:20,search:1,total:21},backend:'wasm'} as RecognitionResult;}}});
+  analyze:()=>({crop:()=>down?back:front,motion:()=>motion,sharpness:()=>20,appearance:()=>Array(288).fill(down?.1:.6)}),
+  recognizer:{detectCards:async()=>{detects++;return [outline()];},recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{fallback:false,covered:false,partial:false,faceDown:false},timingsMs:{embed:20,search:1,total:21},backend:'wasm'} as RecognitionResult;}}});
  watcher.subscribe(e=>events.push(e));
  const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
  try{
@@ -83,6 +83,7 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
   assert.ok(reveal);assert.ok(at-revealedAt<=300,'front recognition overlaps face settling');assert.equal(reveal.track.id,set.track.id);assert.equal(reads,1,'retain the verified front read across the face transition');
   assert.ok(reveal.timing!.originAt>=performance.timeOrigin+revealedAt);
   assert.ok(reveal.latencyMs!<700);assert.notEqual(reveal.timing!.id,set.timing!.id);
+  const before=detects;at+=1000;down=true;motion=.2;await tick();motion=0;for(let i=0;i<3;i++)await tick();assert.ok(events.some(e=>e.type==='flipped'&&e.track.faceDown));assert.equal(detects-before,1,'fresh changed-face pixels reuse the new detector outline');assert.equal(reads,1);
  }finally{watcher.dispose();}
 });
 

@@ -29,6 +29,7 @@ type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "nea
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
   readonly detectorBackend?: EngineBackend;
+  readonly detectorTimingsMs?:Record<string,number>;
   warmup(): Promise<void>;
   prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
