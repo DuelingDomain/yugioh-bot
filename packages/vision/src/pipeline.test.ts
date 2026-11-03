@@ -124,7 +124,7 @@ test('whole-card learning cannot introduce labels absent from its clean index',a
 });
 test('a late whole-card confusion winner is checked in both whole-card rotations',async()=>{
   const counter={calls:0};const p=fixture(true,counter);p.setLearning({version:'v',references:[],confusions:[{a:'C',b:'D'}]});
-  const result=await p.recognize([frame],{card:selected});assert.equal(result.candidates[0].cardId,'C');assert.equal(result.quality.confusionChecked,true);
+  const result=await p.recognize([frame],{card:selected,preclean:false});assert.equal(result.candidates[0].cardId,'C');assert.equal(result.quality.confusionChecked,true);
   // One art view and both whole-card rotations ran. The final .05 lead
   // over the main-index competitor stays below the stricter .06 margin.
   assert.equal(counter.calls,3);assert.equal(result.tier,'not sure');
@@ -214,7 +214,7 @@ function temporalFixture(counter:{detect:number},switchIdentity=false) {
 }
 test('temporal frames redetect moved outlines instead of reusing a selected quad',async()=>{
   const counter={detect:0};const p=temporalFixture(counter,true);
-  const result=await p.recognize([frame,frame],{card:selected,earlyExit:false,includeRaw:true});
+  const result=await p.recognize([frame,frame],{card:selected,earlyExit:false,includeRaw:true,preclean:false});
   assert.equal(counter.detect,2);assert.equal(result.quality.framesAgree,false);assert.notEqual(result.tier,'sure');
 });
 test('a first clean sure frame stops before subsequent detector/embed runs',async()=>{

@@ -15,6 +15,7 @@ import { validateOptions } from './options';
 import { embedImages, type TensorCtor } from './embed';
 import type { ModelSession } from './runtime';
 import { cropRGBA, rotate180, type RGBAImage } from './pixels';
+import { glareMask, precleanCrop, GLARE_ALWAYS_TRY, type PrecleanStats } from './preclean';
 import { clipToConvex, polygonArea, type Quad } from './geometry';
 import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
@@ -80,7 +81,40 @@ export class RecognitionPipeline {
     result.timingsMs.total=performance.now()-start;
     return result;
   }
+  /**
+   * Light/glare A/B: read the normal crop first. When the read is not sure, or the crop shows
+   * glare, read again on the pre-cleaned crop (same outline, no new detection) and keep the
+   * more confident result. The clean pass never replaces a sure raw read with a weaker one.
+   */
   async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
+    const probe:{glare?:number}={};
+    const raw=await this.recognizePass(frames,opts,undefined,probe);
+    if(opts.preclean===false)return {...raw,preclean:{on:false,used:'raw'}};
+    const glare=probe.glare??0;
+    raw.timingsMs.precleanGlare=glare*100;raw.timingsMs.precleanUsed=0;
+    if(raw.tier==='sure' && glare<GLARE_ALWAYS_TRY || raw.quality.faceDown && raw.tier==='sure' || !raw.quality.cornersFound)
+      return {...raw,preclean:{on:true,glare,used:'raw'}};
+    const stats:{value?:PrecleanStats}={};
+    // Reuse the raw pass outline so the clean pass costs only warp + embed + search.
+    // One frame: reuse its outline (warp + embed + search only). Temporal reads redo every frame so
+    // a single clean frame never hides that the frames disagree.
+    const clean=frames.length===1 && raw.detectedCard
+      ? await this.recognizePass(frames,{...opts,card:raw.detectedCard,clickPoint:undefined,region:undefined},stats)
+      : await this.recognizePass(frames,opts,stats);
+    const rank=(r:RecognitionResult)=>(r.tier==='sure'?2:r.tier==='not sure'?1:0)*10+(r.candidates[0]?.score??0);
+    // The clean crop may only raise the tier, or confirm the same card with more confidence.
+    // A different card at the same tier is not trusted (synthetic glare blobs showed confident wrong swaps).
+    const tierOf=(r:RecognitionResult)=>r.tier==='sure'?2:r.tier==='not sure'?1:0;
+    const sameCard=clean.candidates[0]?.cardId===raw.candidates[0]?.cardId;
+    const useClean=(tierOf(clean)>tierOf(raw) || sameCard && rank(clean)>rank(raw)+.005) && !(clean.quality.faceDown && !raw.quality.faceDown);
+    const info={on:true,glare,gains:stats.value?.gains,ms:stats.value?.ms,used:useClean?'clean' as const:'raw' as const,rawScore:raw.candidates[0]?.score,cleanScore:clean.candidates[0]?.score};
+    const chosen=useClean?clean:raw,g=stats.value?.gains;
+    Object.assign(chosen.timingsMs,{precleanGlare:glare*100,precleanUsed:useClean?1:0,precleanMs:stats.value?.ms,precleanGainR:g?.[0],precleanGainG:g?.[1],precleanGainB:g?.[2]});
+    chosen.timingsMs.total=raw.timingsMs.total+clean.timingsMs.total;
+    chosen.timingsMs.embed=raw.timingsMs.embed+clean.timingsMs.embed;
+    return {...chosen,preclean:info};
+  }
+  private async recognizePass(frames: RGBAImage[], opts: RecognizeOptions, precleanStats?:{value?:PrecleanStats}, probe?:{glare?:number}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
     validateOptions(opts);
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
     const start = performance.now();
@@ -169,7 +203,9 @@ export class RecognitionPipeline {
       const fallback=roi?fallbackQuad(roi,this.profile,clickPoint?{x:(clickPoint.x*frame.width-roiX)/roi.width,y:(clickPoint.y*frame.height-roiY)/roi.height}:undefined).map(p=>({x:p.x+roiX,y:p.y+roiY})) as Quad:fallbackQuad(frame,this.profile,clickPoint);
       const mask = warpQuadMasked(frame, found ? corners as Quad : fallback, this.profile.card.warpWidth, this.profile.card.warpHeight);
       if (!mask) {frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:(selected?.kind??card?.kind)==='face-down',eligible:false});continue;}
-      const warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
+      let warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
+      if(probe && probe.glare===undefined)probe.glare=glareMask(warped).share;
+      if(precleanStats) { const cleaned=precleanCrop(warped);warped=cleaned.image;precleanStats.value??=cleaned.stats; }
       const partial = Boolean(selected?.partial) || Boolean(roi && card && card.pts.some(([x,y])=>x<=roiX+2 || y<=roiY+2 || x>=roiX+roi.width-2 || y>=roiY+roi.height-2)) || found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
       const fullArt = detectFullArtLayout(warped, this.profile);
       const frameClass = !fullArt && found && (selected?.kind ?? card?.kind) === 'face-up' ? classifyBorder(warped, this.profile) : undefined;

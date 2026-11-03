@@ -62,6 +62,8 @@ export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPr
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
 
 export interface RecognizeOptions {
+  /** Light/glare pre-clean A/B on unsure or glare reads. Default: on; false reads only the raw crop. */
+  preclean?: boolean;
   /** Serializable session identities (e.g. fieldGallery.entries()); absent by default. */
   gallery?: readonly FieldIdentityEntry[];
   /** Allow confident priors.decklist matches to skip catalog search. Default: false. */
@@ -91,8 +93,10 @@ export interface RecognitionResult {
   identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
   quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
-  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number };
+  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number; /** Light/glare pre-clean (Debug line): crop cost, glare %, 1 when the clean crop won, applied RGB gains. */ precleanMs?:number; precleanGlare?:number; precleanUsed?:number; precleanGainR?:number; precleanGainG?:number; precleanGainB?:number };
   backend: 'webgpu' | 'wasm';
+  /** Light/glare pre-clean report for the Debug line: glare share, applied RGB gains and which crop won. */
+  preclean?: { on: boolean; glare?: number; gains?: [number, number, number]; ms?: number; used: 'raw' | 'clean'; rawScore?: number; cleanScore?: number };
   /** Worker diagnostics; absent when the core pipeline is used directly. */
   runtime?: { crossOriginIsolated: boolean; wasmThreads: number; simd: boolean };
 }
