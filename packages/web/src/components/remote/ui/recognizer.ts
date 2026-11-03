@@ -87,7 +87,7 @@ function loadRecognizer() {
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
-    return createRecognizer({ profile: yugioh, backend: engineBackend() }) as unknown as VisionRecognizer;
+    return createRecognizer({ profile: yugioh, backend: engineBackend(), onBackendChange: status => reportBackend(status.backend, undefined, status.fallbackReason ?? "") }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
 }
@@ -254,7 +254,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
   } catch (error) {
     if (signal.aborted) throw error;
-    if (reportGpuFailure()) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
+    if (reportGpuFailure(error)) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
 }

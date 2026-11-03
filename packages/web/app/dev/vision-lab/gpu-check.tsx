@@ -1,22 +1,29 @@
-'use client';
-import {useState} from 'react';
-// Adapted from the vision-bench lab probe; this is capability, not inference timing.
+"use client";
+import { useState } from 'react';
+import type { BackendStatus } from '@yugidraft/vision';
+
+/** Uses the same worker, device selection, models and run watchdogs as Remote Duels. */
 export function GPUCheck() {
-  const [result,setResult]=useState('Not checked'),[busy,setBusy]=useState(false);
+  const [result, setResult] = useState('Not checked'), [busy, setBusy] = useState(false);
   async function check() {
     setBusy(true);
+    let reader: import('@yugidraft/vision').Recognizer | undefined;
+    let status: BackendStatus | undefined;
     try {
-      type Adapter={isFallbackAdapter?:boolean;info?:Record<string,unknown>;features:{has(name:string):boolean};requestDevice(options:object):Promise<{destroy():void}>};
-      const gpu=(navigator as unknown as {gpu?:{requestAdapter():Promise<Adapter|null>}}).gpu;
-      const adapter=await gpu?.requestAdapter();
-      if(!adapter)setResult('WASM fallback · no WebGPU adapter');
-      else if(adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter || /swiftshader|llvmpipe|software/i.test(JSON.stringify(adapter.info??{})))setResult('WASM fallback · software adapter refused');
-      else if(!adapter.features.has('shader-f16'))setResult('WASM fallback · adapter has no shader-f16');
-      else {
-        const device=await adapter.requestDevice({requiredFeatures:['shader-f16']});device.destroy();
-        setResult(`Hardware WebGPU fp16 available · ${JSON.stringify(adapter.info??{})}`);
-      }
-    }catch(e){setResult(`WASM fallback · ${String(e)}`);}finally{setBusy(false);}
+      const { createRecognizer } = await import('@yugidraft/vision');
+      reader = createRecognizer({ backend: 'auto', onBackendChange: value => { status = value; } });
+      const checked = await reader.checkWebGpu();
+      setResult(JSON.stringify({
+        result: checked.backend === 'webgpu' ? 'WebGPU inference passed' : `CPU (GPU unavailable: ${checked.fallbackReason})`,
+        ...checked,
+      }, null, 2));
+    } catch (error) {
+      setResult(JSON.stringify({ failure: error instanceof Error ? error.message : String(error), ...status }, null, 2));
+    } finally { reader?.dispose(); setBusy(false); }
   }
-  return <div><button type="button" disabled={busy} onClick={()=>void check()}>Check WebGPU</button> <span aria-live="polite" aria-label="WebGPU result">{result}</span><p>The result below shows the actual inference backend and timings after a card read.</p></div>;
+  return <div>
+    <button type="button" disabled={busy} onClick={() => void check()}>Check WebGPU</button>
+    <pre aria-live="polite" aria-label="WebGPU result" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{busy ? 'Loading and running both models in the recognition worker…' : result}</pre>
+    <p>This check runs the detector and embedder on this computer. Adapter details, features, limits and fallback errors are included. Software adapters are identified in the adapter details.</p>
+  </div>;
 }
