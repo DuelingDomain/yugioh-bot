@@ -40,7 +40,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...structuredClone(state), updatedAt: at };
   next.deckChecks ??= initialDeckChecks();
-  if (context?.replay && context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
+  if (!context?.replay || context.twinPlacementGuard === 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
+  else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
   const seat = (n: number) => {
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
@@ -128,7 +129,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = ownField(action.seat); validZone(action.zone);
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
       if (reuse && "pending" in reuse) return next;
-      if (!context?.replay || context.twinPlacementGuard === 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
+      if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
       const ref = reuse?.ref ?? action.card.ref;
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref);
@@ -145,28 +146,30 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      const fieldFaceState=!context?.replay||context.fieldFaceState===1;
       // Turning over the same field card does not erase its publicly shown identity.
       const settingInPlace = action.type === "twin.flip" ? !action.faceUp : action.type === "twin.move" &&
         action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot;
-      if (settingInPlace && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
+      if (fieldFaceState && settingInPlace && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
       if (action.type === "twin.move") {
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
-        if ((!context?.replay || context.twinPlacementGuard === 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
-          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
+        if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
+          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || context.twinPlacementGuard === 3 ? {at} : {}) };
         else if (action.zone !== "hand") delete card.departedFrom;
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
         if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
-        if(["hand","deck","extra"].includes(card.zone)) delete card.publicIdentity;
+        if((fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
         if (action.position !== undefined) card.position = action.position;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
       }
       if (action.type === "twin.flip") {
         card.faceUp = action.faceUp;
+        if(!fieldFaceState&&!action.faceUp)delete card.publicIdentity;
         if(action.position!==undefined)card.position=action.position;
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }

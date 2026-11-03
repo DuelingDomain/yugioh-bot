@@ -57,7 +57,9 @@ export type RemoteReductionContext = {
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
-  twinPlacementGuard?: 1 | 2;
+  twinPlacementGuard?: 1 | 2 | 3;
+  /** Public knowledge survives an in-place Set; hidden destinations clear it. */
+  fieldFaceState?: 1;
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
