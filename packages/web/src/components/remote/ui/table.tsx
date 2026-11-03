@@ -44,7 +44,7 @@ import s from "./remote-ui.module.css";
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
-import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster} from '@/lib/remote/field-legality';
+import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
@@ -190,7 +190,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     let warning:string|undefined,proposal=input;
     if(input.type==='twin.move'){
       const card=R.current.room.state.seats[input.seat]?.twin.find(item=>item.ref===input.cardRef),code=card?cardCode(card):undefined;
-      if(input.source!=='auto')warning=manualFieldZoneWarning(cardInfo(code),input.zone,input.slot);
+      const twins=R.current.room.state.seats[input.seat]?.twin??[];
+      if(input.source!=='auto')warning=manualFieldZoneWarning(cardInfo(code),input.zone,input.slot,{faceDown:input.faceUp===false||input.faceUp===undefined&&card?.faceUp===false,equipSource:equipSourceOnField(twins,c=>cardInfo(cardCode(c)))});
       // A Trap moved from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone (docs/remote-duels/zone-rules.md).
       if(input.trapMonster===undefined&&becomesTrapMonster(card,cardInfo(code),input.zone))proposal={...input,trapMonster:true};
     }
@@ -802,6 +803,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
     undo: cardUndo,
+    ...(subject && subjectCard && (subjectCard.faceUp || subjectCard.publicIdentity) && cardCode(subjectCard) ? (() => {
+      const twins = state.seats[subject.seat]?.twin ?? [];
+      const reason = fieldZoneCheck(info(cardCode(subjectCard)), subjectCard.zone, subjectCard.slot, { faceDown: !subjectCard.faceUp, equipSource: equipSourceOnField(twins, c => info(cardCode(c))) });
+      return reason ? { zoneCheck: reason } : {};
+    })() : {}),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
       faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, extraZones,
@@ -966,7 +972,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
-            twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onDock={onSeatDock} onToggleView={() => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}

@@ -57,6 +57,8 @@ export type CardActions = {
   onFlag?: (button: HTMLElement) => void;
   /** Twin edits for a card that is on a field the person may change. */
   edit?: CardEdit;
+  /** Why the board marks this card "Check zone?" (docs/remote-duels/zone-rules.md). The card is never moved for it. */
+  zoneCheck?: string;
   /**
    * "Undo last change to this card": a targeted undo of the newest own action on this card. `reason` is why the server
    * would refuse it now (shown under the button).
@@ -66,6 +68,7 @@ export type CardActions = {
 
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
+    {a.zoneCheck ? <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {a.zoneCheck} The card stays here; move it if the zone is wrong.</p> : null}
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
     {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}
     {a.onReveal ? <button type="button" className={s.btn} onClick={a.onReveal}>Reveal card</button> : null}

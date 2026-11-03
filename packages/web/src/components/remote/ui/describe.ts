@@ -36,7 +36,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.equip": return { kind: "CD", text: a.target ? `An Equip Card on ${name(a.seat)}'s field is linked to ${name(a.target.seat)}'s monster` : `An Equip link on ${name(a.seat)}'s field was cleared`, undoable: true };
     case "pile.lift": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length} card${a.cardRefs.length === 1 ? "" : "s"}) · auto`, undoable: true };
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
-    case "log.note": return { kind: "CD", text: a.text, undoable: true };
+    case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
     case "table.started": return { kind: "PH", text: "The duel started", undoable: false };
