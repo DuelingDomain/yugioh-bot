@@ -61,7 +61,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [failedUpdate,setFailedUpdate]=useState<{work:(act:RoomMutation)=>Promise<void>;event?:FieldEvent}|null>(null);
-  const unbacked=useRef(new Map<string,{since:number;samples:number;sample:number}>()),releasing=useRef(new Set<string>());
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   useEffect(()=>setRecovery(null),[room.slug,seat]);
@@ -368,28 +367,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(abandoned.length)void queue(async act=>{for(const id of abandoned)await removePlaceholder(id,act);});
   },[watch.snapshot,watch.enabled,source]);
   useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
-  useEffect(()=>{
-    if(!live()||calibrationBusy.current||!watch.placed||!['watching','budget'].includes(watch.snapshot.status)){unbacked.current.clear();return;}
-    const at=performance.now(),sample=watch.snapshot.metrics.samples;
-    for(const card of current.current.room.state.seats[seat].twin){
-      if(!publicField(card.zone)||manual.current.has(card.ref)||releasing.current.has(card.ref))continue;
-      // Existing tracks own clear-mat/hand/Undo checks. This window only
-      // releases virtual reservations that have no local physical track.
-      const zone=knownZone(card),backed=watch.snapshot.tracks.some(t=>
-        (bindings.current.get(t.id)??t.id)===card.ref||!t.removed&&at-t.lastSeen<450&&t.zone===zone&&t.state==='candidate');
-      if(backed){unbacked.current.delete(card.ref);continue;}
-      const missing=unbacked.current.get(card.ref)??{since:at,samples:0,sample:-1};
-      if(sample!==missing.sample){missing.samples++;missing.sample=sample;}unbacked.current.set(card.ref,missing);
-      if(missing.samples<3||at-missing.since<200)continue;
-      releasing.current.add(card.ref);
-      void queue(async act=>{
-        const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===card.ref);
-        const witness=watch.getTracks().some(t=>(bindings.current.get(t.id)??t.id)===card.ref||!t.removed&&performance.now()-t.lastSeen<450&&t.state==='candidate'&&t.zone===zone);
-        if(!latest||!publicField(latest.zone)||witness)return;
-        const proposal=fieldDepartureProposal(latest,seat);if(proposal&&await act(proposal))unbacked.current.delete(card.ref);
-      }).finally(()=>releasing.current.delete(card.ref));
-    }
-  },[watch.snapshot,watch.placed,room.state]);
+  // Only the watcher's clear-footprint removal window can send a card to
+  // hand. A missing ref after a restart has no pixels that prove departure.
 
   useEffect(()=>{
     const timer=setInterval(()=>{
