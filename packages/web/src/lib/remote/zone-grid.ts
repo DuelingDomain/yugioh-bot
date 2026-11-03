@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, onMat, zoneCellAt, type FieldCalibration, type FieldFormat, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
+import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, onMat, zoneCellAt, type FieldCalibration, type FieldDebug, type FieldFormat, type FieldTrack, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
@@ -96,3 +96,16 @@ export function readGridPref(own: boolean): boolean {
   try { const value = localStorage.getItem(prefKey(own)); return value === null ? own : value === "1"; } catch { return own; }
 }
 export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
+
+/** Owner debug overlay: what the field watcher saw on its last scan. Own feed only, never sent to other seats. */
+export interface FieldDebugView { debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number }
+let debugOn = false, debugView: FieldDebugView | null = null;
+const debugListeners = new Set<() => void>();
+const debugNotify = () => { for (const listener of debugListeners) listener(); };
+try { debugOn = typeof localStorage !== "undefined" && localStorage.getItem("dd-field-debug") === "1"; } catch { /* storage may be blocked */ }
+export const fieldDebugEnabled = () => debugOn;
+export function setFieldDebugEnabled(on: boolean) { debugOn = on; if (!on) debugView = null; try { localStorage.setItem("dd-field-debug", on ? "1" : "0"); } catch { /* storage may be blocked */ } debugNotify(); }
+export function publishFieldDebug(next: FieldDebugView | null) { if (!debugOn && next) return; debugView = next; debugNotify(); }
+const subscribeDebug = (listener: () => void) => { debugListeners.add(listener); return () => { debugListeners.delete(listener); }; };
+export const useFieldDebugEnabled = () => useSyncExternalStore(subscribeDebug, () => debugOn, () => false);
+export const useFieldDebug = () => useSyncExternalStore(subscribeDebug, () => debugView, () => null);
