@@ -227,9 +227,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const physicalAtSave={zone:track.zone,position:track.position};
     track={...track,zone:projected.zone};location=fieldZoneLocation(projected.zone);
     if(!piles.has(track.zone)&&twins.some(c=>c.ref!==existing?.ref&&c.zone===location.zone&&c.slot===location.slot)) {offer({...event,type:'prompt',reason:'uncertain'});return;}
+    // The reader already placed this physical card. Identify it in place rather
+    // than removing and recreating it while the next camera event is queued.
+    const readingCard=current.current.room.state.seats[seat].twin.find(c=>c.ref===placeholderRef);
+    if(!existing&&!track.faceDown&&entry&&readingCard?.faceUp&&readingCard.zone===location.zone&&readingCard.slot===location.slot&&readingCard.position===fieldTwinPosition(track)){
+      existing=readingCard;track={...track,id:readingCard.ref};
+    }
     setPending(true);
     try {
-      if(!await removePlaceholder(event.track.id,act))return;
+      if(existing?.ref!==placeholderRef&&!await removePlaceholder(event.track.id,act))return;
       let updated:RemoteRoom|null=null;
       const atomicReveal=!!existing&&!existing.faceUp&&!track.faceDown&&!!entry;
       if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch,source:'auto' as const}:{})});if(!updated)return;}
@@ -267,6 +273,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
         if(!matches(target)){setNotice('The card is still moving. Confirm it once settled.');return;}
       }
       if(!fieldEvidenceMatches(event,watch.getTrack(event.track.id)))return;
+      placeholders.current.delete(event.track.id);
       bindings.current.set(event.track.id,target.card.ref);
       watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
       setDeparture(null);setNotice(`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed · auto`);setUndoId(updated?.state.undo?.actionId??'');
