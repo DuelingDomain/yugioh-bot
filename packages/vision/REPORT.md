@@ -1721,3 +1721,63 @@ checks passed with zero additional identity reads. Raw report:
 Validation: vision and web typechecks, with the shared package built locally
 for its declaration exports. Generated bundles, shared build output and
 TypeScript build metadata were removed after verification.
+
+## Split workers and GPU detector readback — 2026-11-03
+
+Branch `feat/remote-gpu-speed` from `d9ef1b5fc` (test/local-main). Runtime only:
+`client.ts`, `worker.ts`, `runtime.ts`, `web-runtime.ts`, `detector/*`, and the web
+reader bridge queue. Watcher decisions were not changed. Same machine as above
+(8 logical CPUs, 4 ONNX threads, no hardware GPU; WebGPU numbers use SwiftShader).
+Other agents shared the CPU, so WASM medians move ±30 ms between runs.
+
+### Split workers
+
+| WASM, 1280×720, 3 cards | One worker (4 threads) | Split 2+2 threads |
+| --- | ---: | ---: |
+| Detector pass alone, round trip p50 | 81 ms | 126 ms |
+| Read alone, round trip p50 | 101 ms | 193 ms |
+| 6 s of back-to-back reads + detector passes | 59 reads, 0 passes | 33 reads, 51 passes |
+| RSS added after warm-up (all Chromium processes) | 294 MB | 299 MB |
+
+On WASM the split halves each worker's threads and makes a read 2× slower, so
+`chooseWorkerLayout('auto')` keeps one worker on WASM. It splits only on a hardware
+WebGPU adapter (not SwiftShader), on non-mobile devices with at least 4 cores and
+4 GB `deviceMemory`. The read worker creates its own detector only for a read
+without an outline (watcher reads pass one), so the split adds a second ONNX
+Runtime instance, not a second detector in the read worker. Expected WebGPU cost:
+one more GPUDevice and WebGPU `.wasm` instance, about 30–60 MB (not measurable here).
+
+The web bridge queues outline passes apart from reads when the reader is split.
+The field watcher still skips detection while its own read runs
+(`field-watcher.ts`, `if(reading)` early return); that gate is decision logic and
+must open before watcher reads and passes overlap.
+
+### Detector readback on WebGPU
+
+Detector outputs stay in GPU buffers (`preferredOutputLocation: 'gpu-buffer'`). The
+worker reads heat and peak whole (4 of 18 channels) and copies box values only at
+heatmap peaks (`detector/gpu-readback.ts`), instead of 2.3 MB at 960×544 plus a
+NaN scan. A non-finite readback takes the same fp16 → fp32 → WASM path as a failed
+run. Detector input tensors are reused per shape. The fp16 detector already ships
+(`card-detector.fp16.onnx`, keep_io_types); no new model.
+
+Parity, WebGPU (SwiftShader, fp32 graph) dense vs sparse and vs WASM, 960 long side,
+8 frames (board-2, 7 webcam scenes, synthetic 5 cards): same card count on every
+frame, max corner difference 0.0 px, max confidence difference 0.000.
+
+| Detector stage | Before | After |
+| --- | ---: | ---: |
+| WASM preprocess (3 paired runs) | 13.7 / 12.2 / 10.8 ms | 8.8 / 8.8 / 9.0 ms |
+| WASM post (refine, covered, sort) | 23–32 ms | 24–27 ms (unchanged code) |
+| SwiftShader 1280×720 pass | 7.7 s | 7.7 s (compute bound on CPU) |
+| SwiftShader readback+decode share | in `run` | `run` 7 ms submit, rest is GPU wait |
+
+Real GPU expectation: the readback saves the 2.3 MB map and 1–2 ms of NaN scan,
+about 2–5 ms per pass. It does not explain a 50–66 ms pass. The Debug panel now
+shows `detector.readback` beside `run`; on WebGPU `run` becomes submit time and
+`readback` holds GPU execution. Check there first: if `preprocess` + `post`
+(about 35 ms of CPU on this machine) dominate, the next step is CPU work
+(refine only changed outlines, resize on the GPU), not the model.
+
+Not done: graph capture (needs fixed input shapes and GPU inputs; passes alternate
+448 crops and 960 frames) and a GPU top-k graph (would need a new pinned model).
