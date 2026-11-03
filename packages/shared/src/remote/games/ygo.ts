@@ -177,6 +177,15 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }
+    case "pile.lift": {
+      const s = ownField(action.seat);
+      for (const ref of action.cardRefs) {
+        const card = s.twin.find(c => c.ref === ref);
+        remoteAssert(card && card.zone === action.zone, "A card left that pile before it was picked up", 409);
+        delete card.slot; delete card.departedFrom; delete card.publicIdentity; card.zone = "hand"; card.faceUp = false;
+      }
+      break;
+    }
     case "log.note": return next;
   }
   applyRemoteEffectTracking(next, state, deckAction, context);

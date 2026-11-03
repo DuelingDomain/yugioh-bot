@@ -6,6 +6,7 @@ import { cardArt, isMonsterInfo, type CardInfo } from "./catalog";
 import { cardCode, cardName, cellsFor, EK, EXTRA_ZONES, frameOf, hueOf, isMonsterZone, isPendulumCell, isPile, mirrorEmz, ZK, ZN, zoneLabel, type FrameKind, type TwinCard, type ZoneKey } from "./model";
 import type { Verdict } from "./placement";
 import {useFieldBacks} from './video-hub';
+import {useMissingPiles} from '@/lib/remote/zone-grid';
 import s from "./remote-ui.module.css";
 
 const SHAPE = "polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)";
@@ -93,7 +94,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   drag?: FieldDrag;
 }) {
   const cells = cellsFor(twin, !!extraZones);
-  const backs=useFieldBacks(seat);
+  const backs=useFieldBacks(seat),missingPiles=useMissingPiles(seat);
   const landed = useLanded(twin);
   const [dragging, setDragging] = useState<{ ref: string; x: number; y: number; over: ZoneKey | null; verdict: Verdict["kind"] | null } | null>(null);
   const [carry, setCarry] = useState<string | null>(null);
@@ -194,11 +195,12 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const deckPile=key==='deck'||key==='ex';
         const listed=deckPile?deckListSizes?.[key==='deck'?'deck':'extra']:undefined;
         const observedPile=deckPile&&backs.some(back=>back.zone===(key==='deck'?'DECK':'EXTRA'));
+        const offMat=deckPile&&missingPiles.includes(key==='deck'?'DECK':'EXTRA');
         if (pile && (cell.count||observedPile||deckPile&&deckRegistered||(listed??0)>0)) {
           const top = key === "gy" ? [...twin].reverse().find(item => item.zone === "graveyard") : undefined;
           const topInfo = top && top.faceUp && cardCode(top) ? info(cardCode(top)) : undefined;
           const count=deckPile?undefined:(cell.count||undefined);
-          desc = deckPile ? (listed!==undefined?`Face-down pile. Registered deck: ${listed} cards`:"Face-down pile") : key === "gy" && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : count===undefined?'Face-down pile':`${count} cards`;
+          desc = deckPile ? (offMat?'Not on the mat (camera)':listed!==undefined?`Face-down pile. Registered deck: ${listed} cards`:"Face-down pile") : key === "gy" && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : count===undefined?'Face-down pile':`${count} cards`;
           inner = <>{top && top.faceUp && cardCode(top) ? <CardFace card={top} info={topInfo} /> : <div data-testid={deckPile?'deck-pile':undefined} className={`${s.cd} ${s.back} ${key === "ex" ? s.backEx : ""}`} />}{count!==undefined?<span className={s.cnt}>{count}</span>:null}<span className={s.pl}>{key === "ex" ? "EXTRA DECK" : zoneLabel(key)}</span></>; }
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
         else if (down) {
@@ -208,7 +210,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
             <span className={`${s.originLabel} ${!origin&&card.publicIdentity?s.revealedChip:""}`} data-testid={!origin&&card.publicIdentity?"revealed-chip":undefined}>{origin || (card.publicIdentity?"Revealed":"Face-down")}</span></>;
         }
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
-        return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
+        return <div key={key} className={classes} style={offMat?{opacity:.35}:undefined} data-off-mat={offMat?'on':undefined} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
           title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
           {inner}{key === "gy" && cells.gy.count && twinCounts && twin.some(card => card.zone === "graveyard" && twinCounts.has(card.ref)) ? <span className={s.dupb} data-testid="dup-badge" title="A card here has a copy on the field">{Math.max(...twin.filter(card => card.zone === "graveyard").map(card => twinCounts.get(card.ref) ?? 0))}×</span> : null}{key === "gy" && banished ? <span className={s.ban} data-testid="banished-count" title={`${banished} banished. Click to open`} onClick={onPile ? event => { event.stopPropagation(); onPile("banished", event.currentTarget.closest<HTMLElement>("[data-zone]")); } : undefined}>BAN {banished}</span> : null}{card && twinCounts?.has(card.ref) ? <span className={s.dupb} data-testid="dup-badge" title={`${twinCounts.get(card.ref)} cards with this name`}>{twinCounts.get(card.ref)}×</span> : null}{card && warnRefs.has(card.ref) ? <span className={s.nidm} title="Not in decklist">!</span> : null}
         </div>;

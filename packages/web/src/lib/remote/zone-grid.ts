@@ -83,6 +83,17 @@ export interface ZoneGridState {
 const empty: ZoneGridState = { ownSeat: null, format: "normal", tracks: [] };
 let current = empty;
 export const currentZoneGrid = () => current;
+/** Own Deck/Extra piles the camera sees off the mat (dimmed on the board). Local only. */
+let missingPiles: { seat: number | null; zones: readonly string[] } = { seat: null, zones: [] };
+const missingListeners = new Set<() => void>();
+export function publishMissingPiles(seat: number, zones: readonly string[]) {
+  if (missingPiles.seat === seat && missingPiles.zones.join() === zones.join()) return;
+  missingPiles = { seat, zones: [...zones] }; for (const listener of missingListeners) listener();
+}
+export function useMissingPiles(seat: number): readonly string[] {
+  const value = useSyncExternalStore(listener => { missingListeners.add(listener); return () => { missingListeners.delete(listener); }; }, () => missingPiles, () => missingPiles);
+  return value.seat === seat ? value.zones : [];
+}
 const listeners = new Set<() => void>();
 export function publishZoneGrid(next: ZoneGridState) { current = next; for (const listener of listeners) listener(); }
 export const clearZoneGrid = () => publishZoneGrid(empty);

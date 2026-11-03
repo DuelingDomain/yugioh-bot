@@ -56,6 +56,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     originRequestRef: id.optional(),
     /** Explicit copy override, also retained for recorded origin answers. */
     anotherCopy: z.boolean().optional() }),
+  /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
+  z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })

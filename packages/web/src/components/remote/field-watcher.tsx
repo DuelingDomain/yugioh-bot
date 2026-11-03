@@ -17,7 +17,7 @@ import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
-import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug} from '@/lib/remote/zone-grid';
+import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles} from '@/lib/remote/zone-grid';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
@@ -446,6 +446,27 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!card||(value.zone==='pending'&&!watch.isRemoved(value.ref))||(!destinations.some(([zone])=>zone===card.zone)&&value.zone!=='pending')){setDeparture(null);setNotice('');}
     else if(destinations.some(([zone])=>zone===card.zone)&&card.zone!==value.zone)setDeparture({...value,zone:card.zone});
   },[room.state,seat,watch.snapshot]);
+  // "Out of view is gone" for piles. A missing GY/Banished stack was picked up
+  // as a whole: its cards go to the hand in one undoable action. A missing
+  // Deck/Extra only dims on the board (nothing is created, no prompt). When a
+  // stack comes back, Deck/Extra show again; GY/Banished are not re-created.
+  const missingKey=(watch.snapshot.missingPiles??[]).join(',');
+  const liftedPiles=useRef(new Set<string>());
+  useEffect(()=>{
+    const missing=new Set(missingKey?missingKey.split(','):[]);
+    publishMissingPiles(seat,['DECK','EXTRA'].filter(zone=>missing.has(zone)));
+    for(const [zone,pileZone,label] of [['GY','graveyard','Graveyard'],['BANISHED','banished','Banished']] as const){
+      if(!missing.has(zone)){liftedPiles.current.delete(zone);continue;}
+      if(liftedPiles.current.has(zone)||!current.current.room.state.seats[seat].twin.some(c=>c.zone===pileZone))continue;
+      liftedPiles.current.add(zone);
+      void queue(async act=>{
+        const refs=current.current.room.state.seats[seat].twin.filter(c=>c.zone===pileZone).map(c=>c.ref);if(!refs.length||!live())return;
+        const updated=await act({type:'pile.lift',actorSeat:seat,seat,zone:pileZone,cardRefs:refs,source:'auto'});
+        setDeparture(null);setNotice(`${label} picked up (${refs.length} card${refs.length===1?'':'s'}) · ${updated?'auto':'update failed'}`);if(updated)setUndoId(updated.state.undo?.actionId??'');
+      });
+    }
+  },[missingKey,seat]);
+  useEffect(()=>()=>publishMissingPiles(seat,[]),[seat]);
   function recover() {
     if(!recovery)return;const placement=recovery.placement;
     void queue(async act=>{
