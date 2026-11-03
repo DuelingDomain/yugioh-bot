@@ -13,9 +13,12 @@ const unknownType = 'Card type is unknown. Choose a zone manually.';
 
 /** Trap Monster text, cross-checked with EDOPro cards.cdb (Traps with a Level). */
 const TRAP_MONSTER = /Special Summon (?:this card|it)\b[^.]*?\bas an? (?:Normal |Effect )?Monster|\bTrap Monster\b/i;
-/** A monster that its own text puts in the Spell & Trap Zone (Artifact, Crystal Beast, Continuous-like monsters). */
-const SPELL_TRAP_TEXT = /Spell (?:&|and) Trap Zone|Spell\/Trap Zone|as an? (?:Continuous|Equip|Field) (?:Spell|Trap)/i;
-const EQUIP_TEXT = /\bequip/i;
+/** A monster that its own text puts in the Spell & Trap Zone (Artifact, Crystal Beast, Continuous-like monsters). Checked against cards.cdb. */
+const SPELL_TRAP_TEXT = /\b(?:Set|place|put|treat)\s+(?:this card|it)\b[^.]*?\b(?:Spell (?:&|and) Trap Zone|Spell\/Trap Zone)|\bas an? (?:Continuous|Equip|Field) (?:Spell|Trap)\b/i;
+/** A monster that equips itself (not one that only searches an Equip Spell). Union monsters come from the type. */
+const EQUIP_TEXT = /\bequip this card\b|\bthis card (?:is|was) equipped\b|\bequipped (?:to a monster )?by this card's effect\b/i;
+/** A card whose effect equips a monster as an Equip Card ("equip that target to this card"). */
+const EQUIPS_MONSTER = /\bequip (?:it|them|that (?:target|monster|card)|(?:up to )?\d+ [^.;]*?monster[^.;]*?) to\b/i;
 
 /** Catalog type is authoritative; a decorative frame cannot establish a card type. */
 function cardKind(facts:FieldZoneFacts|undefined) {
@@ -34,12 +37,15 @@ function cardKind(facts:FieldZoneFacts|undefined) {
 
 /** True when this card's text can equip a monster to its controller's Spell & Trap Zone. */
 export function equipsMonsters(facts:FieldZoneFacts|undefined):boolean {
-  const text=facts?.effectText??'';
-  return /\bequip\b[^.]*\bmonster|\bmonster\b[^.]*\bequip/i.test(text);
+  return EQUIPS_MONSTER.test(facts?.effectText??'');
 }
 
-/** True for any Trap Card, including Trap Monsters (they keep their Spell & Trap Zone). */
-export function isTrapCard(facts:FieldZoneFacts|undefined):boolean { return cardKind(facts).trap; }
+const ON_FIELD=new Set(['monster','extra-monster','spell-trap','field','pendulum']);
+/** A face-up card on this field can equip monsters, so a monster in a Spell & Trap Zone is plausible. */
+export function equipSourceOnField<T extends {zone:string;faceUp?:boolean}>(twins:readonly T[],factsOf:(card:T)=>FieldZoneFacts|undefined):boolean {
+  return twins.some(card=>!!card.faceUp&&ON_FIELD.has(card.zone)&&equipsMonsters(factsOf(card)));
+}
+
 
 export function fieldZoneLabel(zone:string):string {
   if(/^M[1-5]$/.test(zone))return `Main Monster Zone ${zone.slice(1)}`;
@@ -139,7 +145,10 @@ export function fieldCandidateFitsZone(zone:FieldZone,facts:FieldZoneFacts|undef
   return cardKind(facts).known&&!fieldZoneCheck(facts,zone);
 }
 
-/** A Trap that moves from a Spell & Trap Zone to a Monster Zone is a Trap Monster: it keeps its S/T zone. */
+/**
+ * A Trap with Trap Monster text (or a Level, cdb) that moves from a Spell & Trap Zone to a Monster Zone
+ * is a Trap Monster: it keeps its S/T zone. Any other Trap in a Monster Zone holds nothing ("Check zone?").
+ */
 export function becomesTrapMonster(card:{zone:string;slot?:number}|undefined,facts:FieldZoneFacts|undefined,to:string):boolean {
-  return !!card&&card.zone==='spell-trap'&&card.slot!==undefined&&(to==='monster'||to==='extra-monster')&&cardKind(facts).trap;
+  return !!card&&card.zone==='spell-trap'&&card.slot!==undefined&&(to==='monster'||to==='extra-monster')&&cardKind(facts).trapMonster;
 }

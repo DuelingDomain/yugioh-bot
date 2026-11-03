@@ -1430,7 +1430,20 @@ describe("tolerant voice attack resolution", () => {
     const gone = act(equip, { type: "twin.move", cardRef: "apophis", zone: "graveyard" });
     expect(gone.seats[0].twin.find(c => c.ref === "apophis")?.trapZone).toBeUndefined();
     expect(gone.seats[0].twin.find(c => c.ref === "axe")?.equippedTo).toBeUndefined();
-    expect(act(gone, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } }).seats[0].twin.some(c => c.ref === "late")).toBe(true);
+    const undo = (state: typeof b.state, targetActionId: string) => ygoModule.reduce(state, remoteActionSchema.parse({ type: "undo", actorSeat: 0, targetActionId, idempotencyKey: `zone-undo-${++n}` }));
+    const later = act(gone, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } });
+    expect(later.seats[0].twin.some(c => c.ref === "late")).toBe(true);
+    // Out-of-order Undo never brings the hold back onto the S/T zone that a later card took.
+    const sent = act(summoned, { type: "twin.move", cardRef: "apophis", zone: "graveyard" }), sentId = sent.undo!.actionId;
+    expect(() => undo(act(sent, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } }), sentId)).toThrow(/Spell & Trap Zone is in use/);
+    // A Pendulum Zone 1 is S1: a Trap Monster that holds S1 blocks it too.
+    const pend = act(act(b.state, { type: "twin.place", zone: "spell-trap", card: { ref: "trap1", slot: 1, cardId: 77 } }), { type: "twin.move", cardRef: "trap1", zone: "monster", slot: 2, trapMonster: true });
+    expect(() => act(pend, { type: "twin.place", zone: "pendulum", card: { ref: "scale", slot: 1, cardId: 3 } })).toThrow(/occupied/i);
+    // Board re-sync: its log note is not an undo step. The player's Undo restores the re-sync move.
+    const synced = ygoModule.reduce(act(summoned, { type: "twin.move", cardRef: "apophis", zone: "monster", slot: 4 }), remoteActionSchema.parse({ type: "log.note", actorSeat: 0, text: "Board re-synced (1 change)", idempotencyKey: "resync-note" }));
+    const newest = [...synced.undoHistory!].sort((x, y) => y.order - x.order)[0];
+    expect(newest.action.type).toBe("twin.move");
+    expect(undo(synced, newest.actionId).seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
   });
 
   it("persists public annotations and replays a confirmed proposal through the normal event store", () => {

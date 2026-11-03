@@ -8,7 +8,7 @@ import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,fieldCandidateFitsZone,hardFieldZone,fieldZoneLabel,equipsMonsters,becomesTrapMonster} from '@/lib/remote/field-legality';
+import {projectFieldZone,fieldCandidateFitsZone,hardFieldZone,fieldZoneLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -30,7 +30,7 @@ const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 /** A hand over the GY/banished pile counts as exit evidence for a card that shows on the field up to 10 s later. */
 const PILE_EXIT_MS=10_000;
 /** An Equip effect on this field makes a monster in a Spell & Trap Zone plausible (an Equip Card). */
-const equipSourceOn=(twins:readonly TwinCard[])=>twins.some(c=>c.faceUp&&publicField(c.zone)&&equipsMonsters(cardInfo(cardCode(c))));
+const equipSourceOn=(twins:readonly TwinCard[])=>equipSourceOnField(twins,c=>cardInfo(cardCode(c)));
 function readPhysicalZones(key:string):Map<string,FieldZone> {
   try {
     const value=JSON.parse(sessionStorage.getItem(key)??'{}');
@@ -107,7 +107,31 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     else manual.current.delete(move.ref);
   }),[seat]);
   useEffect(()=>{manual.current.clear();},[room.slug,seat]);
-  function queue(work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent,humanChoice=false) {
+  /** The player's Undo owns the cards it touched: the camera does not redo the change until the real card moves. */
+  const holdForPlayer=(ref:string)=>{
+    const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);
+    if(track?.visible&&!track.removed)manual.current.set(ref,{...fieldZoneLocation(track.zone),position:track.position});
+  };
+  const undoCards=useRef(new Map<string,string[]>()),undoSeq=useRef<number|null>(null);
+  useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
+  useEffect(()=>{
+    for(const entry of room.state.undoHistory??[])undoCards.current.set(entry.actionId,entry.cards);
+    const events=room.events??[],newest=events.reduce((n,e)=>Math.max(n,e.seq),0);
+    if(undoSeq.current===null){undoSeq.current=newest;return;}
+    for(const e of events){
+      if(e.seq<=undoSeq.current||e.action.type!=='undo')continue;
+      const targetId=e.action.targetActionId,target=events.find(x=>x.id===targetId||(x.action as {idempotencyKey?:string}).idempotencyKey===targetId)?.action as Record<string,unknown>|undefined;
+      // Fallback when the entry was never seen (action and Undo in one update): the refs the action names.
+      const named=target?[target.cardRef,(target.card as {ref?:string}|undefined)?.ref,...(Array.isArray(target.cardRefs)?target.cardRefs:[]),target.keepRef,target.removeRef].filter((ref):ref is string=>typeof ref==='string').map(ref=>`${String(target.seat??seat)}:${ref}`):[];
+      for(const qualified of undoCards.current.get(targetId)??named){
+        const at=qualified.indexOf(':');if(Number(qualified.slice(0,at))===seat)holdForPlayer(qualified.slice(at+1));
+      }
+    }
+    undoSeq.current=Math.max(undoSeq.current,newest);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.events,room.state.undoHistory,seat]);
+  /** `quiet`: a background board re-sync. A failed write is logged only (no notice, no Retry banner); it is tried again next cycle. */
+  function queue(work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent,humanChoice=false,quiet=false) {
     console.info('[remote field] queued',event?.type,event?.track.id,event?.track.revision);
     markFieldTiming(event?.timing,'queued');
     return transaction(async(latest,act)=>{
@@ -116,9 +140,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const apply:RoomMutation=async (input,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();
         // A Trap that the camera sees go from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone.
         let proposal=input;if(input.type==='twin.move'&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}bindFieldTiming(actionId,current.current.room.slug,event?.timing);
-        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});setNotice(text);});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
+        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);setFailedUpdate(previous=>previous?.work===work?null:previous);
-    }).catch(error=>{console.error('[remote field] update failed',error);if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
+    }).catch(error=>{console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
     const reusable=(card:TwinCard)=>publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone;
@@ -547,52 +571,66 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.state,seat,factsTick]);
   // Board re-sync: every few seconds (and at once from "Scan field") compare what
-  // the camera sees with the board and fix differences with the same rules. No
-  // prompts; one log line when something changed.
-  const [scanning,setScanning]=useState(false),resyncing=useRef(false),resynced=useRef(new Set<string>());
+  // the camera saw in its last full detector pass with the board and fix differences
+  // with the same rules. No prompts; one log note (not an undo step) when something
+  // changed. Each fix is its own undoable action and is tried once per board state.
+  // A card the player moved or undid stays until the camera shows a new change.
+  const [scanning,setScanning]=useState(false),resyncing=useRef(false),resynced=useRef(new Map<string,{board:string;fails:number}>());
+  useEffect(()=>{resynced.current.clear();},[room.slug,seat]);
+  const boardState=()=>{let h=0;for(const c of current.current.room.state.seats[seat].twin)for(const ch of `${c.ref}|${c.zone}|${c.slot??''}|${c.position??''}|${c.faceUp?1:0};`)h=(h*31+ch.charCodeAt(0))|0;return String(h);};
+  /** False when this fix was already tried on this board state. A failed write may try again (3 times) next cycle. */
+  const tryFix=(key:string)=>{const board=boardState(),seen=resynced.current.get(key);if(seen?.board===board)return false;resynced.current.set(key,{board,fails:seen?.fails??0});return true;};
+  const fixFailed=(key:string,error:unknown)=>{console.info('[remote field] re-sync write skipped',key,error instanceof Error?error.message:error);const seen=resynced.current.get(key);if(seen&&++seen.fails<3)seen.board='';};
   function resync(manualScan=false) {
-    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);return;}
+    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan){setScanning(false);setNotice(resyncing.current?'Board check already running':'Camera is not watching the field');}return;}
     resyncing.current=true;
     void queue(async act=>{
-      let changes=0;const at=performance.now(),snap=watch.getSnapshot?.();
-      if(!snap||!live())return;
+      let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
+      if(!snap||!live()||fullAt===undefined)return;
       const refOf=(t:FieldTrack)=>bindings.current.get(t.id)??t.id;
-      const settled=snap.tracks.filter(t=>t.state==='identified'&&t.visible&&!t.removed&&!piles.has(t.zone)&&at-t.lastSeen<1000&&at-t.firstSeen>1500);
+      const write=async(key:string,proposal:Parameters<RoomMutation>[0])=>{
+        try{const updated=await act(proposal);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}return updated;}catch(error){fixFailed(key,error);}
+      };
+      // Only cards the last full detector pass saw (on CPU it can be seconds old), after they settled.
+      const settled=snap.tracks.filter(t=>t.state==='identified'&&t.visible&&!t.removed&&!piles.has(t.zone)&&t.lastSeen>=fullAt&&fullAt-t.firstSeen>1500);
       // 1. A known field card in another zone than the camera shows: move it (zone rules apply).
       for(const t of settled){
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(c=>c.ref===refOf(t));
         if(!card||!publicField(card.zone)||!t.cardId&&!t.faceDown||keepsManual(card.ref,fieldZoneLocation(t.zone),t.position))continue;
         const code=cardCode(card);if(code)await loadCards([code]);
         const projected=projectObserved(t,twins,card,cardInfo(code));if(!projected.zone)continue;
+        // A hard-rule fix (Field Spell → FIELD) the player undid is not redone here either.
+        if(ruleFixes.current.has(`${card.ref}:${toZone(card.zone,card.slot)}:${projected.zone}`))continue;
         const location=fieldZoneLocation(projected.zone),position=fieldTwinPosition({...t,zone:projected.zone});
         if(card.zone===location.zone&&card.slot===location.slot&&card.position===position)continue;
-        // Each correction is tried once: an Undo by the player is not fought every few seconds.
-        const key=`move:${card.ref}:${card.zone}${card.slot??''}${card.position}>${location.zone}${location.slot??''}${position}`;if(resynced.current.has(key))continue;resynced.current.add(key);
-        if(await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position}))changes++;
+        const key=`move:${card.ref}>${location.zone}${location.slot??''}${position}`;if(!tryFix(key))continue;
+        await write(key,{type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position});
       }
       // 2. A field copy the camera placed while the same card in the GY/banished shows it left: one card.
       for(const t of settled){
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(c=>c.ref===refOf(t)),entry=t.cardId?entries.current.get(t.cardId):undefined;
-        if(!card||!card.faceUp||!publicField(card.zone)||!entry||!card.ref.startsWith('fw-'))continue;
-        const copy=pileExit(t,entry,twins);if(!copy||resynced.current.has(`${card.ref}:${copy.ref}`))continue;
-        resynced.current.add(`${card.ref}:${copy.ref}`);
-        const updated=await act({type:'twin.merge',actorSeat:seat,seat,keepRef:card.ref,removeRef:copy.ref,reason:'Board re-sync: the camera saw this card leave the pile'});
-        if(updated){changes++;mergedCopies.current.set(copy.ref,updated.lastSeq);}
+        if(!card||!card.faceUp||!publicField(card.zone)||!entry||!card.ref.startsWith('fw-')||keepsManual(card.ref,fieldZoneLocation(t.zone),t.position))continue;
+        const copy=pileExit(t,entry,twins);if(!copy||keepsManual(copy.ref,fieldZoneLocation(t.zone),t.position))continue;
+        const key=`merge:${card.ref}:${copy.ref}`;if(!tryFix(key))continue;
+        const updated=await write(key,{type:'twin.merge',actorSeat:seat,seat,keepRef:card.ref,removeRef:copy.ref,reason:'Board re-sync: the camera saw this card leave the pile'});
+        if(updated)mergedCopies.current.set(copy.ref,updated.lastSeq);
       }
       // 3. A card the camera knows that the board does not show (or shows off the field): place it again.
       for(const t of settled){
         const ref=refOf(t),card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
         if(card&&publicField(card.zone)||placeholders.current.has(t.id)||!t.faceDown&&!t.cardId)continue;
-        if(card&&(keepsManual(card.ref,fieldZoneLocation(t.zone),t.position)||recentFieldDeparture(card,serverNow())))continue;
-        // One quiet try per physical observation: a refused placement never repeats as a notice.
-        const key=`place:${t.id}:${t.zone}:${t.revision??0}`;if(resynced.current.has(key))continue;resynced.current.add(key);
+        // An Undo of this card (placement or pile exit) is the player's choice: leave it.
+        if(keepsManual(ref,fieldZoneLocation(t.zone),t.position)||card&&recentFieldDeparture(card,serverNow()))continue;
+        const key=`place:${t.id}:${t.zone}:${t.revision??0}`;if(!tryFix(key))continue;
         const before=current.current.room.lastSeq;
-        try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){console.info('[remote field] re-sync placement skipped',t.id,error instanceof Error?error.message:error);}
-        if(current.current.room.lastSeq>before)changes++;
+        try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){fixFailed(key,error);}
+        if(current.current.room.lastSeq>before){changes++;lastUndo=current.current.room.state.undo?.actionId??lastUndo;}
       }
-      if(changes){await act({type:'log.note',actorSeat:seat,text:`Board re-synced (${changes} change${changes===1?'':'s'})`});setNotice(`Board re-synced (${changes} change${changes===1?'':'s'})`);}
+      const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
+      // The note is a log line only: the server keeps it out of the undo history, so Undo reverts the last fix.
+      if(changes){try{await act({type:'log.note',actorSeat:seat,text});}catch(error){console.info('[remote field] re-sync note skipped',error);}setNotice(text);setUndoId(lastUndo);}
       else if(manualScan)setNotice('Board matches the camera');
-    }).finally(()=>{resyncing.current=false;if(manualScan)setScanning(false);});
+    },undefined,false,true).finally(()=>{resyncing.current=false;if(manualScan)setScanning(false);});
   }
   const resyncRef=useRef(resync);resyncRef.current=resync;
   useEffect(()=>{
@@ -600,11 +638,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const timer=setInterval(()=>{if(!document.hidden)resyncRef.current();},every);
     return()=>clearInterval(timer);
   },[room.slug,seat,recognition.backend]);
+  // "Scan field": force a full detector pass, wait for it (3 s at most), then re-sync once.
+  const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined);
+  useEffect(()=>()=>clearInterval(scanTimer.current),[]);
   const scanField=useCallback(()=>{
-    setScanning(true);watch.scanNow?.();
-    // Give the forced full detector pass a moment to update the tracks first.
-    setTimeout(()=>resyncRef.current(true),700);
-  },[watch.scanNow]);
+    if(scanTimer.current!==undefined||resyncing.current){setNotice('Board check already running');return;}
+    setScanning(true);const asked=performance.now(),since=watch.getSnapshot?.()?.lastFullAt??-Infinity;watch.scanNow?.();
+    scanTimer.current=setInterval(()=>{
+      const full=watch.getSnapshot?.()?.lastFullAt??-Infinity;
+      if(full>since&&full>=asked-50||performance.now()-asked>=3000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
+    },100);
+  },[watch.scanNow,watch.getSnapshot]);
   useEffect(()=>{publishFieldScan({seat,scanning,scan:ownsSource&&hub.cameraOn&&watch.enabled?scanField:undefined});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false}),[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.

@@ -178,6 +178,12 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
     remoteAssert(!collides(seat.twin) || (old.some(c => c.ref === card.ref && c.zone === card.zone && c.slot === card.slot) && collides(old)),
       "Cannot undo: the original physical field slot is occupied", 409, "UNDO_CONFLICT");
   }
+  // A Trap Monster's held Spell & Trap Zone counts as taken: never restore a hold onto a used zone, or a card onto a held one.
+  for (const seat of restored.seats) {
+    const held = (cards: typeof seat.twin) => cards.some(a => a.trapZone !== undefined && cards.some(b => b.ref !== a.ref &&
+      (b.trapZone === a.trapZone || b.zone === "spell-trap" && remotePhysicalSlot(b.zone, b.slot) === a.trapZone)));
+    remoteAssert(!held(seat.twin) || held(before.seats[seat.seat].twin), "Cannot undo: that Spell & Trap Zone is in use", 409, "UNDO_CONFLICT");
+  }
   return restored;
 }
 

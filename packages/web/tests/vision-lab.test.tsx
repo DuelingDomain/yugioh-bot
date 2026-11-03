@@ -743,7 +743,7 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
  let source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
- const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`typed-${room.lastSeq+1}`})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
+ const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;const key=`typed-${room.lastSeq+1}`;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:key}),...(fixture.recordEvents?{events:[...(room.events??[]),{id:key,seq:room.lastSeq+1,actorSeat:proposal.actorSeat,userId:null,at:0,action:{...proposal,idempotencyKey:key}}]}:{})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
  return {refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
@@ -781,6 +781,41 @@ it.each([
   expect(fixture.post).not.toHaveBeenCalled();
   expect(fixture.room().state.seats[0].twin).toEqual([kept,other]);
  }finally{fixture.dispose();clock.mockRestore();schedule.mockRestore();}
+});
+it('board re-sync: one undoable fix per change, Undo is left alone, a failed write is quiet and tried again',async()=>{
+ const timers:(()=>void)[]=[],interval=setInterval;
+ const schedule=vi.spyOn(globalThis,'setInterval').mockImplementation((callback:any,delay?:number,...args:any[])=>{if(delay===4000||delay===8000)timers.push(callback);return interval(callback,delay,...args);});
+ const solemn={ref:'solemn',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+ let fail=false;
+ const fixture=await typedWatcherFixture(zoneEntries[0],'S2',[solemn],'moved',undefined,async()=>{if(fail)throw new Error('Physical field slot is occupied');});
+ const resync=async()=>{await act(async()=>{for(const tick of timers)tick();});};
+ const moves=()=>fixture.post.mock.calls.filter(([proposal])=>proposal.type==='twin.move');
+ try{
+  // The last full detector pass saw the card in S2; the board has it in S4.
+  state.fieldWatch.recordEvents=true;fixture.track.lastSeen=3000;
+  state.fieldWatch.watch.getSnapshot=()=>({status:'watching',tracks:[{...fixture.track}],lastFullAt:fixture.track.lastSeen,metrics:{detectorMs:1,dutyPercent:1}});
+  fixture.refresh();await resync();
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:2}));
+  await waitFor(()=>expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.move','log.note']));
+  // The log note is no undo step: the newest undo entry is the fix itself.
+  const newest=[...fixture.room().state.undoHistory].sort((a:any,b:any)=>b.order-a.order)[0];
+  expect(newest.action).toMatchObject({type:'twin.move',cardRef:'solemn',slot:2});
+  // The player undoes it, then plays on (the board changes). The camera still shows S2,
+  // but re-sync leaves the card in S4.
+  await act(async()=>{await fixture.post({type:'undo',actorSeat:0,targetActionId:newest.actionId});});fixture.refresh();
+  await act(async()=>{await fixture.post({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref:'other',slot:1,cardId:46986414,name:'Dark Magician',faceUp:true,position:'attack'}});});fixture.refresh();
+  expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});
+  await resync();await resync();
+  expect(moves()).toHaveLength(1);
+  // A new physical change (S3) is the camera's again. A refused write shows no notice and no Retry banner ...
+  fail=true;Object.assign(fixture.track,{zone:'S3',lastSeen:6000});fixture.refresh();await resync();
+  await waitFor(()=>expect(moves()).toHaveLength(4));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,400));});
+  expect(document.body.textContent).not.toMatch(/Retry field update|occupied/);
+  // ... and the next cycle tries it again.
+  fail=false;await resync();
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:3}));
+ }finally{fixture.dispose();schedule.mockRestore();}
 });
 it('repairs an absent duplicate at the same precise physical field slot',async()=>{
  const timers:(()=>void)[]=[],interval=setInterval;
