@@ -260,7 +260,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act }: {
   </div>;
 
   if (!deck) {
-    return <div className={cx(sheetRoot, s.sidingRoot)} role="region" aria-label="Side decking" data-testid="siding" data-deck="false">
+    return <div className={cx(sheetRoot, s.sidingRoot, s.plainRoot)} role="region" aria-label="Side decking" data-testid="siding" data-deck="false">
       <div className={s.plain}>
         <p className={betweenStyles.eyebrow}>Between games{score ? ` · Score ${score}` : ""}</p>
         <h1 className={s.plainTitle}>Game {gameNo}{match.bestOf === 3 ? " of 3" : ""} is next</h1>

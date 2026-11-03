@@ -49,6 +49,9 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("remote-table")).toBeVisible();
     await expect(page.getByTestId("remote-table")).toHaveAttribute("data-mode", "1v1");
     await shot(page, "1v1-1920-initial");
+    // The turn and phase bar sits under the player panels, at the bottom of the table.
+    const [seatBox, phaseBox] = await Promise.all([page.getByTestId("seat-0").boundingBox(), page.getByTestId("phase-main1").boundingBox()]);
+    expect(phaseBox!.y).toBeGreaterThan(seatBox!.y + seatBox!.height);
     await page.getByTestId("phase-main1").click();
     await expect(page.getByTestId("phase-main1")).toHaveAttribute("aria-current", "step");
     await expect(page.getByTestId("banner")).toBeVisible();
