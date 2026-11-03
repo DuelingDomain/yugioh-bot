@@ -72,9 +72,11 @@
 
 .fieldGrid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .fieldGrid polygon{fill:transparent;stroke:#f3ca7577;stroke-width:1;vector-effect:non-scaling-stroke}
-.fieldGrid text{text-anchor:middle;dominant-baseline:middle;fill:#ffebbc;font:600 18px system-ui,sans-serif;paint-order:stroke;stroke:#100a1a;stroke-width:2px}
+.fieldGrid text{text-anchor:middle;dominant-baseline:middle;fill:#ffebbc;font:700 24px system-ui,sans-serif;paint-order:stroke;stroke:#100a1a;stroke-width:3px}
 .fieldGrid[data-guess] polygon{stroke-dasharray:5 4;stroke:#f3ca7566}
 .fieldGrid[data-guess] text{opacity:.7}
+.fieldGrid[data-large] polygon{stroke-width:2;stroke:#f3ca75cc}
+.fieldGrid[data-large] text{font-size:22px}
 
 /* Next to .chip: same pill, at the top. */
 .zoneChip{top:8px;bottom:auto;gap:5px;color:var(--duel-chain-ink)}
@@ -90,3 +92,10 @@
 .zonesDone{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .zonesOk{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--duel-ok)}
 .zonesActions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+
+@media (max-width:600px){.fieldGrid[data-large] text{font-size:34px}}
+/* A click on the picture opens the large check. */
+.view[data-expandable]{cursor:zoom-in}
+.expand{position:absolute;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--duel-rule);background:rgb(7 11 21/.78);color:var(--duel-ink);font-size:12px;letter-spacing:.04em;cursor:pointer}
+.expand:hover{border-color:var(--duel-chain)}
+.expand:focus-visible{outline:2px solid var(--duel-chain);outline-offset:2px}

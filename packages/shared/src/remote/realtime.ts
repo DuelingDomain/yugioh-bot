@@ -22,7 +22,7 @@ export const remoteFieldTracksSchema=z.strictObject({type:z.literal('field.track
   ref:z.string().min(1).max(100),zone:z.enum(['M1','M2','M3','M4','M5','S1','S2','S3','S4','S5','EMZ1','EMZ2','FIELD','DECK','EXTRA']),
   quad:z.array(normalizedPoint).length(4),
 })).max(22).optional(),calibration:z.strictObject({
-  version:z.literal(1),zoneSpacing:z.number().min(.85).max(1.4).optional(),corners:z.array(normalizedPoint).length(4),
+  version:z.literal(1),zoneSpacing:z.number().min(.85).max(1.4).optional(),zones:z.record(z.string().max(12),z.strictObject({x:z.number().min(-.5).max(1.5),y:z.number().min(-.5).max(1.5),w:z.number().min(.03).max(2),h:z.number().min(.03).max(2)})).optional(),corners:z.array(normalizedPoint).length(4),
   orientation:z.strictObject({playerSide:z.enum(['bottom','left','top','right']),mirrored:z.boolean()}),
 }).optional()});
 export type RemoteFieldTracks=z.infer<typeof remoteFieldTracksSchema>;

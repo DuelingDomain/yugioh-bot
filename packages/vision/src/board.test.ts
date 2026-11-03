@@ -44,7 +44,7 @@ test('client exposes both worker operations and abort releases its worker for an
     constructor(){workers.push(this);}
     postMessage(message:Record<string,unknown>){
       messages.push(message);
-      if(message.type==='init'||message.type==='prepare') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:null}}));
+      if(message.type==='init'||message.type==='prepare') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:message.type==='prepare'?{backend:'wasm'}:null}}));
       if(message.type==='peek') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:{name:'Alpha',tier:'sure'}}}));
     }
     terminate(){this.terminated=true;}

@@ -16,6 +16,8 @@ export type FieldWatcherUIProps={
   statusLabel:string;statusTitle?:string;statusExtra?:ReactNode;calibrated:boolean;calibrationDisabled:boolean;onCalibrate():void;
   prompts:readonly FieldWatcherPrompt[];pending:boolean;onChoose(promptId:string,cardId:string):void;onDismiss(promptId:string):void;
   notice?:ReactNode;noticeTestId?:string;
+  /** The notification stack beside the field. Prompts and notices go there, never over the camera. */
+  dock?:HTMLElement|null;
 };
 const stop=(event:SyntheticEvent)=>event.stopPropagation();
 function zoneName(zone:string):string {
@@ -34,14 +36,14 @@ function promptAnchor(host:HTMLElement,quad:FieldWatcherPrompt['quad']):{anchor:
 }
 
 /** Feed watcher presentation, independent of recognition and table actions. */
-export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId}:FieldWatcherUIProps) {
+export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,dock}:FieldWatcherUIProps) {
   const prompt=enabled?prompts[0]:undefined,description=useId();
   const bubble=useRef<HTMLDivElement>(null),toast=useRef<HTMLDivElement>(null);
   const [promptStyle,setPromptStyle]=useState<CSSProperties>({visibility:'hidden'}),[noticeStyle,setNoticeStyle]=useState<CSSProperties>({visibility:'hidden'});
   const anchorKey=prompt?.quad?.map(point=>`${point.x},${point.y}`).join('|');
   const hasNotice=!!notice;
   useLayoutEffect(()=>{
-    if(!host)return;
+    if(!host||dock)return;
     const toolbar=host.querySelector<HTMLElement>('[data-feed-toolbar]');
     const place=()=>{
       const node=bubble.current;
@@ -63,7 +65,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
     return ()=>{observer?.disconnect();window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);};
     // The scalar key represents the physical quad without restarting on new view objects.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[host,prompt?.id,anchorKey,hasNotice]);
+  },[host,dock,prompt?.id,anchorKey,hasNotice]);
   if(!host||typeof document==='undefined')return null;
   const controls=host.querySelector('[data-field-watcher-controls]'),status=host.querySelector('[data-field-watcher-status-slot]');
   const tooltip=[statusTitle,statusLabel,!calibrated?'Calibrate zones for exact columns':null].filter(Boolean).join(' · ');
@@ -74,13 +76,13 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
     </div>,controls):null}
     {status&&enabled?createPortal(<div className={table.statusRow}><span className={s.chip} role="status" title={tooltip} data-testid="field-watcher-status">{statusLabel}</span>{statusExtra}</div>,status):null}
     {createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.announcement}`} role="status" aria-label="Card detection updates" aria-atomic="true">{prompt?`New card needs a choice in ${zoneName(prompt.zone)}. ${prompts.length>1?`${prompts.length-1} more waiting.`:''}`:''}</div>,document.body)}
-    {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt}`} style={promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
+    {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt} ${dock?s.docked:''}`} style={dock?undefined:promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
       <header><strong>{prompt.title??'New card?'}</strong>{prompts.length>1?<span className={s.queue}>+{prompts.length-1} more</span>:null}</header>
       <p id={description} className={s.zone}>Detected in {zoneName(prompt.zone)}. Choose a card or dismiss.</p>
       <div className={s.choices}>{prompt.candidates.slice(0,5).map(candidate=><button type="button" className={table.btn} key={candidate.id} disabled={pending||candidate.disabled} onClick={()=>onChoose(prompt.id,candidate.id)}>{candidate.label}</button>)}</div>
       {!prompt.candidates.length?<p className={s.zone}>{prompt.emptyMessage??'Use the feed reader to confirm this card.'}</p>:null}
       <button type="button" className={`${table.btn} ${table.q} ${s.dismiss}`} disabled={pending} onClick={()=>onDismiss(prompt.id)}>Dismiss</button>
-    </div>,document.body):null}
-    {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice}`} style={noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop}>{notice}</div>,document.body):null}
+    </div>,dock??document.body):null}
+    {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice} ${dock?s.docked:''}`} style={dock?undefined:noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop}>{notice}</div>,dock??document.body):null}
   </>;
 }

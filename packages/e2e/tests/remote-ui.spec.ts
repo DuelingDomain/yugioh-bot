@@ -583,6 +583,34 @@ test.describe("remote lobby camera step", () => {
     await dialog.getByRole("button", { name: "Top-left grid corner" }).focus();
     for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight");
     await dialog.getByRole("button", { name: "Save calibration" }).click();
+    // The large live check opens after the save. "Looks good" closes it, and the lobby shows Calibrated.
+    const view = page.getByTestId("lobby-zones-view");
+    await expect(view).toBeVisible();
+    await shot(page, "lobby-zones-view");
+    // The spacing slider writes the saved record and the grid in the view follows it: the cells get wider.
+    const gridWidth = () => view.locator("polygon").evaluateAll(polygons => { const xs = polygons.flatMap(p => (p.getAttribute("points") ?? "").split(" ").map(pair => Number(pair.split(",")[0]))); return Math.max(...xs) - Math.min(...xs); });
+    const narrow = await gridWidth();
+    await view.getByTestId("lobby-zones-spacing").fill("1.3");
+    await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.3");
+    expect(await gridWidth()).toBeGreaterThan(narrow + 50);
+    // Edit zones: select M3, drag one edge handle, press Done. The saved rectangle is the one the table draws below.
+    const m3 = () => view.locator('polygon[data-zone="M3"]').getAttribute("points");
+    const before = await m3();
+    await view.getByTestId("lobby-zones-edit").click();
+    const editor = view.getByTestId("zone-editor");
+    await expect(editor).toBeVisible();
+    await shot(page, "lobby-zones-edit");
+    const cell = (await editor.locator('polygon[data-zone="M3"]').boundingBox())!;
+    await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
+    await expect(view.getByTestId("zone-editor-status")).toContainText("1 selected: M3");
+    const grip = (await view.getByTestId("zone-handle-e").boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down(); await page.mouse.move(grip.x + grip.width / 2 + 40, grip.y + grip.height / 2, { steps: 6 }); await page.mouse.up();
+    await shot(page, "lobby-zones-edited");
+    await view.getByTestId("zone-editor-done").click();
+    expect(await m3()).not.toBe(before);
+    await view.getByTestId("lobby-zones-view-done").click();
+    await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");
     await shot(page, "lobby-zones-done");
     // The lobby grid, in 0..1 units. The table must draw the very same cells from the saved record.
@@ -672,11 +700,14 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("Escape");
     // The camera: confirm the mat grid, then use webcam only.
     await page.getByTestId("camera-on-feed").click();
+    await expect(page.locator('[data-testid="feed-0"] video')).toBeAttached({ timeout: 60_000 });
     await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
+    // My camera is the large one. The other seat is a thumbnail.
+    await expect(page.getByTestId("thumb-1")).toBeVisible(); await expect(page.getByTestId("thumb-0")).toHaveCount(0);
     // The Graveyard and Banished counts sit in the seat header, one click from their pile.
     await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
     // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
@@ -688,7 +719,19 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
+    // Notices (here the undo toast) sit in the notification stack beside the thumbnails, never over the camera. Recognition prompts use the same stack.
+    await page.keyboard.press("Control+z");
+    const toasts = page.getByTestId("toasts"); await expect(toasts).toContainText("Undid");
+    const apart = async () => { const [a, b, c] = await Promise.all([toasts.boundingBox(), page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("notify-dock").boundingBox()]);
+      return !!a && !!b && !!c && (a.x >= b.x + b.width - 1 || a.y >= b.y + b.height - 1) && a.x >= c.x - 1 && a.y >= c.y - 1; };
+    expect(await apart()).toBe(true);
+    await expect(page.getByTestId("notify-dock").getByTestId("toasts")).toBeVisible();
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    // A click on a thumbnail makes that camera the large one, with its own labelled "Show virtual field" button. W switches the view.
+    await page.getByTestId("thumb-1").click(); await expect(page.getByTestId("thumb-0")).toBeVisible(); await expect(page.getByTestId("thumb-1")).toHaveCount(0);
+    await expect(page.getByTestId("field-toggle-1")).toContainText("Show virtual field");
+    await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
+    await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
   });
 
@@ -1633,7 +1676,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
     const latest=await room();
     const response=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:latest.lastSeq,action:{...action,actorSeat:0,seat:0,cardRef:manualCard.ref,idempotencyKey:`revealed-set-${index}`}}});
     expect(response.ok(),await response.text()).toBe(true);
-    if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref).cardId).toBeUndefined();
+    if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)!.cardId).toBeUndefined();
   }
   expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)).toMatchObject({ref:manualCard.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
 });

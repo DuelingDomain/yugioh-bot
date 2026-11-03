@@ -356,7 +356,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (hoverTip && !f && p && event.pointerType === "mouse") {
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
       if (found && area) {
-        const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 44 ? y - 42 : y + 16; const flip = left > area.width - 230;
+        const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
         setTip(old => old && old.label === found.label && old.detail === found.detail && old.flip === flip ? old : { left, top, flip, ...found });
         if (tipBox.current) { tipBox.current.style.left = `${left}px`; tipBox.current.style.top = `${top}px`; }
       } else setTip(null);
@@ -529,7 +529,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         <span>No card here</span>
         <button type="button" onClick={() => { const at = miss; setMiss(null); onSearch(seat, { x: at.x, y: at.y, anchor: around(at), feed: feedRect() }); }} data-testid="no-card-search">Search card</button>
       </div> : null}
-      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b>{r.text}</b></div>) : null}
+      {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b className={s.sr}>{r.text}</b></div>) : null}
     </div>
     <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>

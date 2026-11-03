@@ -99,6 +99,12 @@ def main():
         original = fold_weight_casts(onnx.load(source))
         if corpus == 'embed':
             original = dequantize(original)
+        # Keep float32 activations and weights for adapters without shader-f16.
+        # This is the same dequantized graph used by the fp16 export below.
+        onnx.checker.check_model(original)
+        fp32 = models / ('dinov2-small-duel.fp32.onnx' if corpus == 'embed' else 'card-detector.fp32.onnx')
+        onnx.save(original, fp32)
+        print(f'Exported {fp32}; SHA256 {hashlib.sha256(fp32.read_bytes()).hexdigest()}', flush=True)
         converted = convert_float_to_float16(original, keep_io_types=True)
         # ORT's converter appends graph IO casts; order them before their consumers.
         available = {v.name for v in converted.graph.input} | {v.name for v in converted.graph.initializer} | {''}

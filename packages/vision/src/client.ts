@@ -1,16 +1,22 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions } from './types';
+import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
   profile?: GameProfile;
+  /** Reports actual providers and exact fallback reasons from the worker, including warmup/detection. */
+  onBackendChange?: (status: BackendStatus) => void;
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
+  /** Actual providers and fallback reasons from the last worker response. */
+  readonly backendStatus?: BackendStatus;
+  /** Runs both shipped models in the worker without loading the card index. Use a dedicated recognizer. */
+  checkWebGpu(): Promise<BackendStatus & { timingsMs: Record<string, number> }>;
   /** Current detector provider, including fallback after a GPU failure. */
   readonly detectorBackend?: 'webgpu' | 'wasm';
   readonly detectorTimingsMs?:Record<string,number>;
@@ -33,6 +39,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
+  let backendStatus: BackendStatus | undefined;
   let inFlight = false, detectorBackend: Recognizer['detectorBackend'];
   let detectorTimingsMs:Record<string,number>|undefined;
   let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
@@ -49,10 +56,11 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   function initialize() {
     if (!initial) {
       detectorBackend = undefined;
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1-latency-v2', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=webgpu-device-fp32-v1', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
-        const { id, result, error, detectorBackend: backend, timingsMs } = event.data;
+        const { id, result, error, detectorBackend: backend, timingsMs, backendStatus: status } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
+        if (status) { backendStatus = status; config.onBackendChange?.(status); }
         if (backend === 'webgpu' || backend === 'wasm') detectorBackend = backend;
         if(timingsMs)detectorTimingsMs=timingsMs;
         if (error) value.reject(new Error(error)); else value.resolve(result);
@@ -85,9 +93,17 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   function prepare(opts?:PrepareOptions): Promise<{backend:'webgpu'|'wasm'}> {
     if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
     if(opts)return initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare',opts}) as {backend:'webgpu'|'wasm'};});
-    return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare'}) as {backend:'webgpu'|'wasm'};}).catch(error=>{prepared=undefined;throw error;});
+    prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');return await request({type:'prepare'}) as {backend:'webgpu'|'wasm'};}).catch(error=>{prepared=undefined;throw error;});
+    // Readiness is cached, but an inference may since have moved either model to WASM.
+    return prepared.then(info => ({ backend: backendStatus?.backend ?? info.backend }));
   }
   return {
+    get backendStatus() { return backendStatus; },
+    async checkWebGpu() {
+      if (disposed) throw new Error('Recognizer is disposed');
+      await initialize();
+      return await request({ type: 'checkWebGpu' }) as BackendStatus & { timingsMs: Record<string, number> };
+    },
     get detectorBackend() { return detectorBackend; },
     get detectorTimingsMs() { return detectorTimingsMs; },
     warmup: async()=>{await prepare();},

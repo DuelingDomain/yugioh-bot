@@ -20,8 +20,8 @@ export type {RealsetSample,RealsetExport} from './calibration';
 
 export {createFieldWatcher} from './field-watcher';
 export type {FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
-export {FIELD_ZONE_PITCH,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones} from './field-zones';
-export type {FieldZone,FieldCalibration,FieldFormat,FieldOrientation,PlayerSide} from './field-zones';
+export {FIELD_ZONE_PITCH,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE} from './field-zones';
+export type {FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,PlayerSide} from './field-zones';
 
 export {createFieldIdentityGallery} from './field-gallery';
 export type {FieldIdentityGallery,FieldIdentityEntry} from './field-gallery';
@@ -30,3 +30,5 @@ export {classifyFaceState,isLikelyFaceDown,createFaceStateHysteresis} from './fa
 export type {FaceState,FaceStateResult,FaceStateEmbedding,FaceStateOptions} from './face-state';
 
 export type {PrepareOptions, FractionalBox, ModelVariant} from './types';
+
+export type { BackendStatus, WebGpuDiagnostics } from './types';

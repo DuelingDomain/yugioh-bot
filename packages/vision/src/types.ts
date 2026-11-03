@@ -7,7 +7,17 @@ export interface ConfidenceThresholds {
   second?: { score: number; margin: number }; cardBackMargin?: number;
 }
 export type RecognitionTier = 'sure' | 'not sure' | 'low match';
-export interface ModelVariant { url: string; sha256: string }
+export interface ModelVariant { url: string; sha256: string; fp32?: { url: string; sha256: string } }
+export interface WebGpuDiagnostics {
+  navigatorGpu: boolean; secureContext: boolean; worker: boolean;
+  adapter?: Record<string, string | boolean>; features?: string[];
+  limits?: Record<string, number>; deviceLimits?: Record<string, number>;
+  attempts: string[]; modelPath?: string;
+}
+export interface BackendStatus {
+  backend: 'webgpu' | 'wasm'; fallbackReason?: string;
+  models: { model: string; backend: 'webgpu' | 'wasm'; fallbackReason?: string; gpu?: WebGpuDiagnostics }[];
+}
 export interface PrepareOptions { priors?: RecognitionPriors; sessionGallery?: {cardId:string;embedding:{values:number[];space:'art-box'|'whole-card'}}[] }
 export interface EmbeddingModelSpec {
   /** Parity-checked alternate weights; does not change index identity. */

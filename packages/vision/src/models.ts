@@ -4,7 +4,7 @@ import type { EmbeddingModelSpec } from './types';
 export const duelLensModel: EmbeddingModelSpec = {
   thresholds: { score: .8, margin: .02, floor: .74, second: { score: .73, margin: .1 }, cardBackMargin: .1 },
   maxBatch: 1,
-  webgpu: {url:'/dev/vision-assets/models/dinov2-small-duel.fp16.onnx',sha256:'5408cd4d51e03e57a247f9718ea73ad850af672bd27332d6fd88e6a765c80471'},
+  webgpu: {url:'/dev/vision-assets/models/dinov2-small-duel.fp16.onnx',sha256:'5408cd4d51e03e57a247f9718ea73ad850af672bd27332d6fd88e6a765c80471',fp32:{url:'/dev/vision-assets/models/dinov2-small-duel.fp32.onnx',sha256:'b7cbd523407bca057a5e305f3a40750c6bf0fb58829361c43e9a51255211e2bb'}},
   id: 'dinov2-small-duel', url: '/dev/vision-assets/models/dinov2-small-duel.q8.onnx',
   sha256: '02d9720530ff488397ad7db66423199dbd7a406b264b866eb695cdc59c638bee',
   inputSize: 224, dim: 384, inputName: 'pixel_values', outputName: 'embedding', pooling: 'none',
