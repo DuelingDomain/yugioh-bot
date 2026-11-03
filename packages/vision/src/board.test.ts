@@ -787,6 +787,29 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const liftFrom=r.at;r.outlines=[deckOutline];for(let i=0;i<20&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
  assert.ok(r.watcher.getSnapshot().missingPiles?.includes('GY'),'the GY stack was picked up');assert.ok(r.at-liftFrom<=1500,`GY missing after ${r.at-liftFrom} ms`);
  assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false);
+ // Owner, Ghost Belle: M4 -> GY (its only card), then lifted from the GY and put in S2
+ // by hand. The card is carried for 3 s and the CPU read is slow, so the read ends
+ // long after the hand left the GY. It is the GY card moving, never a 2nd copy.
+ const belle=Array.from({length:288},(_,i)=>((Math.floor(i/3)*23+(i%3)*19)%227)/255),s2=card(.26,.72,.1,.15);
+ const inHand:field.KnownFieldCard[]=[{id:'gy-old',zone:'HAND',cardId:'B'},{id:s3Set.track.id,zone:'HAND',cardId:'C'}];r.known=inHand;r.identityAt=()=>'G';r.decklist=['A','B','C','D','G'];r.qualityAt=undefined;r.halo=Array(192).fill(.2);
+ r.appearanceAt=c=>inM4(c)?belle:mat;const beforeBelle=r.events.length;r.outlines=[deckOutline,m4];
+ for(let i=0;i<30&&!r.events.slice(beforeBelle).some(e=>e.type==='placed'&&e.track.cardId==='G');i++)await r.tick(100);
+ const placedBelle=r.events.slice(beforeBelle).find(e=>e.type==='placed'&&e.track.cardId==='G')!;assert.ok(placedBelle,'Ghost Belle placed in M4');
+ const gid=placedBelle.track.id;r.watcher.confirm(gid,'G');r.known=[...inHand,{id:gid,zone:'M4',cardId:'G'}];
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?belle:mat;r.outlines=[deckOutline,{...gy}];r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<20&&!r.events.some(e=>e.type==='moved'&&e.track.id===gid&&e.track.zone==='GY');i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===gid&&e.track.zone==='GY'),'Ghost Belle enters the GY on its ref');
+ r.known=[...inHand,{id:gid,zone:'GY',cardId:'G'}];for(let i=0;i<10;i++)await r.tick(100);
+ // A hand takes it from the GY, carries it for 3 s, and sets it down in S2.
+ r.motionAt=c=>zones.fieldCenter(c).x>.8?.2:0;r.outlines=[deckOutline];await r.tick(100);await r.tick(100);r.motionAt=undefined;
+ for(let i=0;i<30;i++)await r.tick(100);
+ const beforeS2=r.events.length;r.appearanceAt=c=>zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4?belle:mat;r.outlines=[deckOutline,s2];
+ for(let i=0;i<30&&!r.events.slice(beforeS2).some(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S2');i++)await r.tick(100);
+ const atS2=r.events.slice(beforeS2).find(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S2');
+ assert.ok(atS2,'Ghost Belle shows in S2');assert.equal(atS2.track.id===gid||atS2.fromRef===gid,true,`the GY ref moves to S2 (got ${atS2.type} ${atS2.track.id})`);
+ assert.equal(r.events.slice(beforeS2).some(e=>e.type==='placed'&&e.track.cardId==='G'&&e.track.id!==gid&&e.fromRef!==gid),false,'no second Ghost Belle');
+ // "Scan field" forces a full detector pass on the next sample.
+ r.watcher.scanNow();await r.tick(10);assert.ok(r.watcher.getSnapshot().debug?.full,'Scan field runs a full pass');
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
