@@ -30,3 +30,5 @@ export {classifyFaceState,isLikelyFaceDown,createFaceStateHysteresis} from './fa
 export type {FaceState,FaceStateResult,FaceStateEmbedding,FaceStateOptions} from './face-state';
 
 export type {PrepareOptions, FractionalBox, ModelVariant} from './types';
+
+export type { BackendStatus, WebGpuDiagnostics } from './types';

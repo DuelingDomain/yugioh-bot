@@ -936,7 +936,9 @@ OffscreenCanvas and replaces its pixels, including transparent frames.
 `encode`, `worker`, and `roundTrip` timings expose readback, JPEG output, total
 worker processing, and warm API round trip. Capture remains caller-timed. Without `prepare()`, `roundTrip` also includes
 lazy index/embedder loading. The lab displays all of these and a **Check WebGPU**
-capability button; an actual read still determines the reported backend.
+button that creates both model sessions and runs inference in the recognition
+worker, without needing the card index. It prints adapter information, features,
+adapter/device limits, actual providers, timings and exact fallback errors.
 
 The deck subset is searched first and reused within a read. Full-catalog evidence
 is still required to distinguish a clear off-deck card from a plausible deck
@@ -948,15 +950,31 @@ and confidence thresholds are unchanged.
 
 ### WebGPU model assets
 
-The GPU path uses separate fp16 graphs with Float32 IO; CPU fallback uses the
-original q8 embedder and detector. Software adapters and adapters without
-`shader-f16` fall back to threaded SIMD WASM. Only the selected model is fetched;
-a GPU create/run failure fetches the original WASM model. The alternate model
-URLs do not change the existing index layout identity. Both exports have pinned
-checksums and passed native parity against the original graphs; hardware WebGPU
-execution must still be measured on the owner's Windows Chrome.
+The GPU path uses separate fp16 graphs with Float32 IO. Adapters without
+`shader-f16` use the pinned fp32 graphs on WebGPU. A rejected fp16 session or
+inference also tries fp32 before CPU. Software adapters can execute this path
+and are identified in diagnostics. CPU fallback uses the original q8 embedder
+and detector. Only selected models are fetched. All variants retain the existing
+index layout identity and have pinned checksums.
 
-Reproduce the validated exports locally (about 50 MB total, ignored assets):
+The worker tries a high-performance adapter, then the default adapter. ORT 1.30
+receives that adapter for its availability check and the same device in session
+options for execution. The device uses default limits (128 MiB storage binding,
+256 MiB buffer), rather than requesting the adapter's maximum limits. The first
+inference for each input shape allows 60 seconds for cold shader compilation;
+repeated shapes allow 10 seconds. Adapter, import, fetch, create and run errors reach the badge, including
+fallbacks during warmup and detector-only scans. Select CPU to skip GPU entirely.
+
+Chrome SwiftShader without `shader-f16` loaded and ran both fp32 models in a
+worker (about 12 seconds embedder / 5 seconds detector on the measured cold run).
+Three deterministic synthetic native CPU samples per graph matched the original
+graphs at cosine > 0.9999999999999. This checks export parity and software WebGPU
+execution, not RX 7900 XTX hardware speed or real-card recognition accuracy.
+The manual read UI retains its existing 10-second answer deadline. A slower cold
+run can warm the GPU but miss that answer deadline; automatic startup warmup and
+the lab check are not subject to that UI deadline.
+
+Reproduce the exports locally (about 142 MiB for fp16 + fp32, ignored assets):
 
 ```sh
 uv venv data/vision/export-venv
@@ -968,7 +986,8 @@ VISION_PYTHON=data/vision/export-venv/bin/python \
 
 `prepare.ts --webgpu` verifies generated hashes; `--bundle-only --webgpu` also
 works when the original models already exist. Ordinary `--bundle-only` needs no
-Python. Missing fp16 files fall back to the original WASM models.
+Python. Missing fp16 files try fp32; if GPU initialization or inference still
+fails, the original WASM models are used and the exact reason is shown.
 
 For a fresh parity/QDQ experiment using the existing local 30-photo corpus:
 

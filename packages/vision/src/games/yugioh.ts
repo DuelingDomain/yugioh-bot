@@ -16,7 +16,7 @@ export const yugioh: GameProfile = {
   borderSamples: [{ x: 0.08, y: 0.07, w: 0.84, h: 0.055 }, { x: 0.025, y: 0.23, w: 0.04, h: 0.37 }, { x: 0.935, y: 0.23, w: 0.04, h: 0.37 }],
   textBoxColor: [226, 214, 186],
   embedding: duelLensModel,
-  detector: { url: '/dev/vision-assets/models/card-detector.onnx', sha256: '542a03b523cb1398a1b5437dae665908b3bdf61be9b30a2a52e7bcea25dce03c', longSide: 960, webgpu:{url:'/dev/vision-assets/models/card-detector.fp16.onnx',sha256:'b440bf4ac57a30ed01ecd604857e2b997838f8974573a041360f06dee42c76be'} },
+  detector: { url: '/dev/vision-assets/models/card-detector.onnx', sha256: '542a03b523cb1398a1b5437dae665908b3bdf61be9b30a2a52e7bcea25dce03c', longSide: 960, webgpu:{url:'/dev/vision-assets/models/card-detector.fp16.onnx',sha256:'b440bf4ac57a30ed01ecd604857e2b997838f8974573a041360f06dee42c76be',fp32:{url:'/dev/vision-assets/models/card-detector.fp32.onnx',sha256:'5948f408853496a5ab5697506e76fd05feef10ec6cf8c19432f0936972fa87ca'}} },
   thresholdsUrl:'/dev/vision-assets/yugioh-thresholds.json',
   indexUrl: '/dev/vision-assets/yugioh-index.bin', metaUrl: '/dev/vision-assets/yugioh-index.meta.json',
   fullArtIndex: { indexUrl: '/dev/vision-assets/yugioh-full-art.bin', metaUrl: '/dev/vision-assets/yugioh-full-art.meta.json' },

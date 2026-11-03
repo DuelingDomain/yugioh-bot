@@ -17,12 +17,21 @@
 // src/offscreen/__measure__/webgpu-parity.ts measures it again.
 import * as ortWasm from 'onnxruntime-web/wasm';
 import type { SessionLike, TensorCtor, TensorLike } from './embed';
+import type { WebGpuDiagnostics } from './types';
 
 export type WebOrt = Pick<typeof ortWasm, 'env' | 'InferenceSession' | 'Tensor'>;
 
-/** The part of navigator.gpu we use: is there an adapter at all. */
+/** Minimal browser API surface, also used by the existing runtime tests. */
+interface GpuDeviceLike { limits?: Record<string, number>; destroy(): void }
+interface GpuAdapterLike {
+  isFallbackAdapter?: boolean;
+  features?: { has(name: string): boolean; [Symbol.iterator]?: () => Iterator<string> };
+  info?: { vendor?: string; architecture?: string; device?: string; description?: string; isFallbackAdapter?: boolean };
+  limits?: Record<string, number>;
+  requestDevice?(options: { requiredFeatures: string[] }): Promise<GpuDeviceLike>;
+}
 export interface GpuLike {
-  requestAdapter(): Promise<{ isFallbackAdapter?:boolean; features?:{has(name:string):boolean}; info?: { vendor?: string; architecture?: string; isFallbackAdapter?:boolean } } | null>;
+  requestAdapter(options?: { powerPreference: 'high-performance' }): Promise<GpuAdapterLike | null>;
 }
 
 /** Injected for tests; defaults are the real browser APIs. */
@@ -31,6 +40,8 @@ export interface WebRuntimeDeps {
   webgpu?: boolean;
   /** Checked fp16 graph; the WASM graph is fetched only on fallback. */
   gpuModelPath?:string;
+  /** Float32 alternative for adapters without shader-f16 or a rejected fp16 graph. */
+  gpuFp32ModelPath?: string;
   /** How long each WebGPU step may take before WASM is used instead (WEBGPU_TIMEOUTS; tests shorten them). */
   webgpuTimeouts?: Partial<WebGpuTimeouts>;
   ort?: WebOrt;
@@ -114,10 +125,12 @@ export interface WebGpuTimeouts {
   importMs: number;
   /** One session's creation (after any created before it: see gpuCreates). */
   createMs: number;
+  /** Cold shader compilation for each new input shape can exceed a resident inference. */
+  firstRunMs: number;
   /** One run (the watchdog). */
   runMs: number;
 }
-export const WEBGPU_TIMEOUTS: WebGpuTimeouts = { adapterMs: 3_000, importMs: 3_000, createMs: 10_000, runMs: 10_000 };
+export const WEBGPU_TIMEOUTS: WebGpuTimeouts = { adapterMs: 3_000, importMs: 3_000, createMs: 10_000, firstRunMs: 60_000, runMs: 10_000 };
 
 class WebGpuTimeout extends Error {}
 
@@ -137,34 +150,93 @@ function within<T>(p: Promise<T>, ms: number, step: string): Promise<T> {
  */
 const stuckGpu = new WeakSet<WebOrt>();
 
-export type WebGpuRuntime = { ort: WebOrt; adapter: string } | { ort: null; why: string };
+export type WebGpuRuntime =
+  | { ort: WebOrt; adapter: string; fp16: boolean; device?: GpuDeviceLike; diagnostics: WebGpuDiagnostics }
+  | { ort: null; why: string; diagnostics: WebGpuDiagnostics };
+const gpuRuntimes = new WeakMap<WebOrt, Promise<WebGpuRuntime>>();
 
-/**
- * onnxruntime-web's WebGPU build (ort/ort-wasm-simd-threaded.asyncify.mjs/.wasm, from the package like
- * the WASM build's), or why this browser can't use it: no navigator.gpu, no adapter (a blocklisted GPU
- * or driver, WebGPU turned off), the adapter or the build took too long (WEBGPU_TIMEOUTS), or the build
- * failed to load. Never throws. One thread: the GPU does the model's work, the CPU only its shape
- * arithmetic, so no worker pool is started for it.
+function gpuLimits(limits?: Record<string, number>): Record<string, number> {
+  const result: Record<string, number> = {};
+  // WebGPU exposes these as prototype getters, not own JSON properties.
+  for (const name in limits) if (typeof limits[name] === 'number') result[name] = limits[name];
+  return result;
+}
+
+/** Probe in the worker, then give ORT the same device. ORT 1.30's native WebGPU
+ * provider accepts a device in session options; env.webgpu.adapter alone does
+ * not select the device that executes the model. No inflated requiredLimits:
+ * the default 128 MiB storage binding / 256 MiB buffer cover our batch-one graphs.
  */
 export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRuntime> {
   const gpu = deps.gpu !== undefined ? deps.gpu : ((globalThis.navigator as { gpu?: GpuLike } | undefined)?.gpu ?? null);
-  if (!gpu) return { ort: null, why: 'this browser has no WebGPU' };
-  const limits = { ...WEBGPU_TIMEOUTS, ...deps.webgpuTimeouts };
+  const diagnostics: WebGpuDiagnostics = {
+    navigatorGpu: Boolean(gpu), secureContext: globalThis.isSecureContext === true,
+    worker: typeof document === 'undefined', attempts: [],
+  };
+  if (!gpu) return { ort: null, why: 'self.navigator.gpu is missing (WebGPU requires a secure context and browser worker support)', diagnostics };
+  const timeouts = { ...WEBGPU_TIMEOUTS, ...deps.webgpuTimeouts };
   try {
-    const adapter = await within(gpu.requestAdapter(), limits.adapterMs, 'the WebGPU adapter');
-    if (!adapter) return { ort: null, why: 'no WebGPU adapter' };
-    if(adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter || /swiftshader|llvmpipe|software/i.test(JSON.stringify(adapter.info??{})))return {ort:null,why:'software WebGPU adapter'};
-    if(deps.gpuModelPath && !adapter.features?.has('shader-f16'))return {ort:null,why:'WebGPU adapter has no shader-f16'};
+    let adapter: GpuAdapterLike | null = null;
+    for (const options of [{ powerPreference: 'high-performance' as const }, undefined]) {
+      const label = options ? 'high-performance' : 'default';
+      try {
+        adapter = await within(gpu.requestAdapter(options), timeouts.adapterMs, `requestAdapter(${label})`);
+        diagnostics.attempts.push(`requestAdapter(${label}): ${adapter ? 'available' : 'null'}`);
+        if (adapter) break;
+      } catch (error) { diagnostics.attempts.push(`requestAdapter(${label}): ${errorText(error)}`); }
+    }
+    if (!adapter) return { ort: null, why: diagnostics.attempts.join('; '), diagnostics };
+    const info = adapter.info;
+    diagnostics.adapter = {
+      vendor: info?.vendor ?? '', architecture: info?.architecture ?? '',
+      device: info?.device ?? '', description: info?.description ?? '',
+      isFallbackAdapter: Boolean(adapter.isFallbackAdapter || info?.isFallbackAdapter),
+    };
+    diagnostics.features = adapter.features?.[Symbol.iterator] ? [...adapter.features as Iterable<string>].sort() : [];
+    diagnostics.limits = gpuLimits(adapter.limits);
     const load = deps.ortWebGpu ?? (async () => (await import('onnxruntime-web/webgpu')) as WebOrt);
-    const ort = await within(load(), limits.importMs, "ONNX Runtime's WebGPU build");
-    if (stuckGpu.has(ort)) return { ort: null, why: 'WebGPU got stuck earlier' };
-    const getURL = deps.getURL ?? ((path: string) => new URL(path, globalThis.location.href).href);
-    ort.env.wasm.wasmPaths = getURL('ort/');
-    ort.env.wasm.numThreads = 1;
-    const name = [adapter.info?.vendor, adapter.info?.architecture].filter(Boolean).join(' ');
-    return { ort, adapter: name || 'unknown' };
-  } catch (e) {
-    return { ort: null, why: `WebGPU is unavailable (${e instanceof Error ? e.message : String(e)})` };
+    const ort = await within(load(), timeouts.importMs, "loading ONNX Runtime's WebGPU build");
+    if (stuckGpu.has(ort)) return { ort: null, why: 'WebGPU runtime timed out earlier in this worker', diagnostics };
+    const cached = gpuRuntimes.get(ort);
+    if (cached) return cached;
+    const selected = adapter;
+    const ready = (async (): Promise<WebGpuRuntime> => {
+      try {
+        const getURL = deps.getURL ?? ((path: string) => new URL(path, globalThis.location.href).href);
+        ort.env.wasm.wasmPaths = getURL('ort/');
+        ort.env.wasm.numThreads = 1;
+        ort.env.wasm.proxy = false; // WebGPU already runs in our dedicated worker.
+        // initEp also checks this adapter, even when a session supplies a device.
+        if (ort.env.webgpu) ort.env.webgpu.adapter = selected;
+        let fp16 = selected.features?.has('shader-f16') === true;
+        const requestDevice = async (features: string[]) => {
+          const requesting = selected.requestDevice!({ requiredFeatures: features });
+          try { return await within(requesting, timeouts.adapterMs, `requestDevice(${features.join(',') || 'default features'})`); }
+          catch (error) {
+            if (error instanceof WebGpuTimeout) void requesting.then(d => d.destroy()).catch(() => {});
+            throw error;
+          }
+        };
+        let device: GpuDeviceLike | undefined;
+        if (selected.requestDevice) {
+          try { device = await requestDevice(fp16 ? ['shader-f16'] : []); }
+          catch (error) {
+            diagnostics.attempts.push(errorText(error));
+            if (!fp16) throw error;
+            fp16 = false;
+            diagnostics.attempts.push('retry requestDevice without shader-f16; use float32 WebGPU');
+            device = await requestDevice([]);
+          }
+        }
+        diagnostics.deviceLimits = gpuLimits(device?.limits as unknown as Record<string, number>);
+        const name = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(' ');
+        return { ort, adapter: name || 'unknown', fp16, device, diagnostics };
+      } catch (error) { return { ort: null, why: `WebGPU device initialization: ${errorText(error)}`, diagnostics }; }
+    })();
+    gpuRuntimes.set(ort, ready);
+    return ready;
+  } catch (error) {
+    return { ort: null, why: `WebGPU initialization: ${errorText(error)}`, diagnostics };
   }
 }
 
@@ -172,6 +244,8 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
 export interface RuntimeSession extends SessionLike {
   /** Where the next run goes. */
   readonly ep: 'webgpu' | 'wasm';
+  readonly fallbackReason: string | undefined;
+  readonly gpuDiagnostics: WebGpuDiagnostics | undefined;
   release(): Promise<void>;
 }
 
@@ -219,51 +293,73 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   const wasm = webRuntime(deps);
   const limits = { ...WEBGPU_TIMEOUTS, ...deps.webgpuTimeouts };
   let model: Uint8Array | null = null;
-  const create = async (ort: WebOrt, bytes: Uint8Array, options: typeof WASM_SESSION_OPTIONS | typeof WEBGPU_SESSION_OPTIONS): Promise<Opened> => ({
+  let fallbackReason: string | undefined;
+  let gpuDiagnostics: WebGpuDiagnostics | undefined;
+  const create = async (ort: WebOrt, bytes: Uint8Array, options: ortWasm.InferenceSession.SessionOptions): Promise<Opened> => ({
     ort,
     session: (await ort.InferenceSession.create(bytes, options)) as unknown as Opened['session'],
   });
   /** A WebGPU session, created after the ones before it: see gpuCreates. */
-  const createOnGpu = (ort: WebOrt, bytes: Uint8Array): Promise<Opened> => {
-    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(() => create(ort, bytes, WEBGPU_SESSION_OPTIONS));
+  const createOnGpu = (ort: WebOrt, bytes: Uint8Array, device?: GpuDeviceLike): Promise<Opened> => {
+    const options = device ? { ...WEBGPU_SESSION_OPTIONS, executionProviders: [{ name: 'webgpu', device }] } : WEBGPU_SESSION_OPTIONS;
+    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(() => create(ort, bytes, options));
     gpuCreates.set(ort, created.catch(() => {}));
     return created;
   };
   // The first fetch's bytes while they are whole (a failed WebGPU create may have used them), or a new fetch.
   const openWasm = async () => create(wasm.ort, model && model.byteLength > 0 ? model : await wasm.bytes(path, what), WASM_SESSION_OPTIONS);
 
-  async function openWebGpu(): Promise<Opened | null> {
+  async function openWebGpu(forceFp32 = false): Promise<Opened | null> {
     if (deps.webgpu === false) return null;
     const start = performance.now();
     const gpu = await webGpuRuntime(deps);
+    gpuDiagnostics ??= { ...gpu.diagnostics, attempts: [...gpu.diagnostics.attempts] };
     if (!gpu.ort) {
-      console.debug(`[DuelLens] ${what} runs on WASM: ${gpu.why}`);
+      fallbackReason = gpu.why;
+      console.debug(`[DuelLens] ${what} runs on WASM: ${fallbackReason}`);
       return null;
     }
-    const ready = performance.now();
-    let creating:Promise<Opened>|undefined;
-    try {
-      const bytes=await wasm.bytes(deps.gpuModelPath??path,what);
-      if(!deps.gpuModelPath)model=bytes;
-      creating=createOnGpu(gpu.ort,bytes);
-      const got = await within(creating, limits.createMs, `creating the WebGPU session for ${what}`);
-      const ms = (t: number) => Math.round(t);
-      console.debug(`[DuelLens] ${what} runs on WebGPU (${gpu.adapter}; adapter and build ${ms(ready - start)} ms, session ${ms(performance.now() - ready)} ms)`);
-      return got;
-    } catch (e) {
-      if (e instanceof WebGpuTimeout) {
-        stuckGpu.add(gpu.ort);
-        creating?.then((o) => o.session.release?.()).catch(() => {});
+    const paths = deps.gpuModelPath
+      ? (gpu.fp16 && !forceFp32 ? [deps.gpuModelPath, deps.gpuFp32ModelPath] : [deps.gpuFp32ModelPath]).filter((p): p is string => Boolean(p))
+      : [path];
+    if (!gpu.fp16 && deps.gpuModelPath) gpuDiagnostics.attempts.push('shader-f16 unavailable; use float32 WebGPU');
+    if (!paths.length) {
+      fallbackReason = 'adapter has no shader-f16 and this model has no float32 WebGPU variant';
+      return null;
+    }
+    const failures: string[] = [];
+    for (const gpuPath of paths) {
+      let creating: Promise<Opened> | undefined;
+      try {
+        const bytes = await within(wasm.bytes(gpuPath, what), limits.createMs, `fetching ${gpuPath}`);
+        if (gpuPath === path) model = bytes;
+        creating = createOnGpu(gpu.ort, bytes, gpu.device);
+        const got = await within(creating, limits.createMs, `creating the WebGPU session for ${gpuPath}`);
+        gpuDiagnostics.modelPath = gpuPath;
+        fallbackReason = undefined;
+        gpuDiagnostics.attempts.push(`${gpuPath}: WebGPU session created`);
+        console.debug(`[DuelLens] ${what} runs on WebGPU (${gpu.adapter}; ${Math.round(performance.now() - start)} ms)`);
+        return got;
+      } catch (error) {
+        const failure = `${gpuPath}: ${errorText(error)}`;
+        failures.push(failure); gpuDiagnostics.attempts.push(failure);
+        if (error instanceof WebGpuTimeout && creating) {
+          stuckGpu.add(gpu.ort);
+          creating.then(o => o.session.release?.()).catch(() => {});
+          break; // A timed-out runtime cannot safely create another session.
+        }
+        console.warn(`[DuelLens] WebGPU session failed: ${failure}`, error);
       }
-      console.warn(`[DuelLens] the WebGPU session for ${what} could not be created (${gpu.adapter}: ${errorText(e)}); it runs on WASM`, e);
-      return null;
     }
+    fallbackReason = failures.join('; ');
+    return null;
   }
 
   const gpu = await openWebGpu();
   let active: Opened = gpu ?? (await openWasm());
   let ep: RuntimeSession['ep'] = gpu ? 'webgpu' : 'wasm';
   let runs = 0;
+  const compiledShapes = new Set<string>();
   model = null;
 
   /** The feeds as `ort`'s own Tensors: each ORT build only takes its own (the data is not copied). */
@@ -272,6 +368,8 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
 
   /** WASM from now on. A failed WebGPU session is released; a stuck one only once its run comes back, if ever. */
   async function toWasm(why: string, e: unknown, stuckRun?: Promise<unknown>): Promise<void> {
+    fallbackReason = `${what}: WebGPU ${why}: ${errorText(e)}`;
+    gpuDiagnostics?.attempts.push(fallbackReason);
     console.warn(`[DuelLens] WebGPU ${why} for ${what} (${errorText(e)}); it runs on WASM from now on`, e);
     const dropped = active;
     active = await openWasm();
@@ -288,22 +386,43 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   }
 
   const session: RuntimeSession = {
+    get fallbackReason() { return fallbackReason; },
+    get gpuDiagnostics() { return gpuDiagnostics; },
     get ep() {
       return ep;
     },
     async run(feeds) {
       if (ep === 'webgpu' && stuckGpu.has(active.ort)) await toWasm('got stuck on another model', new Error('stuck'));
       if (ep === 'webgpu') {
-        const running = active.session.run(feedsFor(active.ort, feeds));
+        const running = Promise.resolve().then(() => active.session.run(feedsFor(active.ort, feeds)));
         try {
           const start = performance.now();
-          const out = await within(running, limits.runMs, 'a run');
-          if (runs++ === 0) console.debug(`[DuelLens] ${what}: first WebGPU run ${Math.round(performance.now() - start)} ms`);
-          if (Object.values(out).every(isFinite32)) return out;
+          // Warmup is square 448px. Camera reads can be 640/960px with a different
+          // aspect ratio, which compiles another set of shape-specific shaders.
+          const shape = JSON.stringify(Object.entries(feeds).sort(([a], [b]) => a.localeCompare(b)).map(([name, tensor]) => [name, (tensor as FeedTensor).dims]));
+          const out = await within(running, compiledShapes.has(shape) ? limits.runMs : limits.firstRunMs, `running ${gpuDiagnostics?.modelPath ?? what}`);
+          if (Object.values(out).every(isFinite32)) {
+            compiledShapes.add(shape);
+            if (runs++ === 0) console.debug(`[DuelLens] ${what}: first WebGPU run ${Math.round(performance.now() - start)} ms`);
+            return out;
+          }
           throw new Error('an output that is not finite');
         } catch (e) {
           if (e instanceof WebGpuTimeout) await toWasm('got stuck', e, running);
-          else await toWasm('failed', e);
+          else {
+            // An fp16 session may load successfully, then fail during shader compilation.
+            // Try the float32 graph on the same GPU before selecting CPU.
+            if (deps.gpuFp32ModelPath && gpuDiagnostics && gpuDiagnostics.modelPath === deps.gpuModelPath) {
+              gpuDiagnostics.attempts.push(`fp16 inference failed: ${errorText(e)}; retry float32 WebGPU`);
+              const replacement = await openWebGpu(true);
+              if (replacement) {
+                void active.session.release?.().catch(() => {});
+                active = replacement; runs = 0; compiledShapes.clear();
+                return session.run(feeds);
+              }
+            }
+            await toWasm('failed', new Error([errorText(e), fallbackReason].filter(Boolean).join('; ')));
+          }
         }
       }
       return active.session.run(feeds);

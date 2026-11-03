@@ -12,7 +12,7 @@ import { LearningCache } from './learning-cache';
 import { filterPhysicalIndex } from './physical-index';
 import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
-import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, PeekOptions, ReadAllOptions, PrepareOptions } from './types';
+import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, PeekOptions, ReadAllOptions, PrepareOptions, BackendStatus } from './types';
 import type { RGBAImage } from './pixels';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
@@ -24,6 +24,20 @@ async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runt
   sessions.push(detectorSession);
 }
 let sessions: ModelSession[] = [];
+function backendStatus(): BackendStatus {
+  const models = sessions.map((session, i) => ({
+    model: i === 0 ? 'detector' : 'embedder', backend: session.backend,
+    fallbackReason: session.fallbackReason, gpu: session.gpuDiagnostics,
+  }));
+  const failed = models.filter(m => m.backend === 'wasm' && m.fallbackReason);
+  const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1
+    ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
+  return { backend: models.length > 0 && models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm',
+    fallbackReason: reasons.length ? reasons.join('; ') : undefined, models };
+}
+function reply(message: object) {
+  scope.postMessage({ ...message, backendStatus: backendStatus(), detectorBackend: detectorSession?.backend });
+}
 let preparedOptions:PrepareOptions={};
 let learningCache:LearningCache|undefined;
 let learningTimer:ReturnType<typeof setInterval>|undefined;
@@ -120,7 +134,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:Pick<RecognizeOptions,'region'> } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:Pick<RecognizeOptions,'region'> } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -128,19 +142,32 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   queue = queue.then(async () => {
     const queueMs=performance.now()-receivedAt;
     try {
-      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null, detectorBackend:detectorSession!.backend }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); reply({ id: message.id, result: null, detectorBackend:detectorSession!.backend }); }
       else {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
+        if (message.type === 'checkWebGpu') {
+          const { profile, backend, runtimeBase } = configuration;
+          const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu);
+          sessions.push(embedder);
+          const timings: Record<string, number> = {};
+          let start = performance.now();
+          await embedImages(embedder, Tensor, profile.embedding, [{ width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4).fill(128) }]);
+          timings.embedder = performance.now() - start;
+          start = performance.now();
+          await detect(detectorSession, Tensor, { width: 448, height: 448, data: new Uint8ClampedArray(448 * 448 * 4).fill(114) }, 448);
+          timings.detector = performance.now() - start;
+          reply({ id: message.id, result: { ...backendStatus(), timingsMs: timings, runtime: runtimeDiagnostics() } }); return;
+        }
         if(message.type==='detect') {
           const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
-          scope.postMessage({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:performance.now()-start-pixelsMs,worker:performance.now()-start}});return;
+          reply({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:performance.now()-start-pixelsMs,worker:performance.now()-start}});return;
         }
         if(message.type==='aiCrop') {
           const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');
           const warp=source.create();if(!warp)throw new Error('Could not straighten the card image');
           const encoded=await jpeg(warp,warp.width,256*1024);if(!encoded)throw new Error('Could not encode the card image');
-          scope.postMessage({id:message.id,result:encoded});return;
+          reply({id:message.id,result:encoded});return;
         }
         if(!pipeline)await initialize(configuration.profile,configuration.backend,configuration.runtimeBase);
         if(message.type==='prepare'){
@@ -149,13 +176,13 @@ scope.onmessage = (event: MessageEvent<Request>) => {
             if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
             preparedOptions=message.opts;
           }
-          scope.postMessage({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'},detectorBackend:detectorSession.backend});return;}
+          reply({id:message.id,result:{backend:sessions.length&&sessions.every(s=>s.backend==='webgpu')?'webgpu':'wasm'},detectorBackend:detectorSession.backend});return;}
         if(learningCache) {
           const learning=learningCache.current();
           pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});
         }
-        if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline!.peek(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
-        if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline!.readAll(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
+        if(message.type==='peek') {reply({id:message.id,result:await pipeline!.peek(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
+        if(message.type==='readAll') {reply({id:message.id,result:await pipeline!.readAll(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
         const workerStart=performance.now();
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }
@@ -168,9 +195,9 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(deferredAICrop)publicResult.aiCropToken=keepAICrop(deferredAICrop);
         if(aiWarpedCard)publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
         publicResult.timingsMs.queue=queueMs;publicResult.timingsMs.pixels=pixelsMs;publicResult.timingsMs.encode=performance.now()-encodeStart;publicResult.timingsMs.worker=performance.now()-workerStart;
-        scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
+        reply({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
-    } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { reply({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }
     finally {
       // Also release transferred pixels when lazy model/index loading fails before pixels().
       if('frame' in message && 'close' in message.frame)message.frame.close();
