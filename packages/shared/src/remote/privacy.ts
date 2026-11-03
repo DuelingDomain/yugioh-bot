@@ -47,6 +47,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
   if(a.type==="seat.deck" && !seats.has(a.seat)) a.registration=null;
   if(a.type==="table.configured") a.registrations=Object.fromEntries(Object.entries(a.registrations).filter(([seat])=>seats.has(Number(seat))));
   if(!seats.has(actor)) {
+    if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="effect.choose" && !event.effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {

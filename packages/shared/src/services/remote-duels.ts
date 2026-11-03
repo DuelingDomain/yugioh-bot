@@ -8,6 +8,9 @@ import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
 import { getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
+import { ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, validateRemoteSideChange } from "../remote/match.js";
+import type { RemoteBestOf } from "../remote/match-contract.js";
+
 export const REMOTE_IDLE_WARNING_MS = 8 * 60_000;
 export const REMOTE_IDLE_CLOSE_MS = 10 * 60_000;
 type Row = { id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
@@ -39,7 +42,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     remoteAssert(seat, "Remote table not found", 404, "REMOTE_NOT_FOUND"); return seat;
   }
   function table(row: Row): RemoteTable {
-    return { slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
+    return { bestOf: readState(row).match.bestOf, slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
       createdAt: row.created_at, startedAt: row.started_at, endedAt: row.ended_at, lastEventAt: row.last_event_at,
       lastSeq: row.last_seq, endReason: row.end_reason, idleWarningAt: row.idle_warning_at, seats: seats(row), format: format(row), showCardsSetFromDeck: !!row.show_cards_set_from_deck };
   }
@@ -54,12 +57,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     return state;
   }
   function readState(row: Row): RemoteState {
-    const state: RemoteState = JSON.parse(row.state_json);
+    const state = ensureRemoteMatch(JSON.parse(row.state_json) as RemoteState);
     state.deckChecks ??= initialDeckChecks(format(row));
     return state.undo && (!state.undoHistory || state.undoHistory.some(e=>!e.undone && !e.before)) ? replayState(row) : applyTableRule(state,row);
   }
   function replayState(row: Row): RemoteState {
-    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count });
+    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count, bestOf: 1 });
     for (const e of db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[]) {
       const action: RemoteEvent["action"] = JSON.parse(e.action_json);
       if (remoteActionSchema.safeParse(action).success) {
@@ -68,11 +71,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
       }
       else if (action.type === "table.created") {
+        state.match = initialRemoteMatch(row.seat_count, action.bestOf ?? 1);
         if(action.format) state = applyRemoteFormat(state, action.format);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? false;
       }
       else if (action.type === "table.configured") {
         state = applyRemoteFormat(state, action.format); state.deckChecks.registrations = action.registrations;
+        if (action.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, action.bestOf);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
       }
       else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; delete state.undoHistory; }
@@ -88,7 +93,6 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     }
   }
   function assertDeckReady(row: Row, seat: RemoteSeat) {
-    remoteAssert(seat.deck || row.solo, "Select a saved deck before readying up", 409, "DECK_REQUIRED");
     if (seat.deck) {
       const report = deckRules.inspect(format(row), seat.deck.deck);
       remoteAssert(!report.issues.length, report.issues.map(i => i.message).join("\n"), 409, "DECK_INVALID");
@@ -119,7 +123,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
+    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(game.seatsAllowed.includes(input.seatCount) && input.guildId, "Invalid table settings");
@@ -129,13 +133,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
         const slug = generateWebSlug();
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules);
-        const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount }), chosenFormat);
+        const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
         db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck) values(?,?,?,?,'lobby',?,?,?,?,?,?,?)")
           .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck));
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
-        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck }, now, input.userId, 0);
+        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck }, now, input.userId, 0);
         append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
         if (input.solo) for (let seat = 1; seat < input.seatCount; seat++) {
           db.prepare("insert into remote_bot_seats(table_id,seat,display_name) values(?,?,?)").run(row.id, seat, `Test Bot ${seat}`);
@@ -144,21 +148,22 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         return room(load(slug, input.guildId), input.userId);
       });
     },
-    configure(slug: string, guildId: string, userId: number, input: { format: unknown; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
+    configure(slug: string, guildId: string, userId: number, input: { format?: unknown; bestOf?: RemoteBestOf; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); const viewer = member(row, userId); assertOpen(row, now);
         remoteAssert(row.created_by === userId, "Only the host can choose rules", 403);
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
-        const chosenFormat = normalizeRemoteFormat(input.format, input.rules);
+        const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules);
         const state = applyRemoteFormat(readState(row), chosenFormat);
+        if (input.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, input.bestOf);
         state.showCardsSetFromDeck = input.showCardsSetFromDeck ?? !!row.show_cards_set_from_deck;
         for (const registration of Object.values(state.deckChecks.registrations))
           if (registration) registration.validation = deckRules.inspect(chosenFormat, registration.deck);
         db.prepare("update remote_tables set format_json=?,state_json=?,show_cards_set_from_deck=? where id=?").run(JSON.stringify(chosenFormat), JSON.stringify(state), Number(state.showCardsSetFromDeck), row.id);
         db.prepare("update remote_seats set ready=0 where table_id=?").run(row.id);
         syncDecks(row, state);
-        append(row, { type: "table.configured", format: chosenFormat, registrations: state.deckChecks.registrations, showCardsSetFromDeck: state.showCardsSetFromDeck }, now, userId, viewer.seat);
+        append(row, { type: "table.configured", format: chosenFormat, bestOf: state.match.bestOf, registrations: state.deckChecks.registrations, showCardsSetFromDeck: state.showCardsSetFromDeck }, now, userId, viewer.seat);
         return room(load(slug, guildId), userId);
       });
     },
@@ -291,6 +296,15 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
         const twinCodes = before.seats.flatMap(s => s.twin.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []));
         effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
+        if (command.type === "side.swap") {
+          const registration = registrations[command.actorSeat];
+          remoteAssert(registration, "Select an attached deck before side decking", 409);
+          const deck = { ...registration.deck, ...command.deckChanges };
+          validateRemoteSideChange(registration.deck, deck);
+          const validation = deckRules.inspect(format(row), deck);
+          remoteAssert(!validation.issues.length, validation.issues.map(i => i.message).join("\n"), 409, "DECK_INVALID");
+          effects.registration = { ...structuredClone(registration), deck, validation };
+        }
         if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add" || command.type === "twin.flip" && command.faceUp && command.cardId) {
           const code = codes.at(-1); const fact = code ? effects.facts[code] : undefined;
           const registration = registrations[command.seat];
@@ -323,8 +337,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         }
         append(row, action, now, userId, command.actorSeat, true, effects, messages);
         syncDecks(row, state);
+        const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
-          .run(JSON.stringify(state), state.ended ? "ended" : "active", state.ended ? now : null, state.ended ? "game" : null, row.id);
+          .run(JSON.stringify(state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
         return room(load(slug, guildId), userId);
       });
     },
@@ -358,8 +373,18 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     /** Warnings append an event but deliberately leave last_event_at unchanged. Presence never calls this service's writes. */
     sweepIdle(now = Date.now()): RemoteTable[] {
       return transaction(() => {
-        const due = db.prepare("select * from remote_tables where status!='ended' and last_event_at<=?").all(now - REMOTE_IDLE_WARNING_MS) as Row[];
         const changed: RemoteTable[] = [];
+        // The existing WS sweep publishes every changed table, including timer transitions.
+        for (const row of db.prepare("select * from remote_tables where status='active'").all() as Row[]) {
+          const before = readState(row);
+          if (!remoteSideTimeoutDue(before, now)) continue;
+          const action: RemoteAction = { type: "side.timeout", actorSeat: 0, idempotencyKey: `sys:${randomUUID()}`, at: now };
+          const state = getRemoteGame(row.game_id).reduce(before, action);
+          append(row, action, now);
+          db.prepare("update remote_tables set state_json=? where id=?").run(JSON.stringify(state), row.id);
+          changed.push(table(load(row.slug, row.guild_id)));
+        }
+        const due = db.prepare("select * from remote_tables where status!='ended' and last_event_at<=?").all(now - REMOTE_IDLE_WARNING_MS) as Row[];
         for (const row of due) {
           // A table that started less than the close time ago is never closed as idle, whatever its last event says.
           const startedRecently = row.started_at !== null && now - row.started_at < REMOTE_IDLE_CLOSE_MS;
