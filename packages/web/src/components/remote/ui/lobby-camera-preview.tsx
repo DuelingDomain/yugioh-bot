@@ -332,7 +332,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
     {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} zoneSpacing={normalizeZoneSpacing(calibration?.zoneSpacing)}
-      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, value)); }}
+      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, value, calibration.zones)); }}
+      onZones={zones => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, calibration.zoneSpacing, zones)); }}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}
   </div>;
 }
