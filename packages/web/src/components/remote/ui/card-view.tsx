@@ -5,6 +5,7 @@ import { cardArt, isLinkInfo, isMonsterInfo, useCardStatus, type CardInfo } from
 import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
 import s from "./remote-ui.module.css";
+import z from "./zone-rules.module.css";
 
 /** One card the table is looking at: from a feed click, the field, or the tray. */
 export type Subject = {
@@ -43,6 +44,8 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
 export type CardEdit = {
   faceUp: boolean; zone: string; extraZones?: boolean;
   onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void;
+  /** "Equipped to": link a face-up Spell/Trap Zone card to the monster it equips. Keys are `seat:ref`. */
+  equip?: { current?: string; options: { key: string; label: string }[]; onEquip: (key: string | null) => void };
 };
 
 export type CardActions = {
@@ -87,6 +90,11 @@ function CardEditRow({ edit }: { edit: CardEdit }) {
     {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
+    {edit.equip ? <label className={z.equipPick}>Equipped to
+      <select value={edit.equip.current ?? ""} onChange={event => edit.equip!.onEquip(event.target.value || null)} data-testid="card-equip">
+        <option value="">No monster</option>
+        {edit.equip.options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+      </select></label> : null}
   </div>;
 }
 

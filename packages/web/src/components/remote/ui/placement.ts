@@ -73,6 +73,8 @@ export function judgeMove(args: {
     const holder = cellsFor(twin, extraZones)[cell].card;
     if (holder && holder.ref === card.ref) return { kind: "same" };
     if (holder) return { kind: "refuse", message: `${labelOfCell(land)} is taken. Move that card first.` };
+    if (land.zone === "spell-trap" && twin.some(other => other.ref !== card.ref && other.trapZone === land.slot && (other.zone === "monster" || other.zone === "extra-monster")))
+      return { kind: "refuse", message: `${labelOfCell(land)} is held by a Trap Monster until it leaves the field.` };
     if (land.zone === "extra-monster" && land.slot) {
       const shared = facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(land.slot!));
       if (shared) return { kind: "refuse", message: `That Extra Monster Zone is shared with ${facing!.name} and taken.` };
