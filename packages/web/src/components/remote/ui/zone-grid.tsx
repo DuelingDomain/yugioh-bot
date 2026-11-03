@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
+import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration } from "@yugidraft/vision";
@@ -72,5 +72,33 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
       <FieldOrientationControls calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration}/>
       {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
     </div>:null}
+  </>;
+}
+
+const pts = (quad: readonly { x: number; y: number }[]) => quad.map(p => `${p.x},${p.y}`).join(" ");
+const top = (quad: readonly { x: number; y: number }[]) => ({ x: Math.min(...quad.map(p => p.x)), y: Math.min(...quad.map(p => p.y)), b: Math.max(...quad.map(p => p.y)) });
+/**
+ * Owner debug view on the own feed: raw detector boxes with score and use (cyan = used, red = not used),
+ * the motion crop, and every track with its id, state and last decision. Local only.
+ */
+export function FieldDebugOverlay({ box }: { box: Box | null }) {
+  const view = useFieldDebug();
+  if (!box || !view) return null;
+  const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
+  const debug = view.debug, live = view.tracks.filter(t => !t.removed);
+  return <>
+    <svg className={s.zgrid} style={{ ...frame, zIndex: 4 }} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="field-debug">
+      {debug?.region ? <rect x={debug.region.x} y={debug.region.y} width={debug.region.w} height={debug.region.h} fill="none" stroke="#ffd166" strokeWidth={.002} strokeDasharray=".01 .006" /> : null}
+      {debug?.detections.map((d, i) => <polygon key={`d${i}`} points={pts(d.quad)} fill="none" stroke={d.use.startsWith("track") ? "#3fd0ff" : "#ff5a5a"} strokeWidth={.003} />)}
+      {live.map(t => <polygon key={t.id} points={pts(t.card.quad)} fill="none" stroke={t.visible ? "#7dff9b" : "#c58bff"} strokeWidth={.002} strokeDasharray=".008 .005" />)}
+    </svg>
+    <div className={s.zglabels} style={{ ...frame, zIndex: 5 }} aria-hidden="true">
+      {debug?.detections.map((d, i) => { const p = top(d.quad); return <span key={`d${i}`} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, transform: "translate(0,-100%)", background: "rgb(0 0 0/.75)", color: d.use.startsWith("track") ? "#9be8ff" : "#ffb0b0", fontSize: 10, padding: "1px 3px", whiteSpace: "nowrap" }}>
+        {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2)} · {d.zone} · {d.use}</span>; })}
+      {live.map(t => { const p = top(t.card.quad); return <span key={t.id} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%`, transform: "translate(0,2px)", background: "rgb(20 0 30/.8)", color: t.visible ? "#b8ffc8" : "#e2c6ff", fontSize: 10, padding: "1px 3px", maxWidth: 220, whiteSpace: "normal" }}>
+        #{t.id.slice(-4)} {t.state}{t.faceDown ? " · down" : " · up"}{t.cardId ? ` · ${t.cardId}` : ""}{t.visible ? "" : " · hidden"} — {debug?.reasons[t.id] || "…"}</span>; })}
+      <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "nowrap" }} data-testid="field-debug-status">
+        {view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks</span>
+    </div>
   </>;
 }
