@@ -495,6 +495,14 @@ test('an optional priors provider returning undefined still recognizes a full-ca
 
 test('quiet empty-mat pixel checks skip inference but new motion starts detection before the idle budget',async()=>{
  const r=fieldRig();r.outlines=[];await r.tick(100);const before=r.detects;await r.tick(100);assert.equal(r.detects,before);r.motion=.2;r.outlines=[card(.3,.3)];await r.tick(50);assert.equal(r.detects,before+1);assert.equal(r.watcher.getSnapshot().tracks.length,1);r.watcher.dispose();
+ // A cropped model pass can miss a plain sleeve that the full frame detects.
+ // Retry once in this tick, without waiting for the periodic full scan.
+ let at=100,moving=false,active=0,maxActive=0;const scopes:boolean[]=[];
+ const watcher=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  recognizer:{detectCards:async(_f,opts)=>{scopes.push(!!opts?.region);active++;maxActive=Math.max(maxActive,active);await Promise.resolve();active--;return moving&&!opts?.region?[{...card(.3,.3),kind:'face-down'}]:[];},recognize:async()=>sureResult()},
+  analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.8),motion:()=>moving?.2:0,...(moving?{motionRegion:{x:.3,y:.3,w:.15,h:.25}}:{}),sharpness:()=>20})});
+ try{await watcher.tick();moving=true;at+=100;await watcher.tick();assert.deepEqual(scopes,[false,true,false]);assert.equal(maxActive,1);assert.equal(watcher.getSnapshot().tracks.length,1);}
+ finally{watcher.dispose();}
 });
 
 test('scan budget follows the live detector backend and backs off when inference slows',async()=>{

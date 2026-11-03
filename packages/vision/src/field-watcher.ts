@@ -259,7 +259,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       const detectStart=now();
       detected=await options.recognizer.detectCards(detectFrame,region?{region}:undefined);
-      if(region&&detected.some(c=>c.partial)){
+      // A crop changes the detector's context. In particular, a plain sleeve
+      // may be found only in the full frame. A missed crop must not add the
+      // entire periodic full-scan delay to first sight or a flip.
+      if(region&&(!detected.length||detected.some(c=>c.partial))){
         closeFieldFrame(detectFrame);detectFrame=await clone(current);
         detected=await options.recognizer.detectCards(detectFrame);region=undefined;
       }
