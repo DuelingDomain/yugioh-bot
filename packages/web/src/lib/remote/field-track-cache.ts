@@ -1,3 +1,4 @@
+import {markBackTiming} from './field-timing';
 import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type TwinCard} from '@yugidraft/shared/remote';
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
 import {catalogCardId,createFieldCalibration} from '@yugidraft/vision';
@@ -39,7 +40,10 @@ export class FieldTrackCache {
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
     try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation);}catch{return false;}
-    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs:parsed.data.backs??[],calibration});this.notify();return true;
+    const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
+    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration});
+    for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
+    this.notify();return true;
   }
   hit(seat:number,x:number,y:number):RemoteFieldCard|undefined {
     return hitTrackedCards(this.snapshot(seat),x,y);

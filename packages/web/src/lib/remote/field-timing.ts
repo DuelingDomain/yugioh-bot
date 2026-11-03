@@ -25,3 +25,15 @@ export function markFieldState(room:RemoteRoom,stage:'httpState'|'wsState'|'rend
     markFieldTiming(value.timing,stage,{actionId:id,seq:room.lastSeq});
   }
 }
+
+// Geometry delivery shares the physical ref; no timing fields enter the wire format.
+const backEvents=new Map<string,{timing:FieldTiming;at:number}>();
+export function bindBackTiming(ref:string,timing:FieldTiming|undefined){
+  if(!timing)return;backEvents.set(ref,{timing,at:performance.now()});
+  while(backEvents.size>128)backEvents.delete(backEvents.keys().next().value!);
+}
+export function markBackTiming(ref:string,stage:string,extra:Record<string,unknown>={}){
+  const value=backEvents.get(ref);if(!value)return;
+  if(performance.now()-value.at<=30000)markFieldTiming(value.timing,stage,extra);
+  if(stage==='backRender'||performance.now()-value.at>30000)backEvents.delete(ref);
+}

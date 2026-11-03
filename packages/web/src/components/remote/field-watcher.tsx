@@ -9,7 +9,7 @@ import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEv
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone} from '@/lib/remote/field-legality';
-import {bindFieldTiming,markFieldTiming} from '@/lib/remote/field-timing';
+import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {RecognitionBadge} from './ui/recognition-setting';
@@ -275,6 +275,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   }
   function handle(event:FieldEvent) {
     markFieldTiming(event.timing,'watcher',{type:event.type});
+    const ref=bindings.current.get(event.track.id)??event.track.id;
+    if(event.track.faceDown||current.current.room.state.seats[seat].twin.some(card=>card.ref===ref&&!card.faceUp))bindBackTiming(ref,event.timing);
     if(event.track.faceDown){
       const ref=bindings.current.get(event.track.id)??event.track.id;
       const message={...lastMessage.current,cards:lastMessage.current.cards.filter(c=>c.ref!==ref)};

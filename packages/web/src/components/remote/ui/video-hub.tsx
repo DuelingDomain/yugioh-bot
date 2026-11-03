@@ -5,6 +5,7 @@ import useSWR from "swr";
 import type { PhoneMember, PhoneScan } from "@/lib/remote/phone-protocol";
 import { ConnectionState } from "livekit-client";
 import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/shared/remote";
+import {markBackTiming} from '@/lib/remote/field-timing';
 import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
@@ -73,7 +74,10 @@ export const useVideoHub = () => useContext(Ctx);
 /** Back markers never participate in the public identity/click cache. */
 export function useFieldBacks(seat:number){
   const {trackedBacks,subscribeFieldBacks}=useVideoHub();
-  return useSyncExternalStore(subscribeFieldBacks,()=>trackedBacks(seat),()=>emptyBacks);
+  const backs=useSyncExternalStore(subscribeFieldBacks,()=>trackedBacks(seat),()=>emptyBacks),previous=useRef<FieldBack[]>([]);
+  useEffect(()=>{const refs=new Set([...previous.current,...backs].map(b=>b.ref));previous.current=backs;
+    const frame=requestAnimationFrame(()=>{for(const ref of refs)markBackTiming(ref,'backRender',{seat,visible:backs.some(b=>b.ref===ref)});});return()=>cancelAnimationFrame(frame);
+  },[backs,seat]);return backs;
 }
 
 const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
