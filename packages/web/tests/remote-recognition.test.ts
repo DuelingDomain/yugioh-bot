@@ -700,3 +700,25 @@ it('the hand mask separates warm card artwork from skin crossing the sleeve edge
   expect(createFieldAnalyzer()(frame(false)).occluded?.(quad)).toBe(false);
   expect(createFieldAnalyzer()(frame(true)).occluded?.(quad)).toBe(true);
 });
+
+it.each([false,true])('a pile rescan cannot consume a still-present field copy (copy proof=%s)',async proof=>{
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,context?:any)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at:++serial,idempotencyKey:`pile-live-${serial}`,...input}),context);
+  const card={cardId:100,name:'The Man with the Mark',faceUp:true};
+  act({type:'twin.place',zone:'graveyard',card:{...card,ref:'pile-one'}});
+  act({type:'twin.place',zone:'monster',anotherCopy:true,card:{...card,ref:'still-on-field',slot:3}});
+  const before=structuredClone(state);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'top-rescan'},...(proof?{copyProof:{simultaneousQuads:2,at:3}}:{})});
+  expect(state.seats[0].twin).toEqual(before.seats[0].twin);expect(state.undo?.actionId).toBe(before.undo?.actionId);
+  // Version 1 replay retains its accepted behavior; version 2 guards new events.
+  state=structuredClone(before);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'v1-rescan'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:1});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toHaveLength(2);
+  state=structuredClone(before);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'v2-rescan'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:2});
+  expect(state.seats[0].twin).toEqual(before.seats[0].twin);
+  // Naming the actual physical field ref supplies its origin and permits arrival.
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'still-on-field'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toHaveLength(2);
+});

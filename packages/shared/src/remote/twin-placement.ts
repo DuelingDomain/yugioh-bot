@@ -58,17 +58,25 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   const at = action.at ?? state.updatedAt, proof = action.copyProof;
   const exact = matches.find(t => t.ref === action.card.ref);
   if (exact && exact.zone === action.zone && remotePhysicalSlot(exact.zone, exact.slot) === remotePhysicalSlot(action.zone, action.card.slot)) {
-    if ((!context?.replay || context.pileArrivalGuard === 1) && action.source === "auto" && pileZone(action.zone)) return {noop:true};
+    if ((!context?.replay || context.pileArrivalGuard !== undefined) && action.source === "auto" && pileZone(action.zone)) return {noop:true};
     return {ref:exact.ref,card:exact};
   }
-  if (proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000 && matches.some(t => remoteFieldZone(t.zone))) return;
+  const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
+  if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
+    if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
+    if (recent) return {ref:recent.ref,card:recent};
+    // Existing pile + field witnesses prove two copies, never a third arrival.
+    if (simultaneous && proof!.simultaneousQuads > matches.length) return;
+    return {noop:true};
+  }
+  if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return;
   const field = exact && remoteFieldZone(exact.zone) ? exact : recent ?? matches.find(t => remoteFieldZone(t.zone));
   if (field) return {ref:field.ref,card:field};
   // An automatic pile top is an observation, not evidence of another copy.
   // A new physical copy needs a field origin or an explicit copy/fromRef action.
-  if ((!context?.replay || context.pileArrivalGuard === 1) && action.source === "auto" && pileZone(action.zone) &&
+  if ((!context?.replay || context.pileArrivalGuard !== undefined) && action.source === "auto" && pileZone(action.zone) &&
       matches.some(t => t.zone === action.zone)) return {noop:true};
 }
 
