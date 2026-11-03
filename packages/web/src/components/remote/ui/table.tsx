@@ -856,7 +856,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const calibration = zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat);
     if (!calibration?.orientation) return undefined;
     const mat = onMat({ x, y }, calibration);
-    return fieldGridCells(gridFormat,calibration.zoneSpacing).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h)?.zone;
+    return fieldGridCells(gridFormat,calibration).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h)?.zone;
   };
   const pileAt = (zone: string | undefined): PileZone | null => zone === "GY" ? "graveyard" : zone === "BANISHED" ? "banished" : null;
   /** The card the table holds in the zone under a point. Only the camera's own mat counts: a facing player's Extra Monster Zone is not on this mat. */

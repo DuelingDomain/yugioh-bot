@@ -4,15 +4,51 @@ import type { DetectedQuad, Point } from './types';
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
 export type FieldFormat = 'normal' | 'domain' | 'genesys' | 'genesys-domain';
 export const hasExtraMonsterZones = (format:FieldFormat='normal') => format==='normal'||format==='domain';
-export const FIELD_ZONE_PITCH=.164;
+/** One M/S column in mat units. The pile columns beside them are a little wider than this, so a deck-sized card fits with a margin. */
+export const FIELD_ZONE_PITCH=.136;
 export const normalizeZoneSpacing=(value=1)=>Number.isFinite(value)?Math.max(.85,Math.min(1.4,value)):1;
 /** Horizontal zoom around M3/S3: spacing scales both the pitch and cell width. */
 export const fieldZoneLayout=(zoneSpacing=1)=>{const spacing=normalizeZoneSpacing(zoneSpacing),pitch=FIELD_ZONE_PITCH*spacing;return {pitch,start:.5-2.5*pitch,end:.5+2.5*pitch,minX:.5-.5*spacing,maxX:.5+.5*spacing};};
-const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=.254&&x<=.418)||(x>=.582&&x<=.746));
+const FIELD_ZONE_START=.5-2.5*FIELD_ZONE_PITCH,FIELD_ZONE_END=.5+2.5*FIELD_ZONE_PITCH;
+const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=FIELD_ZONE_START+FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+2*FIELD_ZONE_PITCH)||(x>=FIELD_ZONE_START+3*FIELD_ZONE_PITCH&&x<=FIELD_ZONE_START+4*FIELD_ZONE_PITCH));
+/** A zone rectangle in mat units (0..1 across and down, seen from the owner's seat). */
+export interface ZoneRect { x: number; y: number; w: number; h: number }
+/** Per-zone rectangles the player moved or resized, by zone id. Other zones keep the default layout. */
+export type ZoneOverrides = Record<string, ZoneRect>;
+export interface FieldZoneCell extends ZoneRect { zone: string; label: string }
+export const FIELD_ZONE_IDS = ['FIELD','EXTRA','BANISHED','GY','DECK','M1','M2','M3','M4','M5','S1','S2','S3','S4','S5','EMZ1','EMZ2'] as const;
+export const MIN_ZONE_SIZE = .03;
+/** Keeps known zone ids with finite, bounded rectangles. Returns undefined when nothing is left. */
+export function normalizeZones(value?: unknown): ZoneOverrides | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: ZoneOverrides = {}, bound = (n: number) => Math.max(-.5, Math.min(1.5, n));
+  for (const id of FIELD_ZONE_IDS) {
+    const r = (value as Record<string, Partial<ZoneRect> | undefined>)[id];
+    if (!r || ![r.x, r.y, r.w, r.h].every(n => typeof n === 'number' && Number.isFinite(n))) continue;
+    out[id] = { x: bound(r.x!), y: bound(r.y!), w: Math.max(MIN_ZONE_SIZE, Math.min(2, r.w!)), h: Math.max(MIN_ZONE_SIZE, Math.min(2, r.h!)) };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+/**
+ * The single zone geometry: the default Master Rule layout (zoneSpacing widens it around M3/S3), with the player's
+ * per-zone rectangles on top. Overridden rectangles are absolute mat units; spacing only moves the other zones.
+ */
+export function fieldZoneCells(format: FieldFormat = 'normal', zoneSpacing = 1, zones?: ZoneOverrides): FieldZoneCell[] {
+  const emz = hasExtraMonsterZones(format), { pitch, start, end, minX, maxX } = fieldZoneLayout(zoneSpacing), side = start - minX;
+  const base: FieldZoneCell[] = [
+    { zone: 'FIELD', label: 'Field', x: minX, y: 0, w: side, h: .56 }, { zone: 'EXTRA', label: 'Extra', x: minX, y: .56, w: side, h: .44 },
+    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: maxX - end, h: .25 }, { zone: 'GY', label: 'GY', x: end, y: .25, w: maxX - end, h: .31 }, { zone: 'DECK', label: 'Deck', x: end, y: .56, w: maxX - end, h: .44 },
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: emz ? .2 : 0, w: pitch, h: emz ? .36 : .56 })),
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: .56, w: pitch, h: .44 })),
+    ...(emz ? [{ zone: 'EMZ1', label: 'EMZ', x: start + pitch, y: 0, w: pitch, h: .2 }, { zone: 'EMZ2', label: 'EMZ', x: start + 3 * pitch, y: 0, w: pitch, h: .2 }] : []),
+  ];
+  const own = normalizeZones(zones);
+  return own ? base.map(c => own[c.zone] ? { ...c, ...own[c.zone] } : c) : base;
+}
 export type PlayerSide = 'bottom' | 'left' | 'top' | 'right';
 export interface FieldOrientation { playerSide: PlayerSide; mirrored: boolean }
 /** Corners are image-clockwise from image top-left. Missing orientation is legacy/unconfirmed. */
-export interface FieldCalibration { version: 1; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number }
+export interface FieldCalibration { version: 1; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number; zones?: ZoneOverrides }
 export const DEFAULT_FIELD_ORIENTATION: FieldOrientation = {playerSide:'bottom',mirrored:false};
 const sides: PlayerSide[] = ['bottom','left','top','right'];
 function orient(point:Point, orientation:FieldOrientation, inverse=false):Point {
@@ -26,11 +62,11 @@ function orient(point:Point, orientation:FieldOrientation, inverse=false):Point 
 /** Rotate the mapping in image coordinates; the video pixels themselves stay untouched. */
 export function rotateFieldCalibration(calibration:FieldCalibration, degrees:90|180):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
-  return createFieldCalibration(calibration.corners,{...orientation,playerSide:sides[(sides.indexOf(orientation.playerSide)+degrees/90)%4]},calibration.zoneSpacing);
+  return createFieldCalibration(calibration.corners,{...orientation,playerSide:sides[(sides.indexOf(orientation.playerSide)+degrees/90)%4]},calibration.zoneSpacing,calibration.zones);
 }
 export function mirrorFieldCalibration(calibration:FieldCalibration):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
-  return createFieldCalibration(calibration.corners,{...orientation,mirrored:!orientation.mirrored},calibration.zoneSpacing);
+  return createFieldCalibration(calibration.corners,{...orientation,mirrored:!orientation.mirrored},calibration.zoneSpacing,calibration.zones);
 }
 /** The two near corners, identified by the player's LEFT then RIGHT hand, remove mirror ambiguity. */
 export function orientFieldFromHands(calibration:FieldCalibration,left:number,right:number):FieldCalibration {
@@ -38,7 +74,7 @@ export function orientFieldFromHands(calibration:FieldCalibration,left:number,ri
     const orientation={playerSide,mirrored};
     const nearLeft=orient({x:0,y:1},orientation),nearRight=orient({x:1,y:1},orientation);
     const index=(p:Point)=>unitCorners.findIndex(c=>c.x===p.x&&c.y===p.y);
-    if(index(nearLeft)===left&&index(nearRight)===right)return createFieldCalibration(calibration.corners,orientation,calibration.zoneSpacing);
+    if(index(nearLeft)===left&&index(nearRight)===right)return createFieldCalibration(calibration.corners,orientation,calibration.zoneSpacing,calibration.zones);
   }
   throw new Error('Choose two adjacent corners along your edge of the mat.');
 }
@@ -68,13 +104,13 @@ function plane(calibration:FieldCalibration){let value=planes.get(calibration);i
 /** Project a mat point into normalized camera pixels; the preview and tracker share this map. */
 export const fieldMatPoint=(point:Point,calibration:FieldCalibration):Point=>project(plane(calibration).forward,orient(point,calibration.orientation??DEFAULT_FIELD_ORIENTATION));
 /** Clockwise TL, TR, BR, BL of the owner's mat. Two opposite corners also work. */
-export function createFieldCalibration(points: Point[], orientation?:FieldOrientation,zoneSpacing=1): FieldCalibration {
+export function createFieldCalibration(points: Point[], orientation?:FieldOrientation,zoneSpacing=1,zones?:ZoneOverrides): FieldCalibration {
   const corners=points.length===2?[points[0],{x:points[1].x,y:points[0].y},points[1],{x:points[0].x,y:points[1].y}]:points;
   if(corners.length!==4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1) || polygonArea(corners)<.02) throw new Error('Invalid field calibration: click opposite corners or four clockwise mat corners');
   const crosses=corners.map((a,i)=>{const b=corners[(i+1)%4],c=corners[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
   if(crosses.some(c=>c<=0))throw new Error('Invalid field calibration: corners must be clockwise from top left');
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
-  return {version:1,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(orientation?{orientation:{...orientation}}:{})};
+  return {version:1,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }
 /** True inverse homography for a flat mat under perspective; matrices stay out of persisted data. */
 export function onMat(p:Point, calibration?:FieldCalibration):Point {
@@ -156,12 +192,15 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
   const center=onMat(fieldCenter(card),calibration),x=.5+(center.x-.5)/normalizeZoneSpacing(calibration?.zoneSpacing),y=center.y;
   let zone:FieldZone;
-  if(inExtraMonsterRow({x,y},format))zone=x<.5?'EMZ1':'EMZ2';
-  else if(x<.09)zone=y<.56?'FIELD':'EXTRA';
-  else if(x>=.91-1e-9)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
+  const own=normalizeZones(calibration?.zones);
+  const custom=own&&fieldZoneCells(format,calibration?.zoneSpacing,own).filter(c=>own[c.zone]).find(c=>center.x>=c.x&&center.x<c.x+c.w&&center.y>=c.y&&center.y<c.y+c.h);
+  if(custom)zone=custom.zone as FieldZone;
+  else if(inExtraMonsterRow({x,y},format))zone=x<.5?'EMZ1':'EMZ2';
+  else if(x<FIELD_ZONE_START)zone=y<.56?'FIELD':'EXTRA';
+  else if(x>=FIELD_ZONE_END-1e-9)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
   else {
     const row=y<.56?'M':'S';
-    const col=Math.max(1,Math.min(5,Math.floor((x-.09)/FIELD_ZONE_PITCH)+1));
+    const col=Math.max(1,Math.min(5,Math.floor((x-FIELD_ZONE_START)/FIELD_ZONE_PITCH)+1));
     zone=`${row}${col}` as FieldZone;
   }
   return {zone,calibrated:!!calibration};

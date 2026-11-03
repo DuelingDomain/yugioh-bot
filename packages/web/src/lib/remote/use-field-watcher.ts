@@ -59,7 +59,7 @@ export const clampZoneSpacing=(value:unknown)=>typeof value==='number'&&Number.i
 export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;zoneSpacing:number} {
   try {
     const saved=readSaved(seatKey,deviceKey,label),spacing=clampZoneSpacing(saved.calibration?.zoneSpacing??saved.zoneSpacing);
-    const calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,spacing):undefined;
+    const calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,spacing,saved.calibration.zones):undefined;
     return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration),zoneSpacing:spacing};
   }catch{return {placed:false,zoneSpacing:ZONE_SPACING.default};}
 }
@@ -71,7 +71,7 @@ export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,camera
   try {
     const before=readSaved(seatKey,cameraId,meta.label);
     const zoneSpacing=clampZoneSpacing(meta.zoneSpacing??grid.zoneSpacing??before.zoneSpacing);
-    const calibration=createFieldCalibration(grid.corners,grid.orientation,zoneSpacing);
+    const calibration=createFieldCalibration(grid.corners,grid.orientation,zoneSpacing,grid.zones);
     const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed:meta.placed??isPlaced(before,before.calibration),zoneSpacing};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.

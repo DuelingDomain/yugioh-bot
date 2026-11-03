@@ -39,7 +39,7 @@ export class FieldTrackCache {
   receive(seat:number,input:unknown){
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
-    try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing);}catch{return false;}
+    try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing,parsed.data.calibration.zones);}catch{return false;}
     const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
     this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration});
     for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
