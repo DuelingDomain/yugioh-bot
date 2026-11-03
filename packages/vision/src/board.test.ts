@@ -723,6 +723,11 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  // The provisional back from the purple frames is replaced, not left behind.
  const provisional=r.events.find(e=>e.type==='placed'&&e.track.zone==='M3'&&e.track.faceDown);if(provisional)assert.equal(r.events.find(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='M3')?.replacesRef,provisional.track.id);
  assert.equal(snap.tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
+ // The detector also returns a second, larger outline of Fenrir (card plus hand).
+ // It joins Fenrir's track: the glue never sees two cards in M3.
+ const beforeDup=r.events.length;r.outlines=[{...gy},{...m3},card(.4,.35,.11,.17),set];for(let i=0;i<8;i++)await r.tick(100);r.outlines=[{...gy},{...m3},set];
+ assert.equal(r.events.slice(beforeDup).some(e=>(e.type==='placed'||e.type==='prompt'||e.type==='reading')&&e.track.id!==id&&e.track.zone==='M3'),false,'a duplicate outline makes no second M3 card');
+ assert.equal(r.watcher.getSnapshot().tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
  const debug=snap.debug!;assert.ok(debug.detections.some(d=>d.zone==='M3'&&d.use.startsWith('track')),'the debug overlay shows the raw M3 outline and its track');
  // Infinite Impermanence: a Set in S3 is revealed, then sent from S3 to the GY.
  const s3=card(.4,.72,.1,.15),imperm=Array.from({length:288},(_,i)=>((Math.floor(i/3)*29+(i%3)*11)%239)/255);
