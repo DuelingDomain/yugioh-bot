@@ -17,7 +17,7 @@ import {useRecognitionBackend} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
-import {publishZoneGrid,clearZoneGrid,defaultSideFor} from '@/lib/remote/zone-grid';
+import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug} from '@/lib/remote/zone-grid';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
@@ -330,6 +330,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     void queue(async act=>{
       if(event.previousId&&!await removePlaceholder(event.previousId,act))return;
+      // The watcher placed a provisional Set that was really a card lifted from
+      // a pile: drop that unnamed back before the pile ref moves to its slot.
+      if(event.type==='moved'&&event.replacesRef){
+        const setRef=bindings.current.get(event.replacesRef)??event.replacesRef,provisional=current.current.room.state.seats[seat].twin.find(c=>c.ref===setRef);
+        if(provisional&&!provisional.faceUp&&!cardCode(provisional)&&publicField(provisional.zone)&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:provisional.ref}))return;
+      }
       if(event.type==='reading'){await showPlaceholder(event,act);return;}
       if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
       if(event.type==='placed'){await apply(event,act);return;}
@@ -464,6 +470,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[seat,gridFormat,phone,watch.calibration,watch.placed,updateCalibration,gridKey,host,watch.snapshot.tracks.length]);
   useEffect(()=>clearZoneGrid,[]);
+  // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
+  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs});},[watch.snapshot]);
+  useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);

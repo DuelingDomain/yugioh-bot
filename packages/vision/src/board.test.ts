@@ -116,14 +116,14 @@ const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
   let detectorCost=0;
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async()=>{detects++;at+=detectorCost;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number}})=>{detects++;at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
-    analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
+    analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -691,6 +691,39 @@ test('tracker follows slides, quarter turns and GY entry without another identit
  for(const destination of [card(.84,.3,.14,.2),card(.38,.3)]){const covered=fieldRig();covered.appearance=pixels;for(let i=0;i<8;i++)await covered.tick();const id=covered.events[0].track.id;covered.watcher.confirm(id,'A');
  covered.outlines=[];covered.appearance=Array(288).fill(.8);covered.motion=.2;await covered.tick(100);covered.motion=0;covered.appearanceAt=c=>c.quad[0].x===destination.quad[0].x?pixels:Array(288).fill(.8);covered.outlines=[destination];for(let i=0;i<8;i++)await covered.tick(100);
  assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),true,'without simultaneous copy proof, matching incoming pixels follow the existing ref');covered.watcher.dispose();}
+});
+
+test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an arm moving at the side',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));r.cropAware=true;
+ const fenrir=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),under=Array.from({length:288},(_,i)=>((Math.floor(i/3)*7+(i%3)*53)%241)/255),white=Array(288).fill(.9),mat=Array(288).fill(.2);
+ const m3=card(.4,.35,.1,.15),gy=card(.84,.35,.1,.15),m2=card(.26,.35,.1,.15),set={...m2,kind:'face-down' as const,confidence:.9};
+ // An older GY card B lies under Fenrir.
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'}];r.outlines=[m3];r.appearanceAt=c=>zones.fieldCenter(c).x<.5&&zones.fieldCenter(c).x>.4?fenrir:mat;
+ for(let i=0;i<8;i++)await r.tick();const id=r.events.find(e=>e.type==='placed')!.track.id;r.watcher.confirm(id,'A');r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'}];
+ // Fenrir goes to the GY.
+ r.outlines=[gy];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?fenrir:mat;r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<6&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='GY'),'Fenrir enters the GY on its ref');
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'GY',cardId:'A'}];
+ // Fenrir comes back face-up to M3, B shows on the GY again, a white Set goes to M2,
+ // and the arm keeps moving at the right edge (a small, localized motion region).
+ r.identityAt=c=>zones.fieldCenter(c).x>.8?'B':'A';r.decklist=['A','B'];
+ r.motionRegion={x:.72,y:.2,w:.06,h:.3};r.motionAt=c=>zones.fieldCenter(c).x>.7&&zones.fieldCenter(c).x<.8?.2:0;
+ r.appearanceAt=c=>{const x=zones.fieldCenter(c).x;return x>.8?under:x>.4&&x<.5?(c.kind==='face-down'?white:fenrir):x<.4&&x>.25?white:mat;};
+ // Under the purple light the detector first calls the arriving Fenrir a back.
+ r.outlines=[{...gy},{...m3,kind:'face-down',confidence:.8},set];for(let i=0;i<4;i++)await r.tick(100);
+ r.outlines=[{...gy},{...m3},set];const fullAt:number[]=[];for(let i=0;i<30;i++){await r.tick(100);const d=r.watcher.getSnapshot().debug;if(d?.full&&d.at===r.at&&d.path.startsWith('detector'))fullAt.push(d.at);}
+ // A moving arm never starves the full-frame pass (~300 ms GPU, >=500 ms CPU).
+ assert.ok(fullAt.length>=4&&fullAt.every((at,i)=>!i||at-fullAt[i-1]<=800),`full passes at ${fullAt}`);
+ const snap=r.watcher.getSnapshot(),fen=snap.tracks.find(t=>t.id===id);
+ assert.ok(fen,'Fenrir keeps its physical track');assert.equal(fen.zone,'M3');assert.equal(fen.faceDown,false,'a face-up read overrides any stale face-down state');assert.equal(fen.visible,true,'the camera shows a bracket on M3');assert.equal(fen.removed,false);
+ assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='M3'),'the GY ref moves back to M3, so the GY count drops');
+ assert.ok(r.events.some(e=>e.type==='placed'&&e.track.zone==='M2'&&e.track.faceDown),'the white Set is placed face-down in M2');
+ assert.equal(r.events.some(e=>e.type==='placed'&&e.track.cardId==='A'&&e.track.id!==id),false,'no second Fenrir is created');
+ // The provisional back from the purple frames is replaced, not left behind.
+ const provisional=r.events.find(e=>e.type==='placed'&&e.track.zone==='M3'&&e.track.faceDown);if(provisional)assert.equal(r.events.find(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='M3')?.replacesRef,provisional.track.id);
+ assert.equal(snap.tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
+ const debug=snap.debug!;assert.ok(debug.detections.some(d=>d.zone==='M3'&&d.use.startsWith('track')),'the debug overlay shows the raw M3 outline and its track');
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
