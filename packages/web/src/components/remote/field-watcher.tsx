@@ -36,7 +36,7 @@ function readPhysicalZones(key:string):Map<string,FieldZone> {
 }
 type Entry={cardId:string;passcode:number;name:string};
 type Departure={ref:string;name:string;zone:string};
-const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['extra','Extra Deck']] as const;
+const destinations=[['graveyard','GY'],['banished','Banish'],['hand','Hand'],['deck','Deck'],['extra','Extra Deck']] as const;
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
 export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock}:{room:RemoteRoom;transaction:RoomTransaction;diagnosticsAllowed?:boolean;dock?:HTMLElement|null}) {
   const hub=useVideoHub(),seat=room.mySeat,source=hub.sourceFor(seat);
@@ -79,7 +79,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const saved=card&&(track.faceDown||!card.faceUp||wasHidden)&&knownZone(card)===track.zone?toZone(card.zone,card.slot):undefined;
     return saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
   };
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=c.zone==='hand'?'HAND' as const:knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity||['deck','hand','extra'].includes(c.zone)?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>!event.track.faceDown&&setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
@@ -106,7 +106,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }).catch(error=>{console.error('[remote field] update failed',error);if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event});setNotice('Could not save the field update. Use Retry field update.');}});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
-    const reusable=(card:TwinCard)=>publicField(card.zone)||recentFieldDeparture(card,serverNow());
+    const reusable=(card:TwinCard)=>publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone;
     let existing=twins.find(c=>c.ref===track.id&&reusable(c));
     const sameSlot=(c:typeof twins[number])=>knownZone(c)===track.zone;
     const owns=(t:FieldTrack,ref:string)=>(bindings.current.get(t.id)??t.id)===ref;
@@ -119,7 +119,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       existing=bound??twins.find(c=>publicField(c.zone)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(!existing&&entry){
-      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(recentFieldDeparture(b,serverNow()))-Number(recentFieldDeparture(a,serverNow())));
+      const copies=twins.filter(c=>reusable(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(recentFieldDeparture(b,serverNow()))*2+Number(publicField(b.zone))-Number(recentFieldDeparture(a,serverNow()))*2-Number(publicField(a.zone)));
       for(const copy of copies){
         const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
         // Events precede the React snapshot render. Both witnesses must be read
@@ -199,6 +199,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const resolved=resolveExisting(event,track,entry,twins);
     if(resolved.blocked){offer({...event,type:'prompt',reason:'uncertain'});return;}
     existing=resolved.existing;
+    if(existing&&['GY','BANISHED'].includes(track.zone)&&existing.zone===location.zone&&existing.faceUp===!track.faceDown&&entry&&sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})){
+      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);return;
+    }
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
     const placementRef=track.id;
@@ -237,14 +240,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     try {
       if(existing?.ref!==placeholderRef&&!await removePlaceholder(event.track.id,act))return;
       let updated:RemoteRoom|null=null;
-      const atomicReveal=!!existing&&!existing.faceUp&&!track.faceDown&&!!entry;
-      if(existing&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch,source:'auto' as const}:{})});if(!updated)return;}
+      const originReturn=!!existing&&['deck','hand','extra','graveyard','banished'].includes(existing.zone)&&existing.zone!==location.zone;
+      const atomicReveal=!!existing&&!originReturn&&!existing.faceUp&&!track.faceDown&&!!entry;
+      if(existing&&!originReturn&&existing.faceUp===track.faceDown){updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,{type:'twin.flip',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch,source:'auto' as const}:{})});if(!updated)return;}
       // The resolver has just required a distinct, same-frame witness for every
       // existing copy. Undo's clock estimate rounds HTTP Date up; evidence must
       // use its lower bound so the server never sees a future camera sample.
       const copyCount=code?twins.filter(c=>{if(!publicField(c.zone)||!sameObservedCard(c,{cardId:code,name:entry?.name}))return false;const other=watch.getTrack(c.ref)??tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===c.ref);return !!other&&simultaneousFieldCopies(track,other,true);}).length:0;
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
-      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing,copyProof})){
+      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof})){
         updated=await applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal);if(!updated){if(fieldEvidenceMatches(event,watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(proposal.type==='twin.place'){
           const canonical=placedTwin(updated.state.seats[seat].twin,{...proposal.card,zone:proposal.zone});
@@ -304,11 +308,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!live()||!card)return;
       if(event.type==='removed') {
         if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
-        const proposal=fieldDepartureProposal(card,seat);if(!proposal)return;
+        const proposal=fieldDepartureProposal(card,seat,event.destination==='DECK'?'deck':event.destination==='EXTRA'?'extra':undefined);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         const updated=await act({...proposal,...(card.faceUp?{name}:{})});
         if(!live()||!watch.isRemoved(card.ref))return;
-        setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending'});setNotice(`${name} left the field · ${updated?'auto':'update failed'}`);setUndoId(updated?.state.undo?.actionId??'');return;
+        setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending'});setNotice(`${name} ${proposal.zone==='deck'?'returned to Deck':'left the field'} · ${updated?'auto':'update failed'}`);setUndoId(updated?.state.undo?.actionId??'');return;
       }
       if(event.type==='moved') {
         if(!publicField(card.zone)&&!recentFieldDeparture(card,serverNow())){await apply(event,act);return;}

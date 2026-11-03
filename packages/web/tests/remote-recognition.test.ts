@@ -232,7 +232,9 @@ it('departures leave field zones once with a named atomic move and retain physic
   expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
   expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('hand');
-  for(const zone of ['graveyard','banished','hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
+  for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
+  for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
+  expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
 });
 it('a corrected public physical ref replaces the watcher identity in every exported snapshot',async()=>{
@@ -561,4 +563,306 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   act({type:'phase.advance',actorSeat:0},'reveal'),
  ]);});
  expect(maxActive).toBe(1);expect(bases).toEqual([0,1]);expect(room.lastSeq).toBe(2);
+});
+
+
+it('one physical pile arrival stays one entry across 21 scans; a second field departure stays distinct',async()=>{
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,context?:any)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:++serial,idempotencyKey:`pile-scan-${serial}`,...input}),context);
+  const card={cardId:100,name:'The Man with the Mark',faceUp:true};
+  act({type:'twin.place',zone:'monster',card:{...card,ref:'physical-one',slot:3}});
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'arrival'}});
+  const arrivalUndo=state.undo?.actionId;
+  for(let i=0;i<21;i++)act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:`rescan-${i}`}});
+  expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-one',zone:'graveyard'})]);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'physical-one'}});
+  expect(state.undo?.actionId).toBe(arrivalUndo);
+  act({type:'twin.place',zone:'monster',anotherCopy:true,card:{...card,ref:'physical-two',slot:4}});
+  act({type:'twin.move',source:'auto',cardRef:'physical-two',zone:'hand'});
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'second-arrival'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard').map(c=>c.ref)).toEqual(['physical-one','physical-two']);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'banished-top'}});
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'banished-rescan'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(1);
+  // Historical events keep their accepted copy semantics; new events record the guard.
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'legacy-copy'}},{replay:true,twinPlacementGuard:3});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...card,ref:'guarded-replay'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:1});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+  act({type:'twin.remove',cardRef:'legacy-copy'});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(1);
+  act({type:'undo',targetActionId:state.undo!.actionId});
+  expect(state.seats[0].twin.filter(c=>c.zone==='banished')).toHaveLength(2);
+});
+
+// Native-frame replay for the owner regressions. Only the detector/read is fake.
+async function ownerFieldRig(){
+  const {createFieldWatcher,createFieldCalibration,yugioh}=await import('@yugidraft/vision');
+  const quad=(x=.47,y=.30,down=false)=>({kind:down?'face-down' as const:'face-up' as const,confidence:.95,partial:false,quad:[{x,y},{x:x+.06,y},{x:x+.06,y:y+.156},{x,y:y+.156}]});
+  const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+  for(let py=0;py<height;py++)for(let px=0;px<width;px++){
+    const x=px/width,y=py/height;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    data.set([...rgb,255],(py*width+px)*4);
+  }
+  const front={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
+  const frame={width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData;
+  const spot=(c:{quad:{x:number;y:number}[]})=>`${c.quad[0].x}/${c.quad[0].y}`;
+  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,extraMotion:0,halo:.45,down:false,reads:0,tier:'sure' as import('@yugidraft/vision').RecognitionTier,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[],empty:new Set<string>(),faces:new Map<string,{id:string;look:number[];embedding:number[]}>()};
+  const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>state.at,hidden:()=>false,clone:async f=>f,
+    getKnownCards:()=>state.known,getPriors:()=>({decklist:['100']}),buffer:{sample:async()=>({frame,at:state.at})},
+    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async(_frames,opts)=>{state.reads++;const face=opts?.card&&state.faces.get(spot(opts.card));return {candidates:[{cardId:face?.id??state.identity,score:.95}],tier:state.tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:face?.embedding??state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
+    analyze:()=>({crop:c=>state.down||c.kind==='face-down'?back:front,motion:c=>c.quad[0].x>.83?state.motion:c.quad[0].x<.16?state.extraMotion:0,occluded:c=>c.quad[0].x<.9&&state.occluded,sharpness:()=>20,
+      appearance:c=>state.empty.has(spot(c))||state.absent&&c.quad[0].x===.47?Array(12).fill(.2):state.faces.get(spot(c))?.look??Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(state.halo)}),
+  });
+  watcher.subscribe(e=>{state.events.push(e);if(e.type==='placed')watcher.confirm(e.track.id,e.track.cardId,e.track.id,false);});
+  return {state,watcher,quad,async tick(count=1,ms=100){for(let i=0;i<count;i++){state.at+=ms;await watcher.tick();await Promise.resolve();}},dispose:()=>watcher.dispose()};
+}
+
+it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an old hand halo and detects private destination=%s',async destination=>{
+  const r=await ownerFieldRig();
+  try{
+    const pile=destination?r.quad(destination==='DECK'?.93:.03,.7,true):undefined;
+    if(pile)r.state.outlines.push(pile);
+    await r.tick(8);const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.zone).toBe('M3');
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];
+    r.state.occluded=true;r.state.absent=true;r.state.outlines=pile?[pile]:[];r.state.motion=destination==='DECK'?.2:0;r.state.extraMotion=destination==='EXTRA'?.2:0;
+    await r.tick(4);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+    r.state.occluded=false;r.state.motion=0;r.state.extraMotion=0;r.state.halo=.2;await r.tick(8);
+    const removed=r.state.events.filter(e=>e.type==='removed');expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatchObject({track:{id:first.track.id,removed:true},...(destination?{destination}:{})});
+    const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
+    const {describeEvent}=await import('../src/components/remote/ui/describe');
+    const proposal=fieldDepartureProposal({ref:first.track.id,zone:'monster',slot:3,cardId:100,name:'Kashtira Fenrir',faceUp:true,position:'attack'},0,destination==='DECK'?'deck':destination==='EXTRA'?'extra':undefined)!;
+    expect(proposal.zone).toBe(destination==='DECK'?'deck':destination==='EXTRA'?'extra':'hand');
+    if(destination)expect(proposal.faceUp).toBe(false);
+    if(destination==='DECK')expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');
+    await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
+  }finally{r.dispose();}
+});
+
+it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.tier='not sure';await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.cardId).toBe('100');
+    r.state.known=[{id:first.track.id,zone,cardId:'100',faceDown:true}];
+    r.state.absent=true;r.state.outlines=[];r.state.halo=.2;await r.tick(35);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)?.removed).toBe(true);
+    r.state.identity='999';r.state.tier='sure';r.state.outlines=[r.quad(.634)];await r.tick(12);
+    const returned=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone==='M4');
+    expect(returned).toHaveLength(1);expect(returned[0].track).toMatchObject({id:first.track.id,cardId:'100',zone:'M4'});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toHaveLength(0);
+    // A hidden origin is moved and revealed with one atomic placement.
+    const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+    const proposal=fieldPlacementProposals({track:returned[0].track,seat:0,cardId:100,name:'Kashtira Fenrir',fromRef:first.track.id})[0];
+    const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+    let state=ygoModule.initialState({seatCount:2});state.seats[0].twin=[{ref:first.track.id,zone:zone==='DECK'?'deck':'hand',cardId:100,name:'Kashtira Fenrir',faceUp:false,position:'attack'}];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,at:1,idempotencyKey:'known-return'}));
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:first.track.id,zone:'monster',slot:4,cardId:100,faceUp:true})]);
+    expect(state.twinConfirmation).toBeUndefined();
+  }finally{r.dispose();}
+});
+
+
+it('gallery preference resolves only matching embeddings and never publishes a private hand reference',async()=>{
+  const {createFieldIdentityGallery}=await import('@yugidraft/vision');
+  const gallery=createFieldIdentityGallery([{cardId:'deck',embedding:{space:'art-box',values:[1,0]}},{cardId:'recent',embedding:{space:'art-box',values:[.8,.6]}}]);
+  const embedding={space:'art-box' as const,values:[.95,.31]};
+  expect(gallery.resolve(embedding)).toEqual({kind:'hold'});
+  expect(gallery.resolve(embedding,['recent','deck'])).toEqual({kind:'match',cardId:'recent'});
+  expect(gallery.resolve({space:'art-box',values:[0,-1]},['recent'])).toEqual({kind:'new'});
+  const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:0,y:0},{x:.1,y:0},{x:.1,y:.2},{x:0,y:.2}];
+  const track={id:'private',cardId:'100',state:'identified',visible:true,removed:false,faceDown:false,zone:'M4',card:{kind:'face-up',quad}} as any;
+  expect(fieldTrackMessage({status:'watching',tracks:[track]} as any,new Map([['100',{cardId:'100',passcode:100,name:'Fenrir'}]]),[{id:'private',zone:'HAND',cardId:'100'}]).cards).toEqual([]);
+});
+
+it('a resting hand cannot turn a known front into Set; only fresh clear samples can flip or reveal it',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    await r.tick(8);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];const reads=r.state.reads;
+    r.state.occluded=true;r.state.down=true;r.state.outlines=[r.quad(.47,.30,true)];await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({faceDown:false,cardId:'100'});
+    expect(r.state.events.filter(e=>e.type==='flipped')).toHaveLength(0);expect(r.state.reads).toBe(reads);
+    r.state.occluded=false;await r.tick();expect(r.state.events.filter(e=>e.type==='flipped')).toHaveLength(0);
+    await r.tick(5);expect(r.state.events.filter(e=>e.type==='flipped'&&e.track.faceDown)).toHaveLength(1);
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100',faceDown:true}];
+    r.state.occluded=true;r.state.down=false;r.state.outlines=[r.quad()];await r.tick(6);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)?.faceDown).toBe(true);expect(r.state.reads).toBe(reads);
+    r.state.occluded=false;await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({faceDown:false,cardId:'100'});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toHaveLength(0);
+  }finally{r.dispose();}
+});
+
+it('the hand mask separates warm card artwork from skin crossing the sleeve edge',async()=>{
+  const {createFieldAnalyzer}=await import('../../vision/src/field-motion');
+  const quad={kind:'face-up' as const,confidence:.95,partial:false,quad:[{x:.3,y:.15},{x:.7,y:.15},{x:.7,y:.85},{x:.3,y:.85}]};
+  const frame=(hand:boolean)=>{
+    const width=200,height=160,data=new Uint8ClampedArray(width*height*4);
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const artwork=x>65&&x<135&&y>30&&y<130,arm=hand&&x>105&&x<130;
+      data.set([...(artwork||arm?[190,130,95]:[30,35,40]),255],(y*width+x)*4);
+    }
+    return {width,height,data} as ImageData;
+  };
+  expect(createFieldAnalyzer()(frame(false)).occluded?.(quad)).toBe(false);
+  expect(createFieldAnalyzer()(frame(true)).occluded?.(quad)).toBe(true);
+});
+
+it.each([false,true])('a pile rescan cannot consume a still-present field copy (copy proof=%s)',async proof=>{
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,context?:any)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at:++serial,idempotencyKey:`pile-live-${serial}`,...input}),context);
+  const card={cardId:100,name:'The Man with the Mark',faceUp:true};
+  act({type:'twin.place',zone:'graveyard',card:{...card,ref:'pile-one'}});
+  act({type:'twin.place',zone:'monster',anotherCopy:true,card:{...card,ref:'still-on-field',slot:3}});
+  const before=structuredClone(state);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'top-rescan'},...(proof?{copyProof:{simultaneousQuads:2,at:3}}:{})});
+  expect(state.seats[0].twin).toEqual(before.seats[0].twin);expect(state.undo?.actionId).toBe(before.undo?.actionId);
+  // Version 1 replay retains its accepted behavior; version 2 guards new events.
+  state=structuredClone(before);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'v1-rescan'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:1});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toHaveLength(2);
+  state=structuredClone(before);
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'v2-rescan'}},{replay:true,twinPlacementGuard:3,pileArrivalGuard:2});
+  expect(state.seats[0].twin).toEqual(before.seats[0].twin);
+  // Naming the actual physical field ref supplies its origin and permits arrival.
+  act({type:'twin.place',source:'auto',zone:'graveyard',card:{...card,ref:'still-on-field'}});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toHaveLength(2);
+});
+
+it.each(['GY','BANISHED'] as const)('a clear %s lift leaves the pile once and stays private in hand',async zone=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,y)];await r.tick(10);
+    const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.zone).toBe(zone);
+    r.state.known=[{id:first.track.id,zone,cardId:'100'}];
+    r.state.motion=.2;await r.tick(2);r.state.empty.add(`0.9/${y}`);r.state.outlines=[];r.state.motion=0;r.state.halo=.2;await r.tick(10);
+    const removed=r.state.events.filter(e=>e.type==='removed');expect(removed).toHaveLength(1);
+    const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
+    const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+    const pile=zone==='GY'?'graveyard':'banished';let state=ygoModule.initialState({seatCount:2});
+    state.seats[0].twin=[{ref:'below',zone:pile,cardId:200,faceUp:true,position:'attack'},{ref:first.track.id,zone:pile,cardId:100,name:'Fenrir',faceUp:true,position:'attack'}];
+    const proposal=fieldDepartureProposal(state.seats[0].twin[1],0)!;expect(proposal).toMatchObject({zone:'hand',faceUp:false});
+    state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,at:1,idempotencyKey:'pile-lift'}));
+    expect(state.seats[0].twin.filter(c=>c.zone===pile).map(c=>c.ref)).toEqual(['below']);
+    const {projectRemoteState}=await import('../../shared/src/remote/privacy');
+    expect(projectRemoteState(state,new Set([1])).seats[0].twin.find(c=>c.ref===first.track.id)?.cardId).toBeUndefined();
+    await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
+  }finally{r.dispose();}
+});
+
+it.each(['GY','BANISHED'] as const)('a changed %s top reveals a known lower member and removes the taken top',async zone=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:'bottom',zone,cardId:'300'},{id:'below',zone,cardId:'200'},{id:first.track.id,zone,cardId:'100'}];
+    r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    r.state.faces.set(`0.9/${y}`,{id:'200',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[0,1]});
+    await r.tick(18);
+    expect(r.state.events.filter(e=>e.type==='removed')).toEqual([expect.objectContaining({track:expect.objectContaining({id:first.track.id,removed:true})})]);
+    const revealed=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.cardId==='200');
+    expect(revealed).toHaveLength(1);expect(revealed[0].track.id).toBe('below');
+    await r.tick(12);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
+  }finally{r.dispose();}
+});
+
+for(const origin of ['GY','BANISHED'] as const)it.each([
+  ['M4',.634,.3],['S2',.34,.68],['FIELD',.03,.3],['EMZ1',.34,.02],
+  [origin==='GY'?'BANISHED':'GY',.9,origin==='GY'?.02:.3],
+] as const)('a touched '+origin+' member moves to %s with one physical ref',async(zone,x,y)=>{
+  const r=await ownerFieldRig(),pileY=origin==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,pileY)];r.state.identity='200';r.state.embedding=[0,1];await r.tick(10);
+    const top=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:'member',zone:origin,cardId:'100'},{id:top.track.id,zone:origin,cardId:'200'}];
+    r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    r.state.faces.set(`${x}/${y}`,{id:'100',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[1,0]});
+    r.state.outlines.push(r.quad(x,y));await r.tick(18);
+    const returned=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone===zone&&e.track.cardId==='100');
+    expect(returned).toHaveLength(1);expect(returned[0]).toMatchObject({fromRef:'member',track:{id:'member'}});
+    const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+    const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+    let state=ygoModule.initialState({seatCount:2});const pile=origin==='GY'?'graveyard':'banished';
+    state.seats[0].twin=[{ref:'bottom',zone:pile,cardId:300,faceUp:true,position:'attack'},{ref:'member',zone:pile,cardId:100,name:'Fenrir',faceUp:true,position:'attack'},{ref:top.track.id,zone:pile,cardId:200,faceUp:true,position:'attack'}];
+    const proposal=fieldPlacementProposals({track:returned[0].track,seat:0,cardId:100,name:'Fenrir',fromRef:(returned[0] as any).fromRef})[0];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,at:1,idempotencyKey:'pile-return'}));
+    expect(state.seats[0].twin.filter(c=>c.zone===pile).map(c=>c.ref)).toEqual(['bottom',top.track.id]);
+    expect(state.seats[0].twin).toHaveLength(3);expect(state.twinConfirmation).toBeUndefined();
+  }finally{r.dispose();}
+});
+
+it.each([['GY',false],['GY',true],['BANISHED',false],['BANISHED',true]] as const)('X still on %s proves a separate field copy after a pile touch (lower X=%s)',async(zone,lower)=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[...(lower?[{id:'lower-copy',zone,cardId:'100'}]:[]),{id:first.track.id,zone,cardId:'100'}];r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    r.state.outlines.push(r.quad(.634));await r.tick(15);
+    const placed=r.state.events.find(e=>e.type==='placed'&&e.track.zone==='M4')!;
+    expect(placed.track.id).not.toBe(first.track.id);expect((placed as any).fromRef).toBeUndefined();
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({zone,removed:false,visible:true});
+    expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+  }finally{r.dispose();}
+});
+
+it.each(['GY','BANISHED'] as const)('a real %s arrival keeps its lower history; taking it later restores the old ref',async zone=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02,look=Array.from({length:12},(_,i)=>i%2?.1:.8);
+  try{
+    r.state.outlines=[r.quad(.9,y)];await r.tick(10);const below=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:below.track.id,zone,cardId:'100'}];
+    r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    r.state.faces.set(`0.9/${y}`,{id:'200',look,embedding:[0,1]});await r.tick(18);
+    expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+    const top=r.state.events.find(e=>e.type==='placed'&&e.track.cardId==='200')!;expect(top).toBeDefined();
+    r.state.known.push({id:top.track.id,zone,cardId:'200'});await r.tick(100);
+    r.state.motion=.2;await r.tick(2);r.state.motion=0;r.state.faces.delete(`0.9/${y}`);await r.tick(18);
+    const revealed=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.cardId==='100');
+    expect(revealed).toHaveLength(2);expect(revealed.at(-1)?.track.id).toBe(below.track.id);
+    expect(r.state.events.filter(e=>e.type==='removed').map(e=>e.track.id)).toEqual([top.track.id]);
+  }finally{r.dispose();}
+});
+
+it.each(['GY','BANISHED'] as const)('a detector miss cannot take X from an unchanged %s top',async zone=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone,cardId:'100'}];r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    // The old pile pixels still show X; only its detector outline is missing.
+    r.state.outlines=[r.quad(.634)];await r.tick(15);
+    const placed=r.state.events.find(e=>e.type==='placed'&&e.track.zone==='M4')!;
+    expect(placed).toBeDefined();expect(placed.track.id).not.toBe(first.track.id);expect(placed.fromRef).toBeUndefined();
+    expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+  }finally{r.dispose();}
+});
+
+it.each(['GY','BANISHED'] as const)('a field read before the %s top read after restart cannot consume that pile',async zone=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.known=[{id:'known-top',zone,cardId:'100'}];r.state.outlines=[r.quad(.634),r.quad(.9,y)];
+    r.state.motion=.2;await r.tick(2);r.state.motion=0;await r.tick(20);
+    const placed=r.state.events.find(e=>e.type==='placed'&&e.track.zone==='M4');
+    expect(placed).toBeDefined();expect(placed?.track.id).not.toBe('known-top');expect(placed?.fromRef).toBeUndefined();
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id==='known-top')).toMatchObject({zone,visible:true,removed:false});
+  }finally{r.dispose();}
+});
+
+for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] as const)('lifting two '+zone+' cards reveals the lower member and detects destination=%s',async destination=>{
+  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+  try{
+    r.state.outlines=[r.quad(.9,y),...(destination?[r.quad(destination==='DECK'?.93:.03,.7,true)]:[])];await r.tick(10);
+    const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:'bottom',zone,cardId:'300'},{id:'middle',zone,cardId:'200'},{id:first.track.id,zone,cardId:'100'}];
+    r.state.motion=.2;r.state.extraMotion=destination==='EXTRA'?.2:0;await r.tick(2);r.state.motion=0;r.state.extraMotion=0;
+    r.state.faces.set(`0.9/${y}`,{id:'300',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[0,1]});await r.tick(18);
+    const removed=r.state.events.filter(e=>e.type==='removed');
+    expect(removed.map(e=>e.track.id).sort()).toEqual([first.track.id,'middle'].sort());
+    for(const event of removed)expect(event.destination).toBe(destination);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id==='bottom')).toMatchObject({zone,cardId:'300',removed:false});
+    await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(2);
+  }finally{r.dispose();}
 });

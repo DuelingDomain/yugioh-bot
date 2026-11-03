@@ -68,7 +68,7 @@ export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<str
   }
   if(snapshot.status==='watching'||snapshot.status==='budget'||snapshot.status==='busy')for(const track of snapshot.tracks){
     if(track.state!=='identified'||!track.visible||track.removed||track.faceDown||track.zone==='DECK'||track.card.kind!=='face-up'||track.card.covered||track.card.partial)continue;
-    const known=knownCards.find(k=>k.id===track.id);if(!known||known.faceDown||!known.cardId||known.zone==='DECK')continue;
+    const known=knownCards.find(k=>k.id===track.id);if(!known||known.faceDown||!known.cardId||['DECK','EXTRA','HAND'].includes(known.zone))continue;
     const entry=entries.get(known.cardId);if(!entry)continue;
     const cardId=catalogCardId(entry);if(!cardId)continue;
     cards.push({ref:track.id,cardId,name:entry.name,quad:track.card.quad.map(p=>({x:Math.round(p.x*10000)/10000,y:Math.round(p.y*10000)/10000}))});

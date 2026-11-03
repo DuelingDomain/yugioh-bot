@@ -10,10 +10,12 @@ export function createFieldIdentityGallery(saved:unknown=[],changed?:()=>void) {
   const entries:FieldIdentityEntry[]=Array.isArray(saved)?saved.filter(valid).map(v=>structuredClone(v)):[];
   return {
     entries:()=>structuredClone(entries),
-    resolve(embedding?:Embedding):FieldIdentityMatch {
+    resolve(embedding?:Embedding,preferred:readonly string[]=[]):FieldIdentityMatch {
       if(!embedding)return {kind:'new'};
       const scores=entries.map(entry=>({entry,score:fieldEmbeddingSimilarity(entry.embedding,embedding)??-1}));
       const matches=scores.filter(v=>v.score>=.84),identities=new Set(matches.map(v=>v.entry.cardId));
+      const prioritized=preferred.find(id=>matches.some(v=>v.entry.cardId===id));
+      if(prioritized)return {kind:'match',cardId:prioritized};
       if(identities.size===1)return {kind:'match',cardId:matches[0].entry.cardId};
       return matches.length||scores.some(v=>v.score>.68)?{kind:'hold'}:{kind:'new'};
     },
