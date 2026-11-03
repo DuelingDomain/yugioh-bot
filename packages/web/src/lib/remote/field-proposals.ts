@@ -1,4 +1,4 @@
-import type {RoomMutation} from './room-mutations';
+import {remoteActionError,type RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
@@ -84,13 +84,18 @@ export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly Fie
 
 /** Retry the same operation after the room controller refreshes its sequence. */
 export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionProposal,id:string,valid:()=>boolean,failed:(error:unknown)=>void) {
-  for(let attempt=0;attempt<2;attempt++){
+  // A stale sequence refreshes the room between attempts; a busy table can need
+  // more than one refresh. The same idempotency key keeps the write single.
+  const attempts=3;let reason='';
+  for(let attempt=0;attempt<attempts;attempt++){
     if(!valid())return null;
+    const before=remoteActionError()?.at;
     let updated:Awaited<ReturnType<RoomMutation>>=null;
-    try{updated=await act(proposal,id);}catch(error){failed(error);if(attempt)throw error;}
+    try{updated=await act(proposal,id);}catch(error){failed(error);reason=error instanceof Error?error.message:String(error);if(attempt===attempts-1)throw error;}
     if(updated)return updated;
-    failed(new Error(`Could not save ${proposal.type}. Retrying the field update.`));
-    if(!attempt)await new Promise(resolve=>setTimeout(resolve,100));
+    const server=remoteActionError();if(server&&server.at!==before)reason=server.message;
+    failed(new Error(`Could not save ${proposal.type}${reason?`: ${reason}`:''}. Retrying the field update.`));
+    if(attempt<attempts-1)await new Promise(resolve=>setTimeout(resolve,100*(attempt+1)));
   }
-  throw new Error('Could not save the field update. Use Retry field update.');
+  throw new Error(`Could not save the field update (${proposal.type}${reason?`: ${reason}`:''}). Use Retry field update.`);
 }

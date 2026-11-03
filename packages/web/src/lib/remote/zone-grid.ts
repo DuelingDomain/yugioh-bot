@@ -98,7 +98,7 @@ export function readGridPref(own: boolean): boolean {
 export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
 
 /** Owner debug overlay: what the field watcher saw on its last scan. Own feed only, never sent to other seats. */
-export interface FieldDebugView { debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number }
+export interface FieldDebugView { debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number; writeError?: string; backend?: string }
 let debugOn = false, debugView: FieldDebugView | null = null;
 const debugListeners = new Set<() => void>();
 const debugNotify = () => { for (const listener of debugListeners) listener(); };

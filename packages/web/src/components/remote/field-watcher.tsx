@@ -8,12 +8,12 @@ import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,fieldCandidateFitsZone} from '@/lib/remote/field-legality';
+import {projectFieldZone,fieldCandidateFitsZone,manualFieldZoneWarning,fieldZoneLabel} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {RecognitionBadge} from './ui/recognition-setting';
-import {useRecognitionBackend} from './ui/recognition-backend';
+import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
@@ -57,6 +57,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
+  const lastWriteError=useRef('');
+  const recognition=useRecognitionBackend();
+  const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
@@ -107,7 +110,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       current.current.room=latest;markFieldTiming(event?.timing,'dequeued');
       console.info('[remote field] dequeued',event?.type,event?.track.id,latest.lastSeq);
       const apply:RoomMutation=async (proposal,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();bindFieldTiming(actionId,current.current.room.slug,event?.timing);
-        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{console.warn('[remote field] save failed',proposal.type,error);markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});setNotice('Could not save the field update. Retrying…');});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)setNotice('Card changed before the field update was saved. Keep it still, then try again.');if(updated){current.current.room=updated;prunePhysical();}return updated;};
+        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});setNotice(text);});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);setFailedUpdate(previous=>previous?.work===work?null:previous);
     }).catch(error=>{console.error('[remote field] update failed',error);if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
   }
@@ -183,15 +186,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const after=watch.getTrack(event.track.id);
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
-  async function apply(event:FieldEvent,act:RoomMutation,chosen?:string) {
+  async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0) {
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=!!chosen&&event.type==='prompt';
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,track,humanChoice);
     const mutate=(proposal:Parameters<typeof applyVerifiedFieldMutation>[3])=>applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal,humanChoice);
     const observed=watch.getTrack(event.track.id);
     if(!live()||!matchesEvidence(observed)){
-      console.warn('[remote field] identification deferred',event.track.id,observed?.state,observed?.visible,observed?.revision);
-      setNotice(chosen?'Card is moving or covered. Keep it still, then choose again.':'Card changed before identification. Keep it still for a fresh read.');return;
+      console.warn('[remote field] identification deferred',event.track.id,observed?.state,observed?.visible,observed?.revision,attempt);
+      if(chosen){setNotice('Card is moving or covered. Keep it still, then choose again.');return;}
+      // A hand passing over the card hides it for a moment. Retry the same
+      // evidence quietly; a changed card brings its own fresh event.
+      if(live()&&observed&&!observed.removed&&attempt<6&&(observed.revision??0)===(event.track.revision??0)&&observed.cardId===event.track.cardId)
+        setTimeout(()=>{void queue(next=>apply(event,next,undefined,attempt+1),event);},400);
+      return;
     }
     let track={...observed!,id:bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
     const entry=track.cardId?entries.current.get(track.cardId):undefined;
@@ -470,8 +478,33 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[seat,gridFormat,phone,watch.calibration,watch.placed,updateCalibration,gridKey,host,watch.snapshot.tracks.length]);
   useEffect(()=>clearZoneGrid,[]);
+  // Yu-Gi-Oh zone rules decide the final zone once a card is known; the camera
+  // grid is only a hint. A face-up camera card in an illegal zone (a Field Spell
+  // in S1, a monster in the S/T row, a Main Deck monster in an EMZ) moves to
+  // the nearest legal free zone. Manual moves and face-down cards are left alone.
+  const ruleFixes=useRef(new Set<string>()),[factsTick,setFactsTick]=useState(0);
+  useEffect(()=>{
+    if(!live())return;
+    const twins=room.state.seats[seat].twin,format=room.format?.id??room.state.deckChecks.format.id;
+    for(const card of twins){
+      if(!card.faceUp||!publicField(card.zone)||manual.current.has(card.ref))continue;
+      const zone=toZone(card.zone,card.slot),code=cardCode(card);if(!zone||!code)continue;
+      const facts=cardInfo(code);if(!facts){void loadCards([code]).then(()=>{if(cardInfo(code))setFactsTick(n=>n+1);});continue;}
+      if(!manualFieldZoneWarning(facts,card.zone,card.slot))continue;
+      const target=projectFieldZone({zone:physical.current!.zones.get(card.ref)??observedFieldZone(room.slug,seat,card.ref)??zone,facts,twins,ref:card.ref,format});
+      if(!target.zone||target.zone===zone)continue;
+      const key=`${card.ref}:${zone}:${target.zone}`;if(ruleFixes.current.has(key))continue;ruleFixes.current.add(key);
+      void queue(async act=>{
+        const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===card.ref);
+        if(!live()||!latest||toZone(latest.zone,latest.slot)!==zone||manual.current.has(card.ref))return;
+        const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...fieldZoneLocation(target.zone!),...(latest.position?{position:latest.position}:{})});
+        if(updated){setNotice(`${latest.name??'Card'} → ${fieldZoneLabel(target.zone!)} · zone rule`);setUndoId(updated.state.undo?.actionId??'');}
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.state,seat,factsTick]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
-  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs});},[watch.snapshot]);
+  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);

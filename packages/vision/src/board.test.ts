@@ -724,6 +724,29 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const provisional=r.events.find(e=>e.type==='placed'&&e.track.zone==='M3'&&e.track.faceDown);if(provisional)assert.equal(r.events.find(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='M3')?.replacesRef,provisional.track.id);
  assert.equal(snap.tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
  const debug=snap.debug!;assert.ok(debug.detections.some(d=>d.zone==='M3'&&d.use.startsWith('track')),'the debug overlay shows the raw M3 outline and its track');
+ // Infinite Impermanence: a Set in S3 is revealed, then sent from S3 to the GY.
+ const s3=card(.4,.72,.1,.15),imperm=Array.from({length:288},(_,i)=>((Math.floor(i/3)*29+(i%3)*11)%239)/255);
+ r.identityAt=c=>{const p=zones.fieldCenter(c);return p.x>.8?'B':p.y>.6?'C':'A';};r.decklist=['A','B','C'];
+ r.appearanceAt=c=>{const p=zones.fieldCenter(c);return p.x>.8?under:p.y>.6?(c.kind==='face-down'?white:imperm):p.x>.4&&p.x<.5?fenrir:p.x<.4&&p.x>.25?white:mat;};
+ r.outlines=[{...gy},{...m3},set,{...s3,kind:'face-down',confidence:.9}];for(let i=0;i<10;i++)await r.tick(100);
+ const s3Set=r.events.find(e=>e.type==='placed'&&e.track.zone==='S3');assert.ok(s3Set&&s3Set.track.faceDown,'S3 Set placed');
+ r.outlines=[{...gy},{...m3},set,{...s3}];for(let i=0;i<20&&!r.events.some(e=>e.track.id===s3Set.track.id&&e.track.cardId==='C');i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.track.id===s3Set.track.id&&!e.track.faceDown&&e.track.cardId==='C'),'Infinite Impermanence revealed on its Set ref');
+ r.watcher.confirm(s3Set.track.id,'C');
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'},{id:s3Set.track.id,zone:'S3',cardId:'C'}];
+ r.appearanceAt=c=>{const p=zones.fieldCenter(c);return p.x>.8?imperm:p.x>.4&&p.x<.5&&p.y<.6?fenrir:p.x<.4&&p.x>.25&&p.y<.6?white:mat;};
+ r.outlines=[{...gy},{...m3},set];r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<15&&!r.events.some(e=>e.type==='moved'&&e.track.id===s3Set.track.id&&e.track.zone==='GY');i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===s3Set.track.id&&e.track.zone==='GY'),'the face-up trap goes from S3 to the GY on its ref');
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'},{id:s3Set.track.id,zone:'GY',cardId:'C'}];
+ // The owner clears the mat: every field card leaves within ~2 s, including a
+ // twin the watcher never tracked (an EMZ Link); the GY pile stays.
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id,zone:'M3',cardId:'A'},{id:'link',zone:'EMZ1',cardId:'L'}];
+ r.motionRegion=undefined;r.motionAt=undefined;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:mat;const clearedFrom=r.at,before=r.events.length;
+ for(let i=0;i<40&&!['link',id].every(ref=>r.events.some(e=>e.type==='removed'&&e.track.id===ref&&e.track.zone!=='GY'));i++)await r.tick(100);
+ for(const ref of ['link',id])assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===ref&&e.track.zone!=='GY'),`${ref} leaves the field`);
+ assert.ok(r.at-clearedFrom<=3500,`empty mat cleared after ${r.at-clearedFrom} ms`);
+ assert.equal(r.events.slice(before).some(e=>e.type==='removed'&&['gy-old',s3Set.track.id].includes(e.track.id)),false,'piles stay');
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
