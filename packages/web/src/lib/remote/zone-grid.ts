@@ -1,21 +1,22 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { createFieldCalibration, fieldMatPoint, hasExtraMonsterZones, onMat, type FieldCalibration, type FieldFormat, type PlayerSide } from "@yugidraft/vision";
+import { normalizeZoneSpacing, fieldZoneLayout, createFieldCalibration, fieldMatPoint, hasExtraMonsterZones, onMat, type FieldCalibration, type FieldFormat, type PlayerSide } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
 export interface GridCell { zone: string; label: string; x: number; y: number; w: number; h: number }
 
 /** Master Rule zones: Field, M1-M5, Banished/GY on top; Extra, S1-S5, Deck below; two EMZ above M2 and M4 when the format has them. */
-export function fieldGridCells(format: FieldFormat = "normal"): GridCell[] {
-  const emz = hasExtraMonsterZones(format);
+export {normalizeZoneSpacing};
+export function fieldGridCells(format: FieldFormat = "normal", zoneSpacing=1): GridCell[] {
+  const emz = hasExtraMonsterZones(format),{pitch,start,end,minX,maxX}=fieldZoneLayout(zoneSpacing),side=start-minX;
   return [
-    { zone: "FIELD", label: "Field", x: 0, y: 0, w: .18, h: .56 }, { zone: "EXTRA", label: "Extra", x: 0, y: .56, w: .18, h: .44 },
-    { zone: "BANISHED", label: "Banished", x: .82, y: 0, w: .18, h: .25 }, { zone: "GY", label: "GY", x: .82, y: .25, w: .18, h: .31 }, { zone: "DECK", label: "Deck", x: .82, y: .56, w: .18, h: .44 },
-    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: .18 + .128 * i, y: emz ? .2 : 0, w: .128, h: emz ? .36 : .56 })),
-    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: .18 + .128 * i, y: .56, w: .128, h: .44 })),
-    ...(emz ? [{ zone: "EMZ1", label: "EMZ", x: .308, y: 0, w: .128, h: .2 }, { zone: "EMZ2", label: "EMZ", x: .564, y: 0, w: .128, h: .2 }] : []),
+    { zone: "FIELD", label: "Field", x: minX, y: 0, w: side, h: .56 }, { zone: "EXTRA", label: "Extra", x: minX, y: .56, w: side, h: .44 },
+    { zone: "BANISHED", label: "Banished", x: end, y: 0, w: maxX-end, h: .25 }, { zone: "GY", label: "GY", x: end, y: .25, w: maxX-end, h: .31 }, { zone: "DECK", label: "Deck", x: end, y: .56, w: maxX-end, h: .44 },
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: emz ? .2 : 0, w: pitch, h: emz ? .36 : .56 })),
+    ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: .56, w: pitch, h: .44 })),
+    ...(emz ? [{ zone: "EMZ1", label: "EMZ", x: start+pitch, y: 0, w: pitch, h: .2 }, { zone: "EMZ2", label: "EMZ", x: start+3*pitch, y: 0, w: pitch, h: .2 }] : []),
   ];
 }
 
@@ -37,7 +38,7 @@ export function displayCalibration(calibration: FieldCalibration | undefined, de
   if (calibration?.orientation) return calibration;
   const cache = calibration ? guessedFrom.get(calibration) ?? guessedFrom.set(calibration, new Map()).get(calibration)! : guessed;
   let value = cache.get(defaultSide);
-  if (!value) { value = createFieldCalibration(calibration?.corners ?? DEFAULT_GRID_CORNERS, { playerSide: defaultSide, mirrored: false }); cache.set(defaultSide, value); }
+  if (!value) { value = createFieldCalibration(calibration?.corners ?? DEFAULT_GRID_CORNERS, { playerSide: defaultSide, mirrored: false },calibration?.zoneSpacing); cache.set(defaultSide, value); }
   return value;
 }
 
@@ -64,6 +65,7 @@ export function straddledZones(quad: readonly Point[], calibration: FieldCalibra
   }
   if (inside < 12) return null;
   const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if(ranked.length>1&&/^[MS][1-5]$/.test(ranked[0][0])&&ranked[0][0][0]===ranked[1][0][0])return null;
   return ranked.length > 1 && ranked[1][1] >= inside * .25 ? [ranked[0][0], ranked[1][0]] : null;
 }
 
