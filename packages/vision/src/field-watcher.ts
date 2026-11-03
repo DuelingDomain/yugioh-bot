@@ -276,14 +276,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       if(generation!==epoch||disposed)return;
       const cardAspect=(c:DetectedQuad)=>{
-        const q=c.quad.map(p=>({x:p.x*current!.width,y:p.y*current!.height})),edge=(a:number,b:number)=>Math.hypot(q[a].x-q[b].x,q[a].y-q[b].y);
+        const side=calibration?.orientation?.playerSide,quarterTurn=side==='left'||side==='right';
+        const width=quarterTurn?current!.height:current!.width,height=quarterTurn?current!.width:current!.height;
+        const q=c.quad.map(p=>onMat(p,calibration)).map(p=>({x:p.x*width,y:p.y*height})),edge=(a:number,b:number)=>Math.hypot(q[a].x-q[b].x,q[a].y-q[b].y);
         const w=(edge(0,1)+edge(2,3))/2,h=(edge(1,2)+edge(3,0))/2,ratio=Math.min(w,h)/Math.max(w,h);
         return ratio>=59/86*.88&&ratio<=59/86*1.12;
       };
       const outlines=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       const cards=outlines.filter(c=>!deckZone(mapFieldZone(c,calibration,[],options.format).zone));
       const seenPiles=new Set<FieldZone>();
-      for(const c of outlines){
+      const area=(c:DetectedQuad)=>Math.abs(c.quad.reduce((sum,p,i)=>{const next=c.quad[(i+1)%4];return sum+p.x*next.y-next.x*p.y;},0))/2;
+      for(const c of [...outlines].sort((a,b)=>area(b)-area(a)||b.confidence-a.confidence)){
         const zone=mapFieldZone(c,calibration,[],options.format).zone;
         if(!deckZone(zone)||seenPiles.has(zone))continue;
         seenPiles.add(zone);
@@ -291,8 +294,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const clean=c.confidence>=.4&&(c.confidence>=.7||cardAspect(c))&&!c.partial&&!c.covered&&!isCovered(c,outlines)&&evidence.motion(c)<=.025;
         const crop=clean?evidence.crop?.(c):undefined;
         const observation=crop?classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
-        // A verified stack can stay present across idle scans; every scan still
-        // requires a clean back at the same location. Never infer its count.
+        // Unknown observations retain a verified stack; a confident front clears it.
+        // Detector absence expires it after three seconds. Never infer its count.
         pile.down=pile.gate.update(observation,sample.at).state==='down'||pile.down&&!(observation.state==='up'&&observation.confidence>=.8);
         pile.card=c;pile.at=sample.at;piles.set(zone,pile);
       }
@@ -314,14 +317,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const sameSpot=overlap>=.84&&d<.012;
         const needsLook=!bound(t)&&t.view.state==='identified'&&t.view.card.kind==='face-up'&&!sameSpot&&(d>.02||overlap<.84||t.missed);
         const looks=c.kind==='face-up'&&((!t.identityAppearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.identityAppearance,appearance(c)));
-        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||(t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c)))))&&(!needsLook||looks)&&(!bound(t)||!["GY","BANISHED"].includes(t.view.zone)||followsAppearance(t,c))&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t,c))};
+        return {t,c,score:overlap+(1-d)*.1+(c.confidence>=.7?2:0),eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!t.view.removed||((t.view.state==='dismissed'||t.restoredAt!==undefined||sample.at-t.view.lastSeen<=2500)&&t.view.card.kind===c.kind&&(c.kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(c)):sameFieldAppearance(t.identityAppearance,appearance(c)))))&&(!needsLook||looks)&&(!bound(t)||!["GY","BANISHED"].includes(t.view.zone)||followsAppearance(t,c))&&(!(bound(t)&&(overlap<.12||t.missed)&&d>.04)||clearOldSpot(t,c))};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
       // across the mat. Multiple unmatched cards remain ambiguous and are not guessed.
       const incoming=cards.filter(c=>!taken.has(c));
       const lost=tracks.filter(t=>!matched.has(t)&&(t.view.state==='identified'||t.prompted)&&(t.view.removed?
-        incoming.length===1&&t.view.card.kind===incoming[0].kind&&(incoming[0].kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(incoming[0])):sameFieldAppearance(t.identityAppearance,appearance(incoming[0]))):
+        (t.view.state==='dismissed'||t.restoredAt!==undefined||sample.at-t.view.lastSeen<=2500)&&incoming.length===1&&t.view.card.kind===incoming[0].kind&&(incoming[0].kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(incoming[0])):sameFieldAppearance(t.identityAppearance,appearance(incoming[0]))):
         sample.at-t.view.lastSeen<=Math.max(2500,removalMs))).filter(t=>incoming.length!==1||followsAppearance(t,incoming[0]));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
@@ -521,15 +524,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           const deck=options.getPriors?.()?.decklist;
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
-          // An identity can gain a new twin only after simultaneous physical
-          // copies are seen. A lost copy, including one in a pile, owns a return.
+          // Follow a fresh field lift through its new read. Pile history and old
+          // departures are resolved as new copies by the owner adapter.
           const known=options.getKnownCards?.();
           if(t.newOutline&&!t.binding&&!t.promptOnly){
             const restored=tracks.find(old=>old!==t&&old.view.removed&&old.restoredAt!==undefined&&sample.at-old.restoredAt<10000&&old.view.cardId!==winner&&known?.some(card=>card.id===old.view.id&&card.zone===t.view.zone&&!card.faceDown));
             if(restored){t.binding={id:restored.view.id,zone:restored.view.zone,cardId:restored.view.cardId};t.promptOnly='reappeared';}
           }
           if(winner&&t.newOutline&&!t.binding&&!t.promptOnly){
-            const displaced=tracks.filter(old=>old!==t&&bound(old)&&old.view.cardId===winner&&
+            const displaced=tracks.filter(old=>old!==t&&bound(old)&&old.view.cardId===winner&&(!old.view.removed||old.restoredAt!==undefined||sample.at-old.view.lastSeen<=2500)&&
               (!known||known.some(card=>card.id===old.view.id&&card.cardId===winner))&&
               (!matched.has(old)||!old.view.visible||old.view.removed||
                 !sameRotatedFieldAppearance(old.identityAppearance,appearance(matched.get(old)!))))

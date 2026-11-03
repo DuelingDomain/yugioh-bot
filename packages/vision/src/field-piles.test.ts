@@ -24,9 +24,10 @@ test('cached identity settlement preserves deck observations until a real detect
   try {
     for(let i=0;i<5;i++)await tick();
     assert.equal(watcher.getSnapshot().piles?.length,1);
-    outlines=[deck,front];
+    outlines=[{...deck,quad:deck.quad.map(p=>({x:.94+(p.x-.9)/3,y:.74+(p.y-.7)/3}))},deck,front];
     for(let i=0;i<10&&!reads;i++)await tick();
     assert.equal(reads,1);
+    assert.deepEqual(watcher.getSnapshot().piles?.[0].card.quad,deck.quad,'the largest deck outline owns the pile');
     const before=detects;
     await tick();
     assert.equal(detects,before,'the completed read uses cached outlines');
