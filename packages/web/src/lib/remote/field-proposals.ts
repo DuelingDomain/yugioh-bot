@@ -38,10 +38,10 @@ export function fieldPlacementProposals({track,seat,cardId,name,existing=false,f
   return [{type:'twin.place',source:'auto',...(fromRef?{fromRef}:{}),actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{})}];
 }
 
-/** Leave the playable field once; pile disappearance never guesses a destination. */
-export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'deck'|undefined=undefined):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
-  if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(card.zone))return;
-  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
+/** A clear lift leaves its public zone once, retaining the physical ref privately. */
+export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'deck'|'extra'|undefined=undefined):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
+  if(!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
+  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination||['graveyard','banished'].includes(card.zone)?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
 }
 
 /** Queue delays must not attach an old read to replacement pixels. */
