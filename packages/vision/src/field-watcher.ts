@@ -198,7 +198,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(difference)recentMotion={region:difference,at:sample.at,since:recentMotion&&sample.at-recentMotion.at<=250?recentMotion.since:sample.at};
       for(const t of [...tracks]){
         // Even a frame skipped by the detector throttle interrupts confirmation.
-        if(evidence.motion(t.view.card)>.025||t.view.card.partial||t.view.card.covered)resetFace(t);
+        if(evidence.motion(t.view.card)>.025||evidence.occluded?.(t.view.card)||t.view.card.partial||t.view.card.covered)resetFace(t);
         // Unplaced draw outlines have no public state to remove. Once a real
         // detector miss and clear mat agree, stop their confirmation scans.
         if(t.view.state==='candidate'&&t.view.faceDown&&!t.placeholder&&!t.binding&&!t.prompted&&t.resolvedAt===undefined&&!t.read&&t.missed&&lastDetectionAt>t.view.lastSeen&&
@@ -211,7 +211,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!reading)for(const t of tracks){
         const c=t.view.card,pixels=evidence.appearance?.(c);
         if(!t.previewEligible||t.view.state!=='candidate'||t.view.removed||t.promptOnly||sample.at-t.view.lastSeen>500||c.confidence<.7||c.partial||c.covered||
-          evidence.motion(c)>.025||!sameFieldAppearance(t.appearance,pixels)||evidence.sharpness(c)<12)continue;
+          evidence.motion(c)>.025||evidence.occluded?.(c)||!sameFieldAppearance(t.appearance,pixels)||evidence.sharpness(c)<12)continue;
         const crop=evidence.crop?.(c);if(!crop)continue;
         const observation=classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined});
         if(observation.state!=='up')continue;
@@ -240,13 +240,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         return;
       }
       if(reading) {
-        for(const t of tracks)if(evidence.motion(t.view.card)>.025||(t.identityAppearance?.length&&t.view.card.kind==='face-up'&&!matchesLook(t,evidence.appearance?.(t.view.card)))){t.view.visible=false;resetFace(t);}
+        for(const t of tracks)if(evidence.occluded?.(t.view.card)||evidence.motion(t.view.card)>.025||(t.identityAppearance?.length&&t.view.card.kind==='face-up'&&!matchesLook(t,evidence.appearance?.(t.view.card)))){t.view.visible=false;resetFace(t);}
         // Keep sampling motion/appearance while the worker embeds. Never infer
         // stillness or disappearance from a stale outline during this interval.
-        for(const t of tracks)if(t.read&&(evidence.motion(t.view.card)>.025||(t.appearance?.length&&evidence.appearance&&!sameFieldAppearance(t.appearance,evidence.appearance(t.view.card))))) {
+        for(const t of tracks)if(t.read&&(evidence.occluded?.(t.view.card)||evidence.motion(t.view.card)>.025||(t.appearance?.length&&evidence.appearance&&!sameFieldAppearance(t.appearance,evidence.appearance(t.view.card))))) {
           resetFace(t);invalidateRead(t);t.stableSince=NaN;t.observations=0;t.best=undefined;
         }
-        for(const t of tracks)if(t.read&&t.face&&evidence.motion(t.view.card)<=.025){
+        for(const t of tracks)if(t.read&&t.face&&!evidence.occluded?.(t.view.card)&&evidence.motion(t.view.card)<=.025){
           const crop=evidence.crop?.(t.view.card);
           if(crop)t.face.gate.update(classifyFaceState(crop,{reference:t.face.reference,detectorFaceDownScore:t.view.card.kind==='face-down'?t.view.card.confidence:undefined}),sample.at);
         }
@@ -437,11 +437,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // face without overwriting identity or re-running inference.
         // A white/art sleeve can retain the detector's front class. Its fresh
         // outline still supports pixel confirmation when the bound face changes.
-        if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down')||bound(t)&&!matchesLook(t,pixels))&&c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
+        if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down')||bound(t)&&!matchesLook(t,pixels))&&c.confidence>=.4&&!c.partial&&!c.covered&&!evidence.occluded?.(c)&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
         // Bound cards need fresh face pixels in either direction, even when a
         // plain sleeve has a weak/wrong detector class. New fronts keep .7.
         const boundOutline=c.confidence>=.4&&cardAspect(c)&&!!(t.setRecovery||t.binding?.faceDown||bound(t));
-        const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c)||boundOutline)&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
+        const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c)||boundOutline)&&!c.partial&&!c.covered&&!evidence.occluded?.(c)&&!isCovered(c,cards)&&
           !cards.some(other=>other!==c&&quadIou(c,other)>0)&&evidence.motion(c)<=.025&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
         const crop=faceClean?evidence.crop?.(c):undefined;
         const observation=crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
@@ -460,7 +460,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           await startRead(t,current,c,crop,sample.at,generation);
         }
         const knownFace=bound(t)&&c.kind===t.kind&&t.view.faceDown===(c.kind==='face-down')&&matchesLook(t,pixels)&&
-          c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
+          c.confidence>=.4&&!c.partial&&!c.covered&&!evidence.occluded?.(c)&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
         const sureFront=observation.state==='up'&&t.read?.result?.tier==='sure'&&(t.read.result.candidates[0]?.score??0)>=.84&&
           !t.read.result.quality.fallback&&!t.read.result.quality.covered&&!t.read.result.quality.partial&&!t.read.result.quality.faceDown&&
           sameFieldAppearance(t.read.appearance,pixels);

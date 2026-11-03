@@ -1602,17 +1602,19 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:true,position:'attack'})]);
   await page.unroute(`**/api/remote/${slug}/actions`);
   recovery=false;
-  // A new front first receives a Reading placeholder, then one identity write.
+  // A known front returns from hand even after the old move window. Its
+  // temporary Reading cue yields to the original physical ref.
   await page.evaluate(()=>((window as any).fieldTest).clear());
   await expect.poll(async()=>(await room()).state.seats[0].twin.filter((card:any)=>card.zone!=='hand'),{timeout:15_000,intervals:[50]}).toHaveLength(0);
   await page.waitForTimeout(2700); // The departed card is outside the physical reconnection window.
   const placeholderStart=(await room()).events.length;
   const revealAfterPlaceholderTiming=await change(false);
   const afterPlaceholder=await room();
-  expect(afterPlaceholder.events.slice(placeholderStart).map((event:any)=>event.action.type)).toEqual(['twin.place','card.identified']);
-  expect(writes.slice(-2).map(write=>write.type)).toEqual(['twin.place','card.identified']);
-  expect(writes.at(-1)!.baseSeq).toBe(writes.at(-2)!.baseSeq+1);
+  expect(afterPlaceholder.events.slice(placeholderStart).map((event:any)=>event.action.type)).toEqual(['twin.place','twin.remove','twin.place']);
+  expect(writes.slice(-3).map(write=>write.type)).toEqual(['twin.place','twin.remove','twin.place']);
+  for(let i=1;i<3;i++)expect(writes.slice(-3)[i].baseSeq).toBe(writes.slice(-3)[i-1].baseSeq+1);
   const manualCard=afterPlaceholder.state.seats[0].twin.find((card:any)=>card.zone==='monster'&&card.slot===3);
+  expect(manualCard.ref).toBe(card.ref);expect(afterPlaceholder.state.seats[0].twin).toHaveLength(1);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   expect(writes.filter(write=>!write.recovery&&write.status!==200)).toEqual([]);
   const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;

@@ -42,6 +42,7 @@ export function createFieldAnalyzer() {
       context.drawImage(frame,0,0);return native=context.getImageData(0,0,frame.width,frame.height);
     };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
+    const occlusions=new WeakMap<DetectedQuad,boolean>();
     return {
       motionRegion,
       crop(card) {
@@ -99,16 +100,28 @@ export function createFieldAnalyzer() {
         return n?Math.max(sum/n,changed/n*.2):1;
       },
       occluded(card) {
-        // Conservative skin/arm mask, independent of motion so a resting hand
-        // still blocks removal. Clear-mat/halo agreement is also required.
-        const b=crop(card,.08);let skin=0,total=0;
-        for(let y=b.top;y<b.bottom;y+=2)for(let x=b.left;x<b.right;x+=2){
-          const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
+        const cached=occlusions.get(card);if(cached!==undefined)return cached;
+        // Skin must connect through the sleeve edge to the surrounding hand.
+        // Warm printed artwork alone is not an occluder, even while stationary.
+        const b=crop(card,.3),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
+        if(w<=0||h<=0)return false;
+        const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),queue:number[]=[];
+        let total=0,covered=0;
+        for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+          const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
+          const r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
           const cb=128-.168736*r-.331264*g+.5*blue,cr=128+.5*r-.418688*g-.081312*blue;
-          if(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173)skin++;
-          total++;
+          mask[index]=Number(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173);
+          const signs=card.quad.map((a,j)=>{const next=card.quad[(j+1)%4];return (next.x-a.x)*(py/image.height-a.y)-(next.y-a.y)*(px/image.width-a.x);});
+          inside[index]=Number(signs.every(v=>v>=0)||signs.every(v=>v<=0));total+=inside[index];
+          if(mask[index]&&(x===0||y===0||x===w-1||y===h-1)){mask[index]=2;queue.push(index);}
         }
-        return total>0&&skin/total>.12;
+        for(let head=0;head<queue.length;head++){
+          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];
+          for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
+            if(next>=0&&mask[next]===1){mask[next]=2;queue.push(next);}
+        }
+        const result=total>0&&covered/total>.12;occlusions.set(card,result);return result;
       },
       sharpness(card) {
         const b=crop(card,0),w=b.right-b.left,h=b.bottom-b.top;

@@ -666,3 +666,37 @@ it('gallery preference resolves only matching embeddings and never publishes a p
   const track={id:'private',cardId:'100',state:'identified',visible:true,removed:false,faceDown:false,zone:'M4',card:{kind:'face-up',quad}} as any;
   expect(fieldTrackMessage({status:'watching',tracks:[track]} as any,new Map([['100',{cardId:'100',passcode:100,name:'Fenrir'}]]),[{id:'private',zone:'HAND',cardId:'100'}]).cards).toEqual([]);
 });
+
+it('a resting hand cannot turn a known front into Set; only fresh clear samples can flip or reveal it',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    await r.tick(8);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100'}];const reads=r.state.reads;
+    r.state.occluded=true;r.state.down=true;r.state.outlines=[r.quad(.47,.30,true)];await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({faceDown:false,cardId:'100'});
+    expect(r.state.events.filter(e=>e.type==='flipped')).toHaveLength(0);expect(r.state.reads).toBe(reads);
+    r.state.occluded=false;await r.tick();expect(r.state.events.filter(e=>e.type==='flipped')).toHaveLength(0);
+    await r.tick(5);expect(r.state.events.filter(e=>e.type==='flipped'&&e.track.faceDown)).toHaveLength(1);
+    r.state.known=[{id:first.track.id,zone:'M3',cardId:'100',faceDown:true}];
+    r.state.occluded=true;r.state.down=false;r.state.outlines=[r.quad()];await r.tick(6);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)?.faceDown).toBe(true);expect(r.state.reads).toBe(reads);
+    r.state.occluded=false;await r.tick(8);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({faceDown:false,cardId:'100'});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toHaveLength(0);
+  }finally{r.dispose();}
+});
+
+it('the hand mask separates warm card artwork from skin crossing the sleeve edge',async()=>{
+  const {createFieldAnalyzer}=await import('../../vision/src/field-motion');
+  const quad={kind:'face-up' as const,confidence:.95,partial:false,quad:[{x:.3,y:.15},{x:.7,y:.15},{x:.7,y:.85},{x:.3,y:.85}]};
+  const frame=(hand:boolean)=>{
+    const width=200,height=160,data=new Uint8ClampedArray(width*height*4);
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const artwork=x>65&&x<135&&y>30&&y<130,arm=hand&&x>105&&x<130;
+      data.set([...(artwork||arm?[190,130,95]:[30,35,40]),255],(y*width+x)*4);
+    }
+    return {width,height,data} as ImageData;
+  };
+  expect(createFieldAnalyzer()(frame(false)).occluded?.(quad)).toBe(false);
+  expect(createFieldAnalyzer()(frame(true)).occluded?.(quad)).toBe(true);
+});
