@@ -1169,15 +1169,103 @@ test("create screen and lobby expose the default-on Deck publicity rule",async({
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
 const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
 const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
+test('field watcher owner: one card completes the full physical lifecycle',async({page,context})=>{
+  test.setTimeout(240_000);
+  const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
+  const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;
+  const writes:any[]=[],errors:string[]=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  page.on('console',message=>{if(message.text().includes('[remote field]'))console.log(message.text());});
+  page.on('response',response=>{if(response.url().endsWith(`${path}/actions`)&&response.request().method()==='POST')writes.push({action:response.request().postDataJSON().action,status:response.status()});});
+  const cardId=97522863,name='The Man with the Mark';
+  await page.route('**/api/cards/resolve',route=>route.fulfill({json:{cards:[{id:cardId,name,type:'Effect Monster',frameType:'effect',race:'Spellcaster',effectText:''}]}}));
+  await appearingCamera(page,process.env.E2E_OWNER_CARD??AUTO_CARD);
+  // Optional deterministic inference replays provider timing and result shapes;
+  // the camera pixels, analyzer, tracker and application remain the real path.
+  if(process.env.E2E_SCENARIO_WORKER==='1')await page.addInitScript(backend=>{
+    const NativeWorker=window.Worker;
+    window.Worker=class extends EventTarget {
+      onmessage:((event:MessageEvent)=>void)|null=null;onerror=null;onmessageerror=null;
+      constructor(url:string|URL,options?:WorkerOptions){super();if(!String(url).includes('vision-lab/assets/worker.js'))return new NativeWorker(url,options) as any;}
+      terminate(){}
+      postMessage(message:any){
+        const physical=(window as any).fieldTest.snapshot(),{x,y,defense,back,visible,covered}=physical;
+        const w=defense?262:180,h=defense?180:262;
+        const card={quad:[{x:x/1280,y:y/720},{x:(x+w)/1280,y:y/720},{x:(x+w)/1280,y:(y+h)/720},{x:x/1280,y:(y+h)/720}],kind:back?'face-down':'face-up',confidence:.95,partial:false};
+        const result=message.type==='detect'?(visible&&!covered?[card]:[]):message.type==='recognize'?{
+          candidates:[{cardId:'97522863',score:.9},{cardId:'46986414',score:.5}],tier:(window as any).fieldScenarioTier??'not sure',
+          quality:{sharpness:80,detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],fallback:false,partial:false,covered:false,faceDown:false},
+          identityEmbedding:{space:'art-box',values:[1,0]},timingsMs:{total:68},backend,
+        }:{backend};
+        message.frame?.close?.();for(const frame of message.frames??[])frame.close?.();
+        setTimeout(()=>{const event=new MessageEvent('message',{data:{id:message.id,result,detectorBackend:backend,backendStatus:{backend,models:[{model:'detector',backend,gpu:{modelPath:'fp32'}}]}}});this.onmessage?.(event);this.dispatchEvent(event);},message.type==='detect'?68:20);
+      }
+    } as any;
+  },process.env.E2E_RECOGNITION_MODE==='gpu'?'webgpu':'wasm');
+  await page.addInitScript(()=>{
+    const calibration={version:1,layout:2,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
+    for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
+  });
+  await page.addInitScript(mode=>localStorage.setItem('dd-remote-recognition-mode',mode),process.env.E2E_RECOGNITION_MODE??'cpu');
+  if(process.env.E2E_SCENARIO_CHOICE==='1')await page.addInitScript(()=>(window as any).fieldScenarioTier='low match');
+  await page.goto(`/duels/remote/${slug}`);
+  await expect(async()=>{
+    const camera=page.getByTestId('camera-on-feed');if(await camera.count())await camera.click();
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:10_000});
+  }).toPass({timeout:90_000});
+  const room=async()=>context.request.get(path).then(r=>r.json());let ref:string|undefined;
+  const check=async(zone:string,slot:number|undefined,faceUp:boolean,position='attack')=>{
+    await expect.poll(async()=>{
+      const twin=(await room()).state.seats[0].twin;
+      return {cards:twin.map((c:any)=>({ref:c.ref,zone:c.zone,slot:c.slot,faceUp:c.faceUp,position:c.position,cardId:c.cardId})),hand:twin.filter((c:any)=>c.zone==='hand').length,gy:twin.filter((c:any)=>c.zone==='graveyard').length,banished:twin.filter((c:any)=>c.zone==='banished').length};
+    },{timeout:20_000}).toEqual({cards:[{ref:ref??expect.any(String),zone,slot,faceUp,position,cardId}],hand:Number(zone==='hand'),gy:Number(zone==='graveyard'),banished:Number(zone==='banished')});
+    const twin=(await room()).state.seats[0].twin;ref??=twin[0].ref;
+    if(zone==='monster')await expect(page.getByTestId('field-0').locator(`[data-zone="m${slot}"]`)).toHaveAttribute('aria-label',faceUp?new RegExp(name):/Face-down/);
+  };
+  const place=async(x:number,y=315,down=false,rotated=down)=>page.evaluate(({x,y,down,rotated})=>{const camera=(window as any).fieldTest;camera.back(down?'#1e3cbe':'');camera.place(x,y,rotated);},{x,y,down,rotated});
+  await place(550);
+  if(process.env.E2E_SCENARIO_CHOICE==='1'){
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await page.evaluate(()=>((window as any).fieldTest).cover(true));
+    await page.waitForTimeout(300);
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await expect(page.getByRole('status').filter({hasText:'Card is moving or covered. Keep it still, then choose again.'})).toBeVisible();
+    await page.evaluate(()=>((window as any).fieldTest).cover(false));
+    await page.waitForTimeout(500);
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+  }
+  await check('monster',3,true);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  if(process.env.E2E_SCENARIO_COVER==='1'){
+    await page.evaluate(()=>((window as any).fieldTest).cover(true));
+    await page.getByRole('button',{name:'Camera off',exact:true}).click();
+    await page.getByTestId('camera-on-feed').click();
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await page.waitForTimeout(6500);await check('monster',3,true);
+    await page.evaluate(()=>((window as any).fieldTest).cover(false));await check('monster',3,true);
+  }
+  await place(509,356,true);await check('monster',3,false,'defense');
+  const beforeFlip=(await room()).events.length;
+  await place(550);await check('monster',3,true);
+  expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move'&&e.action.zone==='monster'&&e.action.slot!==3)).toHaveLength(0);
+  await place(375);await check('monster',4,true);
+  await place(30);await check('graveyard',undefined,true);
+  await place(720);await check('monster',2,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  expect(writes.every(write=>write.status===200)).toBe(true);expect(errors).toEqual([]);
+  console.log(JSON.stringify({scenario:'owner lifecycle',backend:process.env.E2E_RECOGNITION_MODE??'cpu',writes:writes.map(w=>w.action.type)}));
+  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+});
 async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   const data=readFileSync(cardFile).toString('base64');
   await page.addInitScript(async ({data,guided})=>{
     if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let back='',stacks=false,sleeve:ImageBitmap|null=null;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as any).fieldTest={texture:async(on=true)=>{sleeve=on?await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob()):null;paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let back='',stacks=false,sleeve:ImageBitmap|null=null;let covered=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();if(covered){ctx.fillStyle='#bb8c68';ctx.fillRect(x-150,y-150,(defense?262:180)+300,(defense?180:262)+300);}for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={snapshot:()=>({visible,x,y,defense,back,covered}),cover:(value:boolean)=>{covered=value;paint();},texture:async(on=true)=>{sleeve=on?await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob()):null;paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
