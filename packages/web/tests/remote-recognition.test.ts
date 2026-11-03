@@ -466,3 +466,12 @@ it('back cache notifies immediately, returns stable snapshots and expires with o
   now=3001;await vi.advanceTimersByTimeAsync(3001);expect(cache.backs(0)).toBe(empty);expect(changed).toHaveBeenCalledTimes(2);expect(vi.getTimerCount()).toBe(0);stop();
  }finally{vi.useRealTimers();}
 });
+
+it('a replacement during an atomic reveal undoes its stale identity',async()=>{
+ const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
+ const track={id:'set',revision:0,state:'identified',faceDown:false,visible:true,removed:false,cardId:'46986414'} as any;
+ const event={type:'placed',track:{...track},source:'auto'} as any;
+ const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type==='twin.flip')track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
+ expect(await applyVerifiedFieldMutation(event,()=>track,act,{type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toBeNull();
+ expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip','undo']);
+});

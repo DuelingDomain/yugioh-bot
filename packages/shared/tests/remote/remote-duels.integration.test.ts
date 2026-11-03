@@ -1721,5 +1721,6 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
   state=publicSet;state.twinConfirmation={seat:0,cardRef:'incoming',existingRefs:['set'],anotherCopyAllowed:true,message:'Where did this card come from?',options:[{ref:'set',label:'Moved from M2'},{label:'New copy'}]};reduce({type:'twin.place',seat:0,zone:'monster',originRequestRef:'incoming',anotherCopy:true,card:{ref:'incoming',cardId:46986414,slot:3}});
   expect(state.seats[0].twin.find(c=>c.ref==='set')).toMatchObject({zone:'hand'});expect(state.seats[0].twin.find(c=>c.ref==='set')?.publicIdentity).toBeUndefined();
+  expect(()=>reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toThrow(/public card zone/);
   expect(remoteActionSchema.safeParse({type:'twin.flip',actorSeat:0,seat:0,idempotencyKey:'bad',cardRef:'set',faceUp:false,cardId:46986414}).success).toBe(false);
 });

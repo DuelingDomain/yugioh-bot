@@ -47,9 +47,9 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
   // An origin request has no placement or undo entry to compensate.
   if([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===(proposal.type==='twin.place'?proposal.seat:undefined)&&flag?.cardRef===(proposal.type==='twin.place'?proposal.card.ref:undefined)&&flag?.placement))return updated;
   if(!fieldEvidenceMatches(event,current())){
-    if(proposal.type==='twin.place'){
+    if(proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
       let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
-      if(!undone)throw new StaleFieldPlacementError(proposal);
+      if(!undone){if(proposal.type==='twin.place')throw new StaleFieldPlacementError(proposal);throw new Error('The card changed during reveal. Undo the reveal before continuing.');}
     }
     return null;
   }
