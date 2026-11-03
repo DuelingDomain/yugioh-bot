@@ -93,8 +93,27 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const touched=Math.max(deckTouchedAt,extraTouchedAt);
     return touched>=t.view.lastSeen-250&&at-touched<=Math.max(2500,removalMs+500)?{destination:extraTouchedAt>deckTouchedAt?'EXTRA':'DECK'}:{};
   };
+  // Identity lock: a sure read (art clear) or a player's choice fixes a card's
+  // name. Only the player, or a later sure read that beats the locked score by
+  // LOCK_MARGIN, changes it. Moves, flips and re-detections keep it.
+  type IdentityLock={cardId:string;score:number;at:number;embedding?:RecognitionResult['identityEmbedding'];look?:number[]};
+  const LOCK_MARGIN=.05,locks=new Map<string,IdentityLock>();
+  const lockFor=(ref:string|undefined)=>{
+    if(!ref)return;const lock=locks.get(ref);if(!lock)return;
+    // The player changed it (drawer, Wrong card?, Undo): the board is the truth.
+    const known=options.getKnownCards?.().find(k=>k.id===ref);
+    if(known?.cardId&&!known.faceDown&&known.cardId!==lock.cardId&&now()-lock.at>3000){const user={cardId:known.cardId,score:Infinity,at:now(),embedding:lock.embedding,look:lock.look};locks.set(ref,user);return user;}
+    return lock;
+  };
+  // A clearly different embedding is another physical card (a swap), not a re-guess.
+  const lockHolds=(lock:IdentityLock|undefined,result?:RecognitionResult,look?:number[]):lock is IdentityLock=>{if(!lock)return false;const similarity=fieldEmbeddingSimilarity(lock.embedding,result?.identityEmbedding);
+    return similarity!==undefined?similarity>.68:!lock.look?.length||!look?.length||sameRotatedFieldAppearance(lock.look,look);};
+  const beatsLock=(lock:{score:number},result?:RecognitionResult)=>!!result&&result.tier==='sure'&&(result.candidates[0]?.score??0)>=lock.score+LOCK_MARGIN;
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
+    if(type==='placed'&&t.view.cardId&&!t.view.faceDown&&extra.result?.tier==='sure'&&extra.result.candidates[0]?.cardId===t.view.cardId){
+      const lock=lockFor(t.view.id);if(!lock||lock.cardId!==t.view.cardId)locks.set(t.view.id,{cardId:t.view.cardId,score:extra.result.candidates[0].score,at:now(),embedding:extra.result.identityEmbedding,look:t.identityAppearance?.slice()});
+    }
     if(type==='prompt'){
       // A fresh front still needs an answer when its Set has a known ref.
       // Neither old public knowledge nor the gallery can answer a low read.
@@ -721,14 +740,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           const safe=result&&result.tier!=='low match'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
           let winner=safe?result!.candidates[0].cardId:undefined;
+          const lockedRef=t.view.faceDown&&!t.binding?undefined:lockFor(t.binding?.id??t.view.id),locked=lockHolds(lockedRef,result,pixels)?lockedRef:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
-          if(t.binding?.faceDown&&!safe){t.needsRead=false;t.identityAppearance=pixels;t.view.visible=true;t.best=undefined;t.view.state='prompt';emit('prompt',t,{result,reason:pending.error?'recognition-error':'uncertain'});continue;}
+          if(t.binding?.faceDown&&!safe&&!locked){t.needsRead=false;t.identityAppearance=pixels;t.view.visible=true;t.best=undefined;t.view.state='prompt';emit('prompt',t,{result,reason:pending.error?'recognition-error':'uncertain'});continue;}
           if(t.confirming){
             t.confirming=false;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding??t.identityEmbedding;t.latestEmbedding=t.identityEmbedding;
-            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'){t.view.cardId=winner;t.view.bestMatch=undefined;note(t,'confirm read corrected the name');emit('placed',t,{result});}
+            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'&&(!locked||beatsLock(locked,result))){t.view.cardId=winner;t.view.bestMatch=undefined;note(t,'confirm read corrected the name');emit('placed',t,{result});}
             continue;
           }
+          if(t.identityCheck&&locked&&!beatsLock(locked,result)&&locked.cardId===t.identityCheck.cardId){restoreIdentity(t,pixels);t.view.visible=t.view.state==='identified';note(t,'identity locked');continue;}
           if(t.identityCheck){
             const similarity=fieldEmbeddingSimilarity(t.identityEmbedding,result?.identityEmbedding),saved=t.identityCheck;
             const unchanged=similarity!==undefined?similarity>=.84:!t.identityEmbedding&&winner&&winner===saved.cardId;
@@ -756,6 +777,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             if(remembered.kind==='hold'||!remembered.cardId){t.view.state='dismissed';t.prompted=true;t.identityAppearance=pixels;t.best=undefined;continue;}
             winner=remembered.cardId;
           }
+          // A locked card is never re-guessed: a lower or equal read keeps its name.
+          if(locked&&winner!==locked.cardId&&!beatsLock(locked,result)){winner=locked.cardId;note(t,'identity locked');}
           const deck=options.getPriors?.()?.decklist;
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
@@ -895,7 +918,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     getSnapshot():FieldSnapshot{return {status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.at<=3000?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
       debug:{at:debugAt,path:debugTick,full:debug?.full??false,region:debug?.region,detections:debug?.detections??[],reasons:Object.fromEntries(tracks.map(t=>[t.view.id,`${t.read?'reading identity · ':''}${t.reason??''}`]))}};},
     setCalibration(value?:FieldCalibration){calibration=value;if(status!=='starting')epoch++;interruptWindow();for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
-    confirm(id:string,cardId?:string,ref?:string,human=true){const t=tracks.find(t=>t.view.id===id);if(t){t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
+    confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.pose=undefined;t.read=undefined;if(t.view.state!=='identified')gallery.remember(t.latestEmbedding);t.prompted=true;if(t.view.removed)t.restoredAt=now();t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0){suppressed.push({card:tracks[i].view.card,appearance:tracks[i].identityAppearance??tracks[i].appearance,halo:tracks[i].halo,samples:0});if(suppressed.length>maxTracks)suppressed.shift();tracks.splice(i,1);}pruneFrames();notify();},
   };

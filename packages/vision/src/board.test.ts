@@ -728,6 +728,13 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const beforeDup=r.events.length;r.outlines=[{...gy},{...m3},card(.4,.35,.11,.17),set];for(let i=0;i<8;i++)await r.tick(100);r.outlines=[{...gy},{...m3},set];
  assert.equal(r.events.slice(beforeDup).some(e=>(e.type==='placed'||e.type==='prompt'||e.type==='reading')&&e.track.id!==id&&e.track.zone==='M3'),false,'a duplicate outline makes no second M3 card');
  assert.equal(r.watcher.getSnapshot().tracks.filter(t=>t.zone==='M3'&&!t.removed).length,1);
+ // Identity lock: the player named Fenrir. A flip and a new read that says 'B'
+ // (not a clear, higher score) keep the name; no prompt, no rename.
+ const beforeLock=r.events.length,lockId=r.identityAt;r.identityAt=c=>{const p=zones.fieldCenter(c);return p.x>.8||p.x>.4&&p.x<.5?'B':'A';};
+ r.outlines=[{...gy},{...m3,kind:'face-down',confidence:.9},set];for(let i=0;i<8;i++)await r.tick(100);
+ r.outlines=[{...gy},{...m3},set];for(let i=0;i<12;i++)await r.tick(100);
+ assert.equal(r.events.slice(beforeLock).some(e=>e.track.id===id&&(e.type==='prompt'||e.track.cardId==='B')),false,'a locked card is not re-guessed');
+ assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===id)?.cardId,'A');r.identityAt=lockId;
  const debug=snap.debug!;assert.ok(debug.detections.some(d=>d.zone==='M3'&&d.use.startsWith('track')),'the debug overlay shows the raw M3 outline and its track');
  // Infinite Impermanence: a Set in S3 is revealed, then sent from S3 to the GY.
  const s3=card(.4,.72,.1,.15),imperm=Array.from({length:288},(_,i)=>((Math.floor(i/3)*29+(i%3)*11)%239)/255);
