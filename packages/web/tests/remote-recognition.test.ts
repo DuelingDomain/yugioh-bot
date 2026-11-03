@@ -483,3 +483,34 @@ it('a replacement during an atomic reveal undoes its stale identity',async()=>{
  expect(await applyVerifiedFieldMutation(event,()=>track,act,{type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toBeNull();
  expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip','undo']);
 });
+
+it('owner M3: stale revealed occupants yield to a fresh top match but visible quads keep their refs',async()=>{
+ const {staleFieldOccupant}=await import('../src/lib/remote/field-proposals');
+ const twins=[{ref:'mark',zone:'monster',slot:3,faceUp:false,publicIdentity:true},{ref:'fenrir',zone:'monster',slot:2,faceUp:true}] as any;
+ expect(staleFieldOccupant(twins,[],'M3','kusanagi')?.ref).toBe('mark');
+ const backing={id:'mark',zone:'M3',visible:true,removed:false,lastSeen:performance.now()} as any;
+ expect(staleFieldOccupant(twins,[backing],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false}],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false,removed:true}],'M3','kusanagi')?.ref).toBe('mark');
+ expect(staleFieldOccupant(twins,[{...backing,zone:'M4'}],'M3','kusanagi')).toBeUndefined();
+});
+it('owner M3: candidate choices follow the physical row without projecting spells into S3',async()=>{
+ const {fieldCandidateFitsZone}=await import('../src/lib/remote/field-legality');
+ expect(fieldCandidateFitsZone('M3',{type:'Effect Monster'})).toBe(true);
+ for(const type of ['Spell Card','Trap Card'])expect(fieldCandidateFitsZone('M3',{type})).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Effect Monster'})).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Spell Card'})).toBe(true);
+ expect(fieldCandidateFitsZone('M3',undefined)).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Spell Card',race:'Field'})).toBe(false);
+ expect(fieldCandidateFitsZone('FIELD',{type:'Spell Card',race:'Field'})).toBe(true);
+});
+it('camera writes retry with the same action key and expose a final failure',async()=>{
+ const {retryFieldMutation}=await import('../src/lib/remote/field-proposals');
+ const proposal={type:'twin.flip',actorSeat:0,seat:0,cardRef:'mark',faceUp:true} as const,room={lastSeq:2} as any;
+ const failed=vi.fn(),post=vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(room);
+ expect(await retryFieldMutation(post,proposal,'flip-key',()=>true,failed)).toBe(room);
+ expect(post.mock.calls).toEqual([[proposal,'flip-key'],[proposal,'flip-key']]);expect(failed).toHaveBeenCalledOnce();
+ post.mockReset().mockResolvedValue(null);
+ await expect(retryFieldMutation(post,proposal,'flip-key',()=>true,failed)).rejects.toThrow(/save/i);
+ post.mockClear();expect(await retryFieldMutation(post,proposal,'stale-key',()=>false,failed)).toBeNull();expect(post).not.toHaveBeenCalled();
+});

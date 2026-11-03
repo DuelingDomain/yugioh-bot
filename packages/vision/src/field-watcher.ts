@@ -410,7 +410,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // The latest detector's appearance validates a new outline or changed
         // face without overwriting identity or re-running inference.
         if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down'))&&c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
-        const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c))&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
+        // A known Set still needs fresh face pixels when the detector is unsure
+        // of its newly exposed front. New front placements retain the .7 floor.
+        const setFront=c.confidence>=.4&&cardAspect(c)&&!!(t.binding?.faceDown||bound(t)&&t.view.faceDown);
+        const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c)||setFront)&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
           !cards.some(other=>other!==c&&quadIou(c,other)>0)&&evidence.motion(c)<=.025&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
         const crop=faceClean?evidence.crop?.(c):undefined;
         const observation=crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
@@ -484,7 +487,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(cards.some(other=>other!==c&&quadIou(c,other)>0)&&t.view.state==='candidate')t.promptOnly??='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
-        const confident=c.confidence>=.7||backOutline(c)&&cardAspect(c)||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
+        const confident=c.confidence>=.7||backOutline(c)&&cardAspect(c)||setFront||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
         const clean=!appearanceChanged&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
         if(t.identityCheck){if(!clean)t.identityCheck.strongSamples=0;else if(fieldAppearanceDistance(t.identityAppearance,pixels)>=.025)t.identityCheck.strongSamples++;}
         t.view.visible=!changed&&(!t.identityAppearance?.length||c.kind!=='face-up'||matchesLook(t,pixels))&&evidence.motion(c)<=.025&&(t.view.state==='identified'||t.view.state==='prompt')&&confident&&!c.partial&&!c.covered&&!isCovered(c,cards);

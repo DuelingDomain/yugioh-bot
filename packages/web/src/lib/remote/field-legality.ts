@@ -77,3 +77,14 @@ export function manualFieldZoneWarning(facts:FieldZoneFacts|undefined,zone:strin
   if(kind.pendulum)return targetSlot===1||targetSlot===5?undefined:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales. Check this manual move.';
   return 'Monsters normally belong outside Spell/Trap Zones. Check this manual move.';
 }
+
+
+/** Choices describe the observed row; they never offer a card in another row. */
+export function fieldCandidateFitsZone(zone:FieldZone,facts:FieldZoneFacts|undefined):boolean {
+  if(piles.has(zone))return true;
+  const kind=cardKind(facts);
+  if(/^M[1-5]$/.test(zone))return kind.monster;
+  if(zone.startsWith('EMZ'))return kind.extra;
+  if(zone==='FIELD')return kind.field;
+  return kind.spell&&!kind.field||kind.trap||kind.pendulum&&(zone==='S1'||zone==='S5');
+}

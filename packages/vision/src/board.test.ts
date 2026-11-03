@@ -699,3 +699,18 @@ test('unchanged face-down sleeve matching the mat is never removed by the fast a
   assert.equal(watcher.getSnapshot().tracks[0].id,'dark-sleeve');
  }finally{watcher.dispose();}
 });
+
+
+test('owner M3: a revealed sideways Set flips upright on its original ref within 700 ms',async()=>{
+ const r=fieldRig();r.outlines=[card(.44,.3,.12,.2)];
+ for(let i=0;i<12;i++)await r.tick(100);
+ const id=r.events.find(e=>e.type==='placed')!.track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M3',cardId:'A',faceDown:false}];
+ r.outlines=[{...card(.4,.34,.2,.12),kind:'face-down'}];r.appearance=Array(12).fill(.9);r.motion=.2;await r.tick(33);r.motion=0;
+ for(let i=0;i<20&&!r.events.some(e=>e.type==='flipped'&&e.track.faceDown);i++)await r.tick(33);
+ assert.ok(r.events.some(e=>e.type==='flipped'&&e.track.faceDown),'front becomes a revealed Set');
+ r.watcher.confirm(id);r.known=[{id,zone:'M3',faceDown:true,position:'defense'}];r.events.length=0;
+ r.outlines=[{...card(.44,.3,.12,.175),confidence:.65}];r.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);r.motion=.2;await r.tick(33);r.motion=0;
+ const from=r.at;for(let i=0;i<21&&!r.events.some(e=>e.type==='placed'&&!e.track.faceDown);i++)await r.tick(33);
+ const reveal=r.events.find(e=>e.type==='placed'&&!e.track.faceDown);assert.ok(reveal,JSON.stringify(r.watcher.getSnapshot()));
+ assert.equal(reveal.track.id,id);assert.equal(reveal.track.zone,'M3');assert.equal(reveal.track.position,'attack');assert.ok(r.at-from<700);assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+});
