@@ -49,7 +49,7 @@ import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {fieldGridCells,useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
-import {readFieldOrigin,distinctFieldQuads} from '@/lib/remote/field-proposals';
+import {readFieldOrigin,distinctFieldQuads,fieldReadingPlaceholder} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -309,9 +309,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const physical=at.quad?.length===4&&zoneGrid.ownSeat===seat&&zoneGrid.calibration?.orientation?
         mapFieldZone({quad:at.quad,kind:'face-up',confidence:1,partial:false},zoneGrid.calibration).zone:undefined;
       if(owns&&!same&&physical){const location=fieldZoneLocation(physical);same=current.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot&&sameObservedCard(c,{cardId:pick.cardId,name:pick.name}));}
+      const reading=owns&&!same&&physical?fieldReadingPlaceholder(current.state.seats[seat].twin,physical):undefined;
+      same??=reading;
       const projected=physical?projectFieldZone({zone:physical,facts:found,twins:current.state.seats[seat].twin,ref:same?.ref,format:current.state.deckChecks.format.id}):undefined;
       const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
-      const spot=owns?(same?{row:same.zone,slot:same.slot,ref:same.ref}:mapped?{row:mapped.zone,slot:mapped.slot,ref:crypto.randomUUID()}:layoutFor(seat,pick.cardId,found,current)):undefined;
+      const spot=owns?(reading&&mapped?{row:mapped.zone,slot:mapped.slot,ref:reading.ref}:same?{row:same.zone,slot:same.slot,ref:same.ref}:mapped?{row:mapped.zone,slot:mapped.slot,ref:crypto.randomUUID()}:layoutFor(seat,pick.cardId,found,current)):undefined;
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
       const pending=spot?pendingOriginAt(current,seat,{cardId:pick.cardId,name:pick.name},spot.row,spot.slot):undefined;
       if(pending)return {updated:current,owns,ref:undefined,row:spot?.row,slot:spot?.slot,requestRef:pending.cardRef};
@@ -320,6 +322,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
       if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),faceUp:true,position:'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
+      if(updated&&reading&&spot&&(reading.zone!==spot.row||reading.slot!==spot.slot))updated=await apply({type:'twin.move',actorSeat:current.solo?seat:current.mySeat,seat,cardRef:reading.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})});
       const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
       return {updated,owns,ref,row:spot?.row,slot:spot?.slot,requestRef:spot?.ref};
     });

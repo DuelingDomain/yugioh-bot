@@ -161,7 +161,11 @@ it("parses activation with a named source and activation after identifying a car
 });
 
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {
-  const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
+  const { fieldPlacementProposals, fieldReadingPlaceholder } = await import("../src/lib/remote/field-proposals");
+  const reading={ref:'fw-reader-1',zone:'monster',slot:3,faceUp:true,position:'attack'} as any;
+  expect(fieldReadingPlaceholder([reading],'M3')).toBe(reading);
+  for(const twin of [{...reading,faceUp:false},{...reading,cardId:46986414},{...reading,name:'Known'}, {...reading,ref:'manual'}, {...reading,slot:4}])expect(fieldReadingPlaceholder([twin],'M3')).toBeUndefined();
+  expect(fieldReadingPlaceholder([{...reading,zone:'deck'}],'DECK')).toBeUndefined();
   const track = {id:"physical-1",zone:"M3",position:"defense",faceDown:false} as import("@yugidraft/vision").FieldTrack;
   const proposals = fieldPlacementProposals({track:{...track,bestMatch:true},seat:0,cardId:46986414,name:"Dark Magician"});
   expect(proposals[0]).toMatchObject({card:{bestMatch:true}});

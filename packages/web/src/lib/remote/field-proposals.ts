@@ -1,6 +1,12 @@
 import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+/** A manual read can identify the reader's current visual cue in place. */
+export function fieldReadingPlaceholder(twins:readonly TwinCard[],zone:FieldTrack['zone']):TwinCard|undefined {
+  if(['DECK','EXTRA','GY','BANISHED'].includes(zone))return;
+  const location=fieldZoneLocation(zone);
+  return twins.find(c=>c.ref.startsWith('fw-')&&c.faceUp&&!c.cardId&&!c.passcode&&!c.name&&c.zone===location.zone&&c.slot===location.slot);
+}
 /** Copy evidence must come from distinct, identified quads in the same frame. */
 export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack,sameIdentity=a.cardId===b.cardId):boolean {
   if(a.id===b.id||!a.cardId||!b.cardId||!sameIdentity||!['identified','prompt'].includes(a.state)||b.state!=='identified'||!a.visible||!b.visible||a.removed||b.removed||a.faceDown||b.faceDown||a.card.kind!=='face-up'||b.card.kind!=='face-up'||a.lastSeen!==b.lastSeen)return false;

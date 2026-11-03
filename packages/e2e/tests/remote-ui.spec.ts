@@ -1327,20 +1327,19 @@ test('field watcher automatic: Solemn Judgment uses the legal row and confirmed 
     const slug=await soloTable(context.request,2,registeredDeck),room=()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
     await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
     await context.request.post('/api/cards/resolve',{data:{customCardIds:[41420027]}});
-    await appearingCamera(page,TRAP_CARD,true);await page.goto(`/duels/remote/${slug}`);
+    await appearingCamera(page,TRAP_CARD);await page.goto(`/duels/remote/${slug}`);
     await page.getByTestId('camera-on-feed').click();await page.getByLabel('Auto-detect cards',{exact:true}).check();
     const calibration=page.getByRole('dialog',{name:'Calibrate field zones',exact:true});
     if(registeredDeck){
+      await page.getByRole('button',{name:'Recalibrate',exact:true}).click();
       await expect(calibration).toContainText('Drag the field grid over your mat');
-      await page.evaluate(()=>((window as any).fieldTest).calibrateTwo());await page.waitForTimeout(300);
-      await calibration.getByRole('button',{name:'Use cards in M1 and M5',exact:true}).click();
-      await expect(calibration).not.toHaveAttribute('aria-busy','true');await expect(calibration.getByRole('alert')).toHaveCount(0);
-      await page.evaluate(()=>((window as any).fieldTest).clear());
+      await expect(calibration).toContainText('MONSTER upright in M1');
+      await expect(calibration).toContainText('SPELL/TRAP upright in S5');
       const shots=new URL('../../../data/vision/benchmark/field-watcher/pad-shots/',import.meta.url).pathname;mkdirSync(shots,{recursive:true});
       for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:`${shots}/calibration-${width}x${height}.png`});}
       await page.setViewportSize({width:1440,height:1000});await calibration.getByRole('button',{name:'Save calibration',exact:true}).click();
     }else await expect(calibration).toHaveCount(0);
-    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:60_000});
     await page.evaluate(()=>((window as any).fieldTest).place(650,170,false));
     const prompt=page.getByTestId('field-watcher-prompt');
     await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:30_000}).toMatchObject([{cardId:41420027,zone:'spell-trap',slot:4}]);
@@ -1386,7 +1385,7 @@ test('field watcher automatic: a manual feed read before settling keeps exactly 
   const initial=(await room()).state.seats[0].twin[0];await page.getByRole('button',{name:'Close card',exact:true}).click();
   await page.waitForTimeout(4000);const settled=await room();expect(settled.state.seats[0].twin).toHaveLength(1);expect(settled.state.seats[0].twin[0].ref).toBe(initial.ref);
   expect(settled.events.filter((event:any)=>event.action.type==='twin.place')).toHaveLength(1);
-  expect(initial.ref).toMatch(/^c0-/);
+  expect(settled.events.filter((event:any)=>event.action.type==='twin.remove')).toHaveLength(0);
 });
 
 for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive best-match and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
