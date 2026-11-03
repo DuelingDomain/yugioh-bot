@@ -857,12 +857,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               const top=known?.filter(member=>member.zone===card.zone).at(-1);
               const witness=tracks.find(other=>other!==t&&other.view.id===top?.id&&other.view.zone===card.zone);
               if(top?.cardId===winner&&witness&&sameRotatedFieldAppearance(witness.identityAppearance,evidence.appearance?.(witness.view.card)))return false;
-              // Exit evidence: the whole pile outline is gone, or, for the pile TOP only,
-              // a hand over the pile from 10 s before to 1 s after this card showed (a CPU
-              // read can finish seconds later) or a seen top that changed. A deeper copy
-              // stays in the pile: a new card with the same name is a 2nd copy.
+              // Exit evidence: the whole pile outline is gone, or a hand over the pile at most
+              // 2.5 s ago (any member: a revive can take a card from under the top). Only for
+              // the pile TOP: a hand over the pile from 10 s before to 1 s after this card
+              // showed (a slow CPU read finishes seconds later), or a seen top that changed.
               const touched=pileTouches.get(card.zone)??-Infinity;
-              if(pileDepartures.has(card.id)||pilePresence.get(card.zone)?.present===false)return true;
+              if(pileDepartures.has(card.id)||pilePresence.get(card.zone)?.present===false||sample.at-touched<=2500)return true;
               return top?.id===card.id&&(touched>=t.view.firstSeen-PILE_EXIT_MS&&touched<=t.view.firstSeen+1000||
                 !!witness&&!sameRotatedFieldAppearance(witness.identityAppearance,evidence.appearance?.(witness.view.card)));
             };

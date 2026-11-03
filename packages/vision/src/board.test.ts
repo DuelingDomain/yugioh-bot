@@ -809,14 +809,15 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.ok(atS2,'Ghost Belle shows in S2');assert.equal(atS2.track.id===gid||atS2.fromRef===gid,true,`the GY ref moves to S2 (got ${atS2.type} ${atS2.track.id})`);
  assert.equal(r.events.slice(beforeS2).some(e=>e.type==='placed'&&e.track.cardId==='G'&&e.track.id!==gid&&e.fromRef!==gid),false,'no second Ghost Belle');
  // A 2nd Ghost Belle: GY = [Belle X, card Y on top]. A hand goes over the GY (Y is sent),
- // then within 3 s a new Belle shows in S4. X is not the top, so it stays in the GY:
- // the new card is a 2nd copy with a new ref.
+ // and 3 s later a new Belle shows in S4. X is not the top and the touch is older than
+ // 2.5 s, so X stays in the GY: the new card is a 2nd copy with a new ref.
  const s4=card(.54,.72,.1,.15),inS4=(c:DetectedQuad)=>zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x>.5&&zones.fieldCenter(c).x<.6;
  r.known=[...inHand,{id:'gy-x',zone:'GY',cardId:'G'},{id:'gy-y',zone:'GY',cardId:'B'},{id:gid,zone:'S2',cardId:'G'}];
  r.identityAt=c=>zones.fieldCenter(c).x>.8?'B':'G';
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?under:zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4||inS4(c)?belle:mat;r.outlines=[deckOutline,{...gy},s2];
  for(let i=0;i<10;i++)await r.tick(100);
  r.motionAt=c=>zones.fieldCenter(c).x>.8?.2:0;await r.tick(100);r.motionAt=undefined;
+ for(let i=0;i<30;i++)await r.tick(100);
  const before2nd=r.events.length;r.outlines=[deckOutline,{...gy},s2,s4];
  for(let i=0;i<30&&!r.events.slice(before2nd).some(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S4'&&e.track.cardId==='G');i++)await r.tick(100);
  const second=r.events.slice(before2nd).find(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S4'&&e.track.cardId==='G');
