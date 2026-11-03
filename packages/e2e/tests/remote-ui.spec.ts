@@ -583,6 +583,15 @@ test.describe("remote lobby camera step", () => {
     await dialog.getByRole("button", { name: "Top-left grid corner" }).focus();
     for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight");
     await dialog.getByRole("button", { name: "Save calibration" }).click();
+    // The large live check opens after the save. "Looks good" closes it, and the lobby shows Calibrated.
+    const view = page.getByTestId("lobby-zones-view");
+    await expect(view).toBeVisible();
+    await shot(page, "lobby-zones-view");
+    // The spacing slider writes the saved record and the overlay in the view follows it.
+    await view.getByTestId("lobby-zones-spacing").fill("1.2");
+    await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.2");
+    await view.getByTestId("lobby-zones-view-done").click();
+    await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");
     await shot(page, "lobby-zones-done");
     // The lobby grid, in 0..1 units. The table must draw the very same cells from the saved record.

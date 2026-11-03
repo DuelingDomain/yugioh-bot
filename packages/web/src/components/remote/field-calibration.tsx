@@ -15,7 +15,7 @@ const clamp=(value:number)=>Math.max(0,Math.min(1,value));
 const cornerNames=['Top-left','Top-right','Bottom-right','Bottom-left'];
 
 /** Four clockwise mat corners in normalized source pixels, independent of CSS size. */
-export function FieldCalibrationControl({video,format='normal',initialCalibration,detectCalibrationCards,onSave,onCancel}:{video:HTMLVideoElement|null;format?:FieldFormat;initialCalibration?:FieldCalibration;detectCalibrationCards?:(frame:HTMLCanvasElement)=>Promise<DetectedQuad[]>;onSave(value:FieldCalibration):void;onCancel():void}) {
+export function FieldCalibrationControl({video,format='normal',initialCalibration,detectCalibrationCards,large=false,onSave,onCancel}:{video:HTMLVideoElement|null;large?:boolean;format?:FieldFormat;initialCalibration?:FieldCalibration;detectCalibrationCards?:(frame:HTMLCanvasElement)=>Promise<DetectedQuad[]>;onSave(value:FieldCalibration):void;onCancel():void}) {
   const dialog=useRef<HTMLDivElement>(null),cancel=useRef(onCancel);cancel.current=onCancel;
   const imageBox=useRef<HTMLDivElement>(null),drag=useRef<{corner:number|null;start:Point;points:Point[]}|null>(null);
   const description=useId();
@@ -89,7 +89,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
   },[]);
   if(typeof document==='undefined')return null;
   return createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.backdrop}`} onClick={event=>event.stopPropagation()} onPointerDown={event=>event.stopPropagation()}>
-    <div ref={dialog} className={s.calibration} role="dialog" aria-label="Calibrate field zones" aria-modal="true" aria-describedby={description} aria-busy={busy} tabIndex={-1}>
+    <div ref={dialog} className={`${s.calibration} ${large?s.calibrationLarge:''}`} data-large={large||undefined} role="dialog" aria-label="Calibrate field zones" aria-modal="true" aria-describedby={description} aria-busy={busy} tabIndex={-1}>
       <h2>Calibrate field zones</h2>
       {detectCalibrationCards?<div className={g.quick}><strong>Quick setup with two cards</strong><p>From your seat, place a MONSTER upright in M1 (front-left) and a SPELL/TRAP upright in S5 (back-right). Clear the rest of the mat. Keep both cards flat.</p><button type="button" className={table.btn} disabled={!image||busy} onClick={()=>void quickCalibration()}>{busy?'Finding both cards…':'Use cards in M1 and S5'}</button><p>Then tap the monster outline. The two different rows determine your side and mirroring. Keep equal gaps between zones; adjust the preview for your mat.</p></div>:null}
       <div id={description}>
@@ -101,7 +101,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
       <p>{handStep==='left'?'Tap the corner nearest your LEFT hand.':handStep==='right'?'Now tap the corner nearest your RIGHT hand.':orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
       <button type="button" className={table.btn} disabled={busy} onClick={()=>{setCalibrationCards([]);setHandStep('left');leftHand.current=null;}}>Set side from near corners</button>
       {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
-      {image?<div ref={imageBox} className={`${s.calibrationImage} ${g.image}`} data-testid="field-calibration-image" onPointerMove={event=>{const active=drag.current;if(active){const point=sourcePoint(event);move(active.points,active.corner,point.x-active.start.x,point.y-active.start.y);}}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}}>
+      {image?<div ref={imageBox} className={`${s.calibrationImage} ${large?s.calibrationImageLarge:''} ${g.image}`} data-testid="field-calibration-image" onPointerMove={event=>{const active=drag.current;if(active){const point=sourcePoint(event);move(active.points,active.corner,point.x-active.start.x,point.y-active.start.y);}}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}}>
         <img src={image} alt="Your camera view with an adjustable field grid" draggable={false}/>
         <svg className={g.grid} viewBox={`0 0 1000 ${gridHeight}`} preserveAspectRatio="none" role="img" aria-label="Field grid viewed from your seat" onPointerDown={event=>{if(!handStep&&!calibrationCards.length)begin(event,null);}}>
           {cells.map(cell=>{const center=matPoint(cell.x+cell.w/2,cell.y+cell.h/2),corners=[[cell.x,cell.y],[cell.x+cell.w,cell.y],[cell.x+cell.w,cell.y+cell.h],[cell.x,cell.y+cell.h]].map(([x,y])=>matPoint(x,y));return <g key={cell.zone}><polygon data-zone={cell.zone} points={corners.map(point=>`${point.x*1000},${point.y*gridHeight}`).join(' ')}/><text x={center.x*1000} y={center.y*gridHeight}>{cell.label}</text></g>;})}

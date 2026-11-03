@@ -30,6 +30,9 @@
 .calibration p{margin:0 0 12px;color:var(--ink2);font-size:14px}
 .calibrationImage{position:relative;max-width:960px;margin:16px auto}
 .calibrationImage img{display:block;width:100%;height:auto;cursor:crosshair}
+/* Lobby: a big picture, up to 90vw by 85vh, so the zones can be checked by eye. */
+.calibrationLarge{width:min(100%,90vw);max-height:calc(100dvh - 24px)}
+.calibrationImageLarge{max-width:min(100%,calc((100dvh - 250px)*1.7778))}
 .corner{position:absolute;display:grid;place-items:center;width:24px;height:24px;transform:translate(-50%,-50%);border-radius:50%;background:var(--gold);color:#1b1204;font-weight:700;pointer-events:none}
 .calibrationFooter{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--ink3);font-size:13px}
-@media(max-width:600px){.backdrop{padding:12px}.calibration{max-height:calc(100dvh - 24px);padding:16px}.calibration h2{font-size:21px}.prompt{width:calc(100vw - 16px)}.choices button{min-height:44px}}
+@media(max-width:600px){.calibrationLarge{width:100%;max-height:100dvh;border-radius:0}.calibrationImageLarge{max-width:100%}.backdrop:has(.calibrationLarge){padding:0}.backdrop{padding:12px}.calibration{max-height:calc(100dvh - 24px);padding:16px}.calibration h2{font-size:21px}.prompt{width:calc(100vw - 16px)}.choices button{min-height:44px}}
