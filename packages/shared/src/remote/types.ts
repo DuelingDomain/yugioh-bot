@@ -3,6 +3,7 @@ import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
 import type { RemoteEffectTracking } from "./effect-tracking.js";
+import type { RemoteBestOf, RemoteMatch } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteSeatState = { seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
@@ -11,6 +12,7 @@ export type RemoteTwinConfirmation = {
   options?:{ref?:string;label:string}[];placement?:Extract<RemoteAction,{type:"twin.place"}>;
 };
 export type RemotePosition = {
+  match: RemoteMatch;
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
   battleEntered?: boolean;
@@ -43,7 +45,7 @@ export interface GameModule {
   seatsAllowed: readonly SeatCount[];
   resources: readonly { id: string; name: string; start: number; min: number; loseAtZero: boolean }[];
   zones: readonly { id: string; name: string; shape: "row" | "pile" | "single" }[];
-  initialState(input: { seatCount: SeatCount; firstSeat?: number }): RemoteState;
+  initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf }): RemoteState;
   /** Pure. No clocks, I/O, randomness, or catalog/engine calls. `action.at` is the injected clock. */
   reduce(state: RemoteState, action: RemoteAction, context?: RemoteReductionContext): RemoteState;
   /** Extension point for the speech worker. Null means no proposal; never executes an action. */
@@ -54,8 +56,8 @@ export interface GameModule {
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean }
-  | { type: "table.configured"; format: RemoteFormat; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean }
+  | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
@@ -70,6 +72,7 @@ export type RemoteEvent = {
   messages?: string[];
 };
 export type RemoteTable = {
+  bestOf?: RemoteBestOf;
   slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus; solo: boolean;
   createdBy: number; createdAt: number; startedAt: number | null; endedAt: number | null;
   lastEventAt: number; lastSeq: number; endReason: string | null; idleWarningAt: number | null;

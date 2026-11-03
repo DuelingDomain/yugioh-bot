@@ -117,13 +117,19 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   const before = entry.before ?? (state.undo?.actionId === entry.actionId ? state.undo.before : undefined);
   const after = entry.after ?? (state.undo?.actionId === entry.actionId ? remotePosition(state) : undefined);
   remoteAssert(before && after, "Undo history is unavailable", 409, "UNDO_UNAVAILABLE");
-  // Candidate lists are derived from the resulting public card instances, not independently undoable.
-  const withoutCandidates = (position: RemotePosition) => {
+  // Candidate lists and the current game's result are derived from the restored
+  // board. An earlier Undo may already have reopened this game; do not inverse
+  // the same result twice. Declarations still follow normal inverse semantics.
+  const withoutDerivedState = (position: RemotePosition) => {
     const copy = structuredClone(position);
     for (const origin of copy.effectTracking?.origins ?? []) if (origin.pool) delete origin.candidates;
+    copy.ended = state.ended; copy.winnerSeat = state.winnerSeat;
+    copy.match = structuredClone(state.match);
+    if (position.match?.pendingResult) copy.match.pendingResult = structuredClone(position.match.pendingResult);
+    else delete copy.match.pendingResult;
     return copy;
   };
-  const restored = restore(withoutCandidates(before), withoutCandidates(after), withoutCandidates(remotePosition(state))) as RemotePosition;
+  const restored = restore(withoutDerivedState(before), withoutDerivedState(after), withoutDerivedState(remotePosition(state))) as RemotePosition;
   // Returning a card to an ordered pile restores its old place. Other cards
   // that entered that pile later keep their newer positions, including reentries.
   const later = (state.undoHistory ?? []).filter(item => !item.undone && item.order > entry.order && item.before && item.after);
@@ -149,6 +155,13 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   const living = restored.seats.filter(s=>!s.eliminated);
   restored.ended = living.length <= 1;
   restored.winnerSeat = restored.ended ? living[0]?.seat ?? null : null;
+  // In FFA, undoing an earlier elimination can reopen a game ended by another
+  // player's later action. The three-way inverse keeps that later result, so
+  // remove it when the board again has more than one living seat.
+  if (!restored.ended && restored.match && ["result", "done"].includes(restored.match.phase)) {
+    restored.match.games.pop(); restored.match.phase = "duel";
+    delete restored.match.winnerSeat; delete restored.match.firstChooser; delete restored.match.firstSeat;
+  }
   remoteAssert(!restored.attack || (restored.phase === "battle" && restored.turnSeat === restored.attack.attackerSeat &&
     ygoBattleAllowed(restored) && !restored.seats[restored.attack.attackerSeat].eliminated && !restored.seats[restored.attack.targetSeat].eliminated),
     "Resolve or undo the later attack before undoing this action", 409, "UNDO_CONFLICT");
@@ -168,6 +181,8 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
 }
 
 export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number): string | undefined {
+  const gameNumber = (position: RemotePosition) => position.match.games.length + (position.ended ? 0 : 1);
+  if (state.match?.phase === "siding" || (entry.before?.match && gameNumber(entry.before) !== gameNumber(state))) return "Undo cannot cross games";
   if (entry.actorSeat !== actorSeat) return "You can only undo your own actions";
   if (entry.undone) return "This action has already been undone";
   if (entry.turn < state.turn - 1 || entry.turn > state.turn) return "Undo is limited to the current and previous turn";

@@ -1,4 +1,6 @@
 export * from "./actions.js";
+export * from "./match-contract.js";
+export * from "./match.js";
 export * from "./types.js";
 export * from "./attack-resolver.js";
 export * from "./phases.js";
