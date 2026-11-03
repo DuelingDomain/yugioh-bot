@@ -31,11 +31,11 @@ export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'posit
   return track.faceDown&&/^M[1-5]$|^EMZ[12]$/.test(track.zone)?'defense':track.faceDown&&/^S[1-5]$|^FIELD$/.test(track.zone)?'attack':track.position;
 }
 /** A new placement records the sighting atomically, so one Undo removes both. */
-export function fieldPlacementProposals({track,seat,cardId,name,existing=false,copyProof}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;copyProof?:{simultaneousQuads:number;at:number}}):RemoteActionProposal[] {
+export function fieldPlacementProposals({track,seat,cardId,name,existing=false,fromRef,copyProof}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;fromRef?:string;copyProof?:{simultaneousQuads:number;at:number}}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
   if(['DECK','EXTRA'].includes(track.zone))return [];
   if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(track.bestMatch?{bestMatch:true}:{}),...location}]:[];
-  return [{type:'twin.place',source:'auto',actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{})}];
+  return [{type:'twin.place',source:'auto',...(fromRef?{fromRef}:{}),actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{})}];
 }
 
 /** Leave the playable field once; pile disappearance never guesses a destination. */

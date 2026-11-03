@@ -599,10 +599,10 @@ async function ownerFieldRig(){
   }
   const front={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
   const frame={width:160,height:90,data:new Uint8ClampedArray(160*90*4)} as ImageData;
-  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,halo:.45,down:false,reads:0,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[]};
+  const state={at:0,outlines:[quad()],absent:false,occluded:false,motion:0,halo:.45,down:false,reads:0,tier:'sure' as import('@yugidraft/vision').RecognitionTier,identity:'100',embedding:[1,0],known:[] as import('@yugidraft/vision').KnownFieldCard[],events:[] as import('@yugidraft/vision').FieldEvent[]};
   const watcher=createFieldWatcher({profile:yugioh,calibration:createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),now:()=>state.at,hidden:()=>false,clone:async f=>f,
     getKnownCards:()=>state.known,getPriors:()=>({decklist:['100']}),buffer:{sample:async()=>({frame,at:state.at})},
-    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async()=>{state.reads++;return {candidates:[{cardId:state.identity,score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
+    recognizer:{detectCards:async()=>structuredClone(state.outlines),recognize:async()=>{state.reads++;return {candidates:[{cardId:state.identity,score:.95}],tier:state.tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box',values:state.embedding.slice()},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm'};}},
     analyze:()=>({crop:c=>state.down||c.kind==='face-down'?back:front,motion:c=>c.quad[0].x>.9?state.motion:0,occluded:c=>c.quad[0].x<.9&&state.occluded,sharpness:()=>20,
       appearance:c=>state.absent&&c.quad[0].x===.47?Array(12).fill(.2):Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(state.halo)}),
   });
@@ -628,4 +628,41 @@ it.each([false,true])('a clear field departure clears an old hand halo and detec
     if(deck){expect(proposal.faceUp).toBe(false);expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');}
     await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
   }finally{r.dispose();}
+});
+
+it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.tier='not sure';await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;expect(first.track.cardId).toBe('100');
+    r.state.known=[{id:first.track.id,zone,cardId:'100',faceDown:true}];
+    r.state.absent=true;r.state.outlines=[];r.state.halo=.2;await r.tick(35);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)?.removed).toBe(true);
+    r.state.identity='999';r.state.tier='sure';r.state.outlines=[r.quad(.634)];await r.tick(12);
+    const returned=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone==='M4');
+    expect(returned).toHaveLength(1);expect(returned[0].track).toMatchObject({id:first.track.id,cardId:'100',zone:'M4'});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toHaveLength(0);
+    // A hidden origin is moved and revealed with one atomic placement.
+    const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+    const proposal=fieldPlacementProposals({track:returned[0].track,seat:0,cardId:100,name:'Kashtira Fenrir',fromRef:first.track.id})[0];
+    const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+    let state=ygoModule.initialState({seatCount:2});state.seats[0].twin=[{ref:first.track.id,zone:zone==='DECK'?'deck':'hand',cardId:100,name:'Kashtira Fenrir',faceUp:false,position:'attack'}];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,at:1,idempotencyKey:'known-return'}));
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:first.track.id,zone:'monster',slot:4,cardId:100,faceUp:true})]);
+    expect(state.twinConfirmation).toBeUndefined();
+  }finally{r.dispose();}
+});
+
+
+it('gallery preference resolves only matching embeddings and never publishes a private hand reference',async()=>{
+  const {createFieldIdentityGallery}=await import('@yugidraft/vision');
+  const gallery=createFieldIdentityGallery([{cardId:'deck',embedding:{space:'art-box',values:[1,0]}},{cardId:'recent',embedding:{space:'art-box',values:[.8,.6]}}]);
+  const embedding={space:'art-box' as const,values:[.95,.31]};
+  expect(gallery.resolve(embedding)).toEqual({kind:'hold'});
+  expect(gallery.resolve(embedding,['recent','deck'])).toEqual({kind:'match',cardId:'recent'});
+  expect(gallery.resolve({space:'art-box',values:[0,-1]},['recent'])).toEqual({kind:'new'});
+  const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:0,y:0},{x:.1,y:0},{x:.1,y:.2},{x:0,y:.2}];
+  const track={id:'private',cardId:'100',state:'identified',visible:true,removed:false,faceDown:false,zone:'M4',card:{kind:'face-up',quad}} as any;
+  expect(fieldTrackMessage({status:'watching',tracks:[track]} as any,new Map([['100',{cardId:'100',passcode:100,name:'Fenrir'}]]),[{id:'private',zone:'HAND',cardId:'100'}]).cards).toEqual([]);
 });
