@@ -1180,7 +1180,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   page.on('response',response=>{if(response.url().endsWith(`${path}/actions`)&&response.request().method()==='POST')writes.push({action:response.request().postDataJSON().action,status:response.status()});});
   const cardId=97522863,name='The Man with the Mark';
   await page.route('**/api/cards/resolve',route=>route.fulfill({json:{cards:[{id:cardId,name,type:'Effect Monster',frameType:'effect',race:'Spellcaster',effectText:''}]}}));
-  await appearingCamera(page,process.env.E2E_OWNER_CARD??AUTO_CARD);
+  await appearingCamera(page,process.env.E2E_OWNER_CARD??new URL('../../../data/vision/benchmark/field-watcher/97522863.jpg',import.meta.url).pathname);
   // Optional deterministic inference replays provider timing and result shapes;
   // the camera pixels, analyzer, tracker and application remain the real path.
   if(process.env.E2E_SCENARIO_WORKER==='1')await page.addInitScript(backend=>{
@@ -1218,8 +1218,8 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   const check=async(zone:string,slot:number|undefined,faceUp:boolean,position='attack')=>{
     await expect.poll(async()=>{
       const twin=(await room()).state.seats[0].twin;
-      return {cards:twin.map((c:any)=>({ref:c.ref,zone:c.zone,slot:c.slot,faceUp:c.faceUp,position:c.position,cardId:c.cardId})),hand:twin.filter((c:any)=>c.zone==='hand').length,gy:twin.filter((c:any)=>c.zone==='graveyard').length,banished:twin.filter((c:any)=>c.zone==='banished').length};
-    },{timeout:20_000}).toEqual({cards:[{ref:ref??expect.any(String),zone,slot,faceUp,position,cardId}],hand:Number(zone==='hand'),gy:Number(zone==='graveyard'),banished:Number(zone==='banished')});
+      return {cards:twin.map((c:any)=>({ref:c.ref,zone:c.zone,slot:c.slot,faceUp:c.faceUp,position:c.position,cardId:c.cardId})),hand:twin.filter((c:any)=>c.zone==='hand').length,gy:twin.filter((c:any)=>c.zone==='graveyard').length,banished:twin.filter((c:any)=>c.zone==='banished').length,deck:twin.filter((c:any)=>c.zone==='deck').length,extra:twin.filter((c:any)=>c.zone==='extra').length};
+    },{timeout:20_000}).toEqual({cards:[{ref:ref??expect.any(String),zone,slot,faceUp,position,cardId}],hand:Number(zone==='hand'),gy:Number(zone==='graveyard'),banished:Number(zone==='banished'),deck:Number(zone==='deck'),extra:Number(zone==='extra')});
     const twin=(await room()).state.seats[0].twin;ref??=twin[0].ref;
     if(zone==='monster')await expect(page.getByTestId('field-0').locator(`[data-zone="m${slot}"]`)).toHaveAttribute('aria-label',faceUp?new RegExp(name):/Face-down/);
   };
@@ -1237,7 +1237,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
   }
   await check('monster',3,true);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
-  if(process.env.E2E_SCENARIO_COVER==='1'){
+  if(process.env.E2E_SCENARIO_COVER!=='0'){
     await page.evaluate(()=>((window as any).fieldTest).cover(true));
     await page.getByRole('button',{name:'Camera off',exact:true}).click();
     await page.getByTestId('camera-on-feed').click();
@@ -1255,9 +1255,22 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
   }
   await check('monster',3,true);
+  await place(509,356,false,true);await check('monster',3,true,'defense');
+  await place(550);await check('monster',3,true);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await page.waitForTimeout(100);
+  await place(550);await check('monster',3,true);
   expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move'&&e.action.zone==='monster'&&e.action.slot!==3)).toHaveLength(0);
   await place(375);await check('monster',4,true);
   await place(30);await check('graveyard',undefined,true);
+  await place(720);await check('monster',2,true);
+  expect(writes.filter(write=>write.action.type==='twin.move'&&write.action.zone==='hand')).toEqual([]);
+  await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
+  await place(720);await check('monster',2,true);
+  await place(30,450);await check('banished',undefined,true);
+  await place(720);await check('monster',2,true);
+  await place(30,50);await check('deck',undefined,false);
+  await place(720);await check('monster',2,true);
+  await place(1080,50);await check('extra',undefined,false);
   await place(720);await check('monster',2,true);
   await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
   expect(writes.every(write=>write.status===200)).toBe(true);expect(errors).toEqual([]);

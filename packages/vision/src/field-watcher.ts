@@ -127,6 +127,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     t.clearCandidate=!!clear;if(clear)t.clearCandidateAt??=at;else t.clearCandidateAt=undefined;
     if(!clear||evidence.motion(t.view.card)>.01){resetAbsence(t);return;}
     t.view.visible=false;t.missed=true;invalidateRead(t);t.best=undefined;
+    // A lifted card may already be under a new outline whose identity read is
+    // still pending. Give that read a bounded chance to reconnect the same ref
+    // before starting a fresh clear-mat window for a move to hand.
+    if(tracks.some(other=>other!==t&&!other.view.removed&&other.view.state==='candidate'&&
+      at-(other.read?.at??other.view.firstSeen)<2500&&(other.read||other.needsRead&&at-other.view.lastSeen<450))){resetAbsence(t);return;}
     if(t.missingAt!==undefined&&at-t.missingAt>Math.max(1000,metrics.detectorMs*2))resetAbsence(t);
     t.clearWindowAt??=at;t.missingAt=at;t.missingSamples++;
     if(t.missingSamples<3||at-t.clearWindowAt<removalMs)return;
