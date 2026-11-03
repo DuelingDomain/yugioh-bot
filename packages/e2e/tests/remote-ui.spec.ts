@@ -1182,6 +1182,16 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   const identified={type:'card.identified',actorSeat:0,seat:0,cardRef:track.id,cardId:97522863,zone:'monster',slot:3} as const;
   expect(await applyVerifiedFieldMutation(event,()=>track,async(proposal,id)=>{confirmed.push(proposal);saved.state.undo.actionId=id!;track.visible=false;track.lastSeen-=1600;return saved as any;},identified,true)).toBe(saved);
   expect(confirmed).toEqual([identified]);
+  const {ygoModule,remoteActionSchema}=await import('../../shared/src/remote/index');
+  for(const [delay,slot,replay,expected] of [[1000,3,false,1],[2600,3,false,2],[1000,4,false,2],[1000,3,true,2]] as const){
+    let state=ygoModule.initialState({seatCount:2}),at=0;
+    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}),replay?{replay:true,twinPlacementGuard:3}:undefined);
+    act({type:'twin.place',zone:'monster',card:{ref:'lifted',cardId:97522863,name:'The Man with the Mark',slot:3,faceUp:true,position:'attack'}});
+    at=1000;act({type:'twin.move',source:'auto',cardRef:'lifted',zone:'hand'});
+    at+=delay;act({type:'twin.place',source:'auto',zone:'monster',card:{ref:'new-outline',slot,faceUp:false,position:'defense'}});
+    expect(state.seats[0].twin).toHaveLength(expected);
+    if(expected===1)expect(state.seats[0].twin[0]).toMatchObject({ref:'lifted',name:'The Man with the Mark',zone:'monster',slot:3,faceUp:false});
+  }
   const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;

@@ -48,6 +48,15 @@ export function recentFieldDeparture(card: TwinCard, at: number): boolean {
 export function guardTwinPlacement(state: RemoteState, action: Placement, context?: RemoteReductionContext): Reuse | undefined {
   if (context?.replay && context.twinPlacementGuard === 1) return legacyTwinPlacement(state, action, context);
   if (context?.replay && context.twinPlacementGuard === 2) return versionTwoTwinPlacement(state, action, context);
+  // A face-down return has no identity to match. Preserve the named card
+  // that the camera just lifted from this exact slot; old replays keep v3.
+  if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 4) && action.source === "auto" && remoteFieldZone(action.zone) &&
+      !action.fromRef && !action.anotherCopy && !action.card.faceUp && !action.card.cardId && !action.card.passcode && !action.card.name) {
+    const returned = state.seats[action.seat].twin.filter(t => recentFieldDeparture(t, action.at ?? state.updatedAt) &&
+      t.departedFrom?.zone === action.zone && remotePhysicalSlot(action.zone, t.departedFrom.slot) === remotePhysicalSlot(action.zone, action.card.slot))
+      .sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
+    if (returned) return {ref:returned.ref,card:returned};
+  }
   const matches = state.seats[action.seat].twin.filter(t => sameTwinIdentity(state, action.seat, action.card, t, context));
   if (action.fromRef) {
     const selected = matches.find(t => t.ref === action.fromRef);
