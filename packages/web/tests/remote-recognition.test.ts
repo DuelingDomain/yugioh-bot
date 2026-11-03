@@ -161,7 +161,11 @@ it("parses activation with a named source and activation after identifying a car
 });
 
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {
-  const { fieldPlacementProposals, fieldReadingPlaceholder } = await import("../src/lib/remote/field-proposals");
+  const { fieldPlacementProposals, fieldReadingPlaceholder,rememberFieldObservation,observedFieldZone } = await import("../src/lib/remote/field-proposals");
+  rememberFieldObservation('manual-room',0,'manual-ref','M3');
+  expect(observedFieldZone('manual-room',0,'manual-ref')).toBe('M3');
+  expect(observedFieldZone('another-room',0,'manual-ref')).toBeUndefined();
+  expect(observedFieldZone('manual-room',1,'manual-ref')).toBeUndefined();
   const reading={ref:'fw-reader-1',zone:'monster',slot:3,faceUp:true,position:'attack'} as any;
   expect(fieldReadingPlaceholder([reading],'M3')).toBe(reading);
   for(const twin of [{...reading,faceUp:false},{...reading,cardId:46986414},{...reading,name:'Known'}, {...reading,ref:'manual'}, {...reading,slot:4}])expect(fieldReadingPlaceholder([twin],'M3')).toBeUndefined();

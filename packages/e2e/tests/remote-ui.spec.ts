@@ -1444,8 +1444,13 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect.poll(async()=>Number((await page.getByTestId('field-watcher-status').getAttribute('title'))?.match(/Detector (\d+) ms/)?.[1]??0),{timeout:40_000}).toBeGreaterThan(0);
   await page.evaluate(()=>((window as any).fieldTest).texture());
   // A moving draw crosses the field; it must never create a Set or prompt.
-  for(let i=0;i<8;i++){await page.evaluate(i=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(50+i*120,80+i*45);},i);await page.waitForTimeout(80);}
-  await page.evaluate(()=>((window as any).fieldTest).clear());await page.waitForTimeout(350);
+  await page.evaluate(async()=>{
+    const camera=(window as any).fieldTest,start=performance.now();camera.back('#1e3cbe');
+    // Animate inside the page: IPC waits must not turn a moving draw into a
+    // stationary card held for the complete face-confirmation window.
+    while(performance.now()-start<640){const step=(performance.now()-start)/80;camera.place(50+step*120,80+step*45);await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
+    camera.clear();
+  });await page.waitForTimeout(350);
   expect((await room()).state.seats[0].twin).toHaveLength(0);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   const placedAt=Date.now();
   await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});

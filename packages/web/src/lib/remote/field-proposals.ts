@@ -1,6 +1,15 @@
 import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+// A manual read may finish before the watcher's first identity read. Preserve
+// its physical row even when card legality projects it into another virtual row.
+const observedZones=new Map<string,FieldTrack['zone']>();
+const observationKey=(slug:string,seat:number,ref:string)=>`${slug}:${seat}:${ref}`;
+export function rememberFieldObservation(slug:string,seat:number,ref:string,zone:FieldTrack['zone']){
+  observedZones.set(observationKey(slug,seat,ref),zone);
+  while(observedZones.size>256)observedZones.delete(observedZones.keys().next().value!);
+}
+export const observedFieldZone=(slug:string,seat:number,ref:string)=>observedZones.get(observationKey(slug,seat,ref));
 /** A manual read can identify the reader's current visual cue in place. */
 export function fieldReadingPlaceholder(twins:readonly TwinCard[],zone:FieldTrack['zone']):TwinCard|undefined {
   if(['DECK','EXTRA','GY','BANISHED'].includes(zone))return;

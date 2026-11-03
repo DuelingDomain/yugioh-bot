@@ -49,7 +49,7 @@ import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {fieldGridCells,useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
-import {readFieldOrigin,distinctFieldQuads,fieldReadingPlaceholder} from '@/lib/remote/field-proposals';
+import {readFieldOrigin,distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -324,6 +324,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
       if(updated&&reading&&spot&&(reading.zone!==spot.row||reading.slot!==spot.slot))updated=await apply({type:'twin.move',actorSeat:current.solo?seat:current.mySeat,seat,cardRef:reading.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})});
       const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
+      if(updated&&owns&&ref&&physical)rememberFieldObservation(current.slug,seat,ref,physical);
       return {updated,owns,ref,row:spot?.row,slot:spot?.slot,requestRef:spot?.ref};
     });
     const {updated,owns,ref}=outcome;
