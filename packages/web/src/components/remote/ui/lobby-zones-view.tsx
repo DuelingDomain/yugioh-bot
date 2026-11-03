@@ -69,7 +69,7 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
       </header>
       <div className={s.stage} style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}>
         <video ref={video} className={s.video} autoPlay muted playsInline data-testid="lobby-zones-view-video" />
-        <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!calibrated} large ratio={ratio} zoneSpacing={zoneSpacing} />
+        <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!calibrated} large ratio={ratio} />
       </div>
       <div className={s.controls}>
         {calibrated ? <>
