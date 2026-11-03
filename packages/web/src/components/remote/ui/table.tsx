@@ -18,8 +18,7 @@ import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
 import { COLORS, battleMath, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
-import { OriginAsk } from "./dup-ui";
-import { findTwinGroups, type CopyFlag } from "./twins";
+import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
@@ -49,7 +48,7 @@ import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
 import {fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {fieldGridCells,useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
-import {readFieldOrigin,distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
+import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -61,9 +60,6 @@ const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-d
 const typing = isTypingTarget;
 
 type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number };
-const pendingOriginAt=(room:RemoteRoom,seat:number,card:{cardId?:number;name?:string|null},zone:string,slot?:number)=>
-  [room.state.twinConfirmation,...(room.state.twinConfirmationQueue??[])].find(flag=>flag?.seat===seat&&flag.placement?.zone===zone&&
-    flag.placement.card.slot===slot&&sameObservedCard(flag.placement.card,card));
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -265,7 +261,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setWebcamOnlyState(next);
     try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
   }, []);
-  const [resolvingOrigin, setResolvingOrigin] = useState(false);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -315,8 +310,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
       const spot=owns?(reading&&mapped?{row:mapped.zone,slot:mapped.slot,ref:reading.ref}:same?{row:same.zone,slot:same.slot,ref:same.ref}:mapped?{row:mapped.zone,slot:mapped.slot,ref:crypto.randomUUID()}:layoutFor(seat,pick.cardId,found,current)):undefined;
       if(owns&&!spot){toast('Card type or a free legal zone is unavailable. Check the card before placing it.',5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
-      const pending=spot?pendingOriginAt(current,seat,{cardId:pick.cardId,name:pick.name},spot.row,spot.slot):undefined;
-      if(pending)return {updated:current,owns,ref:undefined,row:spot?.row,slot:spot?.slot,requestRef:pending.cardRef};
       let updated:RemoteRoom|null=null;
       const witnesses=verifiedWitnesses?.filter(w=>sameObservedCard(w,{cardId:pick.cardId,name:pick.name})&&current.state.seats[seat].twin.some(c=>c.ref===w.ref&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)))??[];
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
@@ -329,7 +322,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     });
     const {updated,owns,ref}=outcome;
     if (!updated) { bail(); return; }
-    if ([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.placement&&flag.cardRef===outcome.requestRef)) { layers.close("tray"); setTray(null); return; }
     if(owns)setFresh(ref);
     saveSample(at.token, pick.cardId, pick.feedback);
     const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
@@ -506,12 +498,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
-        if(pendingOriginAt(R.current.room,seat,item.card,item.zone,item.slot))break;
         const acceptedWitnesses=done.filter(previous=>previous.card!==item.card&&sameObservedCard(previous.card,item.card)&&distinctFieldQuads(previous.card.quad,item.card.quad)&&['monster','spell-trap','extra-monster','field','pendulum'].includes(previous.zone));
         const copies=Math.max(item.copyProof?.simultaneousQuads??1,acceptedWitnesses.length+1);
         const copyProof=copies>=2?{simultaneousQuads:copies,at:Math.floor(serverNow()-999)}:undefined;
         const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, ...(copyProof?{copyProof}:{}), card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
-        if (!ok || [ok.state.twinConfirmation,...(ok.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===seat&&flag.cardRef===item.ref)) break;
+        if (!ok) break;
         const canonical=placedTwin(ok.state.seats[seat].twin,{ref:item.ref,zone:item.zone,slot:item.slot,cardId:item.card.cardId});
         if(!canonical)break;
         const previous=done.findIndex(value=>value.ref===canonical.ref);if(previous>=0)done.splice(previous,1);
@@ -781,7 +772,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   // ---- card actions ----
   const subjectCard = subject?.ref ? findCard(subject.seat, subject.ref) : undefined;
-  const subjectDetails = subject ? { ...subject, revealed: !!subjectCard?.publicIdentity } : null;
+  const subjectDetails = subject ? { ...subject, revealed: !!subjectCard?.publicIdentity && subjectCard.faceUp === false } : null;
   const subjectInfo = subject ? info(subject.cardId) : undefined;
   const block = subject ? attackBlock(subject.seat, subjectCard) : "";
   const flagOf = (seat: number) => deckFlag(room, seat);
@@ -850,28 +841,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
   const twinCounts = (seat: number) => new Map(findTwinGroups(state.seats[seat]?.twin ?? []).flatMap(group => group.cards.map(card => [card.ref, group.cards.length] as const)));
-  const resolveOrigin = async (flag: CopyFlag, option: {ref?:string;label:string}) => {
-    if (!live || resolvingOrigin || !flag.placement) return;
-    setResolvingOrigin(true);
-    try {
-      await ctl.transaction(async (current, apply) => {
-        const pending = [current.state.twinConfirmation,...(current.state.twinConfirmationQueue??[])].find(f=>f?.seat===flag.seat&&f.cardRef===flag.cardRef);
-        if (pending?.cardRef !== flag.cardRef || !pending.placement) return;
-        const {idempotencyKey: _id, at: _at, ...request} = pending.placement;
-        // A followed pile track can still own its old ref when New copy is chosen.
-        const ref = !option.ref && current.state.seats[flag.seat].twin.some(c => c.ref === request.card.ref) ? crypto.randomUUID() : request.card.ref;
-        const observed=readFieldOrigin(current.slug,flag.seat,flag.cardRef);
-        if(observed===null){toast('Show the card clearly to confirm its origin.',4000);return;}
-        await apply({...request, ...(observed?{zone:observed.zone}:{}), originRequestRef:flag.cardRef, card:{...request.card,ref,...(observed?{slot:observed.slot,faceUp:observed.faceUp,position:observed.position}:{})}, ...(option.ref ? {fromRef:option.ref} : {anotherCopy:true})});
-      });
-    } finally { setResolvingOrigin(false); }
-  };
-  const fieldNotice = (seat: number): ReactNode => {
-    const flag = [state.twinConfirmation,...(state.twinConfirmationQueue??[])].find(f=>f?.seat===seat);
-    if (!(solo || seat === mySeat) || flag?.seat !== seat || !flag.placement || !flag.options) return null;
-    return <OriginAsk key={flag.cardRef} seat={seat} message={flag.message} options={flag.options}
-      busy={!live || resolvingOrigin} onChoose={option => void resolveOrigin(flag, option)} />;
-  };
   const draftPhase = PHASES.length;
   void draftPhase;
 
@@ -972,16 +941,16 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         {webcamOnly && attack && battle ? <div className={s.wcbattle} role="status" aria-live="polite" data-testid="wc-battle"><b>{battle.title}</b> <em>{battle.attackerAtk ?? "?"}</em> vs <em>{battle.direct ? "direct" : battle.targetValue ?? "?"}</em> → <s>{battle.result}</s></div> : null}
         {seatIds.map(seat => {
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
-          const deck=room.seats.find(item=>item.seat===seat)?.deck?.deck;
+          const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
-            twin={twin} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} fieldNotice={fieldNotice(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}

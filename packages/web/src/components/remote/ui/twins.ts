@@ -1,4 +1,4 @@
-import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
+import type { RemoteActionProposal } from "@yugidraft/shared/remote";
 import { cardCode, type TwinCard } from "./model";
 
 /** Zones where a second copy of one public card is suspicious. A Graveyard copy counts only next to one on the field. */
@@ -6,7 +6,7 @@ const FIELD_ZONES = new Set(["monster", "spell-trap", "field", "extra-monster", 
 
 /** Two or more public cards of one seat with the same identity, at least one of them on the field. */
 export type TwinGroup = {
-  /** Same for the same set of cards, so a "Two copies" answer stays valid until another copy appears. */
+  /** Stable for the same set of physical refs. */
   key: string;
   cardId: number;
   cards: TwinCard[];
@@ -45,12 +45,3 @@ export function mergeProposal(args: { seat: number; actorSeat: number; keep: Twi
 }
 /** Log lines of a merge start with this, so the log can name the card. */
 export const MERGED = "Merged duplicate";
-
-/**
- * The table's soft flag after a manual placement of a card the seat already has on the field.
- * The card is placed; the flag asks whether it is the same card (merge) or another copy (confirm with `anotherCopy`).
- */
-export type CopyFlag = NonNullable<RemoteRoom["state"]["twinConfirmation"]>;
-export function copyFlagOf(room: RemoteRoom | null): CopyFlag | null {
-  return room?.state.twinConfirmation ?? null;
-}

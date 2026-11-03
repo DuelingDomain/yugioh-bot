@@ -59,8 +59,6 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
   const actionId=crypto.randomUUID();
   const updated=await act(proposal,actionId);
   if(!updated)return null;
-  // An origin request has no placement or undo entry to compensate.
-  if([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===(proposal.type==='twin.place'?proposal.seat:undefined)&&flag?.cardRef===(proposal.type==='twin.place'?proposal.card.ref:undefined)&&flag?.placement))return updated;
   if(!fieldEvidenceMatches(event,current())){
     if(proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
       let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
@@ -69,13 +67,4 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
     return null;
   }
   return updated;
-}
-
-export type FieldOriginTarget = {zone:string;slot?:number;position:'attack'|'defense';faceUp:boolean};
-const originReaders = new Map<string,(ref:string)=>FieldOriginTarget|null|undefined>();
-/** Undefined is a manual observation; null is a tracked card without current evidence. */
-export function readFieldOrigin(slug:string,seat:number,ref:string) {return originReaders.get(`${slug}:${seat}`)?.(ref);}
-export function registerFieldOriginReader(slug:string,seat:number,reader:(ref:string)=>FieldOriginTarget|null|undefined) {
-  const key=`${slug}:${seat}`;originReaders.set(key,reader);
-  return ()=>{if(originReaders.get(key)===reader)originReaders.delete(key);};
 }
