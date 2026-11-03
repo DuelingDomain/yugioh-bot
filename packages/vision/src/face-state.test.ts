@@ -99,7 +99,7 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
  }finally{watcher.dispose();}
 });
 
-test('one physical card does not prompt again after Set and reveal',async()=>{
+test('a fresh low-confidence reveal can ask again without a retry loop',async()=>{
  let at=0,down=false,reads=0;
  const back=image(()=>[15,15,15]),events:FieldEvent[]=[];
  const outline=():DetectedQuad=>({kind:down?'face-down':'face-up',confidence:.99,partial:false,quad:[{x:.3,y:.3},{x:.42,y:.3},{x:.42,y:.5},{x:.3,y:.5}]});
@@ -107,5 +107,5 @@ test('one physical card does not prompt again after Set and reveal',async()=>{
   analyze:()=>({crop:()=>down?back:front,motion:()=>0,sharpness:()=>20,appearance:()=>Array.from({length:288},(_,i)=>down?.1:i%2?.7:.3)}),
   recognizer:{detectCards:async()=>[outline()],recognize:async()=>{reads++;return {candidates:[],tier:'low match',quality:{fallback:false},timingsMs:{total:1},backend:'wasm'} as unknown as RecognitionResult;}}});
  watcher.subscribe(e=>events.push(e));const sample=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
- try{for(let i=0;i<8;i++)await sample();assert.equal(events.filter(e=>e.type==='prompt').length,1);down=true;for(let i=0;i<5;i++)await sample();down=false;for(let i=0;i<15;i++)await sample();assert.equal(events.filter(e=>e.type==='prompt').length,1);assert.equal(reads,2,'one read per new front, no failed-reveal retry queue');}finally{watcher.dispose();}
+ try{for(let i=0;i<8;i++)await sample();assert.equal(events.filter(e=>e.type==='prompt').length,1);down=true;for(let i=0;i<5;i++)await sample();down=false;for(let i=0;i<15;i++)await sample();assert.equal(events.filter(e=>e.type==='prompt').length,2);assert.equal(reads,2,'one read per new front, no failed-reveal retry queue');}finally{watcher.dispose();}
 });
