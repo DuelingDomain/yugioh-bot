@@ -503,6 +503,15 @@ test('quiet empty-mat pixel checks skip inference but new motion starts detectio
   analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.8),motion:()=>moving?.2:0,...(moving?{motionRegion:{x:.3,y:.3,w:.15,h:.25}}:{}),sharpness:()=>20})});
  try{await watcher.tick();moving=true;at+=100;await watcher.tick();assert.deepEqual(scopes,[false,true,false]);assert.equal(maxActive,1);assert.equal(watcher.getSnapshot().tracks.length,1);}
  finally{watcher.dispose();}
+ // A localized difference must wake detection even below whole-mat motion,
+ // and an unchanged front returned by the crop must not hide the new back.
+ at=100;moving=false;scopes.length=0;
+ const other=card(.75,.3,.12,.2),back={...card(.3,.3,.12,.2),kind:'face-down' as const};
+ const populated=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  recognizer:{detectCards:async(_f,opts)=>{scopes.push(!!opts?.region);return moving&&!opts?.region?[other,back]:[other];},recognize:async()=>sureResult()},
+  analyze:()=>({crop:fieldCrop,appearance:c=>zones.fieldCenter(c).x>.7?Array.from({length:12},(_,i)=>i%2?.6:.2):Array(12).fill(.8),motion:c=>moving&&zones.fieldCenter(c).x<.7?.001:0,...(moving?{motionRegion:{x:.3,y:.3,w:.12,h:.2}}:{}),sharpness:()=>20})});
+ try{for(let i=0;i<8;i++){at+=100;await populated.tick();}const old=populated.getSnapshot().tracks[0];assert.equal(old.state,'identified');populated.confirm(old.id,'A');moving=true;at+=50;await populated.tick();assert.deepEqual(scopes.slice(-2),[true,false]);assert.equal(populated.getSnapshot().tracks.length,2);}
+ finally{populated.dispose();}
 });
 
 test('scan budget follows the live detector backend and backs off when inference slows',async()=>{

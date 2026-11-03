@@ -4,7 +4,7 @@
 
 ## Current watcher path
 
-The watcher probes fresh decoded frames every 100 ms while idle and every 50 ms during a bounded pending change. It does not queue overlapping inference. Full detector calls retain the backend budget. A recent detector outline can supply pixel-only confirmation when its appearance, geometry, motion and occlusion checks still pass. A cropped detection that finds no outlines retries once on the full frame, rather than waiting for the periodic full scan. Repeated decoded frames cannot advance evidence.
+The watcher probes fresh decoded frames every 100 ms while idle and every 33 ms during a bounded pending change. It does not queue overlapping inference. Full detector calls retain the backend budget. A recent detector outline can supply pixel-only confirmation when its appearance, geometry, motion and occlusion checks still pass. A cropped detection that finds no outlines, or only unchanged cards outside the changed area, retries once on the full frame, rather than waiting for the periodic full scan. Repeated decoded frames cannot advance evidence.
 
 The watcher uses a 120 ms face window with at least three clean samples. The standalone hysteresis helper retains its 300 ms default. Low-score back outlines also need the native card aspect ratio. A sharp front can start its fresh identity read while the face window settles; motion or changed pixels invalidate that result. Backs never start identity reads or provisional reading placements. A prompt remains consumed across Set and reveal on the same physical track.
 
