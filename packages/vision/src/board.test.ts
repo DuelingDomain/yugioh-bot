@@ -617,14 +617,24 @@ test('a verified read reconnects a rotated card across the mat to its acknowledg
  r.outlines=[card(.65,.3,.25,.15)];for(let i=0;i<12&&!r.events.some(e=>e.type==='moved');i++)await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,original.id);assert.equal(r.events.at(-1)?.track.position,'defense');assert.equal(r.events.at(-1)?.track.revision,original.revision);assert.equal(r.events.filter(e=>e.type==='prompt'||e.type==='removed').length,0);assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.reads,2);r.watcher.dispose();
 });
-for(const obstacle of ['hand','different embedding','missing embedding','different identity','removed ref','pile ref','unacknowledged ref','multiple outlines'])test(`strict copy rule reconciles a read with ${obstacle}`,async()=>{
+for(const obstacle of ['hand','different embedding','missing embedding','different identity','removed ref','unacknowledged ref','multiple outlines'])test(`strict copy rule reconciles a read with ${obstacle}`,async()=>{
  const r=fieldRig();if(obstacle!=='missing embedding')r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;if(obstacle!=='unacknowledged ref')r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
  const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(obstacle==='hand'?.8:.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
  if(obstacle==='removed ref'){r.outlines=[];for(let i=0;i<11;i++)await r.tick(300);assert.ok(r.events.some(e=>e.type==='removed'));r.known=[{id,zone:'GY',cardId:'A'}];}
- if(obstacle==='pile ref')r.known=[{id,zone:'GY',cardId:'A'}];
  if(obstacle==='different embedding')r.embedding=[0,1];if(obstacle==='different identity'){r.identity='B';r.embedding=[0,1];r.decklist=['A','B'];}
  r.outlines=obstacle==='multiple outlines'?[card(.5,.3),card(.72,.3)]:[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
  assert.equal(Number(r.events.some(e=>e.type==='moved'&&e.track.id===id)),['different identity','unacknowledged ref','removed ref'].includes(obstacle)?0:1,obstacle);if(obstacle==='multiple outlines')assert.equal(r.events.filter(e=>e.type==='placed').length,2,'a second read may place a copy only while both distinct cards are visible');r.watcher.dispose();
+});
+
+for(const zone of ['GY','BANISHED'] as const)test(`a matching field read cannot reuse a ${zone} ref without pile-exit evidence`,async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');
+ // The owner state puts the ref in a pile, but no pile lift was observed.
+ r.known=[{id,zone,cardId:'A'}];
+ const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
+ r.outlines=[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
+ assert.equal(r.events.some(e=>e.type==='moved'&&e.track.id===id),false,'pile history alone does not prove a move');
+ const placements=r.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.notEqual(placements[1].track.id,id);assert.equal(placements[1].track.cardId,'A');
+ assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);
 });
 
 test('a rotated return after explicit removal Undo follows the same restored public ref',async()=>{
@@ -635,11 +645,15 @@ test('a rotated return after explicit removal Undo follows the same restored pub
  assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].removed,false);r.watcher.dispose();
 });
 
-test('a matching read after the move window creates a new physical ref even after a failed departure',async()=>{
- const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
+test('a matching read after the move window reuses the public ref after a failed departure',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
  const mat=Array(12).fill(.2),pattern=Array.from({length:12},(_,i)=>i%2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;r.outlines=[];for(let i=0;i<11;i++)await r.tick(300);assert.ok(r.events.some(e=>e.type==='removed'));
  await r.tick(3000);r.outlines=[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
- assert.equal(r.events.filter(e=>e.type==='moved').length,0);assert.equal(r.events.filter(e=>e.type==='placed').length,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ // The failed departure left the authoritative ref public; the fresh read
+ // reconciles it beyond the short motion window without creating a copy.
+ const moves=r.events.filter(e=>e.type==='moved');assert.equal(moves.length,1);assert.equal(moves[0].track.id,id);assert.equal(moves[0].track.cardId,'A');assert.equal(moves[0].track.position,'defense');
+ assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);
+ assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].removed,false);
 });
 test('a different card returning to an explicitly restored spot abstains without moving the old ref',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
