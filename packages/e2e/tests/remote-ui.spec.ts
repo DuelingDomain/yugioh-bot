@@ -1183,14 +1183,14 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   expect(await applyVerifiedFieldMutation(event,()=>track,async(proposal,id)=>{confirmed.push(proposal);saved.state.undo.actionId=id!;track.visible=false;track.lastSeen-=1600;return saved as any;},identified,true)).toBe(saved);
   expect(confirmed).toEqual([identified]);
   const {ygoModule,remoteActionSchema}=await import('../../shared/src/remote/index');
-  for(const [delay,slot,replay,expected] of [[1000,3,false,1],[2600,3,false,2],[1000,4,false,2],[1000,3,true,2]] as const){
+  for(const [delay,slot,version,expected] of [[1000,3,undefined,1],[2600,3,undefined,2],[1000,4,undefined,2],[1000,3,3,2],[1000,3,4,1],[1000,3,5,1]] as const){
     let state=ygoModule.initialState({seatCount:2}),at=0;
-    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}),replay?{replay:true,twinPlacementGuard:3}:undefined);
+    const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:crypto.randomUUID(),...input}),version?{replay:true,twinPlacementGuard:version}:undefined);
     act({type:'twin.place',zone:'monster',card:{ref:'lifted',cardId:97522863,name:'The Man with the Mark',slot:3,faceUp:true,position:'attack'}});
     at=1000;act({type:'twin.move',source:'auto',cardRef:'lifted',zone:'hand'});
     at+=delay;act({type:'twin.place',source:'auto',zone:'monster',card:{ref:'new-outline',slot,faceUp:false,position:'defense'}});
     expect(state.seats[0].twin).toHaveLength(expected);
-    if(expected===1)expect(state.seats[0].twin[0]).toMatchObject({ref:'lifted',name:'The Man with the Mark',zone:'monster',slot:3,faceUp:false});
+    if(expected===1){expect(state.seats[0].twin[0]).toMatchObject({ref:'lifted',name:'The Man with the Mark',zone:'monster',slot:3,faceUp:false});expect(state.seats[0].twin[0].departedFrom).toBeUndefined();}
   }
   // Field ownership has no expiry. Only a surviving field/pile witness proves
   // a second copy; an old automatic hand departure retains its field origin.
@@ -1236,7 +1236,8 @@ test('field watcher owner: one card completes the full physical lifecycle',async
       postMessage(message:any){
         const physical=(window as any).fieldTest.snapshot(),{x,y,defense,back,visible,covered}=physical;
         const w=defense?262:180,h=defense?180:262;
-        const card={quad:[{x:x/1280,y:y/720},{x:(x+w)/1280,y:y/720},{x:(x+w)/1280,y:(y+h)/720},{x:x/1280,y:(y+h)/720}],kind:back?'face-down':'face-up',confidence:.95,partial:false};
+        const card={quad:[{x:x/1280,y:y/720},{x:(x+w)/1280,y:y/720},{x:(x+w)/1280,y:(y+h)/720},{x:x/1280,y:(y+h)/720}],kind:(window as any).fieldScenarioKind??(back?'face-down':'face-up'),confidence:(window as any).fieldScenarioConfidence??.95,partial:false};
+        if(message.type==='detect')(window as any).fieldScenarioDetectedConfidence=card.confidence;
         const result=message.type==='detect'?(visible&&!covered?[card]:[]):message.type==='recognize'?{
           candidates:[{cardId:'97522863',score:.9},{cardId:'46986414',score:.5}],tier:(window as any).fieldScenarioTier??'not sure',
           quality:{sharpness:80,detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],fallback:false,partial:false,covered:false,faceDown:false},
@@ -1277,8 +1278,13 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     await expect(page.getByRole('status').filter({hasText:'Card is moving or covered. Keep it still, then choose again.'})).toBeVisible();
     await page.evaluate(()=>((window as any).fieldTest).cover(false));
     await page.waitForTimeout(500);
+    if(process.env.E2E_SCENARIO_WORKER==='1'){
+      await page.evaluate(()=>(window as any).fieldScenarioConfidence=.65);
+      await expect.poll(()=>page.evaluate(()=>(window as any).fieldScenarioDetectedConfidence)).toBe(.65);
+      await page.waitForTimeout(200);
+    }
     await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
-    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+    await page.evaluate(()=>{(window as any).fieldScenarioTier='not sure';delete (window as any).fieldScenarioConfidence;});
   }
   await check('monster',3,true);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   if(process.env.E2E_SCENARIO_COVER!=='0'){
@@ -1292,6 +1298,15 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await place(509,356,true);await check('monster',3,false,'defense');
   const beforeFlip=(await room()).events.length;
   if(process.env.E2E_SCENARIO_REVEAL==='1')await page.evaluate(()=>(window as any).fieldScenarioTier='low match');
+  if(process.env.E2E_SCENARIO_WORKER==='1'){
+    // The raw detector still reports the back while the lifted front crosses
+    // toward M2. An incomplete face gate must not send any field move.
+    await page.evaluate(()=>(window as any).fieldScenarioKind='face-down');
+    await place(620);await page.waitForTimeout(450);
+    await check('monster',3,false,'defense');
+    expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move')).toEqual([]);
+    await page.evaluate(()=>delete (window as any).fieldScenarioKind);
+  }
   await place(550);
   if(process.env.E2E_SCENARIO_REVEAL==='1'){
     const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
@@ -1299,6 +1314,20 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
   }
   await check('monster',3,true);
+  const revealed=(await room()).events.slice(beforeFlip);
+  expect(revealed.filter((e:any)=>e.action.type==='twin.flip'&&e.action.faceUp)).toHaveLength(1);
+  expect(revealed.find((e:any)=>e.action.type==='twin.flip'&&e.action.faceUp).action).toMatchObject({cardRef:ref,cardId,name,source:'auto'});
+  expect(revealed.filter((e:any)=>['twin.place','card.identified'].includes(e.action.type))).toEqual([]);
+  if(process.env.E2E_SCENARIO_REVEAL==='1'){
+    // The same physical track can ask again at a later face revision.
+    await place(509,356,true);await check('monster',3,false,'defense');
+    await page.evaluate(()=>(window as any).fieldScenarioTier='low match');
+    await place(550);
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await check('monster',3,true);await expect(prompt).toHaveCount(0);
+    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+  }
   await place(509,356,false,true);await check('monster',3,true,'defense');
   await place(550);await check('monster',3,true);
   await page.evaluate(()=>((window as any).fieldTest).clear());await page.waitForTimeout(100);

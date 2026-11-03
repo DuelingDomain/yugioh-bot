@@ -65,7 +65,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
-  useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
+  useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);prompted.current.clear();previousRefs.current=new Set();bindings.current.clear();},[room.slug,seat,source]);
   useEffect(()=>{placeholders.current.clear();readerRemovals.current.clear();},[room.slug,seat]);
   const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
   const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
@@ -404,6 +404,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[room.slug,seat,watch.enabled]);
   const video=host?.querySelector('video')??null;
   useEffect(()=>{
+    const active=new Set(watch.snapshot.tracks.filter(t=>t.state==='prompt'&&!t.removed).map(t=>`${t.id}:${t.revision??0}`));
+    for(const key of prompted.current)if(!active.has(key))prompted.current.delete(key);
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
     for(const ref of previousRefs.current)if(!refs.has(ref)&&!readerRemovals.current.has(ref)){forgetPhysical(ref);watch.forget(ref);}
