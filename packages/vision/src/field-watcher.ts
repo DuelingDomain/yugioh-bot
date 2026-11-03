@@ -62,7 +62,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // Deck stacks are observations, never physical field tracks or identity reads.
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean;appearance?:number[]}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
-  let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
+  let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined;
   let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity,deckTouchedAt=-Infinity,extraTouchedAt=-Infinity;
   const pileTouches=new Map<FieldZone,number>(),pileDepartures=new Set<string>();
@@ -164,7 +164,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     t.read=pending;t.needsRead=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
     if(generation!==epoch||disposed||t.read!==pending||!tracks.includes(t)){closeFieldFrame(input);return;}
-    reading=read(t,input,card,pending,generation).finally(()=>{reading=undefined;});
+    reading=read(t,input,card,pending,generation).finally(()=>{reading=undefined;if(wakeAfterRead){wakeAfterRead=false;wake();}});
   }
   function restoreIdentity(t:InternalTrack,pixels?:number[]) {
     const saved=t.identityCheck!;t.identityCheck=undefined;t.read=undefined;t.needsRead=false;t.best=undefined;
@@ -187,10 +187,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(generation!==epoch||disposed||t.read!==pending)return;
       const priors=options.getPriors?.();
       const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:!!priors?.decklist?.length,earlyExitMargin:options.earlyExitMargin??.02});
-      if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing)Object.assign(t.timing.durationsMs,result.timingsMs);}
+      if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing)Object.assign(t.timing.durationsMs,result.timingsMs);wakeAfterRead=true;}
     }catch(cause){if(generation===epoch&&!disposed&&t.read===pending){console.error('[remote field] recognition failed',t.view.id,cause);metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
   }
+  /** Event-driven save: a finished read is consumed at once, not at the next timed tick. */
+  function wake(){if(!active||disposed)return;if(inFlight){wakeQueued=true;return;}clearTimeout(timer);schedule();}
   const idle=()=>{
     const nav=typeof navigator==='undefined'?undefined:navigator as Navigator&{scheduling?:{isInputPending():boolean}};
     // A completed main-thread task says nothing about current input pressure.
@@ -855,7 +857,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(metrics.intervalMs>650)guarded=true;else if(metrics.intervalMs<450)guarded=false;if(status==='watching'&&guarded)status='budget';inFlight=false;notify();
     }
   }
-  function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();if(active)scheduleAfter(Math.max(0,Math.min(pixelBurst()?33:66,metrics.intervalMs)-(now()-start)));},0);}
+  function schedule() {if(!active)return;clearTimeout(timer);timer=setTimeout(async()=>{const start=now();await tick();if(!active)return;if(wakeQueued){wakeQueued=false;schedule();return;}scheduleAfter(Math.max(0,Math.min(pixelBurst()?33:66,metrics.intervalMs)-(now()-start)));},0);}
   function scheduleAfter(delay:number) {if(active)timer=setTimeout(()=>schedule(),delay);}
   function stop() {active=false;epoch++;clearTimeout(timer);interruptWindow();status='stopped';notify();}
   return {
