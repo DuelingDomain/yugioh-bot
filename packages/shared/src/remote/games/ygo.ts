@@ -19,6 +19,15 @@ const zones = [
   { id: "extra", name: "Extra Deck", shape: "pile" }, { id: "pendulum", name: "Pendulum", shape: "row" },
   { id: "hand-reveal", name: "Hand reveal", shape: "pile" },
 ] as const;
+const MONSTER_ZONES = new Set(["monster", "extra-monster"]);
+const FIELD_ZONES = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
+/** Trap Monster zones and Equip links last only while the cards are on the field. */
+function clearZoneLinks(state: RemoteState) {
+  for (const seat of state.seats) for (const card of seat.twin) {
+    if (card.trapZone !== undefined && !MONSTER_ZONES.has(card.zone)) delete card.trapZone;
+    if (card.equippedTo && (!FIELD_ZONES.has(card.zone) || !state.seats[card.equippedTo.seat]?.twin.some(c => c.ref === card.equippedTo!.ref && MONSTER_ZONES.has(c.zone)))) delete card.equippedTo;
+  }
+}
 /** Graveyard and banished piles are ordered by the twin list: oldest first, newest last. Undo restores the list as it was. */
 const enteringPile = (from: string, to: string) => from !== to && (to === "graveyard" || to === "banished");
 function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReductionContext): RemoteState {
@@ -56,8 +65,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     // Legacy row twins without a slot do not identify a physical position.
     if (shape === "row" && physicalSlot === undefined) return;
     if (context?.replay) return;
-    remoteAssert(!s.twin.some(card => card.ref !== exceptRef && card.zone === zone &&
-      (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot)),
+    remoteAssert(!s.twin.some(card => card.ref !== exceptRef && (card.zone === zone &&
+      (shape === "single" || remotePhysicalSlot(card.zone, card.slot) === physicalSlot) ||
+      zone === "spell-trap" && card.trapZone === physicalSlot)),
     "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");
   };
   const endTurn = () => {
@@ -159,6 +169,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
           card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}) };
         else if (action.zone !== "hand") delete card.departedFrom;
+        // A Trap Monster still occupies the Spell & Trap Zone it was activated in.
+        if (action.trapMonster && card.zone === "spell-trap" && remotePhysicalSlot(card.zone, card.slot) !== undefined && MONSTER_ZONES.has(action.zone)) card.trapZone = card.slot;
         if (card.zone !== action.zone) delete card.slot;
         if (action.slot !== undefined) card.slot = action.slot;
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
@@ -177,6 +189,15 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
     }
+    case "twin.equip": {
+      const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
+      remoteAssert(card && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
+      if (!action.target) { delete card.equippedTo; break; }
+      const target = next.seats[action.target.seat]?.twin.find(c => c.ref === action.target!.ref);
+      remoteAssert(target && target !== card && MONSTER_ZONES.has(target.zone), "Equip target must be a monster on the field", 409);
+      card.equippedTo = { seat: action.target.seat, ref: target.ref };
+      break;
+    }
     case "pile.lift": {
       const s = ownField(action.seat);
       for (const ref of action.cardRefs) {
@@ -188,6 +209,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
+  clearZoneLinks(next);
   applyRemoteEffectTracking(next, state, deckAction, context);
   next = applyLiveDeckChecks(next, deckAction, context);
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)

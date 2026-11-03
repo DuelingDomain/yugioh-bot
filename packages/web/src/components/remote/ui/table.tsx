@@ -5,7 +5,7 @@ import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteForm
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
-import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
+import { CardPopover, InspectorBody, type CardActions, type CardEdit, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
@@ -44,7 +44,7 @@ import s from "./remote-ui.module.css";
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
-import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
+import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
@@ -186,11 +186,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const addVoiceLog = useCallback((text: string) => setVoiceLog(list => [...list.slice(-30), { id: `vx:${Date.now()}`, time: fmtTime(Date.now()), kind: "VX" as const, text, fresh: true }]), []);
 
   // ---- actions ----
-  const act = useCallback(async(proposal:RemoteActionProposal)=>{
-    let warning:string|undefined;
-    if(proposal.type==='twin.move'&&proposal.source!=='auto'){
-      const card=R.current.room.state.seats[proposal.seat]?.twin.find(item=>item.ref===proposal.cardRef),code=card?cardCode(card):undefined;
-      warning=manualFieldZoneWarning(cardInfo(code),proposal.zone,proposal.slot);
+  const act = useCallback(async(input:RemoteActionProposal)=>{
+    let warning:string|undefined,proposal=input;
+    if(input.type==='twin.move'){
+      const card=R.current.room.state.seats[input.seat]?.twin.find(item=>item.ref===input.cardRef),code=card?cardCode(card):undefined;
+      if(input.source!=='auto')warning=manualFieldZoneWarning(cardInfo(code),input.zone,input.slot);
+      // A Trap moved from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone (docs/remote-duels/zone-rules.md).
+      if(input.trapMonster===undefined&&becomesTrapMonster(card,cardInfo(code),input.zone))proposal={...input,trapMonster:true};
     }
     const updated=await ctl.action(proposal);
     if(updated&&warning)toast(warning,5000);
@@ -812,8 +814,19 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
+      ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
   };
+  /** "Equipped to" choices: every monster on any field. One twin.equip action, one Undo. */
+  function equipChoice(seat: number, card: TwinCard): NonNullable<CardEdit["equip"]> {
+    const options = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => c.zone === "monster" || c.zone === "extra-monster").map(c => ({
+      key: `${other.seat}:${c.ref}`,
+      label: `${other.seat === seat ? "" : name(other.seat) + " · "}${c.faceUp || c.publicIdentity ? cardName(c, info(cardCode(c))) : "Face-down monster"} (${c.zone === "monster" ? "M" : "EMZ"}${c.slot ?? ""})`,
+    })));
+    return { current: card.equippedTo ? `${card.equippedTo.seat}:${card.equippedTo.ref}` : undefined, options,
+      onEquip: key => { const [target, ref] = key ? [Number(key.split(":")[0]), key.slice(key.indexOf(":") + 1)] : [];
+        void act({ type: "twin.equip", actorSeat: solo ? seat : mySeat, seat, cardRef: card.ref, target: key ? { seat: target!, ref: ref! } : null }); } };
+  }
   const openSubject = (card: TwinCard, fromField = true, anchor?: Rect) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);

@@ -846,47 +846,47 @@ async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:
 }
 describe('typed watcher zone projection',()=>{
  it.each([
-  ['Solemn Judgment in monster row',0,'M4','spell-trap',4],
+  ['Solemn Judgment in monster row (kept, Check zone)',0,'M4','monster',4],
   ['Field Spell in monster row',1,'M4','field',undefined],
   ['Fusion monster in Extra Monster Zone',2,'EMZ1','extra-monster',1],
   ['Pendulum at left edge',3,'S1','spell-trap',1],
   ['Pendulum at right edge',3,'S5','spell-trap',5],
-  ['Pendulum in middle Spell/Trap Zone',3,'S3','monster',3],
+  ['Pendulum in middle Spell/Trap Zone (kept, Check zone)',3,'S3','spell-trap',3],
   ['Extra Deck Pendulum in Extra Monster Zone',4,'EMZ2','extra-monster',2],
- ] as const)('places %s in its legal row',async(_name,index,observed,zone,slot)=>{
+ ] as const)('places %s by the zone rules',async(_name,index,observed,zone,slot)=>{
   const fixture=await typedWatcherFixture(zoneEntries[index],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({zone,...(slot?{slot}:{}),cardId:zoneEntries[index].passcode})]);expect(fixture.post).toHaveBeenCalledOnce();}finally{fixture.dispose();}
  });
- it.each([['EMZ1',2],['EMZ2',4]] as const)('corrects a main-deck monster at %s to its aligned main column',async(observed,slot)=>{
-  const fixture=await typedWatcherFixture(cards[0],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot});}finally{fixture.dispose();}
+ it.each([['EMZ1',1],['EMZ2',2]] as const)('keeps a main-deck monster at %s where the camera saw it (Check zone)',async(observed,slot)=>{
+  const fixture=await typedWatcherFixture(cards[0],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'extra-monster',slot});}finally{fixture.dispose();}
  });
  it('waits for an already-started catalog prefetch before committing the legal row',async()=>{
   const {loadCards}=await import('../src/components/remote/ui/catalog'),ready=deferred<Response>();
-  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched trap fixture'};
+  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched field spell fixture'};
   fetcher.mockImplementation(async(url,init)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const prefetch=loadCards([entry.passcode]),fixture=await typedWatcherFixture(entry,'M4');
-  try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
+  try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Spell Card',race:'Field',frameType:'spell',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'field'});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
  });
  it('uses the latest physical column when a card moves during full-type loading',async()=>{
   const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Normal',name:'Moving trap fixture'};
   fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
-  const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});}finally{fixture.dispose();}
+  const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot:5});}finally{fixture.dispose();}
  });
  it.each(['new placement','bound identity correction'])('follows a physical move during %s HTTP with the same ref',async scenario=>{
   const ready=deferred<void>(),bound=scenario==='bound identity correction',initialType=bound?'card.identified':'twin.place';
   const old={ref:'bound-save-race',zone:'monster',slot:4,cardId:46986414,name:'Old identity',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',bound?[old]:[],bound?'prompt':'placed',bound?old.ref:undefined,async proposal=>{if(proposal.type===initialType)await ready.promise;});
   try{
-   await fixture.emit();if(bound){const button=await screen.findByRole('button',{name:/Solemn Judgment.*Spell\/Trap Zone 4/i});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
-   await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());const first=fixture.post.mock.calls[0][0];expect(first.type).toBe(initialType);if(!bound)expect(first).toMatchObject({zone:'spell-trap',card:{slot:4}});
+   await fixture.emit();if(bound){const button=await screen.findByRole('button',{name:/Solemn Judgment.*Main Monster Zone 4/i});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());const first=fixture.post.mock.calls[0][0];expect(first.type).toBe(initialType);if(!bound)expect(first).toMatchObject({zone:'monster',card:{slot:4}});
    fixture.track.zone='M5';fixture.track.card={...fixture.track.card,quad:fixture.track.card.quad.map((point:any)=>({...point,x:point.x+.128}))};
    await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
    expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual([initialType,'twin.move']);
-   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:bound?old.ref:'physical-typed',zone:'spell-trap',slot:5,cardId:41420027})]);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:bound?old.ref:'physical-typed',zone:'monster',slot:5,cardId:41420027})]);
    expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({[bound?old.ref:'physical-typed']:'M5'});
   }finally{ready.resolve();fixture.dispose();}
  });
- it('chooses the nearest free Spell/Trap slot when the physical column is occupied',async()=>{
-  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[{ref:'other',zone:'spell-trap',slot:4,cardId:55144522,faceUp:true,position:'attack'}]);
+ it('chooses the nearest free Spell/Trap slot when a Trap Monster still holds the physical column',async()=>{
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[{ref:'apophis',zone:'monster',slot:1,trapZone:4,cardId:28649820,faceUp:true,position:'attack'}]);
   try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin.find((card:any)=>card.ref==='physical-typed')).toMatchObject({zone:'spell-trap',slot:3});}finally{fixture.dispose();}
  });
  it('annotates a prompt with its legal destination and applies that same projection',async()=>{
@@ -914,7 +914,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'spell-trap',slot:3});
    fixture.track.zone='M5';await fixture.emit({type:'moved'});
    await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));
-   expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'spell-trap',slot:5});
+   expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:5});
   }finally{fixture.dispose();}
  });
  it('corrects a live move while keeping the bound ref independent of its physical row',async()=>{
@@ -960,11 +960,11 @@ describe('typed watcher zone projection',()=>{
   }finally{fixture.dispose();}
  });
  it('updates physical hints when a real move projects to the same virtual slot',async()=>{
-  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.known()[0].zone).toBe('M4');fixture.track.zone='S4';await fixture.emit({type:'moved'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S4'}));expect(fixture.post).toHaveBeenCalledOnce();await fixture.restart();expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
+  const fixture=await typedWatcherFixture(zoneEntries[1],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.known()[0].zone).toBe('M4');fixture.track.zone='S4';await fixture.emit({type:'moved'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S4'}));expect(fixture.post).toHaveBeenCalledOnce();await fixture.restart();expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
  });
  it('saves the latest physical row after a live move HTTP returns the matching virtual destination',async()=>{
   const ready=deferred<void>(),fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'placed',undefined,async proposal=>{if(proposal.type==='twin.move')await ready.promise;});try{
-   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.track.zone='M5';await fixture.emit({type:'moved'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));fixture.track.zone='S5';await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S5'}));expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.track.zone='M5';await fixture.emit({type:'moved'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'M5'}));expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot:5});
   }finally{ready.resolve();fixture.dispose();}
  });
  it('prunes removed refs and keeps pile hints dormant until the same ref returns to the field',async()=>{
@@ -1004,7 +1004,7 @@ it('a placed best match follows its physical card into GY with one ref and no pr
  const fixture=await typedWatcherFixture(zoneEntries[0],'M4');
  try{
   fixture.track.bestMatch=true;await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
-  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'spell-trap',slot:4,bestMatch:true})]);
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'monster',slot:4,bestMatch:true})]);
   expect(screen.getByText(/Best match.*placed/)).toBeInTheDocument();
   fixture.track.zone='GY';await fixture.emit({type:'moved'});
   await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:fixture.track.id,zone:'graveyard',bestMatch:true})]));
@@ -1040,7 +1040,7 @@ it('keeps a live track while its Reading placeholder is replaced across authorit
   fixture.refresh();
   Object.assign(fixture.track,{state:'identified',cardId:'41420027',visible:true});
   await fixture.emit({type:'placed'});
-  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:4})]));
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'monster',slot:4})]));
   expect(forget).not.toHaveBeenCalled();expect(fixture.confirm).toHaveBeenCalledOnce();
   fixture.setTwins([]);expect(forget).toHaveBeenCalledExactlyOnceWith('physical-typed');
  }finally{fixture.dispose();}

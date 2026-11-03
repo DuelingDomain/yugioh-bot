@@ -1,0 +1,15 @@
+/* Zone rules on the virtual field (docs/remote-duels/zone-rules.md). */
+.check{position:absolute;left:50%;bottom:-6px;z-index:4;transform:translateX(-50%);padding:1px 5px;border-radius:9px;white-space:nowrap;
+  background:rgb(7 4 14/.92);border:1px solid var(--warn,#f0b24f);color:var(--warn,#f0b24f);font:700 8px/11px var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.06em;pointer-events:auto;cursor:help}
+.link{position:absolute;left:50%;top:-6px;z-index:4;transform:translateX(-50%);max-width:110%;overflow:hidden;text-overflow:ellipsis;padding:1px 5px;border-radius:9px;white-space:nowrap;
+  background:rgb(7 4 14/.92);border:1px solid #8f82c9;color:#d9cffd;font:700 8px/11px var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;pointer-events:none}
+/* An empty Spell & Trap Zone that a Trap Monster still occupies. */
+.held{position:absolute;inset:3px;display:grid;place-items:center;align-content:center;gap:2px;border-radius:5px;border:1px dashed rgb(201 126 214/.75);
+  background:repeating-linear-gradient(135deg,rgb(160 70 170/.16) 0 6px,transparent 6px 12px);color:#e6b8ef;text-align:center;pointer-events:none;
+  font:700 8px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.05em;padding:2px}
+.held b{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;color:#f3dcf7}
+.held small{font-size:7px;color:#c9a0d2;letter-spacing:.08em}
+[data-rotated] .check,[data-rotated] .link{transform:translateX(-50%) rotate(180deg)}
+[data-rotated] .held{transform:rotate(180deg)}
+.equipPick{display:flex;align-items:center;gap:6px;font:600 11px/1.2 var(--font-duel-ui),system-ui,sans-serif;color:#cfc4f2}
+.equipPick select{background:#120c22;color:#ece6ff;border:1px solid #4b3f78;border-radius:6px;padding:3px 6px;font:inherit;max-width:220px}

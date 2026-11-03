@@ -33,6 +33,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.move": return { kind: "CD", text: a.source==='auto'&&a.zone==='deck'?`${a.name??'A card'} returned to Deck · auto`:a.source==='auto'&&['graveyard','banished','hand','extra'].includes(a.zone)?`${a.name??'A card'} left the field → ${{graveyard:'GY',banished:'banish',hand:'hand',extra:'Extra Deck'}[a.zone]} · auto`:`${a.name ?? "A card"} on ${name(a.seat)}'s field moved to ${landingLabel({ zone: a.zone, slot: a.slot })}${a.faceUp === false ? " face-down" : ""}${a.position === "defense" ? " in defense" : ""}`, undoable: true };
     case "twin.flip": return { kind: "CD", text: `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}`, undoable: true };
     case "twin.remove": return { kind: "CD", text: `A card was removed from ${name(a.seat)}'s field`, undoable: true };
+    case "twin.equip": return { kind: "CD", text: a.target ? `An Equip Card on ${name(a.seat)}'s field is linked to ${name(a.target.seat)}'s monster` : `An Equip link on ${name(a.seat)}'s field was cleared`, undoable: true };
     case "pile.lift": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length} card${a.cardRefs.length === 1 ? "" : "s"}) · auto`, undoable: true };
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: true };

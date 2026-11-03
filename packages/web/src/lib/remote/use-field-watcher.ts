@@ -143,5 +143,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>watcher.current?.confirm(id,cardId,ref,human),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),
-    forget:useCallback((id:string)=>watcher.current?.forget(id),[])};
+    forget:useCallback((id:string)=>watcher.current?.forget(id),[]),
+    /** Live watcher snapshot (the React `snapshot` can be one render behind). */
+    getSnapshot:useCallback(()=>watcher.current?.getSnapshot(),[]),
+    scanNow:useCallback(()=>watcher.current?.scanNow(),[])};
 }
