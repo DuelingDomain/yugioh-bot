@@ -60,11 +60,33 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
   const updated=await act(proposal,actionId);
   if(!updated)return null;
   if(!fieldEvidenceMatches(event,current())){
-    if(proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
+    if(proposal.type==='card.identified'||proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
       let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
       if(!undone){if(proposal.type==='twin.place')throw new StaleFieldPlacementError(proposal);throw new Error('The card changed during reveal. Undo the reveal before continuing.');}
     }
     return null;
   }
   return updated;
+}
+
+
+/** A virtual occupant without a current physical witness cannot reserve a slot. */
+export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly FieldTrack[],zone:FieldTrack['zone'],incomingRef:string,at=Math.max(-Infinity,...tracks.map(track=>track.lastSeen).filter(Number.isFinite))):TwinCard|undefined {
+  const location=fieldZoneLocation(zone);
+  if(!['monster','extra-monster','spell-trap','field'].includes(location.zone))return;
+  return twins.find(card=>card.ref!==incomingRef&&card.zone===location.zone&&card.slot===location.slot&&
+    !tracks.some(track=>track.id===card.ref&&!track.removed&&(track.visible||track.lastSeen>=at)));
+}
+
+/** Retry the same operation after the room controller refreshes its sequence. */
+export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionProposal,id:string,valid:()=>boolean,failed:(error:unknown)=>void) {
+  for(let attempt=0;attempt<2;attempt++){
+    if(!valid())return null;
+    let updated:Awaited<ReturnType<RoomMutation>>=null;
+    try{updated=await act(proposal,id);}catch(error){failed(error);if(attempt)throw error;}
+    if(updated)return updated;
+    failed(new Error(`Could not save ${proposal.type}. Retrying the field update.`));
+    if(!attempt)await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw new Error('Could not save the field update. Use Retry field update.');
 }

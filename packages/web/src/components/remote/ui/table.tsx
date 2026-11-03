@@ -40,8 +40,6 @@ import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
 
-const gridCache = new Map<string, ReturnType<typeof fieldGridCells>>();
-const gridCellsFor = (format: FieldFormat) => { let cells = gridCache.get(format); if (!cells) { cells = fieldGridCells(format); gridCache.set(format, cells); } return cells; };
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
@@ -858,7 +856,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const calibration = zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat);
     if (!calibration?.orientation) return undefined;
     const mat = onMat({ x, y }, calibration);
-    return gridCellsFor(gridFormat).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h)?.zone;
+    return fieldGridCells(gridFormat,calibration.zoneSpacing).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h)?.zone;
   };
   const pileAt = (zone: string | undefined): PileZone | null => zone === "GY" ? "graveyard" : zone === "BANISHED" ? "banished" : null;
   /** The card the table holds in the zone under a point. Only the camera's own mat counts: a facing player's Extra Monster Zone is not on this mat. */

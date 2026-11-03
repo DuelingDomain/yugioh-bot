@@ -4,9 +4,9 @@
 
 ## Current watcher path
 
-The watcher probes fresh decoded frames every 100 ms while idle and every 33 ms during a bounded pending change. It does not queue overlapping inference. Full detector calls retain the backend budget. A recent detector outline can supply pixel-only confirmation when its appearance, geometry, motion and occlusion checks still pass. A cropped detection that finds no outlines, or only unchanged cards outside the changed area, retries once on the full frame, rather than waiting for the periodic full scan. Repeated decoded frames cannot advance evidence.
+The watcher probes fresh decoded frames every 66 ms while idle and every 33 ms during a bounded pending change. It does not queue overlapping inference. Full detector calls retain the backend budget. A recent detector outline can supply pixel-only confirmation when its appearance, geometry, motion and occlusion checks still pass. A cropped detection that finds no outlines, or only unchanged cards outside the changed area, retries once on the full frame, rather than waiting for the periodic full scan. Repeated decoded frames cannot advance evidence.
 
-The watcher uses a 120 ms face window with at least three clean samples. The standalone hysteresis helper retains its 300 ms default. Low-score back outlines also need the native card aspect ratio. A sharp front can start its fresh identity read while the face window settles; motion or changed pixels invalidate that result. Backs never start identity reads or provisional reading placements. A prompt remains consumed across Set and reveal on the same physical track.
+The watcher uses a 120 ms face window with at least three clean samples for existing cards and low-confidence backs. A new unbound back with detector confidence at least .7 can commit its Set after two clean samples over 60 ms. Motion resets both windows, including frames skipped by the detector throttle. Clear mat pixels cannot confirm a cached back outline. After a real detector miss, clear mat evidence quietly retires an unplaced back candidate; it sends no removal. Public, bound, prompted and reading tracks retain their normal rules. The standalone hysteresis helper retains its 300 ms default. Low-score back outlines also need the native card aspect ratio. A sharp front can start its fresh identity read while the face window settles; motion or changed pixels invalidate that result. A reveal retains that read with its fresh quad and position, including a quarter-turn, so it does not embed twice. Backs never start identity reads or provisional reading placements. A prompt remains consumed across Set and reveal on the same physical track.
 
 `FieldEvent.timing` correlates each visible change from its first changed capture. Its epoch `originAt` is stable across stages; `stagesMs` retains both the first stage offset and its `Last` offset. `durationsMs` records capture and worker queue, detector, embed and search costs. Browser-local `remote-field-latency` events add mutation queue, HTTP, state, board-render and Set-marker delivery stages. The action route supplies reducer, commit, publish and route durations through `Server-Timing`. Timing diagnostics contain no pixels or card identity and add no network requests. External camera-change-to-render measurements must include first-sight delay before a new track exists; watcher emission is a separate endpoint.
 
@@ -129,3 +129,53 @@ Local evidence is saved under `data/remote-latency-review/`. Across three CPU/WA
 Hardware WebGPU timing is unavailable in this environment. Chromium exposes only the SwiftShader fallback adapter, without `shader-f16`; the production runtime rejects that adapter and uses WASM. The sub-second WebGPU reveal check still needs a hardware browser.
 
 Final validation passed: vision, shared and web typechecks; 191 shared remote integration tests; 52 web recognition tests; 88 vision tests from the existing board, face-state and pile files; and the single existing browser scenario. No test files were added. The latest browser log is `data/remote-latency-review/e2e-verified.log`; the 12 screenshots are in its `cpu/` directory.
+
+## Latency correction (2026-11-02)
+
+Confident new Sets use the two-sample path described above. A moving draw cannot bridge its clean window through a frame skipped by the detector throttle. A detector miss plus clear mat retires its unplaced outline without a public action, so it cannot keep inference running ahead of the next Set. A quarter-turned reveal keeps its first verified front read and fresh position instead of embedding twice. Existing cards still use the full flip window. Models, WASM thread settings, prompt limits and twin rules A–E are unchanged; the live path has no copy prompt.
+
+Final measurements used Node 22.23.3, production Next, Chromium and WASM with the existing four-thread setting. Five serial repetitions of the single existing Set/pile/reveal browser case used a 1280×720, 15 fps synthetic camera and a 1920×1080 viewport. The detector and reader were ready before each measured change. A page MutationObserver measured camera-change-to-board-and-Set-marker render. These are local synthetic camera results. p90 uses the nearest rank; with five samples it is the maximum. Values below are rounded to milliseconds.
+
+| Event | Median | p90 | Samples above 500 ms |
+|---|---:|---:|---:|
+| New Set | 299 | 371 | 0/5 |
+| Reveal | 351 | 362 | 0/5 |
+| Set again | 347 | 445 | 0/5 |
+
+| Trial | New Set | Reveal | Set again |
+|---|---:|---:|---:|
+| 1 | 371 | 362 | 238 |
+| 2 | 299 | 354 | 280 |
+| 3 | 286 | 351 | 445 |
+| 4 | 264 | 325 | 347 |
+| 5 | 361 | 306 | 355 |
+
+Timing runs also exposed host contention. Another build and browser replay increased detector and embedding time without extra identity reads. A ten-trial batch during that work measured Set 372/573 ms, reveal 616/850 ms and Set-again 390/512 ms (median/p90). The final five-trial batch above ran after those jobs ended, on the same production server and source. It does not establish a latency bound under CPU saturation.
+
+Final verification passed: all 88 selected vision checks, 191 shared remote integration checks, 52 web recognition checks, vision/shared/web typechecks, and all five final browser repetitions. Only existing test files and the single browser case were used. The browser case checks the moving draw, one placement, zero removals, two in-place flips, the same physical ref and no prompts. The existing real-hand WASM benchmark also passed: six seconds of hand motion (81 sampled frames, zero events), six seconds of tracked hand coverage (zero false removals), brightness stability, slide, rotation, GY return and removal, with zero extra follow reads and zero browser errors. Temporary fixtures, reports, build files and owned servers were removed after recording these results.
+
+## Owner screenshot corrections (2026-11-02)
+
+Priority 1: `3c38dea4b`, followed by `0a1403be6`. A known Set rejected a weak front outline before fresh face classification. The bound-card path now accepts a shape-checked outline at the detector's .4 floor, in either face direction. A quarter-turn still requires fresh, clean geometry, face pixels and a safe identity read. A failed field save now logs and displays its failure, refreshes state, and retries with the same idempotency key. A final failure exposes a Retry field update button. Stale evidence also rolls back an identity write; Undo remains usable after the original evidence changes.
+
+The stale-slot fault had two more causes. A virtual zone binding without a quad restored its saved name over a confident fresh read. Also, association could give the old revealed Set ref to the replacement front before the moved card was read. A safe fresh winner now replaces the unbacked name. Private evidence of the previously public identity follows its physical card, and read-order checks transfer its ref to the moved front. The replacement gets its own ref. Pending server state cannot overwrite either fresh result before confirmation. Orphan virtual reservations release after three samples over 200 ms; tracked cards retain normal clear-mat removal and slide rules. Visible pixel-retained witnesses still reserve their slots. Prompt candidates follow observed zone legality, and confident top-1 placement remains automatic with Wrong card available.
+
+Priority 2: `9ebfa0e0f`. Calibrated coordinates were stretched using the camera's original aspect. This rejected a plain sideways sleeve in a cropped grid. Shape checks now accept the native card aspect as well as the previous rectified aspect. A known front can become a white, sideways, revealed Defense Position Set without an identity read.
+
+Priority 3: `95d96d974` is a separate geometry commit for the calibration UI branch. `zoneSpacing` defaults to 1.0 and clamps to .85–1.4. It scales horizontal zone pitch and width about the row centre. Overlay, assignment, persistence and transport share that value. Default pitch is .164 of the calibrated width, enough for the sideways card in the owner's screenshots. Assignment uses the centre, with edge tolerance; crossing an adjacent column boundary no longer creates a split-zone warning.
+
+All five supplied screenshots were inspected. A Chromium/WASM replay used full-card front crops from the final screenshot and a plain white sideways back. It passed front → white Set → upright front → Set → three adjacent fronts: the original Man ref moved to M4, Kusanagi occupied M3, and Fenrir stayed in M2. There were no prompts. Deterministic fake frames also check both read orders, weak .65 fronts, pending HTTP confirmation, cropped calibration and stale startup bindings.
+
+Final source checks: 93 vision tests from the existing board, face-state and pile files; 57 web recognition tests; 191 shared remote integration tests; vision/shared/web typechecks; and the production Next build. The single existing browser case passed five final serial repetitions. It checks the moving draw, piles, repeated Set/reveal, a forced 409 followed by a successful retry using the same key, stale virtual occupants, M2/M3/M4 placement, physical removal and a plain white Set. Only existing test files were extended. Models were unchanged.
+
+Final camera-change-to-render measurements used production Next, Chromium, 1280×720 at 15 fps, WASM with four threads, SIMD and cross-origin isolation. Each measured physical change followed a 350 ms pause for preceding UI/setup work. The timer starts at the pixel change and includes capture, watcher, save and render. Five serial samples; p90 is the nearest rank (the maximum). Milliseconds:
+
+| Event | Median | p90 | Samples |
+|---|---:|---:|---|
+| New Set | 371 | 809 | 346, 372, 371, 333, 809 |
+| Upright reveal | 626 | 713 | 611, 713, 629, 573, 626 |
+| Set again | 403 | 463 | 412, 403, 362, 330, 463 |
+| Upright reveal with one forced 409 | 843 | 1526 | 983, 843, 793, 1526, 837 |
+| Plain white Set | 419 | 824 | 320, 419, 406, 442, 824 |
+
+These final measurements do **not** establish the requested Set <400 ms and reveal <700 ms limits. An earlier five-run batch, before the ref/binding follow-up, measured 277/309 ms for new Set, 338/439 ms for reveal, 275/345 ms for Set again, 477/512 ms for the forced-409 reveal, and 309/363 ms for white Set (median/p90). The final source also passed five unpaced repetitions, with 629/720, 1420/2135, 378/544, 763/883 and 390/489 ms respectively. Detector and embed stages varied substantially despite the same four-thread runtime; for example, final reveal embed stages took 269–376 ms. This does not prove a host-only cause or a hard latency bound. Functional regressions are fixed; latency acceptance remains open. No WebGPU fallback changes were made.

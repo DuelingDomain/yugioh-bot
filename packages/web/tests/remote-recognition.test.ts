@@ -475,11 +475,67 @@ it('back cache notifies immediately, returns stable snapshots and expires with o
  }finally{vi.useRealTimers();}
 });
 
-it('a replacement during an atomic reveal undoes its stale identity',async()=>{
+it.each(['twin.flip','card.identified'] as const)('a replacement during %s undoes its stale identity',async type=>{
  const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
  const track={id:'set',revision:0,state:'identified',faceDown:false,visible:true,removed:false,cardId:'46986414'} as any;
  const event={type:'placed',track:{...track},source:'auto'} as any;
- const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type==='twin.flip')track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
- expect(await applyVerifiedFieldMutation(event,()=>track,act,{type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toBeNull();
- expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip','undo']);
+ const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type===type)track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
+ expect(await applyVerifiedFieldMutation(event,()=>track,act,type==='twin.flip'?{type,actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414}:{type,actorSeat:0,seat:0,cardRef:'set',cardId:46986414,source:'auto'})).toBeNull();
+ expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual([type,'undo']);
+});
+
+it('owner M3: stale revealed occupants yield to a fresh top match but visible quads keep their refs',async()=>{
+ const {staleFieldOccupant}=await import('../src/lib/remote/field-proposals');
+ const twins=[{ref:'mark',zone:'monster',slot:3,faceUp:false,publicIdentity:true},{ref:'fenrir',zone:'monster',slot:2,faceUp:true}] as any;
+ expect(staleFieldOccupant(twins,[],'M3','kusanagi')?.ref).toBe('mark');
+ const backing={id:'mark',zone:'M3',visible:true,removed:false,lastSeen:performance.now()} as any;
+ expect(staleFieldOccupant(twins,[backing],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false}],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false,removed:true}],'M3','kusanagi')?.ref).toBe('mark');
+ expect(staleFieldOccupant(twins,[{...backing,zone:'M4'}],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[backing,{id:'kusanagi',lastSeen:backing.lastSeen+33} as any],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false},{id:'kusanagi',zone:'M3',lastSeen:backing.lastSeen+33,visible:true,removed:false} as any],'M3','kusanagi')?.ref).toBe('mark');
+});
+it('owner M3: candidate choices follow the physical row without projecting spells into S3',async()=>{
+ const {fieldCandidateFitsZone}=await import('../src/lib/remote/field-legality');
+ expect(fieldCandidateFitsZone('M3',{type:'Effect Monster'})).toBe(true);
+ for(const type of ['Spell Card','Trap Card'])expect(fieldCandidateFitsZone('M3',{type})).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Effect Monster'})).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Spell Card'})).toBe(true);
+ expect(fieldCandidateFitsZone('M3',undefined)).toBe(false);
+ expect(fieldCandidateFitsZone('S3',{type:'Spell Card',race:'Field'})).toBe(false);
+ expect(fieldCandidateFitsZone('FIELD',{type:'Spell Card',race:'Field'})).toBe(true);
+});
+it('camera writes retry with the same action key and expose a final failure',async()=>{
+ const {retryFieldMutation}=await import('../src/lib/remote/field-proposals');
+ const proposal={type:'twin.flip',actorSeat:0,seat:0,cardRef:'mark',faceUp:true} as const,room={lastSeq:2} as any;
+ const failed=vi.fn(),post=vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(room);
+ expect(await retryFieldMutation(post,proposal,'flip-key',()=>true,failed)).toBe(room);
+ expect(post.mock.calls).toEqual([[proposal,'flip-key'],[proposal,'flip-key']]);expect(failed).toHaveBeenCalledOnce();
+ post.mockReset().mockResolvedValue(null);
+ await expect(retryFieldMutation(post,proposal,'flip-key',()=>true,failed)).rejects.toThrow(/save/i);
+ post.mockClear();expect(await retryFieldMutation(post,proposal,'stale-key',()=>false,failed)).toBeNull();expect(post).not.toHaveBeenCalled();
+});
+
+it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
+ const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');
+ const {createFieldCalibration,fieldMatPoint,mapFieldZone,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
+ const {remoteFieldTracksSchema}=await import('@yugidraft/shared/remote');
+ const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache');
+ const points=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+ for(const spacing of [.85,1,1.4])for(const playerSide of ['bottom','top','left','right'] as const){
+  const calibration=createFieldCalibration(points,{playerSide,mirrored:false},spacing);
+  const cells=fieldGridCells('normal',spacing),main=cells.filter(c=>/^M/.test(c.zone));
+  expect(calibration.zoneSpacing).toBe(spacing);
+  expect(main[2].w).toBeCloseTo(.164*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
+  for(const cell of main.slice(1,4)){
+   const x=cell.x+cell.w/2,y=.38,quad=[[-.079,-.045],[.079,-.045],[.079,.045],[-.079,.045]].map(([dx,dy])=>fieldMatPoint({x:x+dx,y:y+dy},calibration));
+   expect(mapFieldZone({quad,kind:'face-down',confidence:.9,partial:false},calibration).zone).toBe(cell.zone);
+   expect(straddledZones(quad,calibration,cells)).toBeNull();
+  }
+  expect(rotateFieldCalibration(calibration,180).zoneSpacing).toBe(spacing);expect(mirrorFieldCalibration(calibration).zoneSpacing).toBe(spacing);
+  const message={type:'field.tracks',cards:[],calibration};expect(remoteFieldTracksSchema.safeParse(message).success).toBe(true);
+  const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);expect(cache.calibration(0)?.zoneSpacing).toBe(spacing);
+ }
+ expect(createFieldCalibration(points).zoneSpacing).toBe(1);
 });

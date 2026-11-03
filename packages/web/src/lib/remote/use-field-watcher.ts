@@ -41,7 +41,7 @@ function pickRecord(seatKey:string,deviceKey?:string,label?:string):SavedRecord|
   // Another camera for the same seat: keep which side the player sits on, but not the other camera's corners.
   const orientation=last.calibration?.orientation;
   if(!orientation)return undefined;
-  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation),placed:false};}catch{return undefined;}
+  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation,last.calibration?.zoneSpacing),placed:false};}catch{return undefined;}
 }
 function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
   try {
@@ -58,8 +58,9 @@ export const clampZoneSpacing=(value:unknown)=>typeof value==='number'&&Number.i
 /** Lobby and table share the same seat + camera record, including orientation and whether the zones were placed. */
 export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;zoneSpacing:number} {
   try {
-    const saved=readSaved(seatKey,deviceKey,label),calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation):undefined;
-    return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration),zoneSpacing:clampZoneSpacing(saved.zoneSpacing)};
+    const saved=readSaved(seatKey,deviceKey,label),spacing=clampZoneSpacing(saved.calibration?.zoneSpacing??saved.zoneSpacing);
+    const calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,spacing):undefined;
+    return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration),zoneSpacing:spacing};
   }catch{return {placed:false,zoneSpacing:ZONE_SPACING.default};}
 }
 export function loadFieldCalibration(seatKey:string,deviceKey?:string,label?:string):FieldCalibration|undefined {
@@ -69,7 +70,9 @@ export function loadFieldCalibration(seatKey:string,deviceKey?:string,label?:str
 export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string,meta:{label?:string;placed?:boolean;zoneSpacing?:number}={}) {
   try {
     const before=readSaved(seatKey,cameraId,meta.label);
-    const value={...before,calibration:grid,cameraId,cameraLabel:meta.label??before.cameraLabel,placed:meta.placed??isPlaced(before,before.calibration),...(meta.zoneSpacing===undefined?{}:{zoneSpacing:clampZoneSpacing(meta.zoneSpacing)})};
+    const zoneSpacing=clampZoneSpacing(meta.zoneSpacing??grid.zoneSpacing??before.zoneSpacing);
+    const calibration=createFieldCalibration(grid.corners,grid.orientation,zoneSpacing);
+    const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed:meta.placed??isPlaced(before,before.calibration),zoneSpacing};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.
     if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));
@@ -131,7 +134,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration,galleryKey]);
-  return {placed,getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
+  return {placed,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>watcher.current?.confirm(id,cardId,ref,human),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),

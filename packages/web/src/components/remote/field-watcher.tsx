@@ -5,10 +5,10 @@ import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,t
 import {recentFieldDeparture,type RemoteRoom,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
-import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone} from '@/lib/remote/field-proposals';
+import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone} from '@/lib/remote/field-legality';
+import {projectFieldZone,fieldCandidateFitsZone} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -60,6 +60,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
+  const [failedUpdate,setFailedUpdate]=useState<{work:(act:RoomMutation)=>Promise<void>;event?:FieldEvent}|null>(null);
+  const unbacked=useRef(new Map<string,{since:number;samples:number;sample:number}>()),releasing=useRef(new Set<string>());
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   useEffect(()=>setRecovery(null),[room.slug,seat]);
@@ -77,7 +79,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const saved=card&&(track.faceDown||!card.faceUp||wasHidden)&&knownZone(card)===track.zone?toZone(card.zone,card.slot):undefined;
     return saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
   };
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>!event.track.faceDown&&setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
@@ -99,9 +101,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     return transaction(async(latest,act)=>{
       current.current.room=latest;markFieldTiming(event?.timing,'dequeued');
       const apply:RoomMutation=async (proposal,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();bindFieldTiming(actionId,current.current.room.slug,event?.timing);
-        markFieldTiming(event?.timing,'mutation',{actionId});const updated=await act(proposal,actionId);if(updated){current.current.room=updated;prunePhysical();}return updated;};
-      await work(apply);
-    }).catch(error=>{if(error instanceof StaleFieldPlacementError)setRecovery(error);else setNotice('Could not update the field. Try a card prompt.');});
+        markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id)))),error=>{console.warn('[remote field] save failed',proposal.type,error);markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});setNotice('Could not save the field update. Retrying…');});if(updated){current.current.room=updated;prunePhysical();}return updated;};
+      await work(apply);setFailedUpdate(previous=>previous?.work===work?null:previous);
+    }).catch(error=>{console.error('[remote field] update failed',error);if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event});setNotice('Could not save the field update. Use Retry field update.');}});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
     const reusable=(card:TwinCard)=>publicField(card.zone)||recentFieldDeparture(card,serverNow());
@@ -214,6 +216,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     existing=freshBinding.existing;
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
+    const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
+    if(stale){
+      const departure=fieldDepartureProposal(stale,seat);
+      if(!departure||!await act(departure))return;
+      twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
+    }
     const projected=projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
     const physicalAtSave={zone:track.zone,position:track.position};
@@ -337,6 +345,29 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   },[watch.snapshot,watch.enabled,source]);
   useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
   useEffect(()=>{
+    if(!live()||calibrationBusy.current||!watch.placed||!['watching','budget'].includes(watch.snapshot.status)){unbacked.current.clear();return;}
+    const at=performance.now(),sample=watch.snapshot.metrics.samples;
+    for(const card of current.current.room.state.seats[seat].twin){
+      if(!publicField(card.zone)||manual.current.has(card.ref)||releasing.current.has(card.ref))continue;
+      // Existing tracks own clear-mat/hand/Undo checks. This window only
+      // releases virtual reservations that have no local physical track.
+      const zone=knownZone(card),backed=watch.snapshot.tracks.some(t=>
+        (bindings.current.get(t.id)??t.id)===card.ref||!t.removed&&at-t.lastSeen<450&&t.zone===zone&&t.state==='candidate');
+      if(backed){unbacked.current.delete(card.ref);continue;}
+      const missing=unbacked.current.get(card.ref)??{since:at,samples:0,sample:-1};
+      if(sample!==missing.sample){missing.samples++;missing.sample=sample;}unbacked.current.set(card.ref,missing);
+      if(missing.samples<3||at-missing.since<200)continue;
+      releasing.current.add(card.ref);
+      void queue(async act=>{
+        const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===card.ref);
+        const witness=watch.getTracks().some(t=>(bindings.current.get(t.id)??t.id)===card.ref||!t.removed&&performance.now()-t.lastSeen<450&&t.state==='candidate'&&t.zone===zone);
+        if(!latest||!publicField(latest.zone)||witness)return;
+        const proposal=fieldDepartureProposal(latest,seat);if(proposal&&await act(proposal))unbacked.current.delete(card.ref);
+      }).finally(()=>releasing.current.delete(card.ref));
+    }
+  },[watch.snapshot,watch.placed,room.state]);
+
+  useEffect(()=>{
     const timer=setInterval(()=>{
       if(!live()||repairingCopies.current||calibrationBusy.current||document.hidden)return;
       const twins=current.current.room.state.seats[seat].twin,at=Date.now();
@@ -417,7 +448,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
-    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:event.result?.candidates.slice(0,5)??[];
+    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:(event.result?.candidates??[]).filter(candidate=>{const entry=entries.current.get(candidate.cardId);return fieldCandidateFitsZone(observed.zone,entry?promptInfo(catalogCardId(entry)):undefined);}).slice(0,5);
     return {id:event.track.id,zone:observed.zone,title:event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,
       candidates:choices.map(candidate=>{
         const entry=entries.current.get(candidate.cardId),track={...observed,id:bindings.current.get(event.track.id)??event.track.id,cardId:candidate.cardId};
@@ -441,7 +472,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
       onChoose={(id,cardId)=>{const event=activePrompts.find(p=>p.track.id===id);if(event)void queue(act=>apply(event,act,cardId==='face-down'?undefined:cardId));}}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)watch.setEnabled(false);setCalibrating(false);}}/>:null}

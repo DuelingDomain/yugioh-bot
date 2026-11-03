@@ -62,19 +62,28 @@ import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
 test('fresh Set settles from independent pixels and a reveal reads its front once with a new timing origin',async()=>{
- let at=0,down=true,reads=0,phone=true,detects=0,motion=0;
+ let at=0,down=true,reads=0,phone=true,detects=0,motion=0,backScore=.74,backLook=.1;
  const back=image(()=>[15,15,15]);
- const outline=():DetectedQuad=>({kind:down?'face-down':'face-up',confidence:down?.55:.99,partial:false,quad:[{x:.3,y:.3},{x:phone?.42:.5,y:.3},{x:phone?.42:.5,y:.5},{x:.3,y:.5}]});
+ const outline=():DetectedQuad=>{
+  const w=phone?.12:down?.2*176/120:.2,h=phone?.2:down?.2*120/176:.2;
+  return {kind:down?'face-down':'face-up',confidence:down?(phone?.55:backScore):.99,partial:false,quad:[{x:.4-w/2,y:.4-h/2},{x:.4+w/2,y:.4-h/2},{x:.4+w/2,y:.4+h/2},{x:.4-w/2,y:.4+h/2}]};
+ };
  const events:FieldEvent[]=[];
  const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,
   buffer:{sample:async()=>({frame:{width:120,height:176,data:front.data} as ImageData,at})},clone:async f=>f,
-  analyze:()=>({crop:()=>down?back:front,motion:()=>motion,sharpness:()=>20,appearance:()=>Array(288).fill(down?.1:.6)}),
+  analyze:()=>({crop:()=>down?back:front,motion:()=>motion,sharpness:()=>20,appearance:()=>Array(288).fill(down?backLook:.05)}),
   recognizer:{detectCards:async()=>{detects++;return [outline()];},recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{fallback:false,covered:false,partial:false,faceDown:false},timingsMs:{embed:20,search:1,total:21},backend:'wasm'} as RecognitionResult;}}});
  watcher.subscribe(e=>events.push(e));
- const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
+ const tick=async(ms=100)=>{at+=ms;await watcher.tick();await Promise.resolve();};
  try{
   for(let i=0;i<4;i++)await tick();assert.equal(events.length,0,'a low-score phone shape never becomes a card');phone=false;at+=1000;
-  for(let i=0;i<3;i++)await tick();
+  motion=.2;for(let i=0;i<17;i++)await tick();backLook=.6;await tick();assert.equal(events.length,0,'a moving confident back cannot commit');motion=0;const backDetects=detects;
+  await tick(33);assert.equal(events.length,0,'one clean back frame cannot commit a moving draw');
+  assert.equal(detects,backDetects,'fresh pixels confirm the latest back outline without another inference');
+  motion=.2;await tick(33);motion=0;await tick(33);
+  assert.equal(events.length,0,'motion during the detector throttle resets the clean Set window');
+  await tick(67);assert.equal(events.filter(e=>e.type==='placed').length,1,'two uninterrupted clean samples commit before the full face window');
+  backScore=.55;for(let i=0;i<3;i++)await tick();
   const set=events.find(e=>e.type==='placed'&&e.track.faceDown);
   assert.ok(set,'clean back commits within 400ms without model identity');assert.equal(reads,0);assert.equal(events.some(e=>e.type==='reading'),false,'backs need no speculative identity placeholder');
   at+=1000;down=false;const revealedAt=at;
@@ -83,6 +92,9 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
   assert.ok(reveal);assert.ok(at-revealedAt<=300,'front recognition overlaps face settling');assert.equal(reveal.track.id,set.track.id);assert.equal(reads,1,'retain the verified front read across the face transition');
   assert.ok(reveal.timing!.originAt>=performance.timeOrigin+revealedAt);
   assert.ok(reveal.latencyMs!<700);assert.notEqual(reveal.timing!.id,set.timing!.id);
+  backScore=.74;at+=1000;down=true;motion=.2;await tick();motion=0;await tick();
+  assert.equal(events.some(e=>e.type==='flipped'&&e.track.faceDown),false,'a transient back observation cannot flip an existing public front');
+  down=false;for(let i=0;i<3;i++)await tick();assert.equal(reads,1,'a rejected transient back does not reread the front');
   const before=detects;at+=1000;down=true;motion=.2;await tick();motion=0;for(let i=0;i<3;i++)await tick();assert.ok(events.some(e=>e.type==='flipped'&&e.track.faceDown));assert.equal(detects-before,1,'fresh changed-face pixels reuse the new detector outline');assert.equal(reads,1);
  }finally{watcher.dispose();}
 });
