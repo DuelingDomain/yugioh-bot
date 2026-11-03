@@ -138,3 +138,8 @@ export function fieldCandidateFitsZone(zone:FieldZone,facts:FieldZoneFacts|undef
   if(piles.has(zone))return true;
   return cardKind(facts).known&&!fieldZoneCheck(facts,zone);
 }
+
+/** A Trap that moves from a Spell & Trap Zone to a Monster Zone is a Trap Monster: it keeps its S/T zone. */
+export function becomesTrapMonster(card:{zone:string;slot?:number}|undefined,facts:FieldZoneFacts|undefined,to:string):boolean {
+  return !!card&&card.zone==='spell-trap'&&card.slot!==undefined&&(to==='monster'||to==='extra-monster')&&cardKind(facts).trap;
+}
