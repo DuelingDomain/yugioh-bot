@@ -1171,6 +1171,17 @@ const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/b
 const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
 test('field watcher owner: one card completes the full physical lifecycle',async({page,context})=>{
   test.setTimeout(240_000);
+  // A human choice must survive a frozen visibility flag and one bad HTTP frame.
+  const {fieldEvidenceMatches,applyVerifiedFieldMutation}=await import('../../web/src/lib/remote/field-proposals');
+  const track={id:'prompt-card',revision:4,state:'prompt',visible:false,removed:false,faceDown:false,lastSeen:performance.now()} as any;
+  const event={type:'prompt',track:{...track},source:'auto'} as any;
+  expect(fieldEvidenceMatches(event,track)).toBe(false);
+  expect(fieldEvidenceMatches(event,track,true)).toBe(true);
+  for(const stale of [{...track,removed:true},{...track,revision:5},{...track,faceDown:true},{...track,state:'dismissed'},{...track,lastSeen:performance.now()-1600}])expect(fieldEvidenceMatches(event,stale,true)).toBe(false);
+  const confirmed:any[]=[],saved={state:{undo:{actionId:''}}};
+  const identified={type:'card.identified',actorSeat:0,seat:0,cardRef:track.id,cardId:97522863,zone:'monster',slot:3} as const;
+  expect(await applyVerifiedFieldMutation(event,()=>track,async(proposal,id)=>{confirmed.push(proposal);saved.state.undo.actionId=id!;track.visible=false;track.lastSeen-=1600;return saved as any;},identified,true)).toBe(saved);
+  expect(confirmed).toEqual([identified]);
   const origin=process.env.E2E_REMOTE_UI_URL??'http://localhost:3455';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,2),path=`/api/remote/${slug}`;
@@ -1183,6 +1194,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await appearingCamera(page,process.env.E2E_OWNER_CARD??new URL('../../../data/vision/benchmark/field-watcher/97522863.jpg',import.meta.url).pathname);
   // Optional deterministic inference replays provider timing and result shapes;
   // the camera pixels, analyzer, tracker and application remain the real path.
+  if(process.env.E2E_SCENARIO_WORKER==='1')await page.route('**/dev/vision-assets/yugioh-index.meta.json',route=>route.fulfill({json:{entries:[{cardId:String(cardId),passcode:cardId,name},{cardId:'46986414',passcode:46986414,name:'Dark Magician'}]}}));
   if(process.env.E2E_SCENARIO_WORKER==='1')await page.addInitScript(backend=>{
     const NativeWorker=window.Worker;
     window.Worker=class extends EventTarget {
@@ -1228,7 +1240,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   if(process.env.E2E_SCENARIO_CHOICE==='1'){
     const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
     await page.evaluate(()=>((window as any).fieldTest).cover(true));
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(1800);
     await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
     await expect(page.getByRole('status').filter({hasText:'Card is moving or covered. Keep it still, then choose again.'})).toBeVisible();
     await page.evaluate(()=>((window as any).fieldTest).cover(false));

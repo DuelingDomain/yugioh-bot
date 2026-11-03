@@ -45,8 +45,10 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'de
 }
 
 /** Queue delays must not attach an old read to replacement pixels. */
-export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined) {
-  return !!current&&!current.removed&&(event.type==='reading'||!!current.visible)&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
+export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false) {
+  const human=humanChoice&&event.type==='prompt';
+  const age=current?performance.now()-current.lastSeen:Infinity;
+  return !!current&&!current.removed&&(human?age>=0&&age<=1500:event.type==='reading'||!!current.visible)&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
     (event.type==='reading'?current.state==='candidate':event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
 }
 
@@ -54,11 +56,13 @@ export class StaleFieldPlacementError extends Error {
   constructor(readonly placement:Extract<RemoteActionProposal,{type:'twin.place'}>){super('The card changed during save. Remove the stale placement to continue.');}
 }
 /** A card may change during HTTP, after the preflight evidence check. */
-export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:RemoteActionProposal) {
-  if(!fieldEvidenceMatches(event,current()))return null;
+export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:RemoteActionProposal,humanChoice=false) {
+  if(!fieldEvidenceMatches(event,current(),humanChoice))return null;
   const actionId=crypto.randomUUID();
   const updated=await act(proposal,actionId);
   if(!updated)return null;
+  // An explicit recent choice owns the identity even if the next frame is bad.
+  if(humanChoice&&event.type==='prompt')return updated;
   if(!fieldEvidenceMatches(event,current())){
     if(proposal.type==='card.identified'||proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
       let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
