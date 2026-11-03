@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
@@ -37,6 +38,8 @@ import { RecognitionSetting } from "./recognition-setting";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
+import { DeclareConfirm, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
+import { matchAction, matchOf } from "./match-model";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
@@ -95,7 +98,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const hub = useVideoHub();
   const layers = useLayers();
   const state = room.state; const mySeat = room.mySeat; const solo = room.solo;
-  const live = room.status === "active" && !state.ended;
+  const match = matchOf(room); const inMatchBreak = match.phase !== "duel";
+  const live = room.status === "active" && !state.ended && !inMatchBreak;
   const seatCount = room.seatCount;
   const seatIds = useMemo(() => room.seats.map(seat => seat.seat), [room.seats]);
   const name = useCallback((seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`, [room.seats]);
@@ -199,6 +203,17 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
+  // ---- match: result, declare, side decking ----
+  const router = useRouter();
+  const matchSeat = mySeat >= 0 ? mySeat : 0;
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [boardView, setBoardView] = useState(false);
+  const matchStep = (action: Parameters<typeof matchAction>[0]) => { setMatchBusy(true); void act(matchAction(action)).finally(() => setMatchBusy(false)); };
+  const declareResult = !solo && mySeat >= 0 && live ? {
+    choices: declareChoices(room.seats.map(seat => ({ seat: seat.seat, name: seat.displayName })), mySeat),
+    waiting: match.pendingResult ? (match.pendingResult.confirmed.includes(mySeat) ? "Waiting for the other players to agree." : null) : null,
+    onDeclare: (winnerSeat: number | null) => matchStep({ type: "match.declare", actorSeat: mySeat, winnerSeat }),
+  } : undefined;
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
   const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
@@ -938,7 +953,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
+        {room.status === "ended" || (state.ended && !(state as { match?: unknown }).match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
@@ -986,7 +1001,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void act({ type: "log.note", actorSeat: mySeat, text: "Still playing" })} />
     <LogDrawer open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
-      onConcede={!solo && mySeat >= 0 ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined}
+      onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={actions}
@@ -1024,6 +1039,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           })();
         } : undefined} />;
     })() : null}
+    <DeclareConfirm match={match} mySeat={mySeat} name={name} busy={matchBusy} onAnswer={(declarationId, accept) => matchStep({ type: "match.confirm", actorSeat: mySeat, declarationId, accept })} />
+    {match.phase === "result" || (match.phase === "done" && !boardView)
+      ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy}
+        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
+      : match.phase === "siding" && match.siding
+        ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} /> : null}
     <Peek peek={peek} />
     <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
   </div>;
