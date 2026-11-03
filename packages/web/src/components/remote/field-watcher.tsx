@@ -80,9 +80,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   };
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=c.zone==='hand'?'HAND' as const:knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity||['deck','hand','extra'].includes(c.zone)?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>{
-    if(event.track.faceDown||prompted.current.has(event.track.id))return;
+    const key=`${event.track.id}:${event.track.revision??0}`;
+    if(event.track.faceDown||prompted.current.has(key))return;
     // React may replay state updaters. Reserve once outside the pure updater.
-    prompted.current.add(event.track.id);setPrompts(list=>[...list.slice(-5),event]);
+    prompted.current.add(key);setPrompts(list=>[...list.slice(-5),event]);
   };
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
@@ -306,6 +307,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     if(diagnosticsAllowed&&(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch)))void saveLocalFieldDiagnostic(event,entries.current);
     if(event.type==='prompt'){
+      if(event.reason==='recognition-error')setNotice('Card recognition failed. Keep the card still and choose its card, or use the feed reader.');
       if(event.reason==='pile'&&event.result?.tier==='sure'&&['GY','BANISHED'].includes(event.track.zone))void queue(act=>apply(event,act),event);
       else offer(event);
       return;

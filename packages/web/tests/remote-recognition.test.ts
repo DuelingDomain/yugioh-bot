@@ -638,6 +638,18 @@ it('a flip beside a column boundary retains its settled zone through both face g
   }finally{r.dispose();}
 });
 
+it('a low-confidence reveal keeps a usable identity prompt for the same Set ref',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.down=true;r.state.outlines=[r.quad(.47,.30,true)];await r.tick(8);
+    const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.known=[{id:first.track.id,zone:'M3',faceDown:true}];
+    r.state.down=false;r.state.tier='low match';r.state.outlines=[r.quad()];await r.tick(12);
+    expect(r.watcher.getSnapshot().tracks.find(t=>t.id===first.track.id)).toMatchObject({state:'prompt',zone:'M3',faceDown:false,visible:true});
+    expect(r.state.events.filter(e=>e.type==='prompt')).toEqual([expect.objectContaining({track:expect.objectContaining({id:first.track.id}),reason:'uncertain'})]);
+  }finally{r.dispose();}
+});
+
 it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an old hand halo and detects private destination=%s',async destination=>{
   const r=await ownerFieldRig();
   try{

@@ -1247,7 +1247,14 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   }
   await place(509,356,true);await check('monster',3,false,'defense');
   const beforeFlip=(await room()).events.length;
-  await place(550);await check('monster',3,true);
+  if(process.env.E2E_SCENARIO_REVEAL==='1')await page.evaluate(()=>(window as any).fieldScenarioTier='low match');
+  await place(550);
+  if(process.env.E2E_SCENARIO_REVEAL==='1'){
+    const prompt=page.getByTestId('field-watcher-prompt');await expect(prompt).toBeVisible();
+    await prompt.getByRole('button',{name:/The Man with the Mark/}).click();
+    await page.evaluate(()=>(window as any).fieldScenarioTier='not sure');
+  }
+  await check('monster',3,true);
   expect((await room()).events.slice(beforeFlip).filter((e:any)=>e.action.type==='twin.move'&&e.action.zone==='monster'&&e.action.slot!==3)).toHaveLength(0);
   await place(375);await check('monster',4,true);
   await place(30);await check('graveyard',undefined,true);

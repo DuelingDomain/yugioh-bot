@@ -75,7 +75,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const touched=Math.max(deckTouchedAt,extraTouchedAt);
     return touched>=t.view.lastSeen-250&&at-touched<=Math.max(2500,removalMs+500)?{destination:extraTouchedAt>deckTouchedAt?'EXTRA':'DECK'}:{};
   };
-  const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{if(type==='prompt'){if(t.resolvedAt!==undefined){t.view.state='identified';return;}if(t.prompted){t.view.state='dismissed';return;}const answer=gallery.resolve(extra.result?.identityEmbedding);if(answer.kind!=='new'){t.prompted=true;t.view.state='dismissed';return;}t.prompted=true;t.identityEmbedding=extra.result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;}if(type==='placed'&&!t.view.faceDown&&t.view.cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.identityEmbedding};if(!t.timing)beginTiming(t,t.view.firstSeen);stage(t,'commit');
+  const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
+    if(type==='prompt'){
+      // A fresh front still needs an answer when its Set has a known ref.
+      // Neither old public knowledge nor the gallery can answer a low read.
+      const reveal=t.binding?.faceDown&&!t.view.faceDown;
+      if(!reveal&&t.resolvedAt!==undefined){t.view.state='identified';return;}
+      if(!reveal&&t.prompted){t.view.state='dismissed';return;}
+      const answer=gallery.resolve(extra.result?.identityEmbedding);
+      if(!reveal&&answer.kind!=='new'){t.prompted=true;t.view.state='dismissed';return;}
+      t.prompted=true;t.identityEmbedding=extra.result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;
+    }
+    if(type==='placed'&&!t.view.faceDown&&t.view.cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.identityEmbedding};if(!t.timing)beginTiming(t,t.view.firstSeen);stage(t,'commit');
     const timing=structuredClone(t.timing!);timing.stagesMs.commit=timing.stagesMs.commitLast;timing.id+=`:${type}`;metrics.event=timing;metrics.latencyMs=timing.stagesMs.commit;
     const known=options.getKnownCards?.()??[],origin=known.find(card=>card.id===t.view.id&&publicPile(card.zone)&&card.zone!==t.view.zone);
     // Seeing a lower member at the top removes the lifted suffix, not the prefix.
@@ -153,7 +164,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const priors=options.getPriors?.();
       const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:!!priors?.decklist?.length,earlyExitMargin:options.earlyExitMargin??.02});
       if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing)Object.assign(t.timing.durationsMs,result.timingsMs);}
-    }catch{if(generation===epoch&&!disposed&&t.read===pending){metrics.errors++;pending.error=true;}}
+    }catch(cause){if(generation===epoch&&!disposed&&t.read===pending){console.error('[remote field] recognition failed',t.view.id,cause);metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
   }
   const idle=()=>{
@@ -590,7 +601,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           let winner=safe?result!.candidates[0].cardId:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
-          if(t.binding?.faceDown&&!safe){t.needsRead=false;t.view.visible=false;t.best=undefined;if(t.prompted||t.resolvedAt!==undefined){t.view.state='dismissed';t.prompted=true;}else{t.view.state='prompt';emit('prompt',t,{result,reason:'uncertain'});}continue;}
+          if(t.binding?.faceDown&&!safe){t.needsRead=false;t.identityAppearance=pixels;t.view.visible=true;t.best=undefined;t.view.state='prompt';emit('prompt',t,{result,reason:pending.error?'recognition-error':'uncertain'});continue;}
           if(t.identityCheck){
             const similarity=fieldEmbeddingSimilarity(t.identityEmbedding,result?.identityEmbedding),saved=t.identityCheck;
             const unchanged=similarity!==undefined?similarity>=.84:!t.identityEmbedding&&winner&&winner===saved.cardId;
