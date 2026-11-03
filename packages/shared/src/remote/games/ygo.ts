@@ -1,4 +1,5 @@
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
+import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch } from "../match.js";
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -38,7 +39,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   const at = action.at ?? state.updatedAt;
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
+  if (!state.match) state = ensureRemoteMatch(structuredClone(state));
+  const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
+  if (matchResult) return matchResult;
   if (action.type === "undo") {
+    remoteAssert(state.match.phase !== "siding", "Undo is unavailable during siding", 409, "UNDO_UNAVAILABLE");
     if (!context?.replay || context.undoVersion === 1) return undoRemoteAction(state, action);
     // Preserve the semantics of already accepted legacy events, including cross-seat undo.
     const undo = state.undo;
@@ -217,16 +222,17 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
-  if (living.length <= 1) { next.ended = true; next.winnerSeat = living[0]?.seat ?? null; next.attack = null; }
+  if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
+  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
   rememberRemoteAction(state, next, action);
   return next;
 }
 export const ygoModule: GameModule = {
   id: "ygo", name: "Yu-Gi-Oh!", phases, seatsAllowed: [2, 3, 4],
   resources: [{ id: "lp", name: "LP", start: 8000, min: 0, loseAtZero: true }], zones,
-  initialState({ seatCount, firstSeat = 0 }) {
+  initialState({ seatCount, firstSeat = 0, bestOf }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
-    return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
+    return { gameId: "ygo", seatCount, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,

@@ -390,7 +390,7 @@ function InkWords({ words }: { words: string[] }) {
  * Loss: two clipped copies of the word along one jagged line, parted, and an unmoved copy under them
  * that lights up through the gap. Win and calm: one whole copy.
  */
-function ResultTitle({ id, text, outcome }: { id: string; text: string; outcome: DuelResultOutcome }) {
+export function ResultTitle({ id, text, outcome }: { id: string; text: string; outcome: DuelResultOutcome }) {
   const kind = titleKindOf(outcome);
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const { titleRef, wordRef } = useTitleFit(words, kind === "calm" ? TITLE_MAX.calm : TITLE_MAX.fixed, kind === "calm");

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
@@ -37,9 +38,12 @@ import { RecognitionSetting } from "./recognition-setting";
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
+import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
+import { matchOf } from "./match-model";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
+import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
@@ -95,7 +99,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const hub = useVideoHub();
   const layers = useLayers();
   const state = room.state; const mySeat = room.mySeat; const solo = room.solo;
-  const live = room.status === "active" && !state.ended;
+  const match = matchOf(room); const inMatchBreak = match.phase !== "duel";
+  const live = room.status === "active" && !state.ended && !inMatchBreak;
   const seatCount = room.seatCount;
   const seatIds = useMemo(() => room.seats.map(seat => seat.seat), [room.seats]);
   const name = useCallback((seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`, [room.seats]);
@@ -136,7 +141,17 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     void fetch("/api/remote-vision/ai", { cache: "no-store" }).then(reply => reply.ok ? reply.json() : { allowed: false }).then(body => { if (alive) setAiAllowed(body.allowed === true); }).catch(() => undefined);
     return () => { alive = false; setFeedbackCapture(false); };
   }, []);
-  useEffect(() => { if (ctl.error) { toast(ctl.error, 4200); ctl.setError(""); } }, [ctl, ctl.error, toast]);
+  // A refused action shows as a toast. Over the result or siding screen (which cover toasts' place) it shows inside that screen instead.
+  // The clock check `side.timeout` is quiet: the server may already have started the next game, which is not an error.
+  const quietError = useRef(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
+  const overlayUp = inMatchBreak;
+  useEffect(() => {
+    if (!ctl.error) return;
+    if (!quietError.current) { if (overlayUp) setOverlayError(ctl.error); else toast(ctl.error, 4200); }
+    ctl.setError("");
+  }, [ctl, ctl.error, toast, overlayUp]);
+  useEffect(() => { setOverlayError(null); }, [match.phase, match.games.length]);
   useEffect(() => { if (hub.error) toast(hub.error, 4200); }, [hub.error, toast]);
   // A webcam player whose lobby preview worked gets the table camera without another click.
   const handoff = useRef(false);
@@ -194,13 +209,39 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       // A Trap moved from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone (docs/remote-duels/zone-rules.md).
       if(input.trapMonster===undefined&&becomesTrapMonster(card,cardInfo(code),input.zone))proposal={...input,trapMonster:true};
     }
+    const quiet=proposal.type==='side.timeout';
+    if(quiet)quietError.current=true;else setOverlayError(null);
     const updated=await ctl.action(proposal);
+    if(quiet)setTimeout(()=>{quietError.current=false;},150);
     if(updated&&warning)toast(warning,5000);
     return updated;
   },[ctl.action,toast]);
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
+  // ---- match: result, declare, side decking ----
+  const router = useRouter();
+  const matchSeat = mySeat >= 0 ? mySeat : 0;
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [boardView, setBoardView] = useState(false);
+  // "View board" lasts for the game it was pressed in: a new result or phase shows its screen again.
+  useEffect(() => { setBoardView(false); }, [match.phase, match.games.length]);
+  // A declared result that disappears without ending the game was refused by another player.
+  const lastPending = useRef(match.pendingResult);
+  const gamesBefore = useRef(match.games.length);
+  useEffect(() => {
+    const before = lastPending.current;
+    if (before && !match.pendingResult && mySeat >= 0 && before.confirmed.includes(mySeat) && match.phase === "duel" && match.games.length === gamesBefore.current) {
+      toast("A player did not agree to the result. The game goes on.", 5000);
+    }
+    lastPending.current = match.pendingResult; gamesBefore.current = match.games.length;
+  }, [match.pendingResult, match.phase, match.games.length, mySeat, toast]);
+  const matchStep = (action: RemoteActionProposal) => { setMatchBusy(true); void act(action).finally(() => setMatchBusy(false)); };
+  const declareResult = !solo && mySeat >= 0 && live ? {
+    choices: declareChoices(room.seats.map(seat => ({ seat: seat.seat, name: seat.displayName, out: !!state.seats[seat.seat]?.eliminated })), mySeat),
+    waiting: match.pendingResult ? (match.pendingResult.confirmed.includes(mySeat) ? "Waiting for the other players to agree." : null) : null,
+    onDeclare: (winnerSeat: number | null) => matchStep({ type: "match.declare", actorSeat: mySeat, winnerSeat }),
+  } : undefined;
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
   const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
@@ -216,7 +257,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const cameraLiveRef = useRef(cameraLive); cameraLiveRef.current = cameraLive;
   const slugOfTable = room.slug;
   useEffect(() => {
-    if (!live || mySeat < 0) return;
+    if (room.status !== "active" || mySeat < 0) return;
     let lastInput = Date.now();
     const mark = () => { lastInput = Date.now(); };
     window.addEventListener("pointerdown", mark, true); window.addEventListener("keydown", mark, true);
@@ -226,7 +267,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     };
     const timer = setInterval(ping, 60_000);
     return () => { clearInterval(timer); window.removeEventListener("pointerdown", mark, true); window.removeEventListener("keydown", mark, true); };
-  }, [live, mySeat, slugOfTable]);
+  }, [room.status, mySeat, slugOfTable]);
   // The server keeps the player's own last 20 actions (this turn and the one before) with a rejection reason when one cannot be undone now.
   const ownUndo = ownUndoEntries(state, solo, mySeat);
   const newestUndo = ownUndo[0];
@@ -580,6 +621,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const cancelAttack = () => { if (attack && mayResolve) void act({ type: "attack.resolve", actorSeat: resolveActor, attackId: attack.id, outcome: "cancelled" }); };
 
   // ---- arrow ----
+  // On a phone the voice dock is fixed, and the phase rail sticks right above it: the rail reads the dock's real height.
+  const appRef = useRef<HTMLDivElement>(null); const dockRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const app = appRef.current; const dock = dockRef.current; if (!app || !dock) return;
+    const measure = () => app.style.setProperty("--dockh", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
+    measure(); if (typeof ResizeObserver === "undefined") return;
+    const watcher = new ResizeObserver(measure); watcher.observe(dock); return () => watcher.disconnect();
+  }, []);
   const stage = useRef<HTMLElement>(null); const [arrow, setArrow] = useState<{ d: string; mx: number; my: number } | null>(null);
   useLayoutEffect(() => {
     const root = stage.current; if (!attack || !root) { setArrow(null); return; }
@@ -933,7 +982,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
   });
-  return <div className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -942,10 +991,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
-        <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"}
-          onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || state.ended ? <div className={s.ended} role="status" data-testid="table-ended">
+        {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
@@ -979,7 +1026,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <footer className={s.dock} aria-label="Voice and undo">
+      <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
+        onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
+      <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
         <MicSection state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
         <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false }) : trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
@@ -988,10 +1037,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       </footer>
     </div>
 
-    <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void act({ type: "log.note", actorSeat: mySeat, text: "Still playing" })} />
+    <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />
     <LogDrawer open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
-      onConcede={!solo && mySeat >= 0 ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined}
+      onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={actions}
@@ -1029,6 +1078,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           })();
         } : undefined} />;
     })() : null}
+    {live ? <DeclarePending match={match} mySeat={mySeat} seats={seatIds} name={name} /> : null}
+    <DeclareConfirm match={match} mySeat={mySeat} name={name} busy={matchBusy} onAnswer={(declarationId, accept) => matchStep({ type: "match.confirm", actorSeat: mySeat, declarationId, accept })} />
+    {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
+    {match.phase === "result" || (match.phase === "done" && !boardView)
+      ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+        undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
+        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
+      : match.phase === "siding" && match.siding
+        ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
     <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
   </div>;

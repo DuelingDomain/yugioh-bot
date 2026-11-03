@@ -32,8 +32,13 @@ export function TopBar({ crumb, chip, health, healthOpen, cardOpen, logOpen, log
   </header>;
 }
 
-export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, onPhase, onPhaseBack, onPass, turnIn, backTo }: {
+/**
+ * The turn and the phases, at the bottom of the table right above the voice dock. The turn owner and the active phase
+ * are gold; on my own turn the whole bar glows and says YOUR TURN. Left and Right move between the phase buttons.
+ */
+export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, onPhase, onPhaseBack, onPass, turnIn, backTo }: {
   players: Player[]; turnSeat: number; turn: number; phase: string; canAct: boolean; nextSeat: number; passHot: boolean;
+  /** The turn is mine (never true on a solo test table, where one person plays every seat). */ mine: boolean;
   onPhase: (id: string) => void; onPhaseBack: (id: string) => void; onPass: () => void; turnIn: boolean;
   /** The phase before this one in this turn (`previousYgoPhase`), or null on the first phase. */ backTo: string | null;
 }) {
@@ -50,16 +55,27 @@ export function Rail({ players, turnSeat, turn, phase, canAct, nextSeat, passHot
     document.addEventListener("keydown", onKey, true); return () => document.removeEventListener("keydown", onKey, true);
   }, [ask]);
   const click = (id: string, i: number) => { if (i < at) setAsk(id); else onPhase(id); };
-  return <div className={s.rail} data-testid="rail">
+  const onKeys = (event: React.KeyboardEvent<HTMLOListElement>) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : event.key === "Home" ? -99 : event.key === "End" ? 99 : 0;
+    if (!step) return;
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")); if (!buttons.length) return;
+    const from = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const to = Math.abs(step) > 1 ? (step < 0 ? 0 : buttons.length - 1) : Math.min(buttons.length - 1, Math.max(0, from + step));
+    event.preventDefault(); buttons[to]?.focus();
+  };
+  return <div className={`${s.rail} ${mine ? s.mine : ""}`} data-testid="rail" data-mine={mine || undefined} role="group" aria-label="Turn and phase">
+    <span className={s.sr} role="status" aria-live="polite" data-testid="rail-live">{mine ? "Your turn. " : ""}{current?.name ?? "Table"}&apos;s turn, turn {turn}, {PHASE_LONG[phase] ?? phase}.</span>
     <div className={s.tbox}><span className={s.pip} style={{ "--c": current?.color } as React.CSSProperties} />
-      <div className={s.tn}><b data-testid="turn-name">{current?.name ?? "Table"}&apos;s turn</b><span className={s.tm}>Turn {turn}</span></div></div>
+      <div className={s.tn}>
+        <span className={s.tcap}>{mine ? <span className={s.you} data-testid="your-turn">Your turn</span> : null}<span className={s.tm}>Turn {turn}</span></span>
+        <b data-testid="turn-name">{current?.name ?? "Table"}&apos;s turn</b></div></div>
     <div className={s.order} aria-label="Turn order">
       {players.map(p => <i key={p.seat} className={`${p.seat === turnSeat ? s.on : p.seat === nextSeat ? s.nx : ""}`}><span className={s.pip} style={{ "--c": p.color } as React.CSSProperties} />{p.name}</i>)}
     </div>
-    <ol className={s.phases} aria-label="Phases">
+    <ol className={s.phases} aria-label="Phases" onKeyDown={onKeys}>
       {PHASES.map((p, i) => <li key={p.id}>
         <button type="button" className={`${s.ph} ${i < at ? s.done : ""} ${i === at ? s.on : ""}`} aria-current={i === at ? "step" : undefined} data-phase={p.id} data-testid={`phase-${p.id}`}
-          disabled={!canAct} aria-label={`${PHASE_LONG[p.id] ?? p.id}${i === at ? ", current" : i < at ? ", go back to this phase" : ""}`} onClick={() => click(p.id, i)}>
+          aria-disabled={!canAct || undefined} aria-label={`${PHASE_LONG[p.id] ?? p.id}${i === at ? ", current" : i < at ? ", go back to this phase" : ""}${canAct ? "" : ", not your turn"}`} onClick={() => { if (canAct) click(p.id, i); }}>
           <span className={s.dot} />{PHASE_SHORT[p.id] ?? p.id}</button>
       </li>)}
     </ol>

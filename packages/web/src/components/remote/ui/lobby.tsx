@@ -100,6 +100,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   }, [room.slug]);
   const current = room.format ?? normalizeRemoteFormat();
   const [format, setFormat] = useState<string>(current.id);
+  const [bestOf, setBestOf] = useState<string>(String(room.bestOf ?? room.state.match?.bestOf ?? 1));
   const [banlist, setBanlist] = useState(current.settings.banlist);
   const [points, setPoints] = useState(current.settings.genesys?.pointCap ?? 100);
   const [lp, setLp] = useState(current.settings.startingLP);
@@ -189,9 +190,12 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
               : !canStart ? <p className={r.startHint}>{room.seats.length < room.seatCount ? "Start unlocks when every seat is filled and ready." : "Start unlocks when every seat is ready."}</p> : null}
           </div>
           <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
-            void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
+            void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
             <h2 className={ui.sectionTitle}>Rules</h2>
             <fieldset disabled={busy || !host} className={r.fieldset}>
+              <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
+                choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
+                onChange={setBestOf} />
               <SheetSelect label="Duel format" value={format} testId="room-format"
                 choices={REMOTE_FORMATS.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
                 onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} />

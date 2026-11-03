@@ -45,6 +45,10 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  /** Preserve pre-review declaration and first-choice rules on historical replay. */
+  matchFlowVersion?: 1;
+  /** Server-owned solo seats readied with the human; persisted for deterministic replay. */
+  soloBotSeats?: number[];
   /** Versioned undo semantics for already accepted event replay. */
   undoVersion?: 1;
   /** Event-time rule; absent on events recorded before Deck publicity existed. */

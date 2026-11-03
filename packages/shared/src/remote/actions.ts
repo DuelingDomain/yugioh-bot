@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { remoteActionMeta as meta, remoteSeatSchema } from "./action-meta.js";
+import { remoteMatchActionSchemas } from "./match-contract.js";
+export { remoteSeatSchema } from "./action-meta.js";
 
-export const remoteSeatSchema = z.number().int().min(0).max(3);
 const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);
 const cardId = z.number().int().positive().max(0xffffffff);
@@ -18,14 +20,10 @@ export const twinCardSchema = z.strictObject({
   faceUp: z.boolean().default(true), position: z.enum(["attack", "defense"]).default("attack"),
   bestMatch: z.boolean().optional(),
 });
-const meta = {
-  idempotencyKey: id, actorSeat: remoteSeatSchema,
-  /** Optimistic clients may supply this; the service ALWAYS replaces it with server time. */
-  at: z.number().int().nonnegative().optional(),
-};
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
 export const remoteActionSchema = z.discriminatedUnion("type", [
+  ...remoteMatchActionSchemas,
   z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource }),
   z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
   z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),

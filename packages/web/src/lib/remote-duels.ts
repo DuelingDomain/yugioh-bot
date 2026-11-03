@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRemoteDuelService } from "@yugidraft/shared/services";
-import { remoteActionSchema, remoteAssert, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
+import { remoteActionSchema, remoteAssert, remoteBestOfSchema, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
 import { requireWebAccess } from "./web-access";
@@ -43,15 +43,18 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "rules", "showCardsSetFromDeck"] };
+    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck"] };
     // Empty bodies are accepted for the bodyless operations.
     const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
     let result;
     switch (operation) {
-      case "format":
-        remoteAssert(typeof body.format === "string", "Choose a format");
+      case "format": {
+        remoteAssert(body.format === undefined || typeof body.format === "string", "Choose a format");
+        const bestOf = remoteBestOfSchema.optional().safeParse(body.bestOf);
+        remoteAssert(bestOf.success, "Match bestOf must be 1 or 3");
         remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
-        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined }); break;
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined }); break;
+      }
       case "deck":
         remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");
         remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");

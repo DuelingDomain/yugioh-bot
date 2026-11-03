@@ -8,7 +8,7 @@ import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
-import {FieldTrackCache,FIELD_TRACKS_TOPIC} from './field-track-cache';
+import {FieldTrackCache,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 
@@ -183,7 +183,7 @@ export class RemoteVideo {
   trackedCalibration(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.calibration(seat):undefined;}
   trackedCards(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.snapshot(seat):[];}
   subscribeFieldTracks=(listener:()=>void)=>this.fieldTracks.subscribe(listener);
-  trackedBacks(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.backs(seat):[];}
+  trackedBacks(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.backs(seat):emptyBacks;}
   async publishFieldTracks(message:RemoteFieldTracks) {
     if(this.room.state!==ConnectionState.Connected)return;
     this.fieldTracks.receive(this.options.seat,message);

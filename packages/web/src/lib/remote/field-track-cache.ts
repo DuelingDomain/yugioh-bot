@@ -3,7 +3,9 @@ import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
 import {catalogCardId,createFieldCalibration} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
-const emptyCards:RemoteFieldCard[]=[],emptyBacks:FieldBack[]=[];
+const emptyCards:RemoteFieldCard[]=[];
+/** One shared empty list: a store snapshot must be the same object on every read. */
+export const emptyBacks:FieldBack[]=[];
 export type FieldBack=NonNullable<RemoteFieldTracks['backs']>[number];
 const contains=(quad:RemoteFieldCard['quad'],x:number,y:number)=>{
   let sign=0;

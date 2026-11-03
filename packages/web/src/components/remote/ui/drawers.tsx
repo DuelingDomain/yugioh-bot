@@ -16,9 +16,12 @@ const KINDS: { id: LogKind | "all"; label: string }[] = [
 ];
 
 /** Right overlay drawer. Closed by default. It never reads out loud (aria-live off). */
-export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConcede }: { open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void;
-  /** Extra table settings (for example the training-set switch). */ extra?: ReactNode; onConcede?: () => void }) {
+export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConcede, declare }: { open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void;
+  /** Extra table settings (for example the training-set switch). */ extra?: ReactNode; onConcede?: () => void;
+  /** "Declare result": the other players must agree. `choices` are the possible results; `waiting` is set while a result waits for them. */
+  declare?: { choices: { seat: number | null; label: string }[]; waiting: string | null; onDeclare: (winnerSeat: number | null) => void } }) {
   const [confirm, setConfirm] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [tab, setTab] = useState<"log" | "table">("log");
   const [filter, setFilter] = useState<LogKind | "all">("all");
   const shown = entries.filter(entry => filter === "all" || entry.kind === filter);
@@ -46,12 +49,21 @@ export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConce
       <p className={s.ordnote}>Pass turn moves the highlight to the next seat in this order. The log is quiet by default: it never reads out loud. A short peek shows the newest line when the phase changes.</p>
       <div className={s.rules}>{rules.map(rule => <div key={rule}><Icon name="check" />{rule}</div>)}</div>
       {extra}
-      {onConcede ? <div className={s.concede}>
+      {onConcede || declare ? <div className={s.concede}>
         {confirm ? <>
-          <p>Give up this duel? You are out and the other players carry on.</p>
-          <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => { setConfirm(false); onConcede(); }} data-testid="concede-yes">Yes, concede</button>
+          <p>{seats.length > 2 ? "Give up this game? You are out of it right away. The others play on." : "Give up this game? You lose it right away."}</p>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => { setConfirm(false); onConcede?.(); }} data-testid="concede-yes">{seats.length > 2 ? "Yes, I am out" : "Yes, I lose"}</button>
           <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => setConfirm(false)}>Keep playing</button>
-        </> : <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => setConfirm(true)} data-testid="concede">Concede</button>}
+        </> : choosing && declare ? <>
+          <p>Who won? The other players must agree before the game ends.</p>
+          {declare.choices.map(choice => <button key={String(choice.seat)} type="button" className={`${s.btn} ${s.sm}`} data-testid={`declare-${choice.seat === null ? "draw" : choice.seat}`}
+            onClick={() => { setChoosing(false); declare.onDeclare(choice.seat); }}>{choice.label}</button>)}
+          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setChoosing(false)}>Cancel</button>
+        </> : <>
+          {onConcede ? <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => setConfirm(true)} data-testid="concede">I lose</button> : null}
+          {declare ? <button type="button" className={`${s.btn} ${s.sm}`} disabled={declare.waiting !== null} onClick={() => setChoosing(true)} data-testid="declare-result">Declare result</button> : null}
+          {declare?.waiting ? <p data-testid="declare-waiting">{declare.waiting}</p> : null}
+        </>}
       </div> : null}
     </div>}
     <div className={s.dfoot}>Newest line at the top.</div>
