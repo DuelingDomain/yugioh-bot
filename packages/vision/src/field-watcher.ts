@@ -178,10 +178,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(busy&&empty){status='busy';metrics.skipped++;interruptWindow();notify();return;}
     const pileBurst=()=>[...piles.values()].some(p=>!p.down&&now()-p.firstSeen<1500);
     const faceBurst=pileBurst()||tracks.some(t=>t.face?.pendingAt!==undefined&&now()-t.face.pendingAt<1500);
-    // After the initial scan, unchanged empty pixels need only a motion probe.
-    // A background full scan otherwise blocks a card arriving during inference.
+    // Quiet empty fields need fewer background scans, which can block arrivals.
+    // Keep a bounded retry so a stationary card recovers from a detector miss.
     const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&
-      (empty&&!tracks.length&&!piles.size&&!suppressed.length&&Number.isFinite(lastDetectionAt)||now()-lastDetectionAt<metrics.intervalMs));
+      now()-lastDetectionAt<(empty&&!tracks.length&&!piles.size&&!suppressed.length?Math.max(2000,metrics.intervalMs):metrics.intervalMs));
     const generation=epoch;inFlight=true;const start=now();let detectorRan=false,current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const captureAt=now(),sample=await options.buffer.sample({maxAgeMs:30}),captureMs=now()-captureAt;current=sample.frame;

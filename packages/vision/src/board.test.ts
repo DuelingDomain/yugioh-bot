@@ -816,11 +816,19 @@ test('long main-thread tasks do not starve budgeted detection and fresh pixel co
  }finally{r.watcher.dispose();globalThis.PerformanceObserver=original;}
 });
 
-test('a quiet empty field does not queue full scans ahead of the next arrival',async()=>{
+test('a quiet empty field limits background scans and still wakes immediately on motion',async()=>{
  const r=fieldRig();r.outlines=[];r.detectorCost=200;await r.tick(100);const before=r.detects;
  for(let i=0;i<20;i++)await r.tick(500);
- assert.equal(r.detects,before,'unchanged empty pixels need no further inference');
+ assert.ok(r.detects-before<=5,'quiet empty-field retries are at least two seconds apart');
  r.outlines=[{...card(.3,.3),kind:'face-down'}];r.appearance=Array(12).fill(.9);r.motion=.2;await r.tick(33);r.motion=0;
  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(67);
  assert.ok(r.events.some(e=>e.type==='placed'&&e.track.faceDown));r.watcher.dispose();
+});
+
+test('a stationary card recovers after a transient empty detector result',async()=>{
+ const r=fieldRig();r.outlines=[];await r.tick(100);
+ r.outlines=[{...card(.3,.3),kind:'face-down'}];r.appearance=Array(12).fill(.9);
+ for(let i=0;i<30&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='placed'&&e.track.faceDown),'quiet retries recover a missed card without new motion');
+ assert.equal(r.reads,0);r.watcher.dispose();
 });
