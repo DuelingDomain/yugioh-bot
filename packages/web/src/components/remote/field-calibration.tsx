@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { createFieldCalibration, createTwoCardCalibration, orientFieldFromHands, fieldMatPoint, hasExtraMonsterZones, type DetectedQuad, type FieldCalibration, type FieldFormat, type FieldOrientation, type ZoneOverrides } from '@yugidraft/vision';
 import { fieldGridCells,normalizeZoneSpacing } from '@/lib/remote/zone-grid';
@@ -39,6 +39,9 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
   const [gridHeight,setGridHeight]=useState(()=>1000*(video?.videoWidth&&video.videoHeight?video.videoHeight/video.videoWidth:9/16)),[busy,setBusy]=useState(false);
   const preview=useMemo(()=>{try{return createFieldCalibration(points,orientation,zoneSpacing,zones);}catch{return undefined;}},[points,orientation,zoneSpacing,zones]);
   const editor=useZoneEditor(preview,format);
+  const editButton=useRef<HTMLButtonElement>(null),wasEditing=useRef(false);
+  // Done and Cancel remove the editor; focus goes back to the button that opened it.
+  useEffect(()=>{if(wasEditing.current&&!editing)editButton.current?.focus({preventScroll:true});wasEditing.current=editing;},[editing]);
   const matPoint=(x:number,y:number)=>preview?fieldMatPoint({x,y},preview):{x:points.reduce((sum,p)=>sum+p.x,0)/4,y:points.reduce((sum,p)=>sum+p.y,0)/4};
   async function quickCalibration(){
     if(!detectCalibrationCards||!video?.videoWidth||!video.videoHeight)return;
@@ -102,10 +105,10 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
         <p>Move the grid or adjust its four corners until the zones line up. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right. Arrow keys adjust a focused handle; hold Shift for larger steps.</p>
         <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
       </div>}
-      {preview?<FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setZoneSpacing(normalizeZoneSpacing(grid.zoneSpacing));setHandStep(null);setCalibrationCards([]);}}/>:null}
+      {preview&&!editing?<FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setZoneSpacing(normalizeZoneSpacing(grid.zoneSpacing));setHandStep(null);setCalibrationCards([]);}}/>:null}
       {editing?null:<p>{handStep==='left'?'Tap the corner nearest your LEFT hand.':handStep==='right'?'Now tap the corner nearest your RIGHT hand.':orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>}
       {editing?null:<button type="button" className={table.btn} disabled={busy} onClick={()=>{setCalibrationCards([]);setHandStep('left');leftHand.current=null;}}>Set side from near corners</button>}
-      {editing?null:<button type="button" className={table.btn} disabled={busy||!image||!preview||!orientation||!!handStep||!!calibrationCards.length} data-testid="calibration-edit-zones" onClick={()=>{editor.begin(zones);setEditing(true);}}>Edit zones</button>}
+      {editing?null:<button type="button" className={table.btn} disabled={busy||!image||!preview||!orientation||!!handStep||!!calibrationCards.length} data-testid="calibration-edit-zones" ref={editButton} onClick={()=>{editor.begin(zones);setEditing(true);}}>Edit zones</button>}
       {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
       {image?<div ref={imageBox} className={`${s.calibrationImage} ${large?s.calibrationImageLarge:''} ${g.image}`} data-testid="field-calibration-image" onPointerMove={event=>{const active=drag.current;if(active){const point=sourcePoint(event);move(active.points,active.corner,point.x-active.start.x,point.y-active.start.y);}}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}}>
         <img src={image} alt="Your camera view with an adjustable field grid" draggable={false}/>
@@ -118,7 +121,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
       </div>:<p>Start your camera before calibrating.</p>}
       {editing?<ZoneEditorToolbar editor={editor} onCancel={()=>setEditing(false)} onDone={next=>{setZones(Object.keys(next).length?next:undefined);setEditing(false);}}/>:null}
       {error?<p role="alert">{error}</p>:null}
-      <footer className={s.calibrationFooter}><span role="status">Save once for this seat and camera on this device.</span>
+      <footer className={s.calibrationFooter}><span role="status">{editing?'Press Done to keep the zone changes. Then save.':'Save once for this seat and camera on this device.'}</span>
         <button type="button" className={table.btn} disabled={!image||busy||!orientation||!!handStep||!!calibrationCards.length||editing} onClick={()=>{try{onSave(createFieldCalibration(points,orientation,zoneSpacing,zones));}catch(e){setError((e as Error).message);}}}>Save calibration</button>
         <button type="button" className={table.btn} onClick={onCancel}>Cancel calibration</button>
       </footer>

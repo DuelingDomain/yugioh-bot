@@ -7,13 +7,16 @@
 .grid g[data-custom] polygon{stroke:#9fd6ff}
 .grid g[data-selected] polygon{fill:rgb(243 202 117/.3);stroke:#fff;stroke-width:3}
 .box{position:absolute;border:1px dashed #fff;background:rgb(255 255 255/.12);pointer-events:none}
-.handle{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:4px;border:2px solid #100a1a;background:#fff;box-shadow:0 0 0 1px #f3ca75;cursor:grab;touch-action:none}
+.handle{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:4px;border:2px solid #100a1a;background:#fff;box-shadow:0 0 0 1px #f3ca75;touch-action:none}
+@media (pointer:coarse){.handle::before{content:"";position:absolute;inset:-14px}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .toolbar{display:flex;flex-direction:column;gap:8px;width:100%}
 .hint{margin:0;font-size:13px;color:var(--duel-ink-2,#cfc8dc);text-align:center}
 .row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
-.row button{min-height:32px;padding:0 12px;border:1px solid var(--duel-rule-hi,#6b5a8a);border-radius:6px;background:var(--duel-panel-2,#1c1430);color:var(--duel-ink,#f4eefc);font:inherit;font-size:13px;cursor:pointer}
-.row button:disabled{opacity:.45;cursor:default}
-.row button:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px}
-.row .primary{border-color:var(--duel-chain,#f3ca75);color:var(--duel-chain-ink,#ffebbc)}
-.spacer{flex:1 1 12px}
-@media (max-width:600px){.handle{width:22px;height:22px;margin:-11px 0 0 -11px}.row button{flex:1 1 40%}.spacer{display:none}}
+.confirm{display:flex;gap:8px;justify-content:flex-end}
+.row button,.confirm button{min-height:32px;padding:0 12px;border:1px solid var(--duel-rule-hi,#6b5a8a);border-radius:6px;background:var(--duel-panel-2,#1c1430);color:var(--duel-ink,#f4eefc);font:inherit;font-size:13px;cursor:pointer}
+.row button[aria-pressed=true]{border-color:var(--duel-chain,#f3ca75);background:rgb(243 202 117/.2)}
+.row button:disabled,.confirm button:disabled{opacity:.45;cursor:default}
+.row button:focus-visible,.confirm button:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px}
+.row .primary,.confirm .primary{border-color:var(--duel-chain,#f3ca75);color:var(--duel-chain-ink,#ffebbc)}
+@media (max-width:600px){.handle{width:22px;height:22px;margin:-11px 0 0 -11px}.row button,.confirm button{flex:1 1 40%}}
