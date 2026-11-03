@@ -66,7 +66,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined;
   let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity,deckTouchedAt=-Infinity,extraTouchedAt=-Infinity;
   const pileTouches=new Map<FieldZone,number>(),pileDepartures=new Set<string>();
-  let latestEvidence:FieldAnalysis|undefined;
+  let latestEvidence:FieldAnalysis|undefined,latestEvidenceFrame:FieldFrame|undefined;
   // Owner debug overlay: raw detector output and the last decision per track.
   let debug:FieldDebug|undefined;
   const note=(t:InternalTrack,reason:string)=>{t.reason=reason;};
@@ -160,6 +160,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   async function startRead(t:InternalTrack,frame:FieldFrame,card:DetectedQuad,crop:RGBAImage|undefined,at:number,generation:number) {
     if(reading||t.read||!t.needsRead)return;
+    // A first read waits for the first frame without a hand on the card: an
+    // embed of card plus fingers is rarely sure and costs a second read.
+    if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&(latestEvidence?.touched?.(card)??0)>.02){note(t,'read waits for the hand to leave the card');return;}
     const pending:PendingRead={at,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
     t.read=pending;t.needsRead=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
@@ -256,7 +259,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       lastFrameAt=sample.at;
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
       if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
-      const evidence=analyze(current);latestEvidence=evidence;
+      const evidence=analyze(current);latestEvidence=evidence;latestEvidenceFrame=current;
       // A full-frame detector pass at least every ~300 ms (slower only on a
       // CPU detector over budget). Cached outlines, motion crops and quiet
       // skips can never hide a card that sits outside the tracked set.
@@ -690,7 +693,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(clean&&t.early&&t.view.state==='identified'&&!t.read&&!reading&&t.observations>=1&&still){t.early=undefined;t.confirming=true;t.needsRead=true;}
         t.observations++;
         const score=evidence.sharpness(c);
-        if(!t.best||score>t.best.score)t.best={frame:current,card:structuredClone(c),score,crop};
+        if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&(evidence.touched?.(c)??0)>.02))t.best={frame:current,card:structuredClone(c),score,crop};
         const movingKnown=t.view.state==='identified'&&!t.needsRead&&t.view.faceDown===(c.kind==='face-down');
         if(movingKnown?(t.observations<2||sample.at-t.stableSince<100):score<12)continue;
         const wasFaceDown=t.view.faceDown;
