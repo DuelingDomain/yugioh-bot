@@ -29,26 +29,76 @@ export function normalizeZones(value?: unknown): ZoneOverrides | undefined {
   }
   return Object.keys(out).length ? out : undefined;
 }
+/** Override rectangles are stored for spacing 1 (as drawn by default); spacing then widens them around M3/S3 like the default zones. */
+export const scaleZoneRect=(r:ZoneRect,zoneSpacing=1):ZoneRect=>{const spacing=normalizeZoneSpacing(zoneSpacing);return {x:.5+(r.x-.5)*spacing,y:r.y,w:r.w*spacing,h:r.h};};
+export const unscaleZoneRect=(r:ZoneRect,zoneSpacing=1):ZoneRect=>{const spacing=normalizeZoneSpacing(zoneSpacing);return {x:.5+(r.x-.5)/spacing,y:r.y,w:r.w/spacing,h:r.h};};
 /**
  * The single zone geometry: the default Master Rule layout (zoneSpacing widens it around M3/S3), with the player's
- * per-zone rectangles on top. Overridden rectangles are absolute mat units; spacing only moves the other zones.
+ * per-zone rectangles on top. Overrides are kept at spacing 1 and scaled with the spacing, so the gaps stay as edited.
+ * GY and the M row are as tall as a card; Banished beside the Extra Monster row is the one short zone.
  */
 export function fieldZoneCells(format: FieldFormat = 'normal', zoneSpacing = 1, zones?: ZoneOverrides): FieldZoneCell[] {
   const emz = hasExtraMonsterZones(format), { pitch, start, end, minX, maxX } = fieldZoneLayout(zoneSpacing), side = start - minX;
   const base: FieldZoneCell[] = [
     { zone: 'FIELD', label: 'Field', x: minX, y: 0, w: side, h: .56 }, { zone: 'EXTRA', label: 'Extra', x: minX, y: .56, w: side, h: .44 },
-    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: maxX - end, h: .25 }, { zone: 'GY', label: 'GY', x: end, y: .25, w: maxX - end, h: .31 }, { zone: 'DECK', label: 'Deck', x: end, y: .56, w: maxX - end, h: .44 },
+    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: maxX - end, h: .2 }, { zone: 'GY', label: 'GY', x: end, y: .2, w: maxX - end, h: .36 }, { zone: 'DECK', label: 'Deck', x: end, y: .56, w: maxX - end, h: .44 },
     ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: emz ? .2 : 0, w: pitch, h: emz ? .36 : .56 })),
     ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: .56, w: pitch, h: .44 })),
     ...(emz ? [{ zone: 'EMZ1', label: 'EMZ', x: start + pitch, y: 0, w: pitch, h: .2 }, { zone: 'EMZ2', label: 'EMZ', x: start + 3 * pitch, y: 0, w: pitch, h: .2 }] : []),
   ];
   const own = normalizeZones(zones);
-  return own ? base.map(c => own[c.zone] ? { ...c, ...own[c.zone] } : c) : base;
+  return own ? base.map(c => own[c.zone] ? { ...c, ...scaleZoneRect(own[c.zone], zoneSpacing) } : c) : base;
+}
+const cellCache = new WeakMap<object, Map<string, { cells: FieldZoneCell[]; custom: ReadonlySet<string> }>>(), defaultCache = new Map<string, { cells: FieldZoneCell[]; custom: ReadonlySet<string> }>();
+function zoneLayoutOf(calibration: Pick<FieldCalibration, 'zoneSpacing' | 'zones'> | undefined, format: FieldFormat) {
+  const make = () => ({ cells: fieldZoneCells(format, calibration?.zoneSpacing, calibration?.zones), custom: new Set(Object.keys(normalizeZones(calibration?.zones) ?? {})) });
+  if (!calibration) { const key = `${format}`; let value = defaultCache.get(key); if (!value) defaultCache.set(key, value = make()); return value; }
+  let byFormat = cellCache.get(calibration); if (!byFormat) cellCache.set(calibration, byFormat = new Map());
+  let value = byFormat.get(format); if (!value) byFormat.set(format, value = make());
+  return value;
+}
+/** The cell holding a mat point; the smallest wins where cells overlap. Null in a gap or off the mat. */
+export function zoneCellAt<T extends ZoneRect>(point: Point, cells: readonly T[]): T | undefined {
+  let best: T | undefined;
+  for (const c of cells) if (point.x >= c.x && point.x < c.x + c.w && point.y >= c.y && point.y < c.y + c.h && (!best || c.w * c.h < best.w * best.h)) best = c;
+  return best;
+}
+/** The Master Rule bands, used for gaps and for points off the mat (the default layout without gaps). */
+function bandZone({ x: mx, y }: Point, zoneSpacing: number | undefined, format: FieldFormat): FieldZone {
+  const x = .5 + (mx - .5) / normalizeZoneSpacing(zoneSpacing);
+  if (inExtraMonsterRow({ x, y }, format)) return x < .5 ? 'EMZ1' : 'EMZ2';
+  if (x < FIELD_ZONE_START) return y < .56 ? 'FIELD' : 'EXTRA';
+  if (x >= FIELD_ZONE_END - 1e-9) return y < .2 ? 'BANISHED' : y < .56 ? 'GY' : 'DECK';
+  return `${y < .56 ? 'M' : 'S'}${Math.max(1, Math.min(5, Math.floor((x - FIELD_ZONE_START) / FIELD_ZONE_PITCH) + 1))}` as FieldZone;
+}
+/**
+ * The one "which zone is at this mat point" rule, for card assignment, hover and click, straddle checks and the editor.
+ * The smallest cell holding the point wins (edits included). In a gap, the default band applies unless the player moved
+ * that zone away; then the nearest cell wins. Nothing falls back to a zone that no longer claims the point.
+ */
+export function fieldZoneAt(point: Point, calibration?: Pick<FieldCalibration, 'zoneSpacing' | 'zones'>, format: FieldFormat = 'normal'): FieldZone {
+  const { cells, custom } = zoneLayoutOf(calibration, format), hit = zoneCellAt(point, cells);
+  if (hit) return hit.zone as FieldZone;
+  const band = bandZone(point, calibration?.zoneSpacing, format);
+  if (!custom.has(band) && cells.some(c => c.zone === band)) return band;
+  let best = cells[0], bestDistance = Infinity;
+  for (const c of cells) {
+    const d = Math.hypot(Math.max(c.x - point.x, 0, point.x - c.x - c.w), Math.max(c.y - point.y, 0, point.y - c.y - c.h));
+    if (d < bestDistance - 1e-12 || (Math.abs(d - bestDistance) <= 1e-12 && c.w * c.h < best.w * best.h)) { best = c; bestDistance = d; }
+  }
+  return best.zone as FieldZone;
+}
+/** Where a new card may appear: all zones together, so a zone moved past the mat edge still reads. */
+export function fieldZoneBounds(calibration?: Pick<FieldCalibration, 'zoneSpacing' | 'zones'>, format: FieldFormat = 'normal') {
+  const { cells } = zoneLayoutOf(calibration, format);
+  return { minX: Math.min(...cells.map(c => c.x)), maxX: Math.max(...cells.map(c => c.x + c.w)), minY: Math.min(...cells.map(c => c.y)), maxY: Math.max(...cells.map(c => c.y + c.h)) };
 }
 export type PlayerSide = 'bottom' | 'left' | 'top' | 'right';
 export interface FieldOrientation { playerSide: PlayerSide; mirrored: boolean }
 /** Corners are image-clockwise from image top-left. Missing orientation is legacy/unconfirmed. */
-export interface FieldCalibration { version: 1; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number; zones?: ZoneOverrides }
+/** `layout: 2` = made with the current zone layout (wider piles). A saved calibration without it lines its zones up differently and must be checked again. */
+export const FIELD_ZONE_LAYOUT = 2;
+export interface FieldCalibration { version: 1; layout?: typeof FIELD_ZONE_LAYOUT; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number; zones?: ZoneOverrides }
 export const DEFAULT_FIELD_ORIENTATION: FieldOrientation = {playerSide:'bottom',mirrored:false};
 const sides: PlayerSide[] = ['bottom','left','top','right'];
 function orient(point:Point, orientation:FieldOrientation, inverse=false):Point {
@@ -110,7 +160,7 @@ export function createFieldCalibration(points: Point[], orientation?:FieldOrient
   const crosses=corners.map((a,i)=>{const b=corners[(i+1)%4],c=corners[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
   if(crosses.some(c=>c<=0))throw new Error('Invalid field calibration: corners must be clockwise from top left');
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
-  return {version:1,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
+  return {version:1,layout:FIELD_ZONE_LAYOUT,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }
 /** True inverse homography for a flat mat under perspective; matrices stay out of persisted data. */
 export function onMat(p:Point, calibration?:FieldCalibration):Point {
@@ -190,20 +240,7 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
   return best.calibration;
 }
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
-  const center=onMat(fieldCenter(card),calibration),x=.5+(center.x-.5)/normalizeZoneSpacing(calibration?.zoneSpacing),y=center.y;
-  let zone:FieldZone;
-  const own=normalizeZones(calibration?.zones);
-  const custom=own&&fieldZoneCells(format,calibration?.zoneSpacing,own).filter(c=>own[c.zone]).find(c=>center.x>=c.x&&center.x<c.x+c.w&&center.y>=c.y&&center.y<c.y+c.h);
-  if(custom)zone=custom.zone as FieldZone;
-  else if(inExtraMonsterRow({x,y},format))zone=x<.5?'EMZ1':'EMZ2';
-  else if(x<FIELD_ZONE_START)zone=y<.56?'FIELD':'EXTRA';
-  else if(x>=FIELD_ZONE_END-1e-9)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
-  else {
-    const row=y<.56?'M':'S';
-    const col=Math.max(1,Math.min(5,Math.floor((x-FIELD_ZONE_START)/FIELD_ZONE_PITCH)+1));
-    zone=`${row}${col}` as FieldZone;
-  }
-  return {zone,calibrated:!!calibration};
+  return {zone:fieldZoneAt(onMat(fieldCenter(card),calibration),calibration,format),calibrated:!!calibration};
 }
 /** Detector corners are portrait ordered; measure the long axis in native pixels. */
 export function fieldOrientation(card:DetectedQuad,width:number,height:number,calibration?:FieldCalibration):'attack'|'defense' {

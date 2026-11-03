@@ -6,7 +6,7 @@ import type { DetectedQuad, FractionalBox, GameProfile, RecognitionPriors, Recog
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
 import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, clearFieldTransfer, type FieldFrame, type FieldAnalysis } from './field-motion';
-import { fieldZoneLayout, fieldCenter, onMat, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
+import { fieldZoneBounds, fieldCenter, onMat, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
   id:string; revision?:number; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
@@ -375,9 +375,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const pileRead=(c:DetectedQuad)=>c.confidence>=.4&&['GY','BANISHED'].includes(mapFieldZone(c,calibration,cards,options.format).zone)&&tracks.some(t=>bound(t)&&!matched.has(t));
       for(const c of cards)if((c.confidence>=.7||backOutline(c)||pileRead(c))&&!taken.has(c)&&tracks.filter(t=>!t.view.removed).length<maxTracks) {
         if(backOutline(c)&&c.confidence<.7&&!cardAspect(c))continue;
-        const gridBounds=fieldZoneLayout(calibration?.zoneSpacing);
+        const gridBounds=fieldZoneBounds(calibration,options.format);
         const center=onMat(fieldCenter(c),calibration);
-        if(calibration&&(center.x<gridBounds.minX-.012||center.x>gridBounds.maxX+.012||center.y<0||center.y>1))continue;
+        if(calibration&&(center.x<gridBounds.minX-.012||center.x>gridBounds.maxX+.012||center.y<gridBounds.minY||center.y>gridBounds.maxY))continue;
         const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id||t.binding?.id===k.id)&&(k.card?quadIou(k.card,c)>.5:!['GY','BANISHED'].includes(zone)&&k.zone===zone));
         const trusted=known?.card?known:undefined;

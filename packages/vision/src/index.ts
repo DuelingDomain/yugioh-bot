@@ -20,7 +20,7 @@ export type {RealsetSample,RealsetExport} from './calibration';
 
 export {createFieldWatcher} from './field-watcher';
 export type {FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
-export {FIELD_ZONE_PITCH,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE} from './field-zones';
+export {FIELD_ZONE_PITCH,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE} from './field-zones';
 export type {FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,PlayerSide} from './field-zones';
 
 export {createFieldIdentityGallery} from './field-gallery';
