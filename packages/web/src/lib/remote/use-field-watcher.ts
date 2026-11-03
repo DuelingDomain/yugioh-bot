@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { defaultGridCalibration, isPlacedCalibration } from './zone-grid';
-import { createFieldCalibration, createFieldWatcher, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
+import { createFieldCalibration, createFieldWatcher, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
 export interface UseFieldWatcherOptions {
@@ -41,7 +41,7 @@ function pickRecord(seatKey:string,deviceKey?:string,label?:string):SavedRecord|
   // Another camera for the same seat: keep which side the player sits on, but not the other camera's corners.
   const orientation=last.calibration?.orientation;
   if(!orientation)return undefined;
-  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation,last.calibration?.zoneSpacing),placed:false};}catch{return undefined;}
+  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation,last.calibration?.zoneSpacing,last.calibration?.zones),placed:false};}catch{return undefined;}
 }
 function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
   try {
@@ -56,12 +56,14 @@ const isPlaced=(saved:SavedRecord,calibration?:FieldCalibration)=>saved.placed??
 export const ZONE_SPACING={min:.85,max:1.4,step:.05,default:1} as const;
 export const clampZoneSpacing=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)?Number((Math.round(Math.min(ZONE_SPACING.max,Math.max(ZONE_SPACING.min,value))/ZONE_SPACING.step)*ZONE_SPACING.step).toFixed(2)):ZONE_SPACING.default;
 /** Lobby and table share the same seat + camera record, including orientation and whether the zones were placed. */
-export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;zoneSpacing:number} {
+export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;zoneSpacing:number;layoutChanged:boolean} {
   try {
     const saved=readSaved(seatKey,deviceKey,label),spacing=clampZoneSpacing(saved.calibration?.zoneSpacing??saved.zoneSpacing);
     const calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,spacing,saved.calibration.zones):undefined;
-    return {calibration,placed:!!calibration?.orientation&&isPlaced(saved,calibration),zoneSpacing:spacing};
-  }catch{return {placed:false,zoneSpacing:ZONE_SPACING.default};}
+    // A record confirmed under an older zone layout lines its zones up differently: it stays unconfirmed until the player checks it again.
+    const confirmed=!!calibration?.orientation&&isPlaced(saved,calibration),current=saved.calibration?.layout===FIELD_ZONE_LAYOUT;
+    return {calibration,placed:confirmed&&current,zoneSpacing:spacing,layoutChanged:confirmed&&!current};
+  }catch{return {placed:false,zoneSpacing:ZONE_SPACING.default,layoutChanged:false};}
 }
 export function loadFieldCalibration(seatKey:string,deviceKey?:string,label?:string):FieldCalibration|undefined {
   return loadFieldCalibrationRecord(seatKey,deviceKey,label).calibration;
@@ -71,8 +73,11 @@ export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,camera
   try {
     const before=readSaved(seatKey,cameraId,meta.label);
     const zoneSpacing=clampZoneSpacing(meta.zoneSpacing??grid.zoneSpacing??before.zoneSpacing);
-    const calibration=createFieldCalibration(grid.corners,grid.orientation,zoneSpacing,grid.zones);
-    const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed:meta.placed??isPlaced(before,before.calibration),zoneSpacing};
+    const placed=meta.placed??isPlaced(before,before.calibration);
+    // Only a confirmed save carries the current layout mark; edits to an older record keep it marked as old until "Looks good".
+    const confirmed=meta.placed===true||before.calibration?.layout===FIELD_ZONE_LAYOUT;
+    const calibration={...createFieldCalibration(grid.corners,grid.orientation,zoneSpacing,grid.zones),...(confirmed?{}:{layout:undefined})};
+    const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed,zoneSpacing};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.
     if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));

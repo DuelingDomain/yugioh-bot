@@ -17,8 +17,9 @@ import s from "./lobby-zones-view.module.css";
  * Side, spacing and Redo are here, so the zones can be judged and fixed in one place. "Looks good" closes it.
  * Escape closes it too, and focus goes back to the control that opened it (or to `restoreFocus`).
  */
-export function LobbyZonesView({ stream, ratio, format, calibration, calibrated, zoneSpacing, restoreFocus, onChange, onSpacing, onZones, onRedo, onClose }: {
+export function LobbyZonesView({ stream, ratio, format, calibration, calibrated, changed = false, onConfirm, zoneSpacing, restoreFocus, onChange, onSpacing, onZones, onRedo, onClose }: {
   stream: MediaStream | null; ratio: number; format: FieldFormat; calibration?: FieldCalibration; calibrated: boolean; zoneSpacing: number;
+  /** The saved zones were made with an older layout: shown for a check, and "Looks good" confirms them. */ changed?: boolean; onConfirm?(): void;
   restoreFocus?: () => HTMLElement | null;
   onChange(value: FieldCalibration): void; onSpacing(value: number): void; onZones(zones: ZoneOverrides | undefined): void; onRedo(): void; onClose(): void;
 }) {
@@ -30,7 +31,11 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
   const editingRef = useRef(false); editingRef.current = editing;
   const shown = displayCalibration(calibration, defaultSideFor("webcam"));
   const editor = useZoneEditor(shown, format);
+  const usable = calibrated || changed;
+  const wasEditing = useRef(false);
   const edit = () => { editor.begin(calibration?.zones); setEditing(true); };
+  // Done and Cancel remove the editor; focus goes back to the button that opened it.
+  useEffect(() => { if (wasEditing.current && !editing) dialog.current?.querySelector<HTMLElement>('[data-testid="lobby-zones-edit"]')?.focus({ preventScroll: true }); wasEditing.current = editing; }, [editing]);
 
   useEffect(() => {
     const el = video.current;
@@ -71,17 +76,17 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
     <div ref={dialog} className={s.dialog} role="dialog" aria-modal="true" aria-label="Check field zones" tabIndex={-1} data-testid="lobby-zones-view">
       <header className={s.head}>
         <h2><Crosshair size={16} strokeWidth={1.6} aria-hidden /> Check your zones</h2>
-        <p className={calibrated ? s.ok : s.warn}>{calibrated ? <><Check size={14} strokeWidth={2} aria-hidden /> Calibrated</> : "Not calibrated. The dashed grid is only a guess."}</p>
+        <p className={calibrated ? s.ok : s.warn}>{calibrated ? <><Check size={14} strokeWidth={2} aria-hidden /> Calibrated</> : changed ? "The zone layout changed. Check that the zones line up with your mat, then press Looks good." : "Not calibrated. The dashed grid is only a guess."}</p>
       </header>
       <div className={s.stage} style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}>
         <video ref={video} className={s.video} autoPlay muted playsInline data-testid="lobby-zones-view-video" />
         {editing
           ? <ZoneEditorOverlay editor={editor} ratio={ratio} />
-          : <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!calibrated} large ratio={ratio} />}
+          : <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!usable} large ratio={ratio} />}
       </div>
       <div className={s.controls}>
         {editing ? <ZoneEditorToolbar editor={editor} onCancel={() => setEditing(false)} onDone={zones => { setEditing(false); onZones(Object.keys(zones).length ? zones : undefined); }} />
-        : calibrated ? <>
+        : usable ? <>
           <FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("webcam")} confirmHint={false} onChange={onChange} />
           <label className={s.spacing}>
             <span>Zone spacing</span>
@@ -91,9 +96,9 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
           </label>
         </> : <p className={s.note}>Press Calibrate zones to place the grid on your mat. Then you can set the side and the zone spacing here.</p>}
         {editing ? null : <div className={s.actions}>
-          {calibrated ? <SheetButton size="sm" onClick={edit} data-testid="lobby-zones-edit"><LassoSelect size={14} strokeWidth={1.6} aria-hidden /> Edit zones</SheetButton> : null}
-          <SheetButton size="sm" onClick={onRedo} data-testid="lobby-zones-view-calibrate">{calibrated ? "Redo" : "Calibrate zones"}</SheetButton>
-          <SheetButton kind="primary" size="sm" onClick={onClose} data-testid="lobby-zones-view-done">Looks good</SheetButton>
+          {usable ? <SheetButton size="sm" onClick={edit} data-testid="lobby-zones-edit"><LassoSelect size={14} strokeWidth={1.6} aria-hidden /> Edit zones</SheetButton> : null}
+          <SheetButton size="sm" onClick={onRedo} data-testid="lobby-zones-view-calibrate">{usable ? "Redo" : "Calibrate zones"}</SheetButton>
+          <SheetButton kind="primary" size="sm" onClick={() => { if (changed) onConfirm?.(); onClose(); }} data-testid="lobby-zones-view-done">Looks good</SheetButton>
         </div>}
       </div>
     </div>

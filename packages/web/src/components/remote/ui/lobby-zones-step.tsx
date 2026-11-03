@@ -14,11 +14,11 @@ import s from "./lobby-camera-preview.module.css";
  * With a saved calibration: one compact line with Redo. The record is the one the table reads.
  * "Calibrated" means the zones were saved from the calibration dialog, so the side buttons show only then (to flip a saved side).
  */
-export function LobbyZonesStep({ live, calibrated, skipped, calibration, onCalibrate, onSkip, onChange }: {
-  live: boolean; calibrated: boolean; skipped: boolean; calibration?: FieldCalibration;
-  onCalibrate(): void; onSkip(): void; onChange(value: FieldCalibration): void;
+export function LobbyZonesStep({ live, calibrated, changed = false, skipped, calibration, onCalibrate, onCheck, onSkip, onChange }: {
+  live: boolean; calibrated: boolean; /** A saved calibration made with an older zone layout: it must be checked again. */ changed?: boolean; skipped: boolean; calibration?: FieldCalibration;
+  onCalibrate(): void; onCheck?(): void; onSkip(): void; onChange(value: FieldCalibration): void;
 }) {
-  const state = calibrated ? "done" : skipped ? "skipped" : "first";
+  const state = calibrated ? "done" : changed ? "changed" : skipped ? "skipped" : "first";
   return <div className={s.zones} data-testid="lobby-cam-zones" data-state={state} data-recommended={state === "first" && live ? "" : undefined}>
     <div className={s.zonesHead}>
       <span className={cx(ui.label, s.rowLabel)}><Crosshair size={13} strokeWidth={1.6} aria-hidden /> Calibrate zones</span>
@@ -27,11 +27,17 @@ export function LobbyZonesStep({ live, calibrated, skipped, calibration, onCalib
     <div className={s.zonesDone}>
       {/* One live region that stays in the DOM, so a screen reader hears the change. */}
       <p className={calibrated ? s.zonesOk : s.zonesWarn} role="status" aria-live="polite">
-        {calibrated ? <><Check size={15} strokeWidth={2} aria-hidden /> Calibrated</> : live ? "Not calibrated" : "Camera is off"}
+        {calibrated ? <><Check size={15} strokeWidth={2} aria-hidden /> Calibrated</> : changed ? "Check needed" : live ? "Not calibrated" : "Camera is off"}
       </p>
       {calibrated ? <SheetButton size="sm" onClick={onCalibrate} data-testid="lobby-cam-calibrate">Redo</SheetButton> : null}
     </div>
-    {calibrated ? null : <>
+    {changed ? <>
+      <p className={ui.hint} role="status" data-testid="lobby-cam-zones-changed">The zone layout changed. Check your zones.</p>
+      <div className={s.zonesActions}>
+        <SheetButton kind="primary" size="sm" disabled={!live} onClick={onCheck} data-testid="lobby-cam-check-zones">Check zones</SheetButton>
+        <SheetButton size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Redo</SheetButton>
+      </div>
+    </> : calibrated ? null : <>
       {state === "first" ? <p className={ui.hint}>{live
         ? "Put a monster upright in M1 (front-left) and a spell or trap upright in S5 (back-right). Then press Calibrate zones. The dashed grid is only a guess until you calibrate."
         : "Turn on the camera to calibrate the zones."}</p>

@@ -150,13 +150,13 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [calibration,setCalibration]=useState<FieldCalibration>();
   // "Calibrated" = the saved flag the table reads too (zones placed on the mat, not only a side picked).
   // Before the camera runs there is no camera to match, so no state is shown.
-  const [placed,setPlaced]=useState(false),[cameraLabel,setCameraLabel]=useState("");
+  const [placed,setPlaced]=useState(false),[layoutChanged,setLayoutChanged]=useState(false),[cameraLabel,setCameraLabel]=useState("");
   const calibrated=live&&placed;
   const skipKey=`dd-lobby-zones-skip:${room.slug}`;
   const [zonesSkipped,setZonesSkippedState]=useState(false);
   useEffect(()=>{try{setZonesSkippedState(sessionStorage.getItem(skipKey)==="1");}catch{/* not remembered */}},[skipKey]);
   const setZonesSkipped=(on:boolean)=>{setZonesSkippedState(on);try{sessionStorage.setItem(skipKey,on?"1":"0");}catch{/* not remembered */}};
-  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);},[seatKey,cameraId,cameraLabel]);
+  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);setLayoutChanged(record.layoutChanged);},[seatKey,cameraId,cameraLabel]);
   const saveCalibration=(grid:FieldCalibration,placedNow?:boolean)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow});readCalibration();};
   useEffect(() => { readCalibration(); }, [readCalibration]);
 
@@ -308,14 +308,14 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         </div> : null}
         {live ? <button type="button" ref={expandButton} className={s.expand} data-testid="lobby-cam-expand" onClick={event => { event.stopPropagation(); setChecking(true); }}><Maximize2 size={13} strokeWidth={1.8} aria-hidden /> Expand</button> : null}
         {live ? <span className={s.chip}><i aria-hidden /> Live · {size.w}×{size.h}</span> : null}
-        {live ? <span className={cx(s.chip, s.zoneChip, calibrated && s.zoneChipOn)} data-testid="lobby-cam-zone-chip" aria-hidden>{calibrated ? <><Check size={12} strokeWidth={2.2} aria-hidden /> Zones calibrated</> : "Zones: not calibrated"}</span> : null}
+        {live ? <span className={cx(s.chip, s.zoneChip, calibrated && s.zoneChipOn)} data-testid="lobby-cam-zone-chip" aria-hidden>{calibrated ? <><Check size={12} strokeWidth={2.2} aria-hidden /> Zones calibrated</> : layoutChanged ? "Zones: check them" : "Zones: not calibrated"}</span> : null}
       </div>
     </div>
     <div className={s.controls}>
       {devices.length > 1 ? <SheetSelect label="Camera" placeholder="Choose camera" value={cameraId} compact disabled={starting}
         choices={devices.map((device, i) => ({ value: device.deviceId, label: device.label || `Camera ${i + 1}` }))}
         onChange={id => { saveCamera(id); void start(id); }} /> : null}
-      <LobbyZonesStep live={live} calibrated={calibrated} skipped={zonesSkipped} calibration={calibration}
+      <LobbyZonesStep live={live} calibrated={calibrated} changed={live&&layoutChanged} onCheck={() => setChecking(true)} skipped={zonesSkipped} calibration={calibration}
         onCalibrate={() => setCalibrating(true)} onSkip={() => setZonesSkipped(true)} onChange={grid => saveCalibration(grid)} />
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Mic size={13} strokeWidth={1.6} aria-hidden /> Microphone</span>
@@ -331,7 +331,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
-    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} zoneSpacing={normalizeZoneSpacing(calibration?.zoneSpacing)}
+    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }} zoneSpacing={normalizeZoneSpacing(calibration?.zoneSpacing)}
       restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, value, calibration.zones)); }}
       onZones={zones => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, calibration.zoneSpacing, zones)); }}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}

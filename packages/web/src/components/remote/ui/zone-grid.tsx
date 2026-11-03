@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
+import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration } from "@yugidraft/vision";
@@ -32,7 +32,7 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
   const cells = useMemo(() => fieldGridCells(grid.format,calibration?.zoneSpacing,calibration?.zones), [grid.format,calibration?.zoneSpacing,calibration?.zones]);
   const defaultSide = own ? grid.defaultSide : undefined;
   const shown = displayCalibration(calibration, defaultSide);
-  const projected = useMemo(() => cells.map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
+  const projected = useMemo(() => byAreaDesc(cells).map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
   const tracks = own ? grid.tracks : [];
 
   // The zone where a card was just detected glows for a moment.

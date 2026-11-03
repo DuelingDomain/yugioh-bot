@@ -44,8 +44,8 @@ const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone} from '@/lib/remote/field-legality';
-import {fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {fieldGridCells,useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
+import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
+import {useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -304,7 +304,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       let same = owns ? current.state.seats[seat].twin.find(card => card.ref === targetRef)
         ?? current.state.seats[seat].twin.find(card => card.ref === revealRef) : undefined;
       const physical=at.quad?.length===4&&zoneGrid.ownSeat===seat&&zoneGrid.calibration?.orientation?
-        mapFieldZone({quad:at.quad,kind:'face-up',confidence:1,partial:false},zoneGrid.calibration).zone:undefined;
+        mapFieldZone({quad:at.quad,kind:'face-up',confidence:1,partial:false},zoneGrid.calibration,[],zoneGrid.format).zone:undefined;
       if(owns&&!same&&physical){const location=fieldZoneLocation(physical);same=current.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot&&sameObservedCard(c,{cardId:pick.cardId,name:pick.name}));}
       const reading=owns&&!same&&physical?fieldReadingPlaceholder(current.state.seats[seat].twin,physical):undefined;
       same??=reading;
@@ -857,7 +857,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const calibration = zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat);
     if (!calibration?.orientation) return undefined;
     const mat = onMat({ x, y }, calibration);
-    return fieldGridCells(gridFormat,calibration).find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h)?.zone;
+    return fieldZoneAt(mat, calibration, gridFormat);
   };
   const pileAt = (zone: string | undefined): PileZone | null => zone === "GY" ? "graveyard" : zone === "BANISHED" ? "banished" : null;
   /** The card the table holds in the zone under a point. Only the camera's own mat counts: a facing player's Extra Monster Zone is not on this mat. */

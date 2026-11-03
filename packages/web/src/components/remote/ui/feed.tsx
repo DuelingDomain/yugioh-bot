@@ -261,7 +261,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       const overlap=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
       if(overlap/Math.min((a.right-a.left)*(a.bottom-a.top),(b.right-b.left)*(b.bottom-b.top))>=.04)continue;
       const known=hitTrackedCards(cached,card.cx,card.cy);
-      const location=calibration?.orientation?fieldZoneLocation(mapFieldZone({...toRead(card)},calibration).zone):undefined;
+      const location=calibration?.orientation?fieldZoneLocation(mapFieldZone({...toRead(card)},calibration,[],grid.format).zone):undefined;
       const expected=matches.find(c=>location?c.zone===location.zone&&c.slot===location.slot:c.ref===known?.ref);
       if(!expected)continue;
       const answer=await hub.peek(seat,frame,toRead(card),cards.map(toRead),new AbortController().signal);

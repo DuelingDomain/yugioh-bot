@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, onMat, type FieldCalibration, type FieldFormat, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
+import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, onMat, zoneCellAt, type FieldCalibration, type FieldFormat, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
@@ -17,6 +17,8 @@ export type { ZoneOverrides };
 export function fieldGridCells(format: FieldFormat = "normal", spacing: number | Pick<FieldCalibration, "zoneSpacing" | "zones"> = 1, zones?: ZoneOverrides): GridCell[] {
   return typeof spacing === "number" ? fieldZoneCells(format, spacing, zones) : fieldZoneCells(format, spacing.zoneSpacing, zones ?? spacing.zones);
 }
+/** Draw order for overlapping cells: largest first, so the cell on top is the one a card in the overlap is assigned to. */
+export const byAreaDesc = <T extends { w: number; h: number }>(cells: readonly T[]): T[] => [...cells].sort((a, b) => b.w * b.h - a.w * a.h);
 /** The grid shown before the player calibrates: most of the picture, as in the calibration dialog's first guess. */
 export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
 let defaultGrid: FieldCalibration | undefined;
@@ -57,7 +59,7 @@ export function straddledZones(quad: readonly Point[], calibration: FieldCalibra
     const top = { x: quad[0].x + (quad[1].x - quad[0].x) * u, y: quad[0].y + (quad[1].y - quad[0].y) * u };
     const bottom = { x: quad[3].x + (quad[2].x - quad[3].x) * u, y: quad[3].y + (quad[2].y - quad[3].y) * u };
     const mat = onMat({ x: top.x + (bottom.x - top.x) * v, y: top.y + (bottom.y - top.y) * v }, calibration);
-    const cell = cells.find(c => mat.x >= c.x && mat.x < c.x + c.w && mat.y >= c.y && mat.y < c.y + c.h);
+    const cell = zoneCellAt(mat, cells);
     if (!cell) continue; inside++; counts.set(cell.zone, (counts.get(cell.zone) ?? 0) + 1);
   }
   if (inside < 12) return null;
