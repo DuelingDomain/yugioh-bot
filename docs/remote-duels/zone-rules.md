@@ -37,11 +37,11 @@ A card X that the camera sees on the field while X is in that seat's GY or banis
 - the pile top that the camera saw changed or is gone, or
 - the pile outline is gone (missing pile).
 
-With no such sign (for example, a 2nd Ash Blossom from the hand), the card is a new copy.
+With no such sign (for example, a 2nd Ash Blossom from the hand), the card is a new copy. Limit: when the camera never saw the pile card (it was moved there by hand on the board) and a hand put a card on that pile less than 10 s before, a 2nd copy from the hand can be read as the pile card. Undo fixes it.
 
 ## Board re-sync
 
-Every 4 s on GPU and 8 s on CPU the watcher compares the camera with the board and fixes what differs: a known card in a different zone moves (rules above), a field copy X plus a pile X with a pile-exit sign merge into the field card. No prompts. The log gets one line: "Board re-synced (n changes)". "Scan field" in the camera bar runs the same check at once, with a full detector pass ("Scanning…").
+Every 4 s on GPU and 8 s on CPU the watcher compares the camera with the board and fixes what differs: a known card in a different zone moves (rules above), a field copy X plus a pile X with a pile-exit sign merge into the field card, and a known card that the board does not show is placed again. Each fix is tried once, so the player's Undo is not fought. Cards that leave the camera view are removed by the "out of view is gone" rule, not by re-sync. No prompts. The log gets one line: "Board re-synced (n changes)". "Scan field" in the camera bar runs the same check at once, with a full detector pass ("Scanning…").
 
 ## Examples
 
