@@ -1215,6 +1215,20 @@ describe("tolerant voice attack resolution", () => {
     expect(repositioned.seats[0].twin[0].slot).toBe(5);
     expect(move(repositioned, "monster").seats[0].twin[0].slot).toBe(5);
     expect(move(repositioned, "graveyard").seats[0].twin[0].slot).toBeUndefined();
+    // Odion: a Trap activated in S3 becomes a Trap Monster in M3 and still occupies S3 until it leaves the field.
+    b.place(0, { ref: "apophis", name: "Embodiment of Apophis", slot: 3, cardId: 28649820 }, "spell-trap");
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `zone-rule-${++n}`, ...action }));
+    const summoned = act(b.state, { type: "twin.move", cardRef: "apophis", zone: "monster", slot: 3, trapMonster: true });
+    expect(summoned.seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
+    expect(() => act(summoned, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } })).toThrow(/occupied/i);
+    // Equip link: an Equip Card in S2 equips the Trap Monster; both links end when the monster leaves the field.
+    const equip = act(act(summoned, { type: "twin.place", zone: "spell-trap", card: { ref: "axe", slot: 2, cardId: 40619825 } }), { type: "twin.equip", cardRef: "axe", target: { seat: 0, ref: "apophis" } });
+    expect(equip.seats[0].twin.find(c => c.ref === "axe")?.equippedTo).toEqual({ seat: 0, ref: "apophis" });
+    const gone = act(equip, { type: "twin.move", cardRef: "apophis", zone: "graveyard" });
+    expect(gone.seats[0].twin.find(c => c.ref === "apophis")?.trapZone).toBeUndefined();
+    expect(gone.seats[0].twin.find(c => c.ref === "axe")?.equippedTo).toBeUndefined();
+    expect(act(gone, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } }).seats[0].twin.some(c => c.ref === "late")).toBe(true);
   });
 
   it("persists public annotations and replays a confirmed proposal through the normal event store", () => {

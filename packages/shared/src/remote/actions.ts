@@ -58,7 +58,11 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     anotherCopy: z.boolean().optional() }),
   /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
-  z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional() }),
+  z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */
+    trapMonster: z.boolean().optional() }),
+  /** Link an Equip Card to the monster it equips (any seat), or clear the link with `target: null`. */
+  z.strictObject({ ...meta, type: z.literal("twin.equip"), seat: remoteSeatSchema, cardRef: id, target: z.strictObject({ seat: remoteSeatSchema, ref: id }).nullable() }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
     .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
@@ -73,6 +77,10 @@ type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
   zone: string; departedFrom?: { zone: string; slot?: number; at?: number }; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
+  trapZone?: number;
+  /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
+  equippedTo?: { seat: number; ref: string };
   /** Server-authored knowledge; independent of the physical face-up/down state. */
   publicIdentity?: boolean;
 };
