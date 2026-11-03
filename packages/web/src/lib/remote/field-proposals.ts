@@ -1,6 +1,21 @@
 import type {RoomMutation} from './room-mutations';
 import type { RemoteActionProposal, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+// A manual read may finish before the watcher's first identity read. Preserve
+// its physical row even when card legality projects it into another virtual row.
+const observedZones=new Map<string,FieldTrack['zone']>();
+const observationKey=(slug:string,seat:number,ref:string)=>`${slug}:${seat}:${ref}`;
+export function rememberFieldObservation(slug:string,seat:number,ref:string,zone:FieldTrack['zone']){
+  observedZones.set(observationKey(slug,seat,ref),zone);
+  while(observedZones.size>256)observedZones.delete(observedZones.keys().next().value!);
+}
+export const observedFieldZone=(slug:string,seat:number,ref:string)=>observedZones.get(observationKey(slug,seat,ref));
+/** A manual read can identify the reader's current visual cue in place. */
+export function fieldReadingPlaceholder(twins:readonly TwinCard[],zone:FieldTrack['zone']):TwinCard|undefined {
+  if(['DECK','EXTRA','GY','BANISHED'].includes(zone))return;
+  const location=fieldZoneLocation(zone);
+  return twins.find(c=>c.ref.startsWith('fw-')&&c.faceUp&&!c.cardId&&!c.passcode&&!c.name&&c.zone===location.zone&&c.slot===location.slot);
+}
 /** Copy evidence must come from distinct, identified quads in the same frame. */
 export function simultaneousFieldCopies(a:FieldTrack,b:FieldTrack,sameIdentity=a.cardId===b.cardId):boolean {
   if(a.id===b.id||!a.cardId||!b.cardId||!sameIdentity||!['identified','prompt'].includes(a.state)||b.state!=='identified'||!a.visible||!b.visible||a.removed||b.removed||a.faceDown||b.faceDown||a.card.kind!=='face-up'||b.card.kind!=='face-up'||a.lastSeen!==b.lastSeen)return false;
@@ -44,23 +59,12 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
   const actionId=crypto.randomUUID();
   const updated=await act(proposal,actionId);
   if(!updated)return null;
-  // An origin request has no placement or undo entry to compensate.
-  if([updated.state.twinConfirmation,...(updated.state.twinConfirmationQueue??[])].some(flag=>flag?.seat===(proposal.type==='twin.place'?proposal.seat:undefined)&&flag?.cardRef===(proposal.type==='twin.place'?proposal.card.ref:undefined)&&flag?.placement))return updated;
   if(!fieldEvidenceMatches(event,current())){
-    if(proposal.type==='twin.place'){
+    if(proposal.type==='twin.place'||proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined){
       let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:updated.state.undo.actionId});}catch{/* Explicit recovery also covers a failed refresh/network. */}
-      if(!undone)throw new StaleFieldPlacementError(proposal);
+      if(!undone){if(proposal.type==='twin.place')throw new StaleFieldPlacementError(proposal);throw new Error('The card changed during reveal. Undo the reveal before continuing.');}
     }
     return null;
   }
   return updated;
-}
-
-export type FieldOriginTarget = {zone:string;slot?:number;position:'attack'|'defense';faceUp:boolean};
-const originReaders = new Map<string,(ref:string)=>FieldOriginTarget|null|undefined>();
-/** Undefined is a manual observation; null is a tracked card without current evidence. */
-export function readFieldOrigin(slug:string,seat:number,ref:string) {return originReaders.get(`${slug}:${seat}`)?.(ref);}
-export function registerFieldOriginReader(slug:string,seat:number,reader:(ref:string)=>FieldOriginTarget|null|undefined) {
-  const key=`${slug}:${seat}`;originReaders.set(key,reader);
-  return ()=>{if(originReaders.get(key)===reader)originReaders.delete(key);};
 }

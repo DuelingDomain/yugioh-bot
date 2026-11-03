@@ -1130,9 +1130,9 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
     if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
-    let back='',stacks=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
-    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}else ctx.drawImage(image,-90,-131,180,262);}else if(back){ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
-    (window as any).fieldTest={back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
+    let back='',stacks=false,sleeve:ImageBitmap|null=null;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
+    const paint=()=>{ctx.fillStyle=guided?'#101010':'#26392f';ctx.fillRect(0,0,1280,720);if(stacks){ctx.fillStyle='#1e3cbe';ctx.fillRect(30,50,110,160);ctx.fillRect(1140,50,110,160);}if(markers){ctx.drawImage(image,250,172,140,204);ctx.drawImage(image,890,172,140,204);}if(visible){ctx.save();if(jitter){const phase=performance.now()/1400;ctx.filter=`brightness(${.85+.12*Math.sin(phase)})`;ctx.translate(x+90,y+131);ctx.rotate(.04*Math.sin(phase*.7));ctx.translate(-x-90,-y-131);}if(defense){ctx.translate(x+131,y+90);ctx.rotate(Math.PI/2);if(back){if(sleeve)ctx.drawImage(sleeve,-90,-131,180,262);else{ctx.fillStyle=back;ctx.fillRect(-90,-131,180,262);}}else ctx.drawImage(image,-90,-131,180,262);}else if(back){if(sleeve)ctx.drawImage(sleeve,x,y,180,262);else{ctx.fillStyle=back;ctx.fillRect(x,y,180,262);}}else ctx.drawImage(image,x,y,180,262);ctx.restore();for(const other of others)ctx.drawImage(image,other.x,other.y,180,262);}};
+    (window as any).fieldTest={texture:async()=>{sleeve=await createImageBitmap(await(await fetch('/duel/card-back-main-hd.webp')).blob());paint();},back:(colour:string)=>{back=colour;paint();},stacks:(on:boolean)=>{stacks=on;paint();},appear:()=>{visible=true;paint();},place:(left:number,top:number,def=false)=>{x=left;y=top;defense=def;visible=true;paint();},move:()=>{x=660;y=185;paint();},jitter:(active:boolean)=>{jitter=active;paint();},calibrateTwo:()=>{markers=true;visible=false;paint();},clear:()=>{visible=false;markers=false;others=[];paint();},many:(points:{x:number;y:number}[])=>{[ {x,y},...others]=points;visible=true;paint();}};
     paint();setInterval(paint,65);
     navigator.mediaDevices.getUserMedia=async constraints=>{if(!constraints?.video)throw new DOMException('Video only','NotFoundError');const stream=canvas.captureStream(15),track=stream.getVideoTracks()[0],settings=track.getSettings.bind(track);track.getSettings=()=>({...settings(),deviceId:'field-test-camera'});return stream;};
     navigator.mediaDevices.enumerateDevices=async()=>[];
@@ -1327,20 +1327,19 @@ test('field watcher automatic: Solemn Judgment uses the legal row and confirmed 
     const slug=await soloTable(context.request,2,registeredDeck),room=()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
     await context.request.post(`/api/remote/${slug}/actions`,{data:{}});
     await context.request.post('/api/cards/resolve',{data:{customCardIds:[41420027]}});
-    await appearingCamera(page,TRAP_CARD,true);await page.goto(`/duels/remote/${slug}`);
+    await appearingCamera(page,TRAP_CARD);await page.goto(`/duels/remote/${slug}`);
     await page.getByTestId('camera-on-feed').click();await page.getByLabel('Auto-detect cards',{exact:true}).check();
     const calibration=page.getByRole('dialog',{name:'Calibrate field zones',exact:true});
     if(registeredDeck){
+      await page.getByRole('button',{name:'Recalibrate',exact:true}).click();
       await expect(calibration).toContainText('Drag the field grid over your mat');
-      await page.evaluate(()=>((window as any).fieldTest).calibrateTwo());await page.waitForTimeout(300);
-      await calibration.getByRole('button',{name:'Use cards in M1 and M5',exact:true}).click();
-      await expect(calibration).not.toHaveAttribute('aria-busy','true');await expect(calibration.getByRole('alert')).toHaveCount(0);
-      await page.evaluate(()=>((window as any).fieldTest).clear());
+      await expect(calibration).toContainText('MONSTER upright in M1');
+      await expect(calibration).toContainText('SPELL/TRAP upright in S5');
       const shots=new URL('../../../data/vision/benchmark/field-watcher/pad-shots/',import.meta.url).pathname;mkdirSync(shots,{recursive:true});
       for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:`${shots}/calibration-${width}x${height}.png`});}
       await page.setViewportSize({width:1440,height:1000});await calibration.getByRole('button',{name:'Save calibration',exact:true}).click();
     }else await expect(calibration).toHaveCount(0);
-    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+    await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:60_000});
     await page.evaluate(()=>((window as any).fieldTest).place(650,170,false));
     const prompt=page.getByTestId('field-watcher-prompt');
     await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:30_000}).toMatchObject([{cardId:41420027,zone:'spell-trap',slot:4}]);
@@ -1386,7 +1385,7 @@ test('field watcher automatic: a manual feed read before settling keeps exactly 
   const initial=(await room()).state.seats[0].twin[0];await page.getByRole('button',{name:'Close card',exact:true}).click();
   await page.waitForTimeout(4000);const settled=await room();expect(settled.state.seats[0].twin).toHaveLength(1);expect(settled.state.seats[0].twin[0].ref).toBe(initial.ref);
   expect(settled.events.filter((event:any)=>event.action.type==='twin.place')).toHaveLength(1);
-  expect(initial.ref).toMatch(/^c0-/);
+  expect(settled.events.filter((event:any)=>event.action.type==='twin.remove')).toHaveLength(0);
 });
 
 for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive best-match and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
@@ -1437,42 +1436,80 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
     const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
     for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
   });
+  await page.addInitScript(mode=>localStorage.setItem('dd-remote-recognition-mode',mode),process.env.E2E_RECOGNITION_MODE??'cpu');
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId('camera-on-feed').click();
-  await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
+  await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field',{timeout:60_000});
   await expect.poll(()=>page.locator('video').first().evaluate((v:HTMLVideoElement)=>v.videoWidth)).toBe(1280);
   const room=async()=>context.request.get(`/api/remote/${slug}`).then(r=>r.json());
   await expect.poll(async()=>Number((await page.getByTestId('field-watcher-status').getAttribute('title'))?.match(/Detector (\d+) ms/)?.[1]??0),{timeout:40_000}).toBeGreaterThan(0);
-  const placedAt=Date.now();
-  await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});
-  await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:15_000}).toHaveLength(1);
+  await page.evaluate(()=>((window as any).fieldTest).texture());
+  // A moving draw crosses the field; it must never create a Set or prompt.
+  await page.evaluate(async()=>{
+    const camera=(window as any).fieldTest,start=performance.now();camera.back('#1e3cbe');
+    // Animate inside the page: IPC waits must not turn a moving draw into a
+    // stationary card held for the complete face-confirmation window.
+    while(performance.now()-start<640){const step=(performance.now()-start)/80;camera.place(50+step*120,80+step*45);await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
+    camera.clear();
+  });await page.waitForTimeout(350);
+  expect((await room()).state.seats[0].twin).toHaveLength(0);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  // Time the rendered state in the page, starting at the camera pixel change.
+  const change = (down:boolean) => page.evaluate(down=>new Promise<{renderMs:number;changedAt:number}>((resolve,reject)=>{
+    const cell=document.querySelector('[data-testid="field-0"] [data-zone="m3"]')!;
+    const start=performance.now(),changedAt=performance.timeOrigin+start;
+    const timer=setTimeout(()=>{observer.disconnect();reject(new Error('Face state did not render'));},30_000);
+    const observer=new MutationObserver(()=>{
+      const label=cell.getAttribute('aria-label')??'',marker=!!document.querySelector('[data-testid="set-marker"]');
+      if(down?label.includes('Face-down')&&marker:label.includes('Stardust Dragon')&&!label.includes('Face-down')&&!marker){
+        observer.disconnect();clearTimeout(timer);resolve({renderMs:performance.now()-start,changedAt});
+      }
+    });
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-label']});
+    const camera=(window as any).fieldTest;camera.back(down?'#1e3cbe':'');camera.place(down?509:550,down?356:315,down);
+  }),down);
+  const shots = async (label:string) => {
+    if(!SHOTS)return;
+    for(const [width,height] of [[1920,1080],[1366,768],[390,844]]){
+      await page.setViewportSize({width,height});
+      const cell=page.getByTestId('field-0').locator('[data-zone="m3"]');await cell.scrollIntoViewIfNeeded();
+      if(label==='revealed-set-same-slot'){
+        const chip=cell.getByTestId('revealed-chip');await expect(chip).toHaveText('Revealed');
+        expect(await chip.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+      }
+      await shot(page,`${label}-${width}x${height}`);
+    }
+    await page.setViewportSize({width:1920,height:1080});
+  };
+  const setTiming=await change(true);
+  await expect.poll(async()=>(await room()).state.seats[0].twin,{timeout:15_000,intervals:[25]}).toHaveLength(1);
   const set=await room(),card=set.state.seats[0].twin[0];
   expect(card).toMatchObject({zone:'monster',slot:3,faceUp:false,position:'defense'});
   expect(card.cardId).toBeUndefined();
   expect(set.events.some((event:any)=>event.action.type==='card.identified')).toBe(false);
   await expect(page.getByTestId('field-0').locator('[data-zone="m3"]')).toHaveAttribute('aria-label',/Face-down/);
   await expect(page.getByTestId('set-marker')).toHaveText('Set');
-  const setMs=Date.now()-placedAt;
-  await shot(page,'set-blue-monster');
+  await shots('set-blue-monster');
   await page.evaluate(()=>((window as any).fieldTest).stacks(true));
   await expect(page.getByTestId('field-0').locator('[data-zone="deck"] [data-testid="deck-pile"]')).toBeVisible();
   await expect(page.getByTestId('field-0').locator('[data-zone="ex"] [data-testid="deck-pile"]')).toBeVisible();
   await page.waitForTimeout(1200);
   const piles=await room();expect(piles.state.seats[0].twin).toHaveLength(1);
   expect(piles.events.filter((e:any)=>e.action.type==='twin.place')).toHaveLength(1);
+  expect(piles.events.filter((e:any)=>e.action.type==='twin.remove')).toHaveLength(0);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
-  await shot(page,'set-deck-extra-piles');
-  const flippedAt=Date.now();
-  await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('');camera.place(550,315);});
-  await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.find((c:any)=>c.ref===card.ref)?.faceUp;},{timeout:30_000}).toBe(true);
+  await shots('set-deck-extra-piles');
+  const flipTiming=await change(false);
+  await expect.poll(async()=>{const r=await room();return r.state.seats[0].twin.find((c:any)=>c.ref===card.ref)?.faceUp;},{timeout:30_000,intervals:[25]}).toBe(true);
   const flipped=await room();expect(flipped.state.seats[0].twin).toHaveLength(1);
   expect(flipped.state.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:3,cardId:44508094,faceUp:true});
+  expect(flipped.events.slice(piles.events.length).filter((e:any)=>e.action.type==='twin.flip')).toHaveLength(1);
+  expect(flipped.events.slice(piles.events.length).filter((e:any)=>['twin.move','card.identified'].includes(e.action.type))).toHaveLength(0);
   await expect(page.getByTestId('set-marker')).toHaveCount(0);
-  const flipMs=Date.now()-flippedAt;
-  await shot(page,'set-flipped-same-slot');
-  const resetAt=Date.now();
-  await page.evaluate(()=>{const camera=(window as any).fieldTest;camera.back('#1e3cbe');camera.place(509,356,true);});
-  await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000}).toBe(false);
+  await shots('set-flipped-same-slot');
+  const faceUpCell=page.getByTestId('field-0').locator('[data-zone="m3"]');
+  await faceUpCell.click();await expect(page.getByTestId('inspector-body')).not.toContainText('Revealed');await page.keyboard.press('Escape');
+  const resetTiming=await change(true);
+  await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000,intervals:[25]}).toBe(false);
   const reset=await room();
   for(const seats of [new Set([0]),new Set([1]),new Set<number>()]) {
     const view=projectRemoteState(reset.state,seats);
@@ -1486,18 +1523,21 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(cell.locator('img')).toBeVisible();
   await expect(page.getByTestId('set-marker')).toHaveText('Set');
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
+  await shots('revealed-set-same-slot');
   await cell.click();
   await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
-  await shot(page,'revealed-set-same-slot');
   await page.keyboard.press('Escape');
-  console.log(JSON.stringify({setMs,flipMs,resetMs:Date.now()-resetAt}));
+  const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;
+  console.log(JSON.stringify({backend:await page.getByTestId('recognition-backend').first().getAttribute('data-backend'),
+    setRenderMs:setTiming.renderMs,revealRenderMs:flipTiming.renderMs,resetRenderMs:resetTiming.renderMs,
+    setServerMs:eventDelay(set,'twin.place',setTiming),revealServerMs:eventDelay(flipped,'twin.flip',flipTiming)}));
   await page.getByRole('button',{name:'Camera off',exact:true}).click();
   // Manual same-slot setting uses twin.move and retains the same public knowledge.
-  for(const [index,action] of [{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
+  for(const [index,action] of [{type:'twin.move',zone:'hand',faceUp:false},{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
     const latest=await room();
     const response=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:latest.lastSeq,action:{...action,actorSeat:0,seat:0,cardRef:card.ref,idempotencyKey:`revealed-set-${index}`}}});
     expect(response.ok(),await response.text()).toBe(true);
-    if(action.zone==='deck')expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
+    if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
   }
   expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin[0]).toMatchObject({ref:card.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
 });

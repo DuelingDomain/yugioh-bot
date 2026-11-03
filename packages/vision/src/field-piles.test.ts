@@ -14,26 +14,29 @@ test('cached identity settlement preserves deck observations until a real detect
     data.set([...rgb,255],(y*width+x)*4);
   }
   const face={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
-  let at=0,detects=0,reads=0,outlines=[deck];
+  let at=0,detects=0,reads=0,motion=0,outlines=[deck];
   const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame:face as ImageData,at})},
     recognizer:{detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{total:1},backend:'wasm'} as RecognitionResult;}},
-    analyze:()=>({motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
+    analyze:()=>({motion:()=>motion,sharpness:()=>20,appearance:()=>Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
   });
   const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
   try {
     for(let i=0;i<5;i++)await tick();
     assert.equal(watcher.getSnapshot().piles?.length,1);
-    outlines=[deck,front];
+    outlines=[{...deck,quad:deck.quad.map(p=>({x:.94+(p.x-.9)/3,y:.74+(p.y-.7)/3}))},deck,front];
     for(let i=0;i<10&&!reads;i++)await tick();
     assert.equal(reads,1);
+    assert.deepEqual(watcher.getSnapshot().piles?.[0].card.quad,deck.quad,'the largest deck outline owns the pile');
     const before=detects;
     await tick();
     assert.equal(detects,before,'the completed read uses cached outlines');
     assert.equal(watcher.getSnapshot().piles?.length,1,'cached field outlines cannot prove deck absence');
+    motion=.3;for(let i=0;i<10;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,1,'a one-second hand cover retains the verified deck');motion=0;
     outlines=[];
-    for(let i=0;i<8;i++)await tick();
-    assert.equal(watcher.getSnapshot().piles?.length,0,'a full detector scan clears an absent deck');
+    for(let i=0;i<35;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,0,'detector absence clears a deck after its three-second grace period');
     assert.equal(watcher.getSnapshot().metrics.errors,0);
   } finally { watcher.dispose(); }
 });

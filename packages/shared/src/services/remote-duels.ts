@@ -248,7 +248,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         return room(load(slug, guildId), userId);
       });
     },
-    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction }, now = Date.now()): RemoteRoom {
+    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
@@ -268,7 +268,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,twinPlacementGuard:2};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,twinPlacementGuard:3,fieldFaceState:1};
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
             const twin=card.cardRef ? before.seats[command.seat].twin.find(c=>c.ref===card.cardRef) : undefined;
@@ -283,7 +283,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main ?? []);
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
-          command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
+          command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
           command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
           command.type === "effect.choose" ? [{cardId:command.cardId}] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
@@ -291,7 +291,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
         const twinCodes = before.seats.flatMap(s => s.twin.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []));
         effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
-        if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add") {
+        if (command.type === "card.identified" || command.type === "cards.identified" || command.type === "deck.add" || command.type === "twin.flip" && command.faceUp && command.cardId) {
           const code = codes.at(-1); const fact = code ? effects.facts[code] : undefined;
           const registration = registrations[command.seat];
           let candidate: RemoteDeckRegistration | undefined;
@@ -305,7 +305,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
             effects.registration = candidate;
           }
         }
+        const reduceAt=performance.now();
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
+        input.onTiming?.('reducer',performance.now()-reduceAt);
         const messages = state.deckChecks.flags.filter(f => !before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
         if(command.type==="effect.choose" && effects.publicEffectChoice) {

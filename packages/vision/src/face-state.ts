@@ -177,11 +177,13 @@ export function isLikelyFaceDown(crop: RGBAImage): boolean {
 }
 
 /** One helper per physical track; call with unknown on motion/occlusion/misses. */
-export function createFaceStateHysteresis(options: { sustainMs?: number; maxGapMs?: number; minConfidence?: number } = {}) {
+export function createFaceStateHysteresis(options: { sustainMs?: number; maxGapMs?: number; minConfidence?: number; minSamples?:number } = {}) {
   const sustainMs = Math.max(0, options.sustainMs ?? 300), maxGapMs = Math.max(sustainMs, options.maxGapMs ?? 650);
   const minConfidence = Math.max(.5, Math.min(1, options.minConfidence ?? .8));
+  const minSamples=Math.max(2,Math.floor(options.minSamples??2));
+  let samples=0;
   let pending: FaceState = 'unknown', since = 0, last = -Infinity, confidence = 0;
-  const reset = () => { pending = 'unknown'; since = 0; last = -Infinity; confidence = 0; };
+  const reset = () => { pending = 'unknown'; since = 0; last = -Infinity; confidence = 0;samples=0; };
   return {
     reset,
     update(result: FaceStateResult, at: number): FaceStateResult {
@@ -189,11 +191,11 @@ export function createFaceStateHysteresis(options: { sustainMs?: number; maxGapM
       if (at <= last || at - last > maxGapMs) reset();
       last = at;
       if ((result.state !== 'up' && result.state !== 'down') || !Number.isFinite(result.confidence) || result.confidence < minConfidence || result.confidence > 1) {
-        pending = 'unknown'; confidence = 0; return unknown();
+        pending = 'unknown'; confidence = 0;samples=0; return unknown();
       }
-      if (pending !== result.state) { pending = result.state; since = at; confidence = result.confidence; }
-      confidence = Math.min(confidence, result.confidence);
-      return at - since >= sustainMs ? { state: pending, confidence } : unknown();
+      if (pending !== result.state) { pending = result.state; since = at; confidence = result.confidence;samples=0; }
+      samples++;confidence = Math.min(confidence, result.confidence);
+      return samples>=minSamples&&at - since >= sustainMs ? { state: pending, confidence } : unknown();
     },
   };
 }

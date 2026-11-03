@@ -7,6 +7,7 @@ import { io, type Socket } from "socket.io-client";
 import { remoteApi } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
+import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
 import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
@@ -52,12 +53,15 @@ export function useRemoteRoom(slug: string) {
     socket.on("remote:changed", snapshot => { if(snapshot.table.slug===slug) void mutate(); });
     socket.on("remote:private", snapshot => {
       if (snapshot.table.slug !== slug) return;
+      markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq
         ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat } : current, { revalidate: false });
     });
     socket.connect(); const timer = setInterval(() => void join(), 4 * 60_000);
     return () => { disposed = true; clearInterval(timer); socket.emit("remote:leave"); socket.disconnect(); socketRef.current = null; };
   }, [slug, mySeat, status, mutate]);
+
+  useEffect(()=>{if(!room)return;const frame=requestAnimationFrame(()=>markFieldState(room,'render'));return()=>cancelAnimationFrame(frame);},[room]);
 
   const operation = useCallback(async (path: string, body: unknown = {}) => {
     setBusy(true); setError("");
@@ -82,7 +86,9 @@ export function useRemoteRoom(slug: string) {
     const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey } as RemoteAction };
     setError("");
     try {
+      markFieldAction(idempotencyKey,'httpStart');
       const updated = await remoteApi<RemoteRoom>(`/${slug}/actions`, input);
+      markFieldState(updated,'httpState');
       if(tableKey.current!==slug)return updated;
       lastSeq.current = Math.max(lastSeq.current, updated.lastSeq);
       roomRef.current = updated;

@@ -22,3 +22,5 @@ export * from "./effect-tracking.js";
 export * from "./privacy.js";
 
 export * from "./undo.js";
+
+export { REMOTE_TWIN_MOVE_WINDOW_MS, recentFieldDeparture } from "./twin-placement.js";

@@ -123,14 +123,19 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
 type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:Pick<RecognizeOptions,'region'> } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
-  const message = event.data;
+  const message = event.data, receivedAt=performance.now();
   // The ONNX sessions are never run concurrently. Failed requests do not poison the queue.
   queue = queue.then(async () => {
+    const queueMs=performance.now()-receivedAt;
     try {
       if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase); scope.postMessage({ id: message.id, result: null, detectorBackend:detectorSession!.backend }); }
       else {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
-        if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor,message.opts),detectorBackend:detectorSession.backend});return;}
+        if(message.type==='detect') {
+          const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
+          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
+          scope.postMessage({id:message.id,result,detectorBackend:detectorSession.backend,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:performance.now()-start-pixelsMs,worker:performance.now()-start}});return;
+        }
         if(message.type==='aiCrop') {
           const source=aiCrops.get(message.token);if(!source)throw new Error('Card image expired. Read the card again before asking AI.');
           const warp=source.create();if(!warp)throw new Error('Could not straighten the card image');
@@ -162,7 +167,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
         if(deferredAICrop)publicResult.aiCropToken=keepAICrop(deferredAICrop);
         if(aiWarpedCard)publicResult.aiCropJpeg=await jpeg(aiWarpedCard,aiWarpedCard.width,256*1024);
-        publicResult.timingsMs.pixels=pixelsMs;publicResult.timingsMs.encode=performance.now()-encodeStart;publicResult.timingsMs.worker=performance.now()-workerStart;
+        publicResult.timingsMs.queue=queueMs;publicResult.timingsMs.pixels=pixelsMs;publicResult.timingsMs.encode=performance.now()-encodeStart;publicResult.timingsMs.worker=performance.now()-workerStart;
         scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }

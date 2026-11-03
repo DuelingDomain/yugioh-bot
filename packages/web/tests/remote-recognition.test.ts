@@ -161,7 +161,15 @@ it("parses activation with a named source and activation after identifying a car
 });
 
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {
-  const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
+  const { fieldPlacementProposals, fieldReadingPlaceholder,rememberFieldObservation,observedFieldZone } = await import("../src/lib/remote/field-proposals");
+  rememberFieldObservation('manual-room',0,'manual-ref','M3');
+  expect(observedFieldZone('manual-room',0,'manual-ref')).toBe('M3');
+  expect(observedFieldZone('another-room',0,'manual-ref')).toBeUndefined();
+  expect(observedFieldZone('manual-room',1,'manual-ref')).toBeUndefined();
+  const reading={ref:'fw-reader-1',zone:'monster',slot:3,faceUp:true,position:'attack'} as any;
+  expect(fieldReadingPlaceholder([reading],'M3')).toBe(reading);
+  for(const twin of [{...reading,faceUp:false},{...reading,cardId:46986414},{...reading,name:'Known'}, {...reading,ref:'manual'}, {...reading,slot:4}])expect(fieldReadingPlaceholder([twin],'M3')).toBeUndefined();
+  expect(fieldReadingPlaceholder([{...reading,zone:'deck'}],'DECK')).toBeUndefined();
   const track = {id:"physical-1",zone:"M3",position:"defense",faceDown:false} as import("@yugidraft/vision").FieldTrack;
   const proposals = fieldPlacementProposals({track:{...track,bestMatch:true},seat:0,cardId:46986414,name:"Dark Magician"});
   expect(proposals[0]).toMatchObject({card:{bestMatch:true}});
@@ -453,4 +461,25 @@ it('field legality: manual moves allow compatible types, Trap Monsters, and spec
 it('field legality: manual pile destinations always remain available',async()=>{
  const {manualFieldZoneWarning}=await import('../src/lib/remote/field-legality');
  for(const zone of ['graveyard','banished','deck','extra','hand','hand-reveal','GY','BANISHED','DECK','EXTRA'])expect(manualFieldZoneWarning(undefined,zone)).toBeUndefined();
+});
+
+it('back cache notifies immediately, returns stable snapshots and expires with one timer',async()=>{
+ vi.useFakeTimers();let now=0;
+ try{
+  const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache'),cache=new FieldTrackCache(()=>now),changed=vi.fn();
+  const stop=cache.subscribe(changed),empty=cache.backs(0);expect(cache.backs(0)).toBe(empty);expect(vi.getTimerCount()).toBe(0);
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  cache.receive(0,{type:'field.tracks',cards:[],backs:[{ref:'set',zone:'M2',quad}]});
+  expect(changed).toHaveBeenCalledOnce();expect(cache.backs(0)).toBe(cache.backs(0));expect(vi.getTimerCount()).toBe(1);
+  now=3001;await vi.advanceTimersByTimeAsync(3001);expect(cache.backs(0)).toBe(empty);expect(changed).toHaveBeenCalledTimes(2);expect(vi.getTimerCount()).toBe(0);stop();
+ }finally{vi.useRealTimers();}
+});
+
+it('a replacement during an atomic reveal undoes its stale identity',async()=>{
+ const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
+ const track={id:'set',revision:0,state:'identified',faceDown:false,visible:true,removed:false,cardId:'46986414'} as any;
+ const event={type:'placed',track:{...track},source:'auto'} as any;
+ const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type==='twin.flip')track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
+ expect(await applyVerifiedFieldMutation(event,()=>track,act,{type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toBeNull();
+ expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip','undo']);
 });

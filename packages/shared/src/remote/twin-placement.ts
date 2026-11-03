@@ -37,9 +37,36 @@ export function clearTwinConfirmation(state:RemoteState,seat:number,ref:string) 
   if(pending.length>1)state.twinConfirmationQueue=pending.slice(1);
 }
 
-/** A current second quad proves a copy. Pile origins always need the owner's choice. */
+/** The watcher uses the same 2.5-second window to reconnect a lifted card. */
+export const REMOTE_TWIN_MOVE_WINDOW_MS = 2500;
+export function recentFieldDeparture(card: TwinCard, at: number): boolean {
+  const departedAt = card.departedFrom?.at;
+  return card.zone === "hand" && departedAt !== undefined && at >= departedAt && at - departedAt <= REMOTE_TWIN_MOVE_WINDOW_MS;
+}
+
+/** A/B reuse only field origins; C/D leave every pile copy in place. */
 export function guardTwinPlacement(state: RemoteState, action: Placement, context?: RemoteReductionContext): Reuse | undefined {
   if (context?.replay && context.twinPlacementGuard === 1) return legacyTwinPlacement(state, action, context);
+  if (context?.replay && context.twinPlacementGuard === 2) return versionTwoTwinPlacement(state, action, context);
+  const matches = state.seats[action.seat].twin.filter(t => sameTwinIdentity(state, action.seat, action.card, t, context));
+  if (action.fromRef) {
+    const selected = matches.find(t => t.ref === action.fromRef);
+    remoteAssert(selected, "The chosen card origin is no longer available", 409);
+    return { ref: selected.ref, card: selected };
+  }
+  if (action.anotherCopy) return;
+  const at = action.at ?? state.updatedAt, proof = action.copyProof;
+  const exact = matches.find(t => t.ref === action.card.ref);
+  if (exact && exact.zone === action.zone && remotePhysicalSlot(exact.zone, exact.slot) === remotePhysicalSlot(action.zone, action.card.slot)) return {ref:exact.ref,card:exact};
+  if (proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000 && matches.some(t => remoteFieldZone(t.zone))) return;
+  // A recent departure wins even while another X remains in GY or banish.
+  const recent = matches.filter(t => recentFieldDeparture(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
+  const field = exact && remoteFieldZone(exact.zone) ? exact : recent ?? matches.find(t => remoteFieldZone(t.zone));
+  if (field) return {ref:field.ref,card:field};
+}
+
+/** Version 2 origin prompts are retained only for recorded event replay. */
+function versionTwoTwinPlacement(state: RemoteState, action: Placement, context?: RemoteReductionContext): Reuse | undefined {
   const twins = state.seats[action.seat].twin;
   const matches = twins.filter(t => sameTwinIdentity(state, action.seat, action.card, t, context));
   const samePlace = matches.find(t => t.zone === action.zone && remotePhysicalSlot(t.zone, t.slot) === remotePhysicalSlot(action.zone, action.card.slot));
@@ -50,7 +77,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     if(!pending)return;
     for(const card of twins)if(card.ref!==keepRef&&remoteFieldZone(card.zone)&&
       pending.options?.some(o=>o.ref===card.ref&&o.label.startsWith("Moved from "))){
-      card.departedFrom={zone:card.zone,...(card.slot?{slot:card.slot}:{})};card.zone="hand";delete card.slot;
+      card.departedFrom={zone:card.zone,...(card.slot?{slot:card.slot}:{})};card.zone="hand";delete card.publicIdentity;delete card.slot;
       const instance=state.deckChecks.instances.find(i=>i.seat===action.seat&&i.refs.includes(card.ref));
       if(instance){instance.zone="hand";delete instance.slot;instance.public=false;instance.anchored=false;}
     }

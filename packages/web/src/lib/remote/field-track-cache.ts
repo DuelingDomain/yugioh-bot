@@ -1,7 +1,9 @@
+import {markBackTiming} from './field-timing';
 import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type TwinCard} from '@yugidraft/shared/remote';
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
 import {catalogCardId,createFieldCalibration} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
+const emptyCards:RemoteFieldCard[]=[],emptyBacks:FieldBack[]=[];
 export type FieldBack=NonNullable<RemoteFieldTracks['backs']>[number];
 const contains=(quad:RemoteFieldCard['quad'],x:number,y:number)=>{
   let sign=0;
@@ -23,21 +25,34 @@ export function trackedRereadTarget(ref:string,cards:readonly RemoteFieldCard[],
 /** Full replacement snapshots, read synchronously without React renders or any inference. */
 export class FieldTrackCache {
   private seats=new Map<number,{at:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration}>();
+  private listeners=new Set<()=>void>();
+  private timer:ReturnType<typeof setTimeout>|undefined;
+  subscribe=(listener:()=>void)=>{this.listeners.add(listener);this.scheduleExpiry();return()=>{this.listeners.delete(listener);if(!this.listeners.size){clearTimeout(this.timer);this.timer=undefined;}};};
+  private notify(){for(const listener of this.listeners)listener();this.scheduleExpiry();}
+  private scheduleExpiry(){
+    clearTimeout(this.timer);this.timer=undefined;
+    if(!this.listeners.size)return;
+    const remaining=[...this.seats.values()].filter(v=>v.backs.length&&this.now()-v.at<=3000).map(v=>3001-(this.now()-v.at));
+    if(remaining.length)this.timer=setTimeout(()=>{this.timer=undefined;this.notify();},Math.max(1,Math.min(...remaining)));
+  }
   constructor(private now=()=>performance.now()){}
   receive(seat:number,input:unknown){
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
     try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation);}catch{return false;}
-    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs:parsed.data.backs??[],calibration});return true;
+    const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
+    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration});
+    for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
+    this.notify();return true;
   }
   hit(seat:number,x:number,y:number):RemoteFieldCard|undefined {
     return hitTrackedCards(this.snapshot(seat),x,y);
   }
-  snapshot(seat:number):RemoteFieldCard[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.cards:[];}
-  backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.backs:[];}
+  snapshot(seat:number):RemoteFieldCard[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.cards:emptyCards;}
+  backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.backs:emptyBacks;}
   calibration(seat:number):FieldCalibration|undefined {const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.calibration:undefined;}
-  clear(seat?:number){if(seat===undefined)this.seats.clear();else this.seats.delete(seat);}
-  retain(seats:Set<number>){for(const seat of this.seats.keys())if(!seats.has(seat))this.seats.delete(seat);}
+  clear(seat?:number){if(seat===undefined)this.seats.clear();else this.seats.delete(seat);this.notify();}
+  retain(seats:Set<number>){for(const seat of this.seats.keys())if(!seats.has(seat))this.seats.delete(seat);this.notify();}
 }
 export function fieldTrackMessage(snapshot:FieldSnapshot,entries:ReadonlyMap<string,{cardId:string;passcode:number;name:string}>,knownCards:KnownFieldCard[]=[],calibration?:FieldCalibration):RemoteFieldTracks {
   const cards:RemoteFieldCard[]=[];

@@ -29,6 +29,7 @@ type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "nea
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
   readonly detectorBackend?: EngineBackend;
+  readonly detectorTimingsMs?:Record<string,number>;
   warmup(): Promise<void>;
   prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
@@ -283,7 +284,7 @@ export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Ma
   };
 }
 
-type OwnBuffer = { sample(): Promise<{frame:ImageBitmap;at:number}>; snapshot(): Promise<ImageBitmap[]>; stop(): void };
+type OwnBuffer = { sample(options?:{maxAgeMs?:number}): Promise<{frame:ImageBitmap;at:number}>; snapshot(): Promise<ImageBitmap[]>; stop(): void };
 let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = null;
 /** Starts the always-on native-resolution frame ring on the own feed. One per page; clicks and remote reads take their frames from it. */
 export function attachOwnFeed(video: HTMLVideoElement) {
@@ -314,11 +315,12 @@ export async function ownFieldResources(getPriors: () => Priors) {
   return {
     recognizer: {
       get detectorBackend() { return reader.detectorBackend; },
+      get detectorTimingsMs() { return reader.detectorTimingsMs; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">) => enqueue(() => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
-    buffer: { sample: () => ownBuffer ? ownBuffer.sample() : Promise.reject(new Error("Waiting for the own camera buffer")) },
+    buffer: { sample: (options?:{maxAgeMs?:number}) => ownBuffer ? ownBuffer.sample(options) : Promise.reject(new Error("Waiting for the own camera buffer")) },
     getPriors: () => priorsFor(found, getPriors()),
     cpuBusy: () => pendingJobs > 0,
     entries: found.entries,

@@ -508,9 +508,13 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       {board ? <div className={`${s.boardbar} ${board.state === "reading" ? s.boardbarWait : ""} ${board.state === "fail" ? s.boardbarFail : ""}`} role="status" data-testid="board-status" data-state={board.state}>
         <span>{board.text}</span>{board.state === "reading" ? <i aria-hidden="true" /> : <button type="button" onClick={() => setBoard(null)} aria-label="Dismiss"><Icon name="x" /></button>}
       </div> : null}
-      {source && !frozen ? backs.filter(back => back.zone !== 'DECK' && back.zone !== 'EXTRA').map(back => <div key={back.ref} className={`${s.lk} ${s.show}`} style={rect(0,0,back.quad)}>
-        <span className={s.lb} data-testid="set-marker">Set</span>
-      </div>) : null}
+      {source && !frozen ? backs.filter(back => back.zone !== 'DECK' && back.zone !== 'EXTRA').map(back => {
+        const r=rect(0,0,back.quad),rh=typeof r.height==='number'?r.height:0,rt=typeof r.top==='number'?r.top:0;
+        const flip=box?rt+rh+30>(wrap.current?.clientHeight??0):false;
+        return <div key={back.ref} className={`${s.lk} ${s.show}`} style={r}>
+          <span className={s.lb} style={flip?{top:'auto',bottom:'calc(100% + 8px)'}:undefined} data-testid="set-marker">Set</span>
+        </div>;
+      }) : null}
       {source && !frozen ? marks.map(mark => {
         const r = rect(mark.x, mark.y, mark.quad); const rh = typeof r.height === "number" ? r.height : 0; const rt = typeof r.top === "number" ? r.top : 0;
         const flip = box ? rt + rh + (mark.notInDecklist ? 62 : 30) > (wrap.current?.clientHeight ?? 0) : false;

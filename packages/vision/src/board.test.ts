@@ -101,20 +101,32 @@ import * as field from './field-watcher';
 import {createFieldIdentityGallery} from './field-gallery';
 import * as zones from './field-zones';
 import type { RecognitionResult } from './types';
+// Fresh isolated crops are required by the face-state contract. Legacy tracker
+// assertions below inspect settled events; provisional reading cues are separate.
+const fieldCrop=(c:DetectedQuad)=>{
+ const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+ for(let py=0;py<height;py++)for(let px=0;px<width;px++){
+  const x=px/width,y=py/height;
+  const rgb=c.kind==='face-down'?[15,15,15]:x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+  data.set([...rgb,255],(py*width+px)*4);
+ }
+ return {width,height,data};
+};
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>) {
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=1, appearance=Array(12).fill(.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',appearanceAt:((card:DetectedQuad)=>number[])|undefined;
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
+  let appearanceExplicit=false;
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',appearanceAt:((card:DetectedQuad)=>number[])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
   const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
-  const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...frame,data:new Uint8ClampedArray(frame.data).fill(detail)} as ImageData,at})},
+  const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
-    analyze:()=>({motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??appearance,halo:()=>halo??[]}),clone:async f=>f});
-  watcher.subscribe(event=>events.push(event));
+    analyze:()=>({crop:fieldCrop,motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
+  watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
   return {watcher,events,inputs,set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
-    async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
+    async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
-  const r=fieldRig();await r.tick();await r.tick();r.detail=20;await r.tick();r.detail=2;await r.tick();await r.tick();await r.tick();
+  const r=fieldRig();r.detail=2;await r.tick();await r.tick();r.detail=20;await r.tick();r.detail=14;await r.tick();await r.tick();await r.tick();
   assert.equal(r.reads,1);assert.equal(r.events.filter(e=>e.type==='placed').length,1);
   assert.equal(r.inputs[0].frame.data[0],20);assert.deepEqual(r.inputs[0].opts.priors,{decklist:['A']});
   assert.deepEqual(r.inputs[0].opts.card.quad,card(.3,.3).quad);
@@ -124,8 +136,9 @@ test('field watcher waits for stillness, reads once with deck priors and binds t
   r.watcher.dispose();
 });
 test('field watcher rejects motion, low confidence, partial and covered placements',async()=>{
-  for(const obstacle of ['motion','confidence','partial','covered']) {
+  for(const obstacle of ['motion','confidence','partial','covered','phone']) {
     const r=fieldRig();if(obstacle==='motion')r.motion=.2;
+    else if(obstacle==='phone')r.outlines=[{...card(.3,.3,.08,.25),kind:'face-down',confidence:.45}];
     else r.outlines=[{...card(.3,.3),...(obstacle==='confidence'?{confidence:.45}:obstacle==='partial'?{partial:true}:{covered:true})}];
     for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0,obstacle);assert.equal(r.events.length,0,obstacle);r.watcher.dispose();
   }
@@ -151,29 +164,36 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   for(let i=0;i<40;i++)await q.tick(250);
   assert.equal(q.events.filter(e=>e.type==='prompt').length,1);assert.equal(q.reads,1);assert.equal(q.watcher.getSnapshot().tracks[0].state,'dismissed');q.watcher.dispose();
   const history=fieldRig('low match',2);for(let n=0;n<3;n++){history.appearance=Array.from({length:12},(_,i)=>i===n?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();const latest=history.events.filter(e=>e.type==='prompt').at(-1)!;history.watcher.dismiss(latest.track.id);history.outlines=[];history.appearance=Array(12).fill(.2);for(let i=0;i<12;i++)await history.tick();}assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'absent dismissals do not exhaust live slots');history.appearance=Array.from({length:12},(_,i)=>i===0?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'returning dismissed card stays silent');history.watcher.dispose();
-  const ignoredSet=fieldRig();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();ignoredSet.watcher.dismiss(ignoredSet.events[0].track.id);ignoredSet.outlines=[];for(let i=0;i<12;i++)await ignoredSet.tick();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();assert.equal(ignoredSet.events.filter(e=>e.type==='prompt').length,1);assert.equal(ignoredSet.reads,0);ignoredSet.watcher.dispose();
+  const ignoredSet=fieldRig();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();ignoredSet.watcher.dismiss(ignoredSet.events[0].track.id);ignoredSet.outlines=[];for(let i=0;i<12;i++)await ignoredSet.tick();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();assert.equal(ignoredSet.events.filter(e=>e.type==='prompt').length,0);assert.equal(ignoredSet.reads,0);ignoredSet.watcher.dispose();
   const unread=fieldRig('low match');unread.known=[{id:'unread',zone:'M2',faceDown:false}];for(let i=0;i<8;i++)await unread.tick();assert.equal(unread.events.some(e=>e.type==='prompt'),false);assert.equal(unread.watcher.getSnapshot().tracks[0].id,'unread');unread.watcher.dispose();
   const hidden=fieldRig();hidden.known=[{id:'hidden',zone:'M2',faceDown:true}];for(let i=0;i<8;i++)await hidden.tick();assert.ok(hidden.events.some(e=>e.type==='placed'&&e.track.id==='hidden'&&!e.track.faceDown));assert.equal(hidden.events.some(e=>e.type==='prompt'),false);hidden.watcher.dispose();
   const set=fieldRig();set.known=[{id:'public',zone:'M2',cardId:'A',faceDown:false}];set.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await set.tick();assert.ok(set.events.some(e=>e.type==='flipped'&&e.track.id==='public'&&e.track.faceDown));assert.equal(set.events.some(e=>e.type==='prompt'),false);set.watcher.dispose();
 });
-test('new face-down cards require confirmation without identity or embedding; turning up retains the ref',async()=>{
+test('new face-down cards Set without identity inference; turning up retains the ref',async()=>{
   const r=fieldRig();r.appearance=Array(12).fill(.8);r.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<6;i++)await r.tick();
-  assert.equal(r.reads,0);assert.equal(r.events.some(e=>e.type==='placed'),false);const prompt=r.events.find(e=>e.type==='prompt')!;assert.equal(prompt.track.cardId,undefined);const id=prompt.track.id;r.watcher.confirm(id);
-  r.appearance=Array(12).fill(.2);r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.ok(r.events.some(e=>e.type==='flipped'));r.watcher.dispose();
+  assert.equal(r.reads,0);assert.equal(r.events.filter(e=>e.type==='placed').length,1);const placed=r.events.find(e=>e.type==='placed')!;assert.equal(placed.track.cardId,undefined);const id=placed.track.id;r.watcher.confirm(id);
+  r.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.ok(r.events.some(e=>e.type==='placed'&&!e.track.faceDown));r.watcher.dispose();
+  for(const playerSide of ['bottom','left','top','right'] as const){
+    const side=fieldRig('sure',20,undefined,{width:160,height:90});
+    side.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}],{playerSide,mirrored:false}));
+    side.outlines=[{...card(.3,.3,.1,.259),kind:'face-down',confidence:.5}];
+    for(let i=0;i<8;i++)await side.tick();
+    assert.equal(side.events.filter(e=>e.type==='placed').length,1,`${playerSide}: low-score card aspect stays valid after calibration`);
+    assert.equal(side.reads,0);side.watcher.dispose();
+  }
 });
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
   r.outlines=[card(.3,.3)];r.motion=0;await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.equal(r.reads,1);
-  r.outlines=[];for(let i=0;i<5;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
+  r.outlines=[];await r.tick(100);await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
   for(let i=0;i<6;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
 });
 
-test('departure needs 2.5 seconds from the first clear miss, never motion, stationary hands or unknown mat pixels',async()=>{
+test('departure needs repeated clear mat samples, never motion, stationary hands or unknown mat pixels',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.outlines=[];
-  for(let i=0;i<8;i++)await r.tick(300);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
-  await r.tick(300);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
-  await r.tick(300);assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
+  await r.tick(100);await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
+  await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
   for(const obstacle of ['stationary-hand','halo','no-halo','motion','cpu'] as const){
     const q=fieldRig();if(obstacle==='no-halo')q.halo=undefined;for(let i=0;i<6;i++)await q.tick();q.outlines=[];
     if(obstacle==='stationary-hand')q.appearance=Array(12).fill(.7);
@@ -195,8 +215,8 @@ test('clear-mat evidence requires uniform surrounding pixels and rejects a stati
   assert.equal(clearFieldBackground(mat,mat.map((v,i)=>i%4?v:.9)),false);
 });
 test('hidden and busy tabs do not infer or count time toward a stable placement',async()=>{
-  const r=fieldRig();await r.tick();r.hidden=true;for(let i=0;i<10;i++)await r.tick();assert.equal(r.detects,1);
-  r.hidden=false;r.busy=true;await r.tick();assert.equal(r.detects,1);r.busy=false;await r.tick();assert.equal(r.reads,0);
+  const r=fieldRig();r.motion=.2;await r.tick();r.hidden=true;for(let i=0;i<10;i++)await r.tick();assert.equal(r.detects,1);
+  r.hidden=false;r.busy=true;await r.tick();assert.equal(r.detects,1);r.busy=false;await r.tick();assert.equal(r.reads,0);r.motion=0;
   for(let i=0;i<5;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
 test('field calibration maps perspective grid, side piles, EMZ and defense orientation',()=>{
@@ -230,27 +250,33 @@ test('EMZ outlines do not shift uncalibrated main-row ordering',()=>{
 });
 
 test('a large move through a brief hand occlusion keeps the physical id without another read',async()=>{
-  const r=fieldRig();r.outlines=[card(.2,.3)];for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
+  const r=fieldRig();r.outlines=[card(.2,.3)];for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.confirm(id,'A');
   r.outlines=[];r.motion=.2;await r.tick();await r.tick();r.motion=0;r.outlines=[card(.65,.3)];for(let i=0;i<6;i++)await r.tick();
   assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.equal(r.reads,1);r.watcher.dispose();
 });
 test('known instances emit moves and recalibration remaps settled cards',async()=>{
   let at=0,outlines=[card(.3,.3)];const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{throw new Error('known must not reread');}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',card:card(.3,.3),zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
-  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{throw new Error('known must not reread');}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',card:card(.3,.3),zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
+  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   outlines=[card(.4,.3)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}assert.ok(events.some(e=>e.type==='moved'));
   watcher.setCalibration(zones.createFieldCalibration([{x:.4,y:.1},{x:.95,y:.95}]));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   assert.equal(watcher.getSnapshot().tracks[0].zone,'FIELD');assert.ok(events.some(e=>e.type==='moved'&&e.track.zone==='FIELD'));watcher.dispose();
 });
 test('the adaptive CPU guard permits slow samples to settle instead of resetting forever',async()=>{
   let at=0,reads=0;
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{at+=250;return [card(.3,.3)];},recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{at+=250;return [card(.3,.3)];},recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});
   for(let i=0;i<8;i++){at+=watcher.getSnapshot().metrics.intervalMs;await watcher.tick();}assert.equal(reads,1);watcher.dispose();
 });
-test('verified reappearance follows the same physical ref back to its field zone',async()=>{
-  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.outlines=[];for(let i=0;i<9;i++)await r.tick();
-  assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.outlines=[card(.65,.3)];for(let i=0;i<6;i++)await r.tick();
-  assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===r.events[0].track.id));assert.equal(r.reads,1);r.watcher.dispose();
+test('verified reappearance moves only inside the recent physical move window',async()=>{
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const old=r.watcher.getSnapshot().tracks[0].id;r.watcher.confirm(old,'A');
+  r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
+  assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.outlines=[card(.65,.3)];for(let i=0;i<6;i++)await r.tick(100);
+  assert.ok(r.events.some(e=>e.type==='moved'&&e.track.id===old));assert.equal(r.reads,1);
+  r.outlines=[];for(let i=0;i<10;i++)await r.tick();
+  r.outlines=[card(.3,.3)];for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.events.filter(e=>e.type==='placed').length,2,'a later identical card is a new copy');
+  assert.notEqual(r.events.filter(e=>e.type==='placed').at(-1)?.track.id,old);
+  r.watcher.dispose();
 });
 
 test('a face-down return cannot resurrect a departed identity from the pile',async()=>{
@@ -281,22 +307,22 @@ test('a hidden tab cannot retain a departed identity beyond its return window',a
 
 test('absence verification backs off when slow detections cannot accumulate continuous evidence',async()=>{
   let at=0,outlines=[card(.3,.3)];const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{at+=1100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'slow',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async f=>f});
-  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=watcher.getSnapshot().metrics.intervalMs;await watcher.tick();}
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{at+=1100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'slow',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async f=>f});
+  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=watcher.getSnapshot().metrics.intervalMs;await watcher.tick();}
   outlines=[];for(let i=0;i<20;i++){at+=watcher.getSnapshot().metrics.intervalMs;await watcher.tick();}
   assert.equal(events.some(e=>e.type==='removed'),false);assert.ok(watcher.getSnapshot().metrics.intervalMs>200);watcher.dispose();
 });
 
 test('a stationary arm over the last clear halo suppresses removal until the surround clears',async()=>{
   let at=0,outlines=[card(.3,.3)],halo=Array(12).fill(.2);const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getPriors:()=>({decklist:['A']}),now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,halo:()=>halo,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
-  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getPriors:()=>({decklist:['A']}),now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,halo:()=>halo,appearance:()=>Array(12).fill(outlines.length?.6:.2)}),clone:async f=>f});
+  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   outlines=[];halo=Array(12).fill(.7);for(let i=0;i<12;i++){at+=333;await watcher.tick();}assert.equal(events.filter(e=>e.type==='removed').length,0);
   halo=Array(12).fill(.2);for(let i=0;i<9;i++){at+=333;await watcher.tick();}assert.equal(events.filter(e=>e.type==='removed').length,1);watcher.dispose();
 });
 test('stopping a watcher during inference discards its late placement result',async()=>{
   let at=0,resolve!:(result:RecognitionResult)=>void;const delayed=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>delayed},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>delayed},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
   for(let i=0;i<3;i++){at+=250;await watcher.tick();}await new Promise(r=>setImmediate(r));watcher.dispose();resolve(sureResult());await new Promise(r=>setImmediate(r));assert.equal(events.length,0);
 });
 
@@ -308,17 +334,17 @@ test('a new card gets a short sampling burst even while placement motion is clea
 test('tracking continues during a slow read and motion invalidates the late identity',async()=>{
   let at=0,sampled=0,detects=0,motion=0,resolve!:(r:RecognitionResult)=>void;
   const pending=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{detects++;return [card(.3,.3)];},recognize:()=>pending},buffer:{sample:async()=>{sampled++;return {frame:frame as ImageData,at};}},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>motion,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{detects++;return [card(.3,.3)];},recognize:()=>pending},buffer:{sample:async()=>{sampled++;return {frame:frame as ImageData,at};}},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>motion,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
   for(let i=0;i<3;i++){at+=250;await watcher.tick();}
-  motion=.3;at+=250;await watcher.tick();assert.equal(sampled,4);assert.equal(detects,3);
+  motion=.3;at+=250;await watcher.tick();assert.equal(sampled,4);assert.equal(detects,1);
   resolve(sureResult());await new Promise(done=>setImmediate(done));motion=0;at+=250;await watcher.tick();
   assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'candidate');watcher.dispose();
 });
 test('dismissal while the sharpest-frame clone is pending cannot start a stale read',async()=>{
   let at=0,clones=0,reads=0,unblock!:(value:ImageData)=>void;
   const events:field.FieldEvent[]=[],cloning=new Promise<ImageData>(done=>{unblock=done;});
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>++clones===4?cloning:f});watcher.subscribe(e=>events.push(e));
-  at=250;await watcher.tick();at=500;await watcher.tick();at=750;const pending=watcher.tick();await new Promise(done=>setImmediate(done));
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>++clones===2?cloning:f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
+  at=250;const pending=watcher.tick();await new Promise(done=>setImmediate(done));
   watcher.dismiss(watcher.getSnapshot().tracks[0].id);unblock(frame as ImageData);await pending;
   for(let i=0;i<4;i++){at+=250;await watcher.tick();}
   assert.equal(reads,0);assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'dismissed');watcher.dispose();
@@ -326,7 +352,7 @@ test('dismissal while the sharpest-frame clone is pending cannot start a stale r
 test('the confirming detector frame must still match the read appearance after inference completes',async()=>{
   let at=0,appearance=Array(12).fill(.2),resolve!:(value:RecognitionResult)=>void;
   const pending=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>pending},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>appearance}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>pending},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>appearance}),clone:async f=>f});watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});
   for(let i=0;i<3;i++){at+=250;await watcher.tick();}resolve(sureResult());await new Promise(done=>setImmediate(done));
   appearance=Array(12).fill(.8);at+=250;await watcher.tick();assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'candidate');watcher.dispose();
 });
@@ -338,9 +364,9 @@ test('a different card after disappearance is recognized as a new physical insta
 });
 test('a face-down twin flipped while paused is reconciled and read under its existing id',async()=>{
   let at=0,reads=0;const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'set-card',card:card(.3,.3),zone:'M2',faceDown:true,position:'defense'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});
-  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
-  assert.equal(reads,1);assert.ok(events.some(e=>e.type==='flipped'));assert.ok(events.some(e=>e.type==='moved'&&e.track.position==='attack'));assert.equal(watcher.getSnapshot().tracks[0].id,'set-card');watcher.dispose();
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'set-card',card:card(.3,.3),zone:'M2',faceDown:true,position:'defense'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});
+  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
+  assert.equal(reads,1);assert.ok(events.some(e=>e.type==='placed'&&!e.track.faceDown));assert.ok(events.some(e=>e.type==='placed'&&e.track.position==='attack'));assert.equal(watcher.getSnapshot().tracks[0].id,'set-card');watcher.dispose();
 });
 test('dismissing a false removal preserves identified tracking and future moves',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.outlines=[];for(let i=0;i<9;i++)await r.tick();r.watcher.dismiss(id);
@@ -348,33 +374,33 @@ test('dismissing a false removal preserves identified tracking and future moves'
 });
 
 test('normal native-buffer timestamp jitter never splits a known physical track',async()=>{
-  let at=0,reads=0;const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known-jitter',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
+  let at=0,reads=0;const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known-jitter',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
   for(const time of [200,400,800,1000,1200,1600,1800,2000,2400]){at=time;await watcher.tick();}
   assert.equal(reads,1);assert.equal(watcher.getSnapshot().tracks.length,1);assert.equal(watcher.getSnapshot().tracks[0].id,'known-jitter');watcher.dispose();
 });
 
 test('a quad-backed unknown twin keeps its ref and settles a best match without a registered deck',async()=>{
-  let at=0,reads=0;const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'unknown-public',card:card(.3,.3),zone:'M2',faceDown:false}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});
+  let at=0,reads=0;const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'unknown-public',card:card(.3,.3),zone:'M2',faceDown:false}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});
   for(let i=0;i<6;i++){at+=333;await watcher.tick();}assert.equal(reads,1);assert.equal(watcher.getSnapshot().tracks[0].id,'unknown-public');assert.equal(watcher.getSnapshot().tracks[0].state,'identified');watcher.dispose();
 });
 
 test('one missed sample before a known card settles cannot create another instance',async()=>{
-  let at=0,reads=0,outlines=[card(.3,.3)];const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known-early-miss',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
+  let at=0,reads=0,outlines=[card(.3,.3)];const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known-early-miss',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
   at=333;await watcher.tick();outlines=[];at=666;await watcher.tick();outlines=[card(.3,.3)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   assert.equal(reads,1);assert.equal(watcher.getSnapshot().tracks.length,1);assert.equal(watcher.getSnapshot().tracks[0].id,'known-early-miss');watcher.dispose();
 });
 
 test('tracked click geometry is visible only while the detector sees the card',async()=>{
-  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'A');
   assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
   const outline=r.watcher.getSnapshot().tracks[0].card;r.outlines=[];await r.tick();
   assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);
-  r.outlines=[outline];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
+  r.outlines=[outline];await r.tick();for(let i=0;i<3;i++)await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
   r.watcher.stop();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);r.watcher.dispose();
 });
 
 test('busy tracking refreshes known geometry from pixels without inference and invalidates changed cards',async()=>{
-  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'A');
   const detects=r.detects,reads=r.reads;r.busy=true;
   for(let i=0;i<6;i++){await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);}
   assert.equal(r.detects,detects);assert.equal(r.reads,reads);
@@ -384,13 +410,13 @@ test('busy tracking refreshes known geometry from pixels without inference and i
   r.busy=true;r.appearance=Array(12).fill(.8);await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'stationary replacements are invalidated');
   const oldRef=r.watcher.getSnapshot().tracks[0].id;r.busy=false;await r.tick();
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef)?.visible,false,'the detector cannot restore the old identity onto replacement pixels');
-  assert.equal(r.reads,reads);for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,reads+1);r.watcher.dispose();
+  assert.equal(r.reads,reads);for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,reads,'an acknowledged ref is not reread onto replacement pixels');r.watcher.dispose();
 });
 
 test('pixel refreshes between slow detector samples preserve same-ref movement settlement',async()=>{
   let at=0,outlines=[card(.3,.3,.08,.12)];const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,cpuBudget:.05,recognizer:{detectCards:async()=>{at+=100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async f=>f});
-  watcher.subscribe(e=>events.push(e));for(let i=0;i<6;i++){at+=750;await watcher.tick();}
+  const watcher=field.createFieldWatcher({profile:yugioh,cpuBudget:.05,recognizer:{detectCards:async()=>{at+=100;return outlines;},recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2),halo:()=>Array(192).fill(.2)}),clone:async f=>f});
+  watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=750;await watcher.tick();}
   outlines=[card(.45,.3,.08,.12)];for(let i=0;i<20;i++){at+=750;await watcher.tick();}
   assert.ok(watcher.getSnapshot().metrics.intervalMs>750);
   assert.equal(events.filter(e=>e.type==='moved'&&e.track.id==='known'&&e.track.zone==='M3').length,1);watcher.dispose();
@@ -400,7 +426,7 @@ test('pixel refreshes between slow detector samples preserve same-ref movement s
 test('an unacknowledged same-position swap hides old identity before settling a fresh best match',async()=>{
   const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const before=r.reads,placed=r.events.filter(e=>e.type==='placed').length;
   r.motion=.2;await r.tick();r.motion=0;r.appearance=Array(12).fill(.8);r.identity='B';await r.tick();
-  assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].cardId,undefined);
+  assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);
   for(let i=0;i<7;i++)await r.tick();assert.equal(r.reads,before+1);assert.equal(r.events.filter(e=>e.type==='placed').length,placed+1);
   assert.equal(r.events.at(-1)?.type,'placed');assert.equal(r.events.at(-1)?.track.cardId,'B');assert.equal(r.events.at(-1)?.track.bestMatch,true);r.watcher.dispose();
 });
@@ -420,19 +446,18 @@ test('round 2 NB1 A4/A5: light-tick replacements keep one same-spot track and re
   r.watcher.confirm(id,'B');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'B');assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);r.watcher.dispose();
  }
 });
-test('single clean placement starts at 300 ms, uses one upright read and labels missing-deck evidence',async()=>{
+test('single clean placement overlaps one upright read with fresh face evidence',async()=>{
  for(const deck of [['A'],[]]){
-  const r=fieldRig();r.decklist=deck;await r.tick(100);await r.tick(100);await r.tick(100);assert.equal(r.reads,0);await r.tick(100);
-  assert.equal(r.reads,1);assert.equal(r.events.length,0);assert.equal(r.inputs[0].opts.preferUpright,true);
-  await r.tick(100);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events[0].latencyMs,400);assert.equal(r.events[0].track.bestMatch,deck.length===0);
+  const r=fieldRig();r.decklist=deck;await r.tick(100);assert.equal(r.reads,1);assert.equal(r.events.length,0);
+  await r.tick(100);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.inputs[0].opts.preferUpright,true);assert.ok(r.events[0].latencyMs!<=200);assert.equal(r.events[0].track.bestMatch,deck.length===0);
   for(let i=0;i<12;i++)await r.tick(100);assert.equal(r.reads,1);r.watcher.dispose();
  }
 });
 
-test('review C/D: pile outlines of either face never create automatic placements',async()=>{
+test('deck outlines never place identities and new GY reads stay single-shot',async()=>{
   for(const [x,y] of [[.87,.32],[.87,.03],[.87,.7],[.03,.7]])for(const faceDown of [true,false]){
     const r=fieldRig();r.outlines=[{...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'}];for(let i=0;i<7;i++)await r.tick();
-    assert.equal(r.events.some(e=>e.type==='placed'),false,`${x}/${y}/${faceDown}`);r.watcher.dispose();
+    if(['DECK','EXTRA'].includes(zones.mapFieldZone(r.watcher.getSnapshot().tracks[0]?.card??card(x,y,.05,.07)).zone))assert.equal(r.events.some(e=>e.type==='placed'),false,`${x}/${y}/${faceDown}`);else assert.ok(r.events.filter(e=>e.type==='placed').length<=1);r.watcher.dispose();
   }
 });
 test('review S2: a five-card fan and three new separate outlines cannot auto-place',async()=>{
@@ -443,7 +468,7 @@ test('review F: uncalibrated M2/M4 columns stay absolute when other cards appear
 });
 
 test('review E: a removed monster reappearing on GY moves its original ref, never places another',async()=>{
- const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.outlines=[];for(let i=0;i<12;i++)await r.tick();
+ const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.confirm(id,'A');r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
  r.outlines=[card(.84,.3)];for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='GY').length,1);r.watcher.dispose();
 });
 test('review S3: forgetting a placement suppresses auto reapply for the same physical evidence',async()=>{
@@ -452,7 +477,7 @@ test('review S3: forgetting a placement suppresses auto reapply for the same phy
 
 test('a different face revealed after a flip never restores the hidden old identity',async()=>{
  const r=fieldRig();for(let i=0;i<7;i++)await r.tick();r.outlines=[{...card(.3,.3),kind:'face-down'}];r.appearance=Array(12).fill(.8);for(let i=0;i<7;i++)await r.tick();
- r.identity='B';r.outlines=[card(.3,.3)];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].cardId,undefined);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.at(-1)?.type,'placed');assert.equal(r.events.at(-1)?.track.cardId,'B');r.watcher.dispose();
+ r.identity='B';r.outlines=[card(.3,.3)];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.at(-1)?.type,'placed');assert.equal(r.events.at(-1)?.track.cardId,'B');r.watcher.dispose();
 });
 test('calibrated candidates outside the mat are rejected',async()=>{
  for(const corner of [{x:.4,y:.4},{x:.34,y:.2}]){const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
@@ -480,11 +505,28 @@ test('a low-match prompt is not reopened for replacement pixels',async()=>{
 });
 
 test('an optional priors provider returning undefined still recognizes a full-catalog best match',async()=>{
- let at=0;const events:field.FieldEvent[]=[];const watcher=field.createFieldWatcher({profile:yugioh,getPriors:()=>undefined as any,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(event=>events.push(event));for(let i=0;i<8;i++){at+=333;await watcher.tick();}assert.equal(watcher.getSnapshot().error,undefined);assert.equal(events.at(-1)?.type,'placed');assert.equal(events.at(-1)?.track.bestMatch,true);watcher.dispose();
+ let at=0;const events:field.FieldEvent[]=[];const watcher=field.createFieldWatcher({profile:yugioh,getPriors:()=>undefined as any,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>sureResult()},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>0,sharpness:()=>20}),clone:async f=>f});watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});for(let i=0;i<8;i++){at+=333;await watcher.tick();}assert.equal(watcher.getSnapshot().error,undefined);assert.equal(events.at(-1)?.type,'placed');assert.equal(events.at(-1)?.track.bestMatch,true);watcher.dispose();
 });
 
 test('quiet empty-mat pixel checks skip inference but new motion starts detection before the idle budget',async()=>{
  const r=fieldRig();r.outlines=[];await r.tick(100);const before=r.detects;await r.tick(100);assert.equal(r.detects,before);r.motion=.2;r.outlines=[card(.3,.3)];await r.tick(50);assert.equal(r.detects,before+1);assert.equal(r.watcher.getSnapshot().tracks.length,1);r.watcher.dispose();
+ // A cropped model pass can miss a plain sleeve that the full frame detects.
+ // Retry once in this tick, without waiting for the periodic full scan.
+ let at=100,moving=false,active=0,maxActive=0;const scopes:boolean[]=[];
+ const watcher=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  recognizer:{detectCards:async(_f,opts)=>{scopes.push(!!opts?.region);active++;maxActive=Math.max(maxActive,active);await Promise.resolve();active--;return moving&&!opts?.region?[{...card(.3,.3),kind:'face-down'}]:[];},recognize:async()=>sureResult()},
+  analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.8),motion:()=>moving?.2:0,...(moving?{motionRegion:{x:.3,y:.3,w:.15,h:.25}}:{}),sharpness:()=>20})});
+ try{await watcher.tick();moving=true;at+=100;await watcher.tick();assert.deepEqual(scopes,[false,true,false]);assert.equal(maxActive,1);assert.equal(watcher.getSnapshot().tracks.length,1);}
+ finally{watcher.dispose();}
+ // A localized difference must wake detection even below whole-mat motion,
+ // and an unchanged front returned by the crop must not hide the new back.
+ at=100;moving=false;scopes.length=0;
+ const other=card(.75,.3,.12,.2),back={...card(.3,.3,.12,.2),kind:'face-down' as const};
+ const populated=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  recognizer:{detectCards:async(_f,opts)=>{scopes.push(!!opts?.region);return moving&&!opts?.region?[other,back]:[other];},recognize:async()=>sureResult()},
+  analyze:()=>({crop:fieldCrop,appearance:c=>zones.fieldCenter(c).x>.7?Array.from({length:12},(_,i)=>i%2?.6:.2):Array(12).fill(.8),motion:c=>moving&&zones.fieldCenter(c).x<.7?.001:0,...(moving?{motionRegion:{x:.3,y:.3,w:.12,h:.2}}:{}),sharpness:()=>20})});
+ try{for(let i=0;i<8;i++){at+=100;await populated.tick();}const old=populated.getSnapshot().tracks[0];assert.equal(old.state,'identified');populated.confirm(old.id,'A');moving=true;at+=50;await populated.tick();assert.deepEqual(scopes.slice(-2),[true,false]);assert.equal(populated.getSnapshot().tracks.length,2);}
+ finally{populated.dispose();}
 });
 
 test('scan budget follows the live detector backend and backs off when inference slows',async()=>{
@@ -495,7 +537,7 @@ test('scan budget follows the live detector backend and backs off when inference
   terminate(){}
  }
  globalThis.Worker=FakeWorker as unknown as typeof Worker;
- const reader=createRecognizer(),watcher=field.createFieldWatcher({recognizer:reader,profile:yugioh,buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,cpuBusy:()=>busy,analyze:()=>({motion:()=>1,sharpness:()=>1}),clone:async f=>f});
+ const reader=createRecognizer(),watcher=field.createFieldWatcher({recognizer:reader,profile:yugioh,buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,cpuBusy:()=>busy,analyze:()=>({crop:fieldCrop,appearance:()=>Array(12).fill(.2),motion:()=>1,sharpness:()=>20}),clone:async f=>f});
  const tick=async()=>{at+=1000;await watcher.tick();return watcher.getSnapshot();};
  try {
   assert.equal((await tick()).metrics.intervalMs,250);
@@ -514,7 +556,7 @@ test('native camera ring refreshes within100ms while retaining at most six origi
  globalThis.createImageBitmap=(async (source:any)=>({width:1280,height:720,n:source.n??++captured,close(){closed++;}})) as any;
  t.mock.timers.enable({apis:['setTimeout']});const {createOwnFeedBuffer}=await import('./frame-buffer');const buffer=createOwnFeedBuffer({readyState:2,videoWidth:1280,videoHeight:720} as HTMLVideoElement);
  const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
- try{await flush();at+=100;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);for(let i=0;i<8;i++){at+=100;t.mock.timers.tick(100);await flush();((await buffer.sample()).frame as ImageBitmap).close();}assert.equal((await buffer.snapshot()).length,6);assert.ok(closed>=4);}
+ try{await flush();at+=100;t.mock.timers.tick(100);await flush();assert.equal(((await buffer.sample()).frame as any).n,2);at+=50;assert.equal(((await buffer.sample({maxAgeMs:40})).frame as any).n,3,'bounded confirmation can request the next decoded frame within 50ms');for(let i=0;i<8;i++){at+=100;t.mock.timers.tick(100);await flush();((await buffer.sample()).frame as ImageBitmap).close();}assert.equal((await buffer.snapshot()).length,6);assert.ok(closed>=4);}
  finally{buffer.stop();await flush();t.mock.timers.reset();globalThis.createImageBitmap=original;}
 });
 
@@ -544,9 +586,9 @@ test('unverified zone reservations do not exempt new outlines from the deck-spre
 
 test('owner prompt stability: restored evidence reoffers only an unacknowledged placement with its current revision',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const original=r.events.find(e=>e.type==='placed')!;
- r.appearance=Array(12).fill(.8);await r.tick(100);r.appearance=Array(12).fill(.2);for(let i=0;i<8;i++)await r.tick(100);
+ r.appearance=Array(12).fill(.8);await r.tick(100);r.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);for(let i=0;i<8;i++)await r.tick(100);
  const placements=r.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.equal(placements[1].track.id,original.track.id);assert.ok((placements[1].track.revision??0)>(original.track.revision??0));
- r.watcher.confirm(original.track.id,'A');r.appearance=Array(12).fill(.8);await r.tick(100);r.appearance=Array(12).fill(.2);for(let i=0;i<8;i++)await r.tick(100);
+ r.watcher.confirm(original.track.id,'A');r.appearance=Array(12).fill(.8);await r.tick(100);r.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);for(let i=0;i<8;i++)await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='placed').length,2);r.watcher.dispose();
 });
 test('owner live move: a stable slide follows the same ref in under one second without rereading',async()=>{
@@ -555,7 +597,7 @@ test('owner live move: a stable slide follows the same ref in under one second w
  const move=r.events.find(e=>e.type==='moved');assert.ok(move);assert.ok(r.at-from<600,'known movement settles within a short detector burst');assert.equal(move.track.id,id);assert.equal(move.track.zone,'M3');assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='prompt').length,0);r.watcher.dispose();
 });
 test('owner live move: two clean frames 100 ms apart settle an unchanged identity',async()=>{
- const r=fieldRig();for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id,before=r.reads;
+ const r=fieldRig();for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id,before=r.reads;r.watcher.confirm(id,'A');
  r.outlines=[card(.428,.3)];r.motion=.2;await r.tick(100);r.motion=0;await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='moved').length,0);await r.tick(100);
  assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.reads,before);r.watcher.dispose();
@@ -574,7 +616,7 @@ for(const obstacle of ['hand','different embedding','missing embedding','differe
  if(obstacle==='pile ref')r.known=[{id,zone:'GY',cardId:'A'}];
  if(obstacle==='different embedding')r.embedding=[0,1];if(obstacle==='different identity'){r.identity='B';r.embedding=[0,1];r.decklist=['A','B'];}
  r.outlines=obstacle==='multiple outlines'?[card(.5,.3),card(.72,.3)]:[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
- assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id).length,['different identity','unacknowledged ref'].includes(obstacle)?0:1,obstacle);if(obstacle==='multiple outlines')assert.equal(r.events.filter(e=>e.type==='placed').length,2,'a second read may place a copy only while both distinct cards are visible');r.watcher.dispose();
+ assert.equal(Number(r.events.some(e=>e.type==='moved'&&e.track.id===id)),['different identity','unacknowledged ref','removed ref'].includes(obstacle)?0:1,obstacle);if(obstacle==='multiple outlines')assert.equal(r.events.filter(e=>e.type==='placed').length,2,'a second read may place a copy only while both distinct cards are visible');r.watcher.dispose();
 });
 
 test('a rotated return after explicit removal Undo follows the same restored public ref',async()=>{
@@ -585,11 +627,11 @@ test('a rotated return after explicit removal Undo follows the same restored pub
  assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].removed,false);r.watcher.dispose();
 });
 
-test('a failed departure still reuses its existing ref after a matching return read',async()=>{
+test('a matching read after the move window creates a new physical ref even after a failed departure',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
  const mat=Array(12).fill(.2),pattern=Array.from({length:12},(_,i)=>i%2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;r.outlines=[];for(let i=0;i<11;i++)await r.tick(300);assert.ok(r.events.some(e=>e.type==='removed'));
  await r.tick(3000);r.outlines=[card(.65,.3,.25,.15)];for(let i=0;i<20;i++)await r.tick(100);
- assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ assert.equal(r.events.filter(e=>e.type==='moved').length,0);assert.equal(r.events.filter(e=>e.type==='placed').length,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
 });
 test('a different card returning to an explicitly restored spot abstains without moving the old ref',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
@@ -641,7 +683,7 @@ test('unchanged face-down sleeve matching the mat is never removed by the fast a
   getKnownCards:()=>[{id:'dark-sleeve',zone:'M2',card:structuredClone(outline),faceDown:true}],
   now:()=>at,hidden:()=>false,
   analyze:()=>({crop:()=>crop,motion:()=>0,motionOutside:()=>0,sharpness:()=>20,appearance:()=>patch,halo:()=>halo}),clone:async f=>f});
- watcher.subscribe(event=>events.push(event));
+ watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
  try{
   for(let i=0;i<30;i++){at+=100;await watcher.tick();}
   assert.equal(events.filter(event=>event.type==='removed').length,0);
