@@ -31,8 +31,8 @@ interface PendingRead { crop?:RGBAImage; at:number; appearance?:number[]; result
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number }
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
-interface FaceEvidence { gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
-interface InternalTrack { timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface FaceEvidence { setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
+interface InternalTrack { setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
@@ -411,16 +411,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!t.timing)beginTiming(t,t.view.firstSeen);stage(t,'detectorDone');if(t.timing){t.timing.durationsMs.detector=metrics.detectorMs;for(const [key,value] of Object.entries(options.recognizer.detectorTimingsMs??{}))t.timing.durationsMs[`detector.${key}`]=value;}stage(t,'tracker');if(t.timing)t.timing.durationsMs.capture=captureMs;
         const pixels=appearance(c);
         const publicIdentity=bound(t)&&!t.view.faceDown?options.getKnownCards?.().find(k=>k.id===t.view.id&&!k.faceDown)?.cardId:undefined;
-        if(publicIdentity&&publicIdentity!==t.view.cardId){gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}
+        if(publicIdentity&&publicIdentity!==t.view.cardId){if(t.face)t.face.setCardId=undefined;gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}
 
         // A fresh full-card warp, never the tiny appearance patch or a retained read.
-        const faceState=t.face??={gate:createFaceStateHysteresis({sustainMs:120,minSamples:3})};
+        const faceState=t.face??={gate:createFaceStateHysteresis({sustainMs:120,minSamples:3}),setCardId:t.binding?.faceDown?t.binding.cardId:undefined};
         // The latest detector's appearance validates a new outline or changed
         // face without overwriting identity or re-running inference.
         if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down'))&&c.confidence>=.4&&!c.partial&&!c.covered&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
         // Bound cards need fresh face pixels in either direction, even when a
         // plain sleeve has a weak/wrong detector class. New fronts keep .7.
-        const boundOutline=c.confidence>=.4&&cardAspect(c)&&!!(t.binding?.faceDown||bound(t));
+        const boundOutline=c.confidence>=.4&&cardAspect(c)&&!!(t.setRecovery||t.binding?.faceDown||bound(t));
         const faceClean=(c.confidence>=.7||backOutline(c)&&cardAspect(c)||boundOutline)&&!c.partial&&!c.covered&&!isCovered(c,cards)&&
           !cards.some(other=>other!==c&&quadIou(c,other)>0)&&evidence.motion(c)<=.025&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
         const crop=faceClean?evidence.crop?.(c):undefined;
@@ -465,6 +465,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(faceChanged){if(!revealRead)invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.best=undefined;t.pose=undefined;t.identityCheck=undefined;}
         if(face.state==='down'){
           if(t.promptOnly==='suppressed'){t.view.state='dismissed';t.prompted=true;t.needsRead=false;t.best=undefined;continue;}
+          if(!t.view.faceDown&&t.view.cardId)faceState.setCardId=t.view.cardId;
           t.view.cardId=undefined;t.read=undefined;t.needsRead=false;t.identityCheck=undefined;
           if(faceChanged||t.view.state==='candidate'){
             const binding=t.binding,placed=t.resolvedAt===undefined&&!binding;
@@ -563,19 +564,33 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             if(restored){t.binding={id:restored.view.id,zone:restored.view.zone,cardId:restored.view.cardId};t.promptOnly='reappeared';}
           }
           if(winner&&t.newOutline&&!t.binding&&!t.promptOnly){
+            // A formerly public Set may leave as a front while a different
+            // front occupies its old spot. Fresh reads of both quads preserve
+            // the old ref for its identity, independent of read/HTTP order.
+            const shiftedSet=tracks.find(old=>{
+              if(old===t||old.face?.setCardId!==winner||old.view.cardId===winner||old.view.removed||old.view.lastSeen!==t.view.lastSeen||quadIou(old.view.card,c)>=.04||!known?.some(card=>card.id===old.view.id))return false;
+              const card=old.view.card,crop=evidence.crop?.(card);
+              return card.kind==='face-up'&&(card.confidence>=.7||card.confidence>=.4&&cardAspect(card))&&!card.partial&&!card.covered&&!isCovered(card,cards)&&evidence.motion(card)<=.025&&!!crop&&classifyFaceState(crop,{reference:old.face?.reference}).state==='up';
+            });
+            const readyReplacement=!!shiftedSet?.view.cardId&&!shiftedSet.view.faceDown&&shiftedSet.view.state==='identified';
+            const replacement:InternalTrack|undefined=shiftedSet?{...shiftedSet,view:{...copy(shiftedSet.view),id:`fw-${session}-${++serial}`,revision:0,firstSeen:t.view.firstSeen,faceDown:false,...(!readyReplacement?{state:'candidate',cardId:undefined,visible:false}:{})},
+              face:readyReplacement&&shiftedSet.face?{...shiftedSet.face,setCardId:undefined}:{gate:createFaceStateHysteresis({sustainMs:120,minSamples:3})},resolvedAt:undefined,binding:undefined,placeholder:false,placeholderId:undefined,newOutline:!readyReplacement,setRecovery:!readyReplacement,read:undefined,best:undefined,
+              ...(!readyReplacement?{identityAppearance:undefined,identityEmbedding:undefined,latestEmbedding:undefined,lastResult:undefined,needsRead:true,prompted:false,promptOnly:undefined,appearance:evidence.appearance?.(shiftedSet.view.card),halo:evidence.halo?.(shiftedSet.view.card),stableSince:sample.at,observations:0,anchor:shiftedSet.view.card,kind:'face-up' as const}:{} )}:undefined;
+            if(shiftedSet){shiftedSet.view.revision=(shiftedSet.view.revision??0)+1;tracks.push(replacement!);}
             const displaced=tracks.filter(old=>old!==t&&bound(old)&&old.view.cardId===winner&&(!old.view.removed||old.restoredAt!==undefined||sample.at-old.view.lastSeen<=2500)&&
               (!known||known.some(card=>card.id===old.view.id&&card.cardId===winner))&&
               (!matched.has(old)||!old.view.visible||old.view.removed||
                 !sameRotatedFieldAppearance(old.identityAppearance,appearance(matched.get(old)!))))
               .sort((a,b)=>b.view.lastSeen-a.view.lastSeen);
-            const old=displaced.find(old=>!tracks.some(other=>other!==t&&other.binding?.id===old.view.id));
+            const old=shiftedSet??displaced.find(old=>!tracks.some(other=>other!==t&&other.binding?.id===old.view.id));
             if(old){
               const {id,revision,firstSeen}=old.view;
               old.view={...copy(t.view),id,revision,firstSeen,state:'identified',cardId:winner,visible:true};
+              if(shiftedSet)old.resolvedAt=undefined;
               old.anchor=c;old.kind=c.kind;old.position=position;old.appearance=pixels;old.identityAppearance=pixels;old.identityEmbedding=result?.identityEmbedding;old.latestEmbedding=result?.identityEmbedding;old.lastResult=result;
               old.face=t.face;if(old.face?.front)old.face.reference={crop:old.face.front,embedding:result?.identityEmbedding};old.halo=evidence.halo?.(c);old.read=undefined;old.best=undefined;old.needsRead=false;old.reappeared=false;old.missed=false;old.restoredAt=undefined;old.stableSince=t.stableSince;old.observations=t.observations;resetAbsence(old);
               old.announced=c;old.announcedZone=old.view.zone;old.announcedPosition=position;old.moveAt=undefined;
-              tracks.splice(tracks.indexOf(t),1);reconnected.add(old);emit('moved',old,{previousId:t.placeholderId});continue;
+              tracks.splice(tracks.indexOf(t),1);reconnected.add(old);emit(shiftedSet?'placed':'moved',old,{previousId:t.placeholderId,result});if(replacement&&readyReplacement)emit('placed',replacement,{result:replacement.lastResult});continue;
             }
             // No local tombstone after restart: reserve the existing pile ref
             // after the read instead of silently dismissing a recognized GY card.
@@ -584,7 +599,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           if(t.binding){
             if(!winner&&!t.binding.cardId&&!t.binding.faceDown&&!t.promptOnly){t.view.id=t.binding.id;t.view.cardId=undefined;t.view.state='identified';t.view.visible=true;t.resolvedAt=sample.at;t.binding=undefined;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.needsRead=false;if(t.view.faceDown===false)emit('flipped',t);emit('moved',t);continue;}
-            if((t.binding.faceDown?winner:t.binding.cardId||winner)&&!t.promptOnly){const reveal=t.binding.faceDown||!t.binding.cardId;t.view.id=t.binding.id;t.view.cardId=reveal?winner:t.binding.cardId;t.view.bestMatch=reveal?(result?.tier!=='sure'||!inDeck):undefined;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.resolvedAt=sample.at;t.binding=undefined;if(reveal)emit('placed',t,{result,latencyMs:metrics.latencyMs});else emit('moved',t);}
+            if(winner&&!t.promptOnly){const replaced=!!t.binding.cardId&&t.binding.cardId!==winner,reveal=t.binding.faceDown||!t.binding.cardId||replaced;t.view.id=t.binding.id;t.view.cardId=winner;t.view.bestMatch=reveal?(result?.tier!=='sure'||!inDeck):undefined;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.resolvedAt=replaced?undefined:sample.at;t.binding=undefined;if(reveal)emit('placed',t,{result,latencyMs:metrics.latencyMs});else emit('moved',t);}
             else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
           }else if(winner&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)){
             t.view.bestMatch=result?.tier!=='sure'||!inDeck;t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;emit('placed',t,{result,latencyMs:metrics.latencyMs});
@@ -643,7 +658,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     subscribeState(listener:()=>void){updates.add(listener);return()=>{updates.delete(listener);};},
     getSnapshot():FieldSnapshot{return {status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.at<=3000?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error};},
     setCalibration(value?:FieldCalibration){calibration=value;if(status!=='starting')epoch++;interruptWindow();for(const t of tracks){t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;}notify();},
-    confirm(id:string,cardId?:string,ref?:string,human=true){const t=tracks.find(t=>t.view.id===id);if(t){t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human||t.lastResult?.tier==='sure'&&t.lastResult.candidates[0]?.cardId===cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
+    confirm(id:string,cardId?:string,ref?:string,human=true){const t=tracks.find(t=>t.view.id===id);if(t){t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(human||t.lastResult?.tier==='sure'&&t.lastResult.candidates[0]?.cardId===cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.pose=undefined;t.read=undefined;if(t.view.state!=='identified')gallery.remember(t.latestEmbedding);t.prompted=true;if(t.view.removed)t.restoredAt=now();t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0){suppressed.push({card:tracks[i].view.card,appearance:tracks[i].identityAppearance??tracks[i].appearance,halo:tracks[i].halo,samples:0});if(suppressed.length>maxTracks)suppressed.shift();tracks.splice(i,1);}pruneFrames();notify();},
   };

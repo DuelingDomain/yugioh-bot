@@ -115,14 +115,14 @@ const fieldCrop=(c:DetectedQuad)=>{
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});return {...sureResult(tier),candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:()=>motion,sharpness:()=>detail,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -165,7 +165,7 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   r.outlines=[card(.31,.3,.25,.15)];for(let i=0;i<30;i++)await r.tick(200);
   assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads,reads,'bound identity is changed only by an explicit correction');
   assert.equal(r.watcher.getSnapshot().tracks[0].id,'owner-ref');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'A');r.watcher.dispose();
-  const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'X');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
+  const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
   const q=fieldRig('low match');for(let i=0;i<8;i++)await q.tick();const prompt=q.events.find(e=>e.type==='prompt')!;
   q.watcher.dismiss(prompt.track.id);q.appearance=Array.from({length:12},(_,i)=>i%2);q.identity='B';q.outlines=[card(.4,.3)];
   for(let i=0;i<40;i++)await q.tick(250);
@@ -738,5 +738,30 @@ test('centre assignment accepts full camera quads that cross calibrated field an
   const quad=[{x:x-.055,y:.3},{x:x+.055,y:.3},{x:x+.055,y:.46},{x:x-.055,y:.46}].map(p=>zones.fieldMatPoint(p,calibration));
   r.outlines=[{quad,kind:'face-up',confidence:.95,partial:false}];for(let i=0;i<8;i++)await r.tick(100);
   assert.equal(r.watcher.getSnapshot().tracks.length,1,zone);assert.equal(r.watcher.getSnapshot().tracks[0].zone,zone);r.watcher.dispose();
+ }
+});
+
+
+test('owner stale M3: an unbacked restart reservation cannot override the fresh top match',async()=>{
+ const r=fieldRig();r.outlines=[card(.44,.3,.12,.175)];r.known=[{id:'stale-mark',zone:'M3',cardId:'old-mark',faceDown:false}];r.identity='kusanagi';
+ for(let i=0;i<8;i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='placed'&&e.track.id==='stale-mark'&&e.track.cardId==='kusanagi'));
+ for(let i=0;i<6;i++)await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'kusanagi','the old server identity cannot cancel a pending save');
+ assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+});
+
+
+test('owner adjacent move: a revealed Set identity follows its new front while a new card replaces M3',async()=>{
+ for(const [sideways,confidence] of [[true,.95],[false,.95],[true,.65],[false,.65]] as const){
+ const r=fieldRig();r.outlines=[card(.44,.3,.12,.175)];for(let i=0;i<10;i++)await r.tick(100);
+ const id=r.events.find(e=>e.type==='placed')!.track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M3',cardId:'A',faceDown:false}];
+ r.outlines=[{...(sideways?card(.4,.33,.2,.137):card(.44,.3,.12,.175)),kind:'face-down'}];r.appearance=Array(12).fill(.9);for(let i=0;i<8;i++)await r.tick(100);
+ r.watcher.confirm(id,undefined,id,false);r.known=[{id,zone:'M3',cardId:'A',faceDown:true}];r.events.length=0;
+ r.identityAt=c=>zones.fieldCenter(c).x>.6?'A':'B';r.appearanceAt=c=>Array.from({length:12},(_,i)=>zones.fieldCenter(c).x>.6?(i%2?.6:.2):(i%2?.9:.1));
+ r.outlines=[{...card(.44,.3,.12,.175),confidence},card(.604,.3,.12,.175)];
+ let seen=0;for(let i=0;i<20;i++){await r.tick(100);for(const event of r.events.slice(seen)){if(event.type==='placed'&&event.track.cardId==='B'&&event.track.id===id&&r.watcher.getSnapshot().tracks.some(t=>t.id===id&&t.cardId==='B'&&(t.revision??0)===(event.track.revision??0))){r.watcher.confirm(id,'B',id,false);r.known=[{id,zone:'M3',cardId:'B',faceDown:false}];}}seen=r.events.length;}
+ const old=r.watcher.getSnapshot().tracks.find(t=>t.id===id);assert.equal(old?.cardId,'A');assert.equal(old?.zone,'M4');
+ assert.ok(r.events.some(e=>e.track.id!==id&&e.track.cardId==='B'&&e.track.zone==='M3'&&e.type==='placed'));
+ assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
  }
 });

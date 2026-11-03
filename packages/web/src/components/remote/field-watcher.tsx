@@ -79,7 +79,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false}:{ro
     const saved=card&&(track.faceDown||!card.faceUp||wasHidden)&&knownZone(card)===track.zone?toZone(card.zone,card.slot):undefined;
     return saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id});
   };
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if([...placeholders.current.values()].includes(c.ref))return [];const zone=knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>!event.track.faceDown&&setPrompts(list=>{if(prompted.current.has(event.track.id))return list;prompted.current.add(event.track.id);return [...list.slice(-5),event];});
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */

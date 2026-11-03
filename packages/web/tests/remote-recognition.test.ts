@@ -475,13 +475,13 @@ it('back cache notifies immediately, returns stable snapshots and expires with o
  }finally{vi.useRealTimers();}
 });
 
-it('a replacement during an atomic reveal undoes its stale identity',async()=>{
+it.each(['twin.flip','card.identified'] as const)('a replacement during %s undoes its stale identity',async type=>{
  const {applyVerifiedFieldMutation}=await import('../src/lib/remote/field-proposals');
  const track={id:'set',revision:0,state:'identified',faceDown:false,visible:true,removed:false,cardId:'46986414'} as any;
  const event={type:'placed',track:{...track},source:'auto'} as any;
- const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type==='twin.flip')track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
- expect(await applyVerifiedFieldMutation(event,()=>track,act,{type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toBeNull();
- expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip','undo']);
+ const act=vi.fn(async(proposal:any,id?:string)=>{if(proposal.type===type)track.revision++;return {lastSeq:1,state:{undo:{actionId:id}}} as any;});
+ expect(await applyVerifiedFieldMutation(event,()=>track,act,type==='twin.flip'?{type,actorSeat:0,seat:0,cardRef:'set',faceUp:true,cardId:46986414}:{type,actorSeat:0,seat:0,cardRef:'set',cardId:46986414,source:'auto'})).toBeNull();
+ expect(act.mock.calls.map(([proposal])=>proposal.type)).toEqual([type,'undo']);
 });
 
 it('owner M3: stale revealed occupants yield to a fresh top match but visible quads keep their refs',async()=>{
@@ -493,6 +493,8 @@ it('owner M3: stale revealed occupants yield to a fresh top match but visible qu
  expect(staleFieldOccupant(twins,[{...backing,visible:false}],'M3','kusanagi')).toBeUndefined();
  expect(staleFieldOccupant(twins,[{...backing,visible:false,removed:true}],'M3','kusanagi')?.ref).toBe('mark');
  expect(staleFieldOccupant(twins,[{...backing,zone:'M4'}],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[backing,{id:'kusanagi',lastSeen:backing.lastSeen+33} as any],'M3','kusanagi')).toBeUndefined();
+ expect(staleFieldOccupant(twins,[{...backing,visible:false},{id:'kusanagi',zone:'M3',lastSeen:backing.lastSeen+33,visible:true,removed:false} as any],'M3','kusanagi')?.ref).toBe('mark');
 });
 it('owner M3: candidate choices follow the physical row without projecting spells into S3',async()=>{
  const {fieldCandidateFitsZone}=await import('../src/lib/remote/field-legality');
