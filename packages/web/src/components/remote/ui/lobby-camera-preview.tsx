@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Check, Keyboard, LoaderCircle, Maximize2, Mic, RefreshCw, ScanLine, Smartphone, TriangleAlert } from "lucide-react";
 import type { RemoteRoom } from "@yugidraft/shared/remote";
-import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
+import { createFieldCalibration, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { loadFieldCalibration, loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
@@ -11,7 +11,7 @@ import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
 import { LobbyZonesView } from "./lobby-zones-view";
 import { PreviewGrid } from "./lobby-preview-grid";
-import { defaultSideFor } from "@/lib/remote/zone-grid";
+import { defaultSideFor, normalizeZoneSpacing } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
 import { detectCards, prewarmRecognizer } from "./recognizer";
@@ -145,7 +145,6 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [calibrating, setCalibrating] = useState(false);
   // The large check view (live feed + grid), opened by Expand, a click on the picture, or a saved calibration.
   const [checking, setChecking] = useState(false);
-  const [zoneSpacing, setZoneSpacing] = useState(1);
   const expandButton = useRef<HTMLButtonElement>(null);
   const seatKey = seatKeyOf(room);
   const [calibration,setCalibration]=useState<FieldCalibration>();
@@ -157,8 +156,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [zonesSkipped,setZonesSkippedState]=useState(false);
   useEffect(()=>{try{setZonesSkippedState(sessionStorage.getItem(skipKey)==="1");}catch{/* not remembered */}},[skipKey]);
   const setZonesSkipped=(on:boolean)=>{setZonesSkippedState(on);try{sessionStorage.setItem(skipKey,on?"1":"0");}catch{/* not remembered */}};
-  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);setZoneSpacing(record.zoneSpacing);},[seatKey,cameraId,cameraLabel]);
-  const saveCalibration=(grid:FieldCalibration,placedNow?:boolean,spacing?:number)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow,zoneSpacing:spacing});readCalibration();};
+  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);},[seatKey,cameraId,cameraLabel]);
+  const saveCalibration=(grid:FieldCalibration,placedNow?:boolean)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow});readCalibration();};
   useEffect(() => { readCalibration(); }, [readCalibration]);
 
   const release = useCallback(() => { stream.current?.getTracks().forEach(track => track.stop()); stream.current = null; }, []);
@@ -296,7 +295,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         data-expandable={live || undefined} onClick={live ? () => setChecking(true) : undefined}>
         <video ref={attach} className={s.video} autoPlay muted playsInline data-testid="lobby-cam-video"
           onLoadedMetadata={event => { const el = event.currentTarget; if (el.videoWidth && el.videoHeight) setSize({ w: el.videoWidth, h: el.videoHeight }); }} />
-        {live?<PreviewGrid calibration={calibration} format={formatOf(room)} kind="webcam" guess={!calibrated} ratio={ratio} zoneSpacing={zoneSpacing}/>:null}
+        {live?<PreviewGrid calibration={calibration} format={formatOf(room)} kind="webcam" guess={!calibrated} ratio={ratio}/>:null}
         {outlines.length ? <svg className={s.outlines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
           {outlines.map((quad, i) => <polygon key={i} points={quad.map(p => `${p.x},${p.y}`).join(" ")} />)}
         </svg> : null}
@@ -332,8 +331,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
-    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} zoneSpacing={zoneSpacing}
-      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration) saveCalibration(calibration, undefined, value); }}
+    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} zoneSpacing={normalizeZoneSpacing(calibration?.zoneSpacing)}
+      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, value)); }}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}
   </div>;
 }

@@ -587,9 +587,12 @@ test.describe("remote lobby camera step", () => {
     const view = page.getByTestId("lobby-zones-view");
     await expect(view).toBeVisible();
     await shot(page, "lobby-zones-view");
-    // The spacing slider writes the saved record and the overlay in the view follows it.
-    await view.getByTestId("lobby-zones-spacing").fill("1.2");
-    await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.2");
+    // The spacing slider writes the saved record and the grid in the view follows it: the cells get wider.
+    const gridWidth = () => view.locator("polygon").evaluateAll(polygons => { const xs = polygons.flatMap(p => (p.getAttribute("points") ?? "").split(" ").map(pair => Number(pair.split(",")[0]))); return Math.max(...xs) - Math.min(...xs); });
+    const narrow = await gridWidth();
+    await view.getByTestId("lobby-zones-spacing").fill("1.3");
+    await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.3");
+    expect(await gridWidth()).toBeGreaterThan(narrow + 50);
     await view.getByTestId("lobby-zones-view-done").click();
     await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");
