@@ -261,6 +261,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setWebcamOnlyState(next);
     try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
   }, []);
+  // Webcam only shows one camera large (yours by default) and the other seats as small thumbnails. A click on a thumbnail swaps the focus.
+  const [focusPick, setFocusPick] = useState<number | null>(null);
+  const focusSeat = [focusPick, mySeat, state.turnSeat].find(seat => seat !== null && seatIds.includes(seat)) ?? seatIds[0];
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -743,7 +746,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const cancelChip = () => { if (proposal) setProposal(null); else cancelAttack(); };
 
   // ---- keyboard ----
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt }); latest.current = { chip, cancelChip, doUndo, picking, ptt };
+  const toggleView = () => setWebcamOnly(!webcamOnly);
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView };
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
@@ -751,6 +755,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
       if ((event.key === "v" || event.key === "V") && L.ptt && !event.repeat) { setHeld(true); return; }
       if (R.current.layer) return;
+      // W switches between Both and Webcam only (the focused element keeps Enter and Space).
+      if ((event.key === "w" || event.key === "W") && !event.repeat) { event.preventDefault(); L.toggleView(); return; }
       // Enter confirms the chip only when nothing else took the key: a focused field cell, feed or button handles Enter itself.
       const plain = event.target === document.body || (event.target as HTMLElement | null)?.id === "stage";
       if (event.key === "Enter" && L.chip && !event.defaultPrevented && plain) { event.preventDefault(); L.chip.run(); setProposal(null); }
@@ -950,7 +956,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} thumb={webcamOnly && seat !== focusSeat} onFocus={() => setFocusPick(seat)} onToggleView={() => setWebcamOnly(!webcamOnly)}
+            onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}

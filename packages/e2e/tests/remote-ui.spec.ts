@@ -672,11 +672,14 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("Escape");
     // The camera: confirm the mat grid, then use webcam only.
     await page.getByTestId("camera-on-feed").click();
+    await expect(page.locator('[data-testid="feed-0"] video')).toBeAttached({ timeout: 60_000 });
     await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
+    // My camera is the large one. The other seat is a thumbnail.
+    await expect(page.getByTestId("thumb-1")).toBeVisible(); await expect(page.getByTestId("thumb-0")).toHaveCount(0);
     // The Graveyard and Banished counts sit in the seat header, one click from their pile.
     await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
     // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
@@ -689,6 +692,11 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    // A click on a thumbnail makes that camera the large one, with its own labelled "Show virtual field" button. W switches the view.
+    await page.getByTestId("thumb-1").click(); await expect(page.getByTestId("thumb-0")).toBeVisible(); await expect(page.getByTestId("thumb-1")).toHaveCount(0);
+    await expect(page.getByTestId("field-toggle-1")).toContainText("Show virtual field");
+    await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
+    await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
   });
 
