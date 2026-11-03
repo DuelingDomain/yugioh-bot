@@ -539,3 +539,18 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
  }
  expect(createFieldCalibration(points).zoneSpacing).toBe(1);
 });
+
+ it('serializes overlapping writes inside one transaction before choosing the next base sequence',async()=>{
+ const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
+ let room={lastSeq:0} as any,active=0,maxActive=0;const bases:number[]=[];
+ const queue=createRoomMutationQueue(()=>room,async()=>{
+  const base=room.lastSeq;bases.push(base);maxActive=Math.max(maxActive,++active);
+  await new Promise(resolve=>setTimeout(resolve,10));
+  room={lastSeq:base+1};active--;return room;
+ });
+ await queue.transaction(async(_,act)=>{await Promise.all([
+  act({type:'phase.advance',actorSeat:0},'placeholder'),
+  act({type:'phase.advance',actorSeat:0},'reveal'),
+ ]);});
+ expect(maxActive).toBe(1);expect(bases).toEqual([0,1]);expect(room.lastSeq).toBe(2);
+});

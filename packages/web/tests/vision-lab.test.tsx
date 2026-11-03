@@ -593,7 +593,7 @@ it('the watcher hook discards resource setup that resolves after unmount',async(
   hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
 });
 
-vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>state.feedHub}));
+vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>({devices:[],cameraId:'',...state.feedHub})}));
 vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>{
  const original=await importOriginal<typeof import('../src/components/remote/ui/recognizer')>();
  return {...original,attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[]),ownFieldResources:(...args:Parameters<typeof original.ownFieldResources>)=>state.fieldWatch?Promise.resolve({entries:state.fieldWatch.entries??cards,cpuBusy:()=>false}):original.ownFieldResources(...args)};
@@ -604,7 +604,7 @@ vi.mock('../src/lib/remote/use-field-watcher',async importOriginal=>{
   if(!state.fieldWatch)return original.useFieldWatcher(options);
   const fixture=state.fieldWatch;fixture.onEvent=options.onEvent;
   react.useEffect(()=>{void options.create().then(config=>{fixture.config=config;fixture.ready=true;});},[]);
-  return fixture.watch;
+  return {...fixture.watch,getTracks:()=>fixture.watch.snapshot.tracks};
  }};
 });
 
@@ -1043,5 +1043,19 @@ it('keeps a live track while its Reading placeholder is replaced across authorit
   await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'physical-typed',cardId:41420027,zone:'spell-trap',slot:4})]));
   expect(forget).not.toHaveBeenCalled();expect(fixture.confirm).toHaveBeenCalledOnce();
   fixture.setTwins([]);expect(forget).toHaveBeenCalledExactlyOnceWith('physical-typed');
+ }finally{fixture.dispose();}
+});
+it('identifies a Reading placeholder in its existing slot with one write',async()=>{
+ const fixture=await typedWatcherFixture(cards[0],'M4');
+ try{
+  Object.assign(fixture.track,{state:'candidate',cardId:undefined,visible:false});
+  await fixture.emit({type:'reading'});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toHaveLength(1));
+  const ref=fixture.room().state.seats[0].twin[0].ref;
+  Object.assign(fixture.track,{state:'identified',cardId:cards[0].cardId,visible:true});
+  await fixture.emit({type:'placed'});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place','card.identified']);
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref,cardId:46986414,zone:'monster',slot:4})]);
  }finally{fixture.dispose();}
 });
