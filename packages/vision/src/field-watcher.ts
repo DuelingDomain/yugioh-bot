@@ -51,7 +51,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
-  let timer:ReturnType<typeof setTimeout>|undefined,ema=0,busyUntil=0,observer:PerformanceObserver|undefined,calibration=options.calibration,reading:Promise<void>|undefined;
+  let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined;
   let recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity;
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
@@ -129,7 +129,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   const idle=()=>{
     const nav=typeof navigator==='undefined'?undefined:navigator as Navigator&{scheduling?:{isInputPending():boolean}};
-    return (!reading&&options.cpuBusy?.()) || now()<busyUntil || nav?.scheduling?.isInputPending();
+    // A completed main-thread task says nothing about current input pressure.
+    // Worker scans already obey their duty budget; fresh frames must keep the
+    // face gate progressing while unrelated rendering/network work settles.
+    return (!reading&&options.cpuBusy?.()) || nav?.scheduling?.isInputPending();
   };
   function proposePose(t:InternalTrack,card:DetectedQuad,cards:DetectedQuad[],evidence:FieldAnalysis,at:number,width:number,height:number) {
     const origin=t.announced??t.view.card,pixels=evidence.appearance?.(card);
@@ -175,7 +178,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(busy&&empty){status='busy';metrics.skipped++;interruptWindow();notify();return;}
     const pileBurst=()=>[...piles.values()].some(p=>!p.down&&now()-p.firstSeen<1500);
     const faceBurst=pileBurst()||tracks.some(t=>t.face?.pendingAt!==undefined&&now()-t.face.pendingAt<1500);
-    const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&now()-lastDetectionAt<metrics.intervalMs);
+    // After the initial scan, unchanged empty pixels need only a motion probe.
+    // A background full scan otherwise blocks a card arriving during inference.
+    const light=busy||(!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&
+      (empty&&!tracks.length&&!piles.size&&!suppressed.length&&Number.isFinite(lastDetectionAt)||now()-lastDetectionAt<metrics.intervalMs));
     const generation=epoch;inFlight=true;const start=now();let detectorRan=false,current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const captureAt=now(),sample=await options.buffer.sample({maxAgeMs:30}),captureMs=now()-captureAt;current=sample.frame;
@@ -651,12 +657,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   function schedule() {if(!active)return;timer=setTimeout(async()=>{const start=now();await tick();if(active)scheduleAfter(Math.max(0,Math.min(pixelBurst()?33:66,metrics.intervalMs)-(now()-start)));},0);}
   function scheduleAfter(delay:number) {if(active)timer=setTimeout(()=>schedule(),delay);}
-  function stop() {active=false;epoch++;clearTimeout(timer);observer?.disconnect();observer=undefined;interruptWindow();status='stopped';notify();}
+  function stop() {active=false;epoch++;clearTimeout(timer);interruptWindow();status='stopped';notify();}
   return {
     tick,
     start() {
       if(active||disposed)return;active=true;status=options.recognizer.prepare?'starting':'watching';notify();
-      if(typeof PerformanceObserver!=='undefined')try {observer=new PerformanceObserver(list=>{if(list.getEntries().some(e=>e.duration>50))busyUntil=now()+250;});observer.observe({entryTypes:['longtask']});}catch{/* Not supported by every browser. */}
       if(options.recognizer.prepare) {
         const generation=epoch;
         void options.recognizer.prepare(preparation()).then(()=>{if(generation===epoch&&!disposed&&active){status='watching';schedule();notify();}}).catch(cause=>{if(generation===epoch&&!disposed){active=false;status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;notify();}});
