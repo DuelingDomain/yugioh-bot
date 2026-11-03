@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi } from "./api";
-import type { RemoteAction, RemoteActionProposal, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
+import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
 import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
@@ -72,6 +72,9 @@ export function useRemoteRoom(slug: string) {
     } catch (e) { setError((e as Error).message); void mutate(); } finally { setBusy(false); }
   }, [slug, router, mutate]);
 
+  /** Lobby-only host setting; the server validates permissions and clears Ready marks. */
+  const setBestOf = useCallback((bestOf: RemoteBestOf) => operation("format", { bestOf }), [operation]);
+
   // Bypass an outstanding SWR revalidation: recovery has its own bounded request.
   const refresh=useCallback(async()=>{
     const refreshed=await remoteApi<RemoteRoom>(`/${slug}`);
@@ -110,5 +113,5 @@ export function useRemoteRoom(slug: string) {
     dataHandlers.current.add(handler); return () => { dataHandlers.current.delete(handler); };
   }, []);
 
-  return { slug, room, loadError, busy, error, setError, realtime, operation, action, transaction, mutate, sendData, onData };
+  return { slug, room, loadError, busy, error, setError, realtime, operation, setBestOf, action, transaction, mutate, sendData, onData };
 }

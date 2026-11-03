@@ -1,7 +1,7 @@
 import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
-import { REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteBestOfSchema, remoteMatchActionSchema,
+import { REMOTE_FIRST_CHOICE_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteBestOfSchema, remoteMatchActionSchema,
   type RemoteGameResult, type RemoteMatch, type RemoteSiding } from "./match-contract.js";
 import type { GameModule, RemoteState } from "./types.js";
 
@@ -16,6 +16,10 @@ export function ensureRemoteMatch(state: RemoteState): RemoteState {
   if (!state.match) {
     state.match = initialRemoteMatch(state.seatCount, 1);
     if (state.ended) finishRemoteGame(state, state.winnerSeat, "lp", state.updatedAt);
+  }
+  const siding = state.match.siding;
+  if (siding && !siding.seatDeadlines) {
+    siding.seatDeadlines = Object.fromEntries(state.seats.map(s => [s.seat, remoteSideDeadline(siding, s.seat)]));
   }
   return state;
 }
@@ -38,12 +42,14 @@ export function finishRemoteGame(state: RemoteState, winnerSeat: number | null, 
 }
 
 export function remoteSideDeadline(siding: RemoteSiding, seat: number): number {
-  return siding.deadline - (siding.extendedFor.length && !siding.extendedFor.includes(seat) ? REMOTE_SIDE_DECK_MS - REMOTE_SIDE_MS : 0);
+  return siding.seatDeadlines?.[seat] ?? siding.deadline - (siding.extendedFor.length && !siding.extendedFor.includes(seat) ? REMOTE_SIDE_DECK_MS - REMOTE_SIDE_MS : 0);
 }
 
-export function remoteSideTimeoutDue(state: RemoteState, at: number): boolean {
+export function remoteSideTimeoutDue(state: Pick<RemoteState, "match" | "seatCount">, at: number): boolean {
   const siding = state.match?.phase === "siding" ? state.match.siding : undefined;
-  return !!siding && (at >= siding.deadline || state.seats.some(s => !siding.ready.includes(s.seat) && at >= remoteSideDeadline(siding, s.seat)));
+  return !!siding && (at >= siding.deadline ||
+    siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline ||
+    Array.from({ length: state.seatCount }, (_, seat) => seat).some(seat => !siding.ready.includes(seat) && at >= remoteSideDeadline(siding, seat)));
 }
 
 /** Same cards and section sizes as the simulator's side-deck model. Deck Master stays fixed. */
@@ -62,9 +68,13 @@ export function validateRemoteSideChange(before: DuelDeck, after: DuelDeck): voi
     "A sided deck must use the same cards", 409, "DECK_INVALID");
 }
 
-function advance(state: RemoteState, at: number, initialState: GameModule["initialState"]): RemoteState {
+function advance(state: RemoteState, at: number, initialState: GameModule["initialState"], legacyReplay: boolean): RemoteState {
   const match = state.match, siding = match.siding!;
-  if (at < siding.deadline && !(siding.ready.length === state.seatCount && match.firstSeat !== undefined)) return state;
+  const allReady = state.seats.every(s => siding.ready.includes(s.seat));
+  if (!legacyReplay && allReady && match.firstSeat === undefined) siding.firstChoiceDeadline ??= Math.min(siding.deadline, at + REMOTE_FIRST_CHOICE_MS);
+  else delete siding.firstChoiceDeadline;
+  const choiceDue = siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline;
+  if (at < siding.deadline && !(allReady && (match.firstSeat !== undefined || choiceDue))) return state;
   const firstSeat = match.firstSeat ?? match.firstChooser ?? 0;
   const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf });
   next.match = match; next.match.phase = "duel";
@@ -83,10 +93,16 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   const parsed = remoteMatchActionSchema.safeParse(input);
   remoteAssert(parsed.success, "Invalid match action");
   const action = parsed.data, at = action.at ?? state.updatedAt;
+  const legacyReplay = !!context?.replay && context.matchFlowVersion !== 1;
+  if (action.type === "side.timeout" && !remoteSideTimeoutDue(state, at)) return state;
   const next = structuredClone(state);
-  next.updatedAt = at; next.undo = null; delete next.undoHistory;
+  next.updatedAt = at;
+  if (legacyReplay) { next.undo = null; delete next.undoHistory; }
   const match = next.match;
   const validSeat = (seat: number) => remoteAssert(next.seats[seat], "Invalid match seat");
+  if (!legacyReplay && (action.type === "match.declare" || action.type === "match.confirm")) {
+    remoteAssert(!next.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
+  }
   if (action.type === "match.declare") {
     remoteAssert(match.phase === "duel" && !next.ended && !match.pendingResult, "A result declaration is already pending or the game has ended", 409);
     if (action.winnerSeat !== null) { validSeat(action.winnerSeat); remoteAssert(!next.seats[action.winnerSeat].eliminated, "Winner seat is eliminated", 409); }
@@ -99,24 +115,28 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
     remoteAssert(!pending.confirmed.includes(action.actorSeat), "Seat already confirmed this declaration", 409);
     if (!action.accept) { delete match.pendingResult; return next; }
     pending.confirmed.push(action.actorSeat);
-    if (pending.confirmed.length === next.seatCount) finishRemoteGame(next, pending.winnerSeat, "declared", at);
+    const confirmed = legacyReplay ? pending.confirmed.length === next.seatCount : next.seats.every(s => s.eliminated || pending.confirmed.includes(s.seat));
+    if (confirmed) finishRemoteGame(next, pending.winnerSeat, "declared", at);
     return next;
   }
+  // Entering siding closes this game's undo window. Declarations keep it intact.
+  next.undo = null; delete next.undoHistory;
   if (action.type === "match.continue") {
     remoteAssert(match.phase === "result", "Continue requires a nonfinal game result", 409);
     const extendedFor = next.seats.filter(s => !!next.deckChecks.registrations[s.seat]).map(s => s.seat);
     match.phase = "siding";
-    match.siding = { deadline: at + (extendedFor.length ? REMOTE_SIDE_DECK_MS : REMOTE_SIDE_MS), ready: [], extendedFor };
+    const seatDeadlines = Object.fromEntries(next.seats.map(s => [s.seat, at + (extendedFor.includes(s.seat) ? REMOTE_SIDE_DECK_MS : REMOTE_SIDE_MS)]));
+    match.siding = { deadline: Math.max(...Object.values(seatDeadlines)), seatDeadlines, ready: [], extendedFor };
     return next;
   }
   remoteAssert(match.phase === "siding" && match.siding, "Side decking is only available during siding", 409);
   const siding = match.siding;
   if (action.type === "side.timeout") {
-    remoteAssert(remoteSideTimeoutDue(next, at), "No siding deadline has elapsed", 409);
     for (const seat of next.seats) if (at >= remoteSideDeadline(siding, seat.seat) && !siding.ready.includes(seat.seat)) siding.ready.push(seat.seat);
-    return advance(next, at, initialState);
+    return advance(next, at, initialState, legacyReplay);
   }
-  remoteAssert(at < (action.type === "match.first" ? siding.deadline : remoteSideDeadline(siding, action.actorSeat)), "Your siding deadline has elapsed", 409);
+  remoteAssert(at < Math.min(siding.firstChoiceDeadline ?? Infinity,
+    action.type === "match.first" ? siding.deadline : remoteSideDeadline(siding, action.actorSeat)), "Your siding deadline has elapsed", 409);
   switch (action.type) {
     case "match.first":
       remoteAssert(match.firstChooser === action.actorSeat, "Only the previous loser can choose the first player", 403);
@@ -125,6 +145,9 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
       remoteAssert(action.seat === action.actorSeat, "Only your own seat can change Ready", 403);
       siding.ready = siding.ready.filter(seat => seat !== action.seat);
       if (action.type === "side.ready") siding.ready.push(action.seat);
+      if (action.type === "side.ready") for (const botSeat of context?.soloBotSeats ?? []) {
+        if (!siding.ready.includes(botSeat)) siding.ready.push(botSeat);
+      }
       break;
     case "side.swap": {
       const registration = next.deckChecks.registrations[action.actorSeat];
@@ -141,5 +164,5 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
       break;
     }
   }
-  return advance(next, at, initialState);
+  return advance(next, at, initialState, legacyReplay);
 }
