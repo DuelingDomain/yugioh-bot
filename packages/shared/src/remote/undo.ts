@@ -93,6 +93,18 @@ export function rememberRemoteAction(before: RemoteState, next: RemoteState, act
   const previous = remotePosition(before), after = remotePosition(next);
   const cards = touchedCards(action, previous, after);
   const history = structuredClone(before.undoHistory ?? []);
+  // A camera correction of a card it just placed (the first read named it early)
+  // joins that placement: one Undo still removes the card in one step.
+  if (action.type === "card.identified" && action.source === "auto") {
+    const ref = `${action.seat}:${action.cardRef}`, newest = [...history].sort((a,b)=>b.order-a.order)[0];
+    if (newest && !newest.undone && newest.actorSeat === action.actorSeat && newest.action.type === "twin.place" && newest.action.source === "auto" &&
+      `${newest.action.seat}:${newest.action.card.ref}` === ref && cards.every(c => newest.cards.includes(c)) && before.undo?.actionId === newest.actionId) {
+      newest.after = after; newest.at = next.updatedAt;
+      next.undoHistory = prune(history, next.turn);
+      next.undo = { actionId: newest.actionId, at: next.updatedAt, before: newest.before! };
+      return;
+    }
+  }
   for (const entry of history) if (!entry.undone && entry.cards.some(ref => cards.includes(ref)))
     (entry.blockedBy ??= []).push(action.idempotencyKey);
   history.push({ actionId: action.idempotencyKey, actorSeat: action.actorSeat, at: next.updatedAt, turn: before.turn,

@@ -480,6 +480,11 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 14558127, zone: "monster", slot: 2 }]);
     expect(s.room.state.deckChecks.instances).toMatchObject([{ code: 14558127, name: "Ash Blossom", refs: ["auto-card"], zone: "monster", slot: 2 }]);
     expect(s.room.state.identified).toBeNull();
+    // The camera named the card early; its confirm read corrects it in place.
+    // The correction joins the placement, so one Undo still removes the card.
+    s.act({ type: "card.identified", actorSeat: 0, seat: 0, cardId: 46986414, cardRef: "auto-card", zone: "monster", slot: 2, source: "auto", idempotencyKey: "atomic-fix" });
+    expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 46986414, zone: "monster", slot: 2 }]);
+    expect(s.room.state.undo!.actionId).toBe("atomic-auto");
     s.act({ type: "undo", targetActionId: s.room.state.undo!.actionId });
     expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
     expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
