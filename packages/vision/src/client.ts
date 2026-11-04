@@ -198,6 +198,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     async detectCards(frame, opts = {}) {
       validateOptions({region:opts.region});
       if(opts.keep!==undefined&&(!Array.isArray(opts.keep)||opts.keep.length>60||opts.keep.some(q=>!Array.isArray(q)||q.length!==4||q.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))))throw new Error('keep must be at most 60 four-point outlines');
+      if(opts.piles!==undefined&&(!Array.isArray(opts.piles)||opts.piles.length>4||opts.piles.some(q=>!Array.isArray(q)||q.length!==4||q.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))))throw new Error('piles must be at most 4 four-point cells');
       if(disposed) throw new Error('Recognizer is disposed');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       const lane = await laneFor('scene');

@@ -20,15 +20,18 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
     validateOptions({region:opts.region});
     const region=opts.region,x=region?Math.floor(region.x*frame.width):0,y=region?Math.floor(region.y*frame.height):0;
     const keep=(opts.keep??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
+    const piles=(opts.piles??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const pass=async(source:RGBAImage)=>{
       const input=region?cropRGBA(source,x,y,Math.max(3,Math.ceil(region.w*source.width)),Math.max(3,Math.ceil(region.h*source.height))):source;
       const cards=(await detect(detector,Tensor,input,region?448:profile.detector.longSide,CARD_DETECTOR.minScore,!!region)).map(card=>region?{...card,cx:card.cx+x,cy:card.cy+y,pts:card.pts.map(([px,py])=>[px+x,py+y] as [number,number])}:card);
       return cards.map(card=>{const quad=refinedCorners(card,source);return {quad:quad.map(p=>({x:p.x/source.width,y:p.y/source.height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>source.width || p.y>source.height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+input.width-2||py>=y+input.height-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
     };
     const quads=await pass(frame);
-    const known=(c:DetectedQuad)=>keep.some(q=>overlap(c.quad,q)>=.6);
+    const known=(c:DetectedQuad)=>keep.some(q=>overlap(c.quad,q)>=.6),inPile=(c:DetectedQuad)=>piles.some(q=>overlap(c.quad,q)>=.6);
     // Hysteresis: a card already on the field keeps a weaker outline (a shadow lowers the score).
-    const result=quads.flatMap(c=>c.confidence>=CARD_DETECTOR.minConfidence?[c]:c.confidence>=KEEP_MIN_CONFIDENCE&&known(c)?[Object.assign(c,{kept:true})]:[]),scene=[...quads];
+    // A Deck/Extra cell returns every decoded outline (score >= minScore) flagged `pile`: the
+    // watcher uses it from CARD_DETECTOR.pileMinConfidence and shows the best score in the Debug line.
+    const result=quads.flatMap(c=>c.confidence>=CARD_DETECTOR.minConfidence?[c]:c.confidence>=KEEP_MIN_CONFIDENCE&&known(c)?[Object.assign(c,{kept:true})]:inPile(c)?[Object.assign(c,{kept:true,pile:true})]:[]),scene=[...quads];
     // A big dark region (a player's shadow, or a shadow from above): one more pass on the
     // shadow-lifted frame, only for known cards that the normal pass lost.
     if(keep.length&&keep.some(q=>!result.some(c=>overlap(c.quad,q)>=.6))&&darkShare(frame)>=SHADOW_PASS_SHARE){
