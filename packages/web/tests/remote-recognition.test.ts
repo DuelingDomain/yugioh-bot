@@ -343,10 +343,14 @@ it('failed compensating Undo exposes a recoverable stale-placement error with th
  }
 });
 
-it('field legality: a Trap seen in M4 stays in M4 and is marked Check zone',async()=>{
- const {projectFieldZone}=await import('../src/lib/remote/field-legality');
- const result=projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal'},twins:[]});
- expect(result.zone).toBe('M4');expect(result.check).toMatch(/Trap Monster/);
+it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Check zone',async()=>{
+ const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
+ // Owner, Infinite Impermanence in a Monster Zone: a Trap without Trap Monster facts goes to the same column's S/T zone.
+ const result=projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal',race:'Normal'},twins:[]});
+ expect(result).toEqual({zone:'S4',label:'Spell/Trap Zone 4',moved:'Trap → S4'});
+ expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card',race:'Quick-Play'},twins:[{ref:'busy',zone:'spell-trap',slot:3}]}).zone).toBe('S2');
+ expect(hardFieldZone({type:'Trap Card'},'M3',[],'self')).toBe('S3');
+ expect(projectFieldZone({zone:'EMZ1',facts:{type:'Trap Card'},twins:[]}).zone).toBe('S2');
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
@@ -365,18 +369,19 @@ it('field legality: a full row abstains instead of overwriting a twin',async()=>
 it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and otherwise stay with Check zone',async()=>{
  const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
  for(const facts of [{type:'Field Spell'},{type:'Spell Card',race:'Field'}]){
-  expect(projectFieldZone({zone:'M4',facts,twins:[]})).toEqual({zone:'FIELD',label:'Field Spell Zone'});
+  expect(projectFieldZone({zone:'M4',facts,twins:[]})).toEqual({zone:'FIELD',label:'Field Spell Zone',moved:'Field Spell → Field Zone'});
   expect(hardFieldZone(facts,'S1',[],'self')).toBe('FIELD');
   const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
   expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
  }
  expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBe('M2');
- expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBe('M2');
+ expect(hardFieldZone({type:'Union Effect Monster'},'S2',[],'self')).toBeUndefined();
 });
-it('field legality: Main Deck monsters in the extra row stay there with Check zone; Pendulums are plausible',async()=>{
+it('field legality: Main Deck monsters in the extra row go to the same column\'s Main Monster Zone; Pendulums are plausible',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  for(const type of ['Normal Monster','Ritual Effect Monster','Spellcaster / Normal Monster']){
-  const left=projectFieldZone({zone:'EMZ1',facts:{type,frameType:'fusion'},twins:[]});expect(left.zone).toBe('EMZ1');expect(left.check).toMatch(/Extra Monster/);
+  expect(projectFieldZone({zone:'EMZ1',facts:{type,frameType:'fusion'},twins:[]})).toEqual({zone:'M2',label:'Main Monster Zone 2',moved:'Monster → M2'});
  }
  expect(projectFieldZone({zone:'EMZ2',facts:{type:'Pendulum Effect Monster'},twins:[]})).toEqual({zone:'EMZ2',label:'Extra Monster Zone, right'});
 });
@@ -393,10 +398,10 @@ it('field legality: unavailable extra zones fall back to a free aligned main mon
  for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
 });
-it('field legality: monsters seen in Spell/Trap zones stay there (Artifact Set, Union/Equip, Ghost Belle with Check zone)',async()=>{
+it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle goes to M2',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const belle=projectFieldZone({zone:'S2',facts:{type:'Effect Monster',effectText:'(Quick Effect): You can discard this card; negate the activation.'},twins:[]});
- expect(belle.zone).toBe('S2');expect(belle.check).toMatch(/Spell\/Trap Zone/);
+ expect(belle).toEqual({zone:'M2',label:'Main Monster Zone 2',moved:'Monster → M2'});
  expect(projectFieldZone({zone:'S3',facts:{type:'Effect Monster',effectText:'You can Set this card from your hand to your Spell & Trap Zone as a Spell.'},twins:[]})).toEqual({zone:'S3',label:'Spell/Trap Zone 3'});
  expect(projectFieldZone({zone:'S2',facts:{type:'Union Effect Monster'},twins:[]}).check).toBeUndefined();
  expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipSource:true}).check).toBeUndefined();

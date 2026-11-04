@@ -1,28 +1,28 @@
 # Remote Duels zone rules
 
-The camera shows where the player put a card. The board keeps that zone. Card rules only move a card when the rule is hard. A soft rule never moves a card: it marks the card "Check zone?" (no prompt, no toast).
+The zone is **legal by card type** by default. A card that the camera sees in a row its type does not allow goes to the nearest free legal zone of the same column (M3 → S3, EMZ1 → M2). The action log says why ("Infinite Impermanence: Trap → S3"). There is no prompt. Only cards whose facts allow the other row are exceptions. An exception card in an odd spot stays where the camera saw it and gets "Check zone?" (the reason is in the card popup).
 
-Card facts come from our card catalog (`type`, `frameType`, `effectText`). Trap Monster text was checked against EDOPro `cards.cdb` (Trap with a Level: 72 cards; the text test "Special Summon this card as a … Monster" finds 73).
+Card facts come from one resolver (`/api/cards/resolve`): the EDOPro engine `cards.cdb` type bits first (Spell/Trap subtype, a Trap with a Level is a Trap Monster, Link), then our catalog row, then the card database API. Face-down cards keep their row: the camera cannot see their type.
 
 ## Rules
 
-| Card | Camera zone | Result | Kind |
-| --- | --- | --- | --- |
-| Any card | GY, Banished, Deck, Extra | That pile | hard |
-| Field Spell | not FIELD | FIELD (when FIELD is free) | hard |
-| Link Monster | S/T or FIELD | Nearest free M zone | hard |
-| Monster | M, EMZ (Extra Deck or Pendulum) | Keep | ok |
-| Main Deck monster | EMZ | Keep, "Check zone?" | soft |
-| Pendulum Monster | S1 / S5 | Keep (Pendulum Scale) | ok |
-| Monster whose own text puts it in S/T (Artifact "Set this card … Spell & Trap Zone", Crystal Beast "place it … as a Continuous Spell") | S/T | Keep (face-down = Set as Spell) | ok |
-| Union monster, a monster that equips itself ("equip this card"), or a card on your field that equips monsters ("equip that target to this card") | S/T face-up | Keep (Equip Card) | ok |
-| Other monster | S/T | Keep, "Check zone?" | soft |
-| Spell / Trap | S/T | Keep | ok |
-| Trap Monster text ("Special Summon this card as a … Monster") | M | Keep (Trap Monster) | ok |
-| Other Trap, or Spell | M / EMZ | Keep, "Check zone?" | soft |
-| Face-down card | any field zone | Keep | ok |
+| Card | Legal zones | Seen elsewhere |
+| --- | --- | --- |
+| Any card in GY, Banished, Deck, Extra | That pile | — |
+| Field Spell | FIELD | → FIELD; when FIELD is taken: S/T, "Check zone?" |
+| Spell, Trap | S/T | → S/T, same column |
+| Trap Monster (cdb Trap with a Level, or "Special Summon this card as a … Monster") | S/T, M | EMZ → M |
+| Monster | M | S/T or FIELD → M, same column |
+| Extra Deck or Pendulum Monster | M, EMZ | — |
+| Link Monster | M, EMZ | → M |
+| Main Deck monster | M | EMZ → M (EMZ1 → M2, EMZ2 → M4) |
+| Monster Set as a Spell by its text (Artifact, Crystal Beast) | M, S/T | — |
+| Union, "equip this card", or a card on your field that equips monsters | M, S/T face-up | face-down in S/T: "Check zone?" |
+| Pendulum Monster | M, S1/S5 (scales) | S2–S4: kept, "Check zone?" |
 
-When the camera zone is taken, the card goes to the nearest free zone in the same row (as before). When no zone is free, the player chooses.
+When the target zone is taken, the card goes to the nearest free zone in that row. When the row is full, the player chooses. A card that the camera sees now and that is in an illegal row on the board (from before) is moved the same way. Cards moved by hand on the board are the player's choice: they are not moved, and the manual move only shows a warning.
+
+**Grid check.** When the card type contradicts the camera row for 2 or more cards within 2 minutes, the zones are probably shifted by one row. The watcher shows one hint, "Zones look shifted — Recalibrate?", with a Recalibrate button.
 
 ## Links and occupancy
 
@@ -51,8 +51,9 @@ Every 4 s on GPU and 8 s on CPU the watcher compares what the last full detector
 
 ## Examples
 
-1. **Ghost Belle, GY → S2.** Ghost Belle is the GY top. The player lifts it (hand over the GY) and puts it in S2. The read finishes 4 s later on CPU. The GY ref moves to S2; the GY count drops. Ghost Belle is a monster in S/T with no equip or Set text: it stays in S2 with "Check zone?" (the reason is in the card popup). A 2nd Belle from the hand 3 s after a card was sent on top of a deeper Belle is a new copy.
-2. **Artifact Lancea, Set in S3.** Face-down: stays in S3. Revealed: Artifact text says "Set this card … Spell & Trap Zone as a Spell", so it stays in S3 with no mark.
-3. **Union equip.** A Union monster (or a monster that an Equip effect on your field equips) in S2 face-up stays in S2. The player can set "Equipped to" in the inspector.
-4. **Odion, Trap Monster from S3.** Embodiment of Apophis is activated in S3 and goes to M3. It stays in M3 (Trap Monster text), and S3 shows "Occupied by Embodiment of Apophis (Trap Monster)" until it leaves the field.
-5. **Field Spell in S1.** A face-up Field Spell seen in S1 moves to FIELD (hard rule). When FIELD is taken, it stays in S1 with "Check zone?".
+1. **Ghost Belle, GY → S2.** Ghost Belle is the GY top. The player lifts it (hand over the GY) and puts it in S2. The read finishes 4 s later on CPU. The GY ref moves out of the GY; Ghost Belle is a monster with no equip or Set text, so it goes to M2 ("Monster → M2"). A 2nd Belle from the hand 3 s after a card was sent on top of a deeper Belle is a new copy.
+2. **Infinite Impermanence seen in M3.** A normal Trap: it goes to S3 ("Trap → S3").
+3. **Artifact Lancea, Set in S3.** Face-down: stays in S3. Revealed: Artifact text says "Set this card … Spell & Trap Zone as a Spell", so it stays in S3 with no mark.
+4. **Union equip.** A Union monster (or a monster that an Equip effect on your field equips) in S2 face-up stays in S2. The player can set "Equipped to" in the inspector.
+5. **Odion, Trap Monster from S3.** Embodiment of Apophis is activated in S3 and goes to M3. It stays in M3 (Trap Monster text), and S3 shows "Occupied by Embodiment of Apophis (Trap Monster)" until it leaves the field.
+6. **Field Spell in S1.** A face-up Field Spell seen in S1 moves to FIELD ("Field Spell → Field Zone"). When FIELD is taken, it stays in S1 with "Check zone?".
