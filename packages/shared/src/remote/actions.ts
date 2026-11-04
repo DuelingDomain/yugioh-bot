@@ -7,6 +7,11 @@ const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);
 const cardId = z.number().int().positive().max(0xffffffff);
 const slot = z.number().int().min(1).max(5);
+/** Extra Deck summons whose materials the table records: Xyz keeps them attached, the others send them to the GY. */
+export const remoteSummonKinds = ["xyz", "synchro", "link", "fusion"] as const;
+export type RemoteSummonKind = (typeof remoteSummonKinds)[number];
+const summon = z.strictObject({ kind: z.enum(remoteSummonKinds), materialRefs: z.array(id).min(1).max(10)
+  .refine(refs => new Set(refs).size === refs.length, "Duplicate material") });
 const sighting = {
   cardId: cardId.optional(), passcode: cardId.optional(), zone: zone.optional(),
   name: z.string().trim().min(1).max(200).optional(),
@@ -61,15 +66,25 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     fromRef: id.optional(),
     originRequestRef: id.optional(),
     /** Explicit copy override, also retained for recorded origin answers. */
-    anotherCopy: z.boolean().optional() }),
+    anotherCopy: z.boolean().optional(),
+    /** An Extra Deck summon: the camera saw these monsters go under the card or leave the field just before it. */
+    summon: summon.optional() }),
   /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
+  /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
+  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
+    .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     zoneRule: z.string().trim().min(1).max(80).optional(),
     /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */
     trapMonster: z.boolean().optional() }),
   /** Link an Equip Card to the monster it equips (any seat), or clear the link with `target: null`. */
   z.strictObject({ ...meta, type: z.literal("twin.equip"), seat: remoteSeatSchema, cardRef: id, target: z.strictObject({ seat: remoteSeatSchema, ref: id }).nullable() }),
+  /** Record the materials of a summoned card already on the field: Xyz attaches them; Synchro/Link/Fusion send them to the GY. */
+  z.strictObject({ ...meta, type: z.literal("twin.attach"), seat: remoteSeatSchema, cardRef: id, ...summon.shape }),
+  /** Detach one Xyz material (default: to the GY). */
+  z.strictObject({ ...meta, type: z.literal("twin.detach"), seat: remoteSeatSchema, cardRef: id, materialRef: id,
+    zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
     .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
@@ -88,6 +103,10 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   trapZone?: number;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
   equippedTo?: { seat: number; ref: string };
+  /** Server-authored: Xyz materials under this card, bottom first (twin refs in zone "material"). */
+  materials?: string[];
+  /** Server-authored: the Xyz Monster this material is attached to. */
+  materialOf?: string;
   /** Server-authored knowledge; independent of the physical face-up/down state. */
   publicIdentity?: boolean;
 };

@@ -171,22 +171,25 @@ export class RemoteVideo {
       if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); await this.room.disconnect(); return; }
       this.camera = camera;
       // SDK restarts (unmute, device change, foreground recovery) must release the old UVC controls first.
-      const restart = camera.restartTrack.bind(camera), mute = camera.mute?.bind(camera);
-      let restarting = false;
-      camera.restartTrack = async options => {
+      // LiveKit's public restartTrack, unmute and foreground recovery all use this
+      // protected SDK boundary. Preserve isUnmuting so replacement capture is enabled.
+      const sdkCamera = camera as unknown as { restart(constraints?: MediaTrackConstraints, isUnmuting?: boolean): Promise<unknown> };
+      const restart = sdkCamera.restart.bind(camera), mute = camera.mute?.bind(camera);
+      let restarting = 0;
+      sdkCamera.restart = async (constraints, isUnmuting) => {
         const epoch = this.epoch;
         const current = () => !this.closed && epoch === this.epoch && this.camera === camera;
         this.readyTrack = undefined; this.preparing = undefined; this.sync();
         await releaseCameraLock(camera.mediaStreamTrack);
         if (!current()) return;
-        restarting = true;
+        restarting++;
         try {
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
-              await restart(options);
+              await restart(constraints, isUnmuting);
               if (!current()) { await this.stopCamera(camera); return; }
               await this.prepareCamera(camera);
-              return;
+              return camera;
             } catch {
               if (!current()) { await this.stopCamera(camera); return; }
             }
@@ -195,7 +198,7 @@ export class RemoteVideo {
           // camera in that case; skip format optimization and keep this capture on auto.
           await releaseCameraLock(camera.mediaStreamTrack);
           if (!current()) return;
-          if (camera.mediaStreamTrack.readyState === 'ended') await restart({ resolution: FIELD_CAMERA });
+          if (camera.mediaStreamTrack.readyState === 'ended') await restart(FIELD_CAMERA, isUnmuting);
           if (!current()) { await this.stopCamera(camera); return; }
           const track = camera.mediaStreamTrack;
           if (track.readyState === 'ended') throw new Error('The camera is unavailable. Reconnect it and try again.');
@@ -204,7 +207,8 @@ export class RemoteVideo {
           this.preparing = undefined; this.readyTrack = track;
           this.patch({ cameraId: await camera.getDeviceId() ?? '' });
           this.fail(new Error('Camera restart failed. Card reading is on with the camera on auto.')); this.sync();
-        } finally { restarting = false; }
+          return camera;
+        } finally { restarting--; }
       };
       if (mute) camera.mute = async () => {
         this.readyTrack = undefined; this.preparing = undefined; this.sync();

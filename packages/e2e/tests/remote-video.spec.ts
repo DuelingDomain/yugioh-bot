@@ -101,16 +101,17 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     const afterJoin = await frames(a, 1);
     await expect.poll(() => frames(a, 1), { timeout: 30_000 }).toBeGreaterThan(afterJoin + 5);
 
-    await b.getByRole("button", { name: "Mute microphone" }).click();
-    // The camera control is always in the row under the feed.
-    await b.getByRole("button", { name: "Camera off" }).click();
-    await expect(video(a, 1)).toHaveCount(0);
-    expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);
     // A stalled UVC reset must not delay LiveKit's leave message on tab close.
+    await expect(video(b, 0)).toBeVisible();
     await a.evaluate(() => { (window as unknown as { cameraReset: { hold: boolean } }).cameraReset.hold = true; });
     const leaving = Date.now();
     await a.close();
     await expect(video(b, 0)).toHaveCount(0, { timeout: 2_000 });
     console.info(`Remote camera leave observed in ${Date.now() - leaving} ms`);
+    await b.getByRole("button", { name: "Mute microphone" }).click();
+    // The camera control is always in the row under the feed.
+    await b.getByRole("button", { name: "Camera off" }).click();
+    await expect(video(b, 1)).toHaveCount(0);
+    expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);
   } finally { await Promise.allSettled([alice.close(), bob.close()]); }
 });
