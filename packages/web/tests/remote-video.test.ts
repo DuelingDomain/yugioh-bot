@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 const media = vi.hoisted(() => ({
-  stop: vi.fn(), restart: vi.fn(async (_options: unknown) => {}),
+  stop: vi.fn(), restart: vi.fn(async (_options?: unknown, _isUnmuting?: boolean) => {}),
   raw: { contentHint: "", readyState: "live" }, rooms: [] as any[], publish: vi.fn(async () => {}),
 }));
 vi.mock("livekit-client", () => ({
@@ -19,10 +19,12 @@ vi.mock("livekit-client", () => ({
     async connect() { this.state = "connected"; }
     async disconnect() { this.state = "disconnected"; }
   },
-  createLocalVideoTrack: async () => ({ mediaStreamTrack: media.raw, stop: media.stop, restartTrack: media.restart, getDeviceId: async () => "camera-a", isMuted: false, on: () => undefined }),
+  createLocalVideoTrack: async () => ({ mediaStreamTrack: media.raw, stop: media.stop, restart: media.restart,
+    async restartTrack(options: unknown) { await this.restart(options); },
+    getDeviceId: async () => "camera-a", isMuted: false, on: () => undefined }),
 }));
 import { RemoteVideo,type RecognizeRawFeed } from "../src/lib/remote/video";
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { media.raw.readyState = "live"; vi.unstubAllGlobals(); vi.clearAllMocks(); });
 async function connected(recognize?:ConstructorParameters<typeof RemoteVideo>[0]["recognize"]) {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ seat: 0, room: "remote-t", url: "ws://local", token: "test" })));
   const video = new RemoteVideo({ slug: "t", guildId: "g", seat: 0, recognize, members: [{ seat: 0, userId: 1 }] });
@@ -55,6 +57,25 @@ it("allows retry after the token service returns 503", async () => {
   expect(video.getSnapshot().connection).toBe("disconnected");
   expect(video.getSnapshot().error).toBe("Video is not configured");
   video.dispose();
+});
+
+it.each([undefined, true])("resumes reads after SDK restart acquisition failures (isUnmuting=%s)", async isUnmuting => {
+  const recognize = vi.fn(async () => ({ candidates: [{ cardId: 46986414, name: "Dark Magician", score: .99 }], tier: "sure" as const, faceDown: false, covered: false }));
+  const video = await connected(recognize);
+  const camera = video.getSnapshot().feeds[0].video as unknown as { restart(constraints?: unknown, isUnmuting?: boolean): Promise<unknown> };
+  media.restart.mockImplementation(async () => { media.raw.readyState = "live"; });
+  for (let attempt = 0; attempt < 2; attempt++) media.restart.mockImplementationOnce(async () => {
+    media.raw.readyState = "ended";
+    throw new Error("Transient SDK camera acquisition failure");
+  });
+  try {
+    await expect(camera.restart(undefined, isUnmuting)).resolves.toBeDefined();
+    expect(media.restart).toHaveBeenCalledTimes(3);
+    expect(media.restart.mock.calls.every(call => call[1] === isUnmuting)).toBe(true);
+    expect(video.rawLocalTrack).toBe(media.raw);
+    await video.requestRecognition(0, .4, .4, true);
+    expect(recognize).toHaveBeenCalledOnce();
+  } finally { await video.stop(); video.dispose(); }
 });
 
 it("broadcasts safe owner tracks and resolves observer clicks only for the authenticated feed",async()=>{

@@ -165,6 +165,7 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   const reads=r.reads;
   r.appearance=Array.from({length:12},(_,i)=>i%2);r.embedding=[0,1];r.identity='B';
   r.outlines=[card(.31,.3,.25,.15)];for(let i=0;i<30;i++)await r.tick(200);
+  if(process.env.DBG)console.log('DBG9',JSON.stringify(r.events.map(e=>[e.type,e.track.id,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.map(t=>[t.id,t.state,t.cardId,t.under,t.removed])),JSON.stringify(r.watcher.getSnapshot().debug?.reasons));
   assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads,reads,'bound identity is changed only by an explicit correction');
   assert.equal(r.watcher.getSnapshot().tracks[0].id,'owner-ref');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'A');r.watcher.dispose();
   const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
@@ -417,7 +418,10 @@ test('busy tracking refreshes known geometry from pixels without inference and i
   r.busy=true;r.appearance=Array(12).fill(.8);await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'stationary replacements are invalidated');
   const oldRef=r.watcher.getSnapshot().tracks[0].id;r.busy=false;await r.tick();
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef)?.visible,false,'the detector cannot restore the old identity onto replacement pixels');
-  assert.equal(r.reads,reads);for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,reads,'an acknowledged ref is not reread onto replacement pixels');r.watcher.dispose();
+  for(let i=0;i<6;i++)await r.tick();
+  // Owner 2026-11-03: different pixels on the same spot are a new card on top. The acknowledged ref keeps its identity, hidden under it.
+  const old=r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef);assert.equal(old?.cardId,'A','an acknowledged ref is not reread onto replacement pixels');assert.equal(old?.visible,false);
+  assert.ok(old?.under&&r.watcher.getSnapshot().tracks.some(t=>t.id===old.under),'the old card lies under the new outline');r.watcher.dispose();
 });
 
 test('pixel refreshes between slow detector samples preserve same-ref movement settlement',async()=>{
@@ -785,8 +789,10 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const dc=zones.fieldMatPoint({x:dcell.x+dcell.w/2,y:dcell.y+dcell.h/2},cal),deckOutline={...card(dc.x-.04,dc.y-.06,.08,.12),kind:'face-down' as const,confidence:.9};
  r.outlines=[{...gy},deckOutline];for(let i=0;i<10;i++)await r.tick(100);
  assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false,'the Deck stack is back on the mat');
- const liftFrom=r.at;r.outlines=[deckOutline];for(let i=0;i<20&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
- assert.ok(r.watcher.getSnapshot().missingPiles?.includes('GY'),'the GY stack was picked up');assert.ok(r.at-liftFrom<=1500,`GY missing after ${r.at-liftFrom} ms`);
+ const liftFrom=r.at;r.outlines=[deckOutline];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?glare:glare;for(let i=0;i<10;i++)await r.tick(100);
+ assert.equal(r.watcher.getSnapshot().missingPiles?.includes('GY'),false,'one second is not enough to call the pile picked up');
+ for(let i=0;i<30&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
+ assert.ok(r.watcher.getSnapshot().missingPiles?.includes('GY'),'the GY stack was picked up');assert.ok(r.at-liftFrom>=2000&&r.at-liftFrom<=3000,`GY missing after ${r.at-liftFrom} ms`);
  assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false);
  // Owner, Ghost Belle: M4 -> GY (its only card), then lifted from the GY and put in S2
  // by hand. The card is carried for 3 s and the CPU read is slow, so the read ends
@@ -848,6 +854,73 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const onBoard=()=>['M1','M5','S5'].filter(z=>r.events.some(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone===z&&e.track.cardId===boardIds[z]));
  for(let i=0;i<30&&onBoard().length<3;i++)await r.tick(100);
  assert.deepEqual(onBoard(),['M1','M5','S5'],'every card of a laid-out board is read');assert.ok(r.at-boardFrom<=3000,`board read after ${r.at-boardFrom} ms`);
+ // ---- Owner 2026-11-03: cards on top of cards. ----
+ // Clear the field (the GY and Deck stay), so the next steps start on an empty mat.
+ const look=(seed:number)=>Array.from({length:288},(_,i)=>((Math.floor(i/3)*seed+(i%3)*(seed+6))%(211+seed))/255);
+ r.outlines=[deckOutline,{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?temple:mat;r.identityAt=c=>zones.fieldCenter(c).x>.8?'T':'G';
+ for(let i=0;i<40&&r.watcher.getSnapshot().tracks.some(t=>!t.removed&&/^(M|S|EMZ|FIELD)/.test(t.zone));i++)await r.tick(100);
+ let kn:field.KnownFieldCard[]=[];const setKnown=(v:field.KnownFieldCard[])=>{kn=v;r.known=v;};setKnown([{id:'gy-x',zone:'GY',cardId:'G'},{id:'gy-y',zone:'GY',cardId:'B'},{id:gyIds()[0].track.id,zone:'GY',cardId:'T'}]);
+ const zoneOf=(c:DetectedQuad)=>zones.mapFieldZone(c,cal,[],'normal').zone;
+ const lookP=look(13),lookQ=look(17),lookX=look(29),lookK=look(31),lookN=look(37);
+ const ids:Record<string,string>={};let looks:Record<string,number[]>={},names:Record<string,string>={};
+ r.appearanceAt=c=>looks[zoneOf(c)]??(zones.fieldCenter(c).x>.8?temple:mat);r.identityAt=c=>names[zoneOf(c)]??(zones.fieldCenter(c).x>.8?'T':'G');
+ r.decklist=['A','B','C','D','G','T','P','Q','X','K','N','APO','TMP','MWM'];
+ const placedIn=(zone:string,cardId:string,from:number)=>r.events.slice(from).find(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone===zone&&e.track.cardId===cardId);
+ // Xyz Summon: P in M3 and Q in M4. Q goes on top of P, then the Xyz X goes on top of both.
+ let from=r.events.length;looks={M3:lookP,M4:lookQ};names={M3:'P',M4:'Q'};r.outlines=[deckOutline,{...gy},m3,m4];
+ for(let i=0;i<30&&!(placedIn('M3','P',from)&&placedIn('M4','Q',from));i++)await r.tick(100);
+ ids.P=placedIn('M3','P',from)!.track.id;ids.Q=placedIn('M4','Q',from)!.track.id;r.watcher.confirm(ids.P,'P');r.watcher.confirm(ids.Q,'Q');
+ setKnown([...kn,{id:ids.P,zone:'M3',cardId:'P'},{id:ids.Q,zone:'M4',cardId:'Q'}]);for(let i=0;i<5;i++)await r.tick(100);
+ from=r.events.length;const onP={...card(.405,.355,.1,.15)};looks={M3:lookQ};names={M3:'Q'};r.motion=.2;r.outlines=[deckOutline,{...gy},onP];await r.tick(100);r.motion=0;
+ for(let i=0;i<20&&!placedIn('M3','Q',from);i++)await r.tick(100);
+ for(let i=0;i<5;i++)await r.tick(100);
+ assert.ok(placedIn('M3','Q',from)?.track.id===ids.Q,'Q moves onto P on its own ref');
+ const trackOf=(id:string)=>r.watcher.getSnapshot().tracks.find(t=>t.id===id);
+ assert.equal(trackOf(ids.P)?.removed,false,'P under Q is not removed');assert.equal(trackOf(ids.P)?.under,ids.Q,'P is under Q');
+ setKnown(kn.map(k=>k.id===ids.Q?{...k,zone:'M3'}:k));
+ looks={M3:lookX};names={M3:'X'};r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<30&&!placedIn('M3','X',from);i++)await r.tick(100);
+ const xyz=placedIn('M3','X',from);if(!xyz&&process.env.DBG)console.log('DEBUG',JSON.stringify(r.events.slice(from).map(e=>[e.type,e.track.id.slice(-4),e.track.zone,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.filter(t=>!t.removed).map(t=>[t.id.slice(-4),t.zone,t.state,t.cardId,t.under?.slice(-4),t.visible])),JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(xyz&&![ids.P,ids.Q].includes(xyz.track.id),'the Xyz is a new card on top');
+ for(let i=0;i<5;i++)await r.tick(100);
+ assert.equal(trackOf(ids.Q)?.under,xyz!.track.id,'Q is under the Xyz');assert.equal(trackOf(ids.P)?.removed,false);
+ assert.ok(r.events.some(e=>e.type==='covered'&&e.track.id===ids.Q&&e.coverRef===xyz!.track.id),'the glue is told Q went under the Xyz');
+ assert.equal(r.events.slice(from).some(e=>e.type==='removed'&&[ids.P,ids.Q].includes(e.track.id)),false,'no material goes to the hand');
+ // Temple of the Kings (K) in the Field Zone, partly covered by a new monster N in M1. K stays on the field.
+ for(let i=0;i<10;i++)await r.tick(100);
+ const fieldCard=card(.04,.35,.1,.15),cover=card(.115,.35,.1,.15);
+ from=r.events.length;looks={M3:lookX,FIELD:lookK};names={M3:'X',FIELD:'K'};r.outlines=[deckOutline,{...gy},onP,fieldCard];
+ for(let i=0;i<30&&!placedIn('FIELD','K',from);i++)await r.tick(100);
+ ids.K=placedIn('FIELD','K',from)!.track.id;r.watcher.confirm(ids.K,'K');setKnown([...kn,{id:ids.K,zone:'FIELD',cardId:'K'}]);for(let i=0;i<15;i++)await r.tick(100);
+ looks={M3:lookX,FIELD:lookK,M1:lookN};names={M3:'X',FIELD:'K',M1:'N'};r.outlines=[deckOutline,{...gy},onP,cover];
+ for(let i=0;i<30&&!placedIn('M1','N',from);i++)await r.tick(100);for(let i=0;i<10;i++)await r.tick(100);
+if(process.env.DBG)console.log('DEBUG2',JSON.stringify(r.events.slice(from).map(e=>[e.type,e.track.id.slice(-4),e.track.zone,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.filter(t=>!t.removed).map(t=>[t.id.slice(-4),t.zone,t.state,t.cardId,t.under?.slice(-4),t.visible])),JSON.stringify(Object.fromEntries(Object.entries(r.watcher.getSnapshot().debug?.reasons??{}).filter(([k])=>!/removed|pile/.test(r.watcher.getSnapshot().debug!.reasons[k])))),JSON.stringify(r.watcher.getSnapshot().debug?.detections.map(d=>[d.zone,d.use])));
+ assert.ok(placedIn('M1','N',from),'the covering monster is placed in M1');
+ assert.equal(r.events.slice(from).some(e=>e.track.id===ids.K&&(e.type==='removed'||e.type==='moved')),false,'Temple stays in the Field Zone');
+ assert.equal(trackOf(ids.K)?.under,placedIn('M1','N',from)!.track.id,'Temple is under the new monster');
+ // GY log: Apophis -> Temple -> Man with the Mark, a hand over the pile each time. Count 3, in order.
+ r.outlines=[deckOutline,onP,cover];r.appearanceAt=c=>looks[zoneOf(c)]??mat;
+ for(let i=0;i<30&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
+ setKnown(kn.filter(k=>k.zone!=='GY'));const pile:string[]=[];
+ const land=async(cardId:string,seed:number)=>{
+  const before=r.events.length;r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);
+  looks={...looks,GY:look(seed)};names={...names,GY:cardId};r.outlines=[deckOutline,onP,cover,{...gy}];await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+  for(let i=0;i<30&&!placedIn('GY',cardId,before);i++)await r.tick(100);
+  const e=placedIn('GY',cardId,before);assert.ok(e,`${cardId} goes on the GY`);pile.push(e!.track.id);
+  setKnown([...kn,{id:e!.track.id,zone:'GY',cardId}]);for(let i=0;i<5;i++)await r.tick(100);
+ };
+ await land('APO',41);await land('TMP',43);
+ // A hand passes over the pile: a re-read of the same top is not a new card.
+ const passFrom=r.events.length;r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+ for(let i=0;i<15;i++)await r.tick(100);
+ assert.equal(r.events.slice(passFrom).some(e=>(e.type==='placed'||e.type==='moved'||e.type==='removed')&&(e.track.zone==='GY'||pile.includes(e.track.id))),false,'a hand over the pile changes nothing');
+ await land('MWM',47);
+ assert.deepEqual(kn.filter(k=>k.zone==='GY').map(k=>k.cardId),['APO','TMP','MWM']);assert.equal(new Set(pile).size,3,'three cards, three refs');
+ // One second of heavy blur, then a hand passes: the GY still has 3 cards, nothing goes to the hand.
+ const blurFrom=r.events.length;r.detail=1;r.outlines=[deckOutline,onP,cover];for(let i=0;i<10;i++)await r.tick(100);
+ r.detail=20;r.outlines=[deckOutline,onP,cover,{...gy}];r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+ for(let i=0;i<15;i++)await r.tick(100);
+ assert.equal(r.watcher.getSnapshot().missingPiles?.includes('GY'),false,'a blurred pile is never picked up');
+ assert.equal(r.events.slice(blurFrom).some(e=>e.type==='removed'||e.type==='placed'&&e.track.zone==='GY'),false,'nothing leaves and nothing is added');
  // Owner on :3000: "my shadow leans forward, it covers the card a bit, and in certain
  // cases the card disappears". Soft shadow blobs (30-70% darker, soft edge) move over
  // a known card while the detector loses it; then a shadow from above covers the whole

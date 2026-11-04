@@ -55,6 +55,13 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
       ref: `voice-${actorSeat}-${n}`, name: place[1].trim(), faceUp: true, position: "attack", ...(place[3] ? { slot: Number(place[3]) } : {}),
     } };
   }
+  // "detach" / "detach a material" / "detach material from <Xyz name>": the bottom material of the only (or the named) Xyz with materials.
+  const detach = words.match(/^detach(?: (?:a|one|the))?(?: material)?(?: (?:from|of) (.+))?$/);
+  if (detach) {
+    const holders = seat.twin.filter(c => c.materials?.length && (!detach[1] || fold(c.name ?? "") === detach[1] || fold(c.ref) === detach[1]));
+    if (holders.length !== 1) return null;
+    proposal = { type: "twin.detach", actorSeat, seat: actorSeat, cardRef: holders[0].ref, materialRef: holders[0].materials![0], zone: "graveyard" };
+  }
   const edit = raw.match(/^(flip|move|remove) (.+?)(?: face (up|down)| to (extra[- ]monster|monster|spell[- /]trap|field|graveyard|banished)(?: (?:slot|zone) ([1-5]))?)?$/i);
   if (edit) {
     const query = fold(edit[2]); const slot = query.match(/^(?:slot|zone) ([1-5])$/);

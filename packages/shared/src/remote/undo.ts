@@ -56,7 +56,7 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
     case "twin.place": add(action.seat, action.card.ref); break;
     case "twin.move": case "twin.flip": case "twin.remove": case "card.identified": add(action.seat, action.cardRef); break;
     case "cards.identified": for (const card of action.cards) add(action.seat, card.cardRef); break;
-    case "pile.lift": for (const ref of action.cardRefs) add(action.seat, ref); break;
+    case "pile.lift": case "pile.order": for (const ref of action.cardRefs) add(action.seat, ref); break;
     case "effect.activated": add(action.actorSeat, action.source.cardRef); break;
     case "effect.choose": case "effect.announce": {
       const origin = before.effectTracking?.origins.find(o => o.id === action.originId);
@@ -225,6 +225,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   return next;
 }
 
+const summonName = (kind: string) => `${kind === "xyz" ? "Xyz" : kind[0].toUpperCase() + kind.slice(1)} Summon`;
 /** Public log labels use identities only when the physical card was public. */
 export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition): string {
   const ref = action.type === "twin.place" ? action.card.ref : "cardRef" in action ? action.cardRef : undefined;
@@ -234,7 +235,9 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
   const zone = (z: string, slot?: number) => ({monster:"M", "spell-trap":"S", pendulum:"P", "extra-monster":"EMZ"}[z] ?? z) + (slot ?? "");
   switch (action.type) {
     case "twin.move": return `${name} → ${zone(action.zone, action.slot)}`;
-    case "twin.place": return `${name} placed → ${zone(action.zone, action.card.slot)}`;
+    case "twin.place": return action.summon ? `${summonName(action.summon.kind)}: ${name} (${action.summon.materialRefs.length} material${action.summon.materialRefs.length === 1 ? "" : "s"})` : `${name} placed → ${zone(action.zone, action.card.slot)}`;
+    case "twin.attach": return `${summonName(action.kind)}: ${name} (${action.materialRefs.length} material${action.materialRefs.length === 1 ? "" : "s"})`;
+    case "twin.detach": return `${name}: material detached`;
     case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
@@ -242,6 +245,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "hand.reveal": return "Revealed card in hand";
     case "hand.forget": return "Forgot known hand card";
     case "hand.count": return "Changed hand count";
+    case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} order changed`;
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
     case "phase.set": return action.phase;
