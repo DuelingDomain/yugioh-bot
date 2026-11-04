@@ -145,7 +145,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const displayName = name(input.displayName);
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
         const slug = generateWebSlug();
-        const chosenFormat = normalizeRemoteFormat(input.format, input.rules);
+        const chosenFormat = normalizeRemoteFormat(input.format, input.rules,input.seatCount);
         const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
         initial.revealedHand = input.revealedHand ?? "until-played";
@@ -169,7 +169,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
-        const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules);
+        const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules,row.seat_count);
         const state = applyRemoteFormat(readState(row), chosenFormat);
         if (input.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, input.bestOf);
         state.showCardsSetFromDeck = input.showCardsSetFromDeck ?? !!row.show_cards_set_from_deck;
@@ -299,7 +299,11 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1,handReview:1};
+        if(command.type==='hand.add')effects.privateHandIdentity=command.source==='deck'&&before.showCardsSetFromDeck===false||command.source==='field'&&
+          !!before.seats[command.actorSeat].twin.find(c=>(c.cardId??c.passcode)===command.cardId&&['monster','extra-monster','spell-trap','field','pendulum'].includes(c.zone)&&!c.faceUp);
+        if(command.type==='deck.count')effects.privateHandIdentity=true;
+        if(command.type==='twin.move'&&command.zone==='hand')effects.privateHandIdentity=!!before.seats[command.seat].twin.find(c=>c.ref===command.cardRef&&!c.faceUp);
         if (command.type === "side.ready" && row.solo && command.actorSeat === s.seat) effects.soloBotSeats = seats(row).filter(seat => seat.bot).map(seat => seat.seat);
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
@@ -349,18 +353,23 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const reduceAt=performance.now();
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
         input.onTiming?.('reducer',performance.now()-reduceAt);
-        const messages = state.deckChecks.flags.filter(f => !before.deckChecks.flags.some(old => old.id === f.id))
+        if(state===before)return room(row,userId,undefined,before);
+        const messages = state.deckChecks.flags.filter(f => !f.private&&!before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
         if(command.type==="effect.choose" && effects.publicEffectChoice) {
           const origin=state.effectTracking?.origins.find(o=>o.id===command.originId);
           if(origin?.announcedCard) messages.push({seat:origin.seat,text:origin.destination==="set" ? `: Set from Deck by ${origin.source.name}: ${origin.announcedCard.name}` : `: ${origin.announcedCard.name} added to hand by ${origin.source.name}`});
         }
         if (command.type === "hand.add" || command.type === "hand.reveal") {
-          const cardName = effects.facts[command.cardId]?.name ?? "Card " + command.cardId;
+          const cardName = effects.privateHandIdentity ? 'a card' : effects.facts[command.cardId]?.name ?? "Card " + command.cardId;
           const by = command.type === "hand.add" && command.by;
-          const effectName = by ? effects.facts[by.cardId]?.name ?? by.name : undefined;
-          messages.push({seat:command.actorSeat, text:command.type === "hand.add" ? ` added ${cardName} to hand${effectName ? ` (${effectName}'s effect)` : ''}` : ` revealed ${cardName} in hand`});
+          const effectName = by ? effects.facts[by.cardId]?.name ?? 'Card '+by.cardId : undefined;
+          messages.push({seat:command.actorSeat, text:command.type === "hand.add" ? command.source==='field'&&effects.privateHandIdentity ? ' a Set card returned to hand' : ` added ${cardName} to hand${effectName ? ` (${effectName}'s effect)` : ''}` : ` revealed ${cardName} in hand`});
         }
+        if(command.type==='twin.move'&&command.zone==='hand'&&effects.privateHandIdentity)messages.push({seat:command.actorSeat,text:' a Set card returned to hand'});
+        if(command.type==='hand.count')messages.push({seat:command.actorSeat,text:` set hand to ${state.seats[command.actorSeat].handCount}`});
+        if(command.type==='hand.forget')messages.push({seat:command.actorSeat,text:' forgot a known card'});
+        if(command.type==='hand.draw')messages.push({seat:command.actorSeat,text:` drew ${command.count} card${command.count===1?'':'s'}`});
         if (command.type === "deck.add") messages.unshift({ seat: command.actorSeat, text: " added " + effects.facts[command.cardId]?.name + " to their decklist" });
         if (command.type === "deck.flag.dismiss") messages.push({ seat: command.actorSeat, text: " dismissed flag " + command.flagId + " as wrong: " + command.reason });
         if (command.type === "twin.merge") messages.push({ seat: command.actorSeat, text: " merged instances " + (command.keepInstanceId ?? command.keepRef) + " and " + (command.removeInstanceId ?? command.removeRef) + ": " + command.reason });

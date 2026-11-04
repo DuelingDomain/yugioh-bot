@@ -15,7 +15,10 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
     if(next.identified.private || (attached ? !remotePublicCard(attached) : hidden(next.identified.zone) && next.identified.zone!==undefined)) next.identified=null;
     else { delete next.identified.notInDecklist; next.identified.addErrors=[]; }
   }
-  for(const seat of next.seats) if(!seats.has(seat.seat)) delete seat.deckCount;
+  for(const seat of next.seats) if(!seats.has(seat.seat)) {
+    delete seat.deckCount;
+    if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
+  }
   for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
     delete card.cardId; delete card.passcode; delete card.name; delete card.race;
   }
@@ -44,10 +47,12 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
   const {effects:_effects,...next}=structuredClone(event);
   const a=next.action;
   const actor=event.actorSeat ?? -1;
+  if(a.type==='hand.add'&&a.by)a.by.name=event.effects?.facts?.[a.by.cardId]?.name??'Card '+a.by.cardId;
   if(a.type==="effect.activated" && event.effects?.effect) a.source=structuredClone(event.effects.effect.source);
   if(a.type==="seat.deck" && !seats.has(a.seat)) a.registration=null;
   if(a.type==="table.configured") a.registrations=Object.fromEntries(Object.entries(a.registrations).filter(([seat])=>seats.has(Number(seat))));
   if(!seats.has(actor)) {
+    if(event.effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="effect.choose" && !event.effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }

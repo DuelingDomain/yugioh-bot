@@ -10,6 +10,7 @@ export type RemoteEffectOrigin = {
   /** Server hand bookkeeping; prevents repeat publication after Forget or turn expiry. */
   handCounted?: boolean; handRecorded?: boolean;
   minimumCopies?: number; announcedCard?: {cardId:number;name:string}; revealedCardId?: number;
+  at?: number;
 };
 export type RemoteEffectContext = { id: string; source: RemoteEffectSource; plan: RemoteEffectPlan; at: number };
 export type RemoteEffectTracking = {
@@ -34,7 +35,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
   const newOrigin=(id:string, seat:number, ref:string, source:RemoteEffectSource, plan:RemoteEffectPlan) => {
     const candidates=availableEffectCandidates(next,plan.pool,seat,plan.minimumCopies);
     const origin: RemoteEffectOrigin={id,seat,ref,source,destination:plan.destination,announceRecommended:plan.announceRecommended,derivedFrom:plan.derivedFrom,
-      minimumCopies:plan.minimumCopies,pool:structuredClone(plan.pool),candidates,eligibleIds:candidates.map(c=>c.cardId)};
+      minimumCopies:plan.minimumCopies,pool:structuredClone(plan.pool),candidates,eligibleIds:candidates.map(c=>c.cardId),...(!context.replay||context.handReview===1?{at:action.at??next.updatedAt}:{})};
     tracking.origins.push(origin);
     publish.add(origin.id);
     const twin=next.seats[seat].twin.find(c=>c.ref===ref); if(twin && plan.destination==="set") twin.setBy=source;

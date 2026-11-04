@@ -32,6 +32,11 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("hand.add"), cardId, source: z.enum(["deck", "gy", "banish", "extra", "field", "unknown"]), by: z.strictObject({cardId, name: z.string().trim().min(1).max(200)}).optional() }),
   z.strictObject({ ...meta, type: z.literal("hand.reveal"), cardId }),
   z.strictObject({ ...meta, type: z.literal("hand.forget"), id }),
+  z.strictObject({ ...meta, type: z.literal("hand.draw"), count: z.number().int().min(1).max(999999).default(1) }),
+  z.strictObject({ ...meta, type: z.literal("deck.count"),
+    delta: z.number().int().min(-999999).max(999999).optional(),
+    value: z.number().int().min(0).max(999999).optional(), cause: z.literal("other").optional() })
+    .refine(a => (a.delta !== undefined) !== (a.value !== undefined), "Choose either a deck count delta or value"),
   z.strictObject({ ...meta, type: z.literal("hand.count"),
     delta: z.number().int().min(-999999).max(999999).optional(),
     value: z.number().int().min(0).max(999999).optional() })
@@ -98,6 +103,8 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
+  /** A pile held for inspection is not part of the hand until confirmed. */
+  inspectionFrom?: 'graveyard' | 'banished';
   zone: string; departedFrom?: { zone: string; slot?: number; at?: number }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;

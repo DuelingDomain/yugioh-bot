@@ -14,27 +14,39 @@ import { createInsightCatalog } from "./card-insight-catalog.js";
 import { deriveRemoteEffectPlans, remoteEffectMatches, type RemoteEffectSource } from "../remote/effect-filters.js";
 import { remoteAssert } from "../remote/actions.js";
 
+// Cache catalog inputs, not results: current state and each seat's deck still filter every request.
+const searchKnowledgeCache=new WeakMap<Database.Database,Map<string,{until:number;knowledge:RemoteSearchKnowledge}>>();
+
 /** Reads the editor validator's sources without starting an engine duel or calling a host. */
 export function createRemoteDeckRules(db: Database.Database, directory = deckEngineDataDirectory(db.name)) {
   return {
     search(state: RemoteState, seat: number, recentCardId: number) {
+      const pool=state.deckChecks.registrations[seat]?.deck.main;
+      const visionDirectory=process.env.VISION_DATA_DIR??resolve(directory,'../vision');
+      const key=JSON.stringify([directory,visionDirectory,recentCardId,pool]);
+      let cache=searchKnowledgeCache.get(db);
+      if(!cache){cache=new Map();searchKnowledgeCache.set(db,cache);}
+      const saved=cache.get(key);
+      if(saved&&saved.until>Date.now())return searchCandidates(state,seat,recentCardId,saved.knowledge);
       const catalog = createInsightCatalog(db, directory);
       try {
         const source = catalog.candidate(recentCardId);
         if (!source) return [];
         const engine = loadEngineCardFacts(directory);
-        const pool = state.deckChecks.registrations[seat]?.deck.main;
         const candidates = [...catalog.suggestionCandidates(pool)];
         const cards = [source.card, ...candidates.filter(c => c.card.id !== source.card.id).map(c => {
           const fact = engine.get(c.card.id);
           return fact && (fact.type & 1) && !(fact.type & (0x800000 | 0x4000000)) ? {...c.card, level: fact.level & 0xff} : c.card;
         })];
-        const path = resolve(process.env.VISION_DATA_DIR ?? resolve(directory, '../vision'), 'related-cards.json');
+        const path = resolve(visionDirectory, 'related-cards.json');
         let related: RemoteSearchKnowledge['related'];
         if (existsSync(path)) {
           try { related = JSON.parse(readFileSync(path, 'utf8')); } catch { /* Optional prepared prior may be absent during setup. */ }
         }
-        return searchCandidates(state, seat, recentCardId, {cards, tags: source.tags ? {[source.card.id]:source.tags} : {}, related});
+        const knowledge={cards,tags:source.tags?{[source.card.id]:source.tags}:{},related};
+        cache.set(key,{until:Date.now()+60_000,knowledge});
+        while(cache.size>16)cache.delete(cache.keys().next().value!);
+        return searchCandidates(state, seat, recentCardId, knowledge);
       } finally { catalog.close(); }
     },
     effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[]) {

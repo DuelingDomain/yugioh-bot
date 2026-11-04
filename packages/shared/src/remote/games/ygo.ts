@@ -138,7 +138,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     next.phase = phase;
   };
   switch (action.type) {
-    case "hand.add": case "hand.reveal": case "hand.forget": case "hand.count": reduceRemoteHandAction(next, action); break;
+    case "hand.add": case "hand.reveal": case "hand.forget": case "hand.count": case "hand.draw": case "deck.count":
+      if(!reduceRemoteHandAction(next, action, context))return state;
+      break;
     case "phase.set": setPhase(action.phase); break;
     case "phase.advance": {
       const index = phases.findIndex(p => p.id === state.phase);
@@ -281,6 +283,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         const card = s.twin.find(c => c.ref === ref);
         remoteAssert(card && card.zone === action.zone, "A card left that pile before it was picked up", 409);
         moveRemoteCardToHand(card);
+        if(!context?.replay||context.handReview===1)card.inspectionFrom=action.zone;
       }
       break;
     }

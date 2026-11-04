@@ -16,6 +16,8 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   const hand = parseRemoteHandCommand({text, actorSeat, candidates: searches.flatMap(o => searchCandidates(state, actorSeat, o.source.cardId))});
   if (hand) return hand;
   let proposal: RemoteActionProposal | null = null;
+  const draw=words.match(/^(?:i )?draw(?: (\d+)(?: cards?)?)?$/);
+  if(draw) return {type:'hand.draw',actorSeat,count:Number(draw[1]??1)};
   const phase = parsePhaseCommand(text, state);
   if (phase?.kind === "undo") {
     const entry = remoteUndoHistory(state, actorSeat)[0];
