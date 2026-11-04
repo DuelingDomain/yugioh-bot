@@ -18,6 +18,7 @@ import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
+import {nextFieldGhosts,setFieldGhosts,type GhostMemo} from '@/lib/remote/field-ghosts';
 import {isTypingTarget} from '@/lib/typing-target';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
@@ -454,6 +455,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }));
   },[watch.setCalibration,watch.getTrack]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded;tracks.current=watch.snapshot.tracks;
+  // Show a still outline on the board at once (local only). The saved "Reading" card takes its place with the same look.
+  const ghostMemo=useRef(new Map<string,GhostMemo>());
+  useEffect(()=>{setFieldGhosts(String(seat),watch.enabled&&!watch.calibrationNeeded?nextFieldGhosts(watch.snapshot.tracks,ghostMemo.current,Date.now()).ghosts:[]);},[watch.snapshot.tracks,watch.enabled,watch.calibrationNeeded,seat]);
+  useEffect(()=>()=>setFieldGhosts(String(seat),[]),[seat]);
   useEffect(()=>{
     const abandoned=[...placeholders.current.keys()].filter(id=>{const track=watch.getTrack(id);return !track||track.state==='dismissed'||track.removed;});
     if(abandoned.length)void queue(async act=>{for(const id of abandoned)await removePlaceholder(id,act);});
@@ -701,15 +706,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       })};
   });
   const label=watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
-    if(!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
+    if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
+    if(!activePrompts.some(p=>(bindings.current.get(p.track.id)??p.track.id)===card.ref))return [];
     const zone=card.zone==='monster'?`m${card.slot??1}`:card.zone==='spell-trap'?`s${card.slot??1}`:card.zone==='extra-monster'?`emz${card.slot??1}`:'f';
     const selector=`[data-testid="field-${index}"] [data-zone="${zone}"]`;
-    const prompt=index===seat&&activePrompts.some(p=>(bindings.current.get(p.track.id)??p.track.id)===card.ref);
-    return [`${selector}>div:first-child{background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%);background-size:240% 100%;${prompt?'':'animation:field-reading 1.2s linear infinite;'}}${selector}>div:first-child>span{font-size:0}${selector}>div:first-child>span::after{content:"${prompt?'Identify card':'Reading…'}";font-size:10px;color:#e5f5ef}`];
+    return [`${selector}>div:first-child{animation:none;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%)}${selector}>div:first-child>span{font-size:0}${selector}>div:first-child>span::after{content:"Identify card";font-size:10px;color:#e5f5ef}`];
   })).join('');
   return <>
-    <style>{`@keyframes field-reading{to{background-position:-240% 0}}${readingStyles}@media(prefers-reduced-motion:reduce){[data-testid^="field-"] [data-zone]>div{animation:none!important}}`}</style>
+    <style>{readingStyles}</style>
     <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={promptViews}
       onChoose={(id,cardId)=>{

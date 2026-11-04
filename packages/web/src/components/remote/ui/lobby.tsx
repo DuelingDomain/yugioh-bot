@@ -13,6 +13,7 @@ import { COLORS } from "./model";
 import { remoteApi } from "./api";
 import type { RoomController } from "./use-remote-room";
 import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
+import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
 import l from "./remote-lobby.module.css";
@@ -160,6 +161,8 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
                   choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
+                {editable ? <LobbyDeckList disabled={busy} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}
+                {seat.deck ? <p className={r.listOn} data-testid={`deck-list-on-${seat.seat}`}>Deck list: on · {seat.deck.deck.main.length + seat.deck.deck.extra.length} cards</p> : null}
                 {seat.deck?.validation.issues.length ? <ul className={r.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>
                   : seat.deck ? <p className={r.valid}><CheckCircle2 size={14} strokeWidth={1.7} aria-hidden />Valid for this table.</p> : null}
               </div>

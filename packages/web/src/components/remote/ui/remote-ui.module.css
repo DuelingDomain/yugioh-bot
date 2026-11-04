@@ -215,7 +215,7 @@
 .fplate .pip{width:7px;height:7px}
 .seat.turn .fplate{border-color:var(--gold);color:var(--gold-ink)}
 .fplate.pick{cursor:crosshair;border-color:var(--lossd);box-shadow:0 0 0 3px rgb(228 90 77/.25),0 0 18px rgb(228 90 77/.5)}
-.field{--gp:4px;--cw:min(100cqw / (7 + 6 * var(--gf,.5)),(100cqh - var(--gp)) / 2.92);
+.field{position:relative;--gp:4px;--cw:min(100cqw / (7 + 6 * var(--gf,.5)),(100cqh - var(--gp)) / 2.92);
   display:grid;grid-template-columns:repeat(7,var(--cw));grid-template-rows:repeat(2,calc(var(--cw) * 1.458));gap:var(--gp) calc(var(--cw) * var(--gf,.5))}
 .zc{position:relative;border:1px solid rgb(167 139 255/.22);border-radius:4px;background:rgb(167 139 255/.05)}
 .zc[data-z=f],.zc[data-z=gy],.zc[data-z=deck],.zc[data-z=ex]{border-style:dashed}
@@ -251,6 +251,7 @@
 .zc .zl{position:absolute;inset:0;display:grid;place-items:center;font:700 9px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;color:#a994ee;pointer-events:none}
 .zc .cnt{position:absolute;right:2px;bottom:2px;z-index:2;font:700 11px/1 var(--font-duel-display),Oxanium,sans-serif;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;color:var(--ink2)}
 .zc>.cd,.zc>.wr{position:absolute;inset:0}
+.zc>.cd{transition:transform 150ms var(--ease)}
 .zc.def>.cd{transform:rotate(-90deg) scale(var(--dfit,1))}
 .zc[role=button]{cursor:pointer}
 .zc.clk:hover>.cd{filter:brightness(1.15);box-shadow:0 0 0 2px var(--pen),0 0 18px rgb(167 139 255/.7)}
@@ -993,3 +994,15 @@
 .backendGpu{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .backendNote{display:block;max-width:220px;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.92);color:var(--ink);font:600 10px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:normal}
 .statusRow{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px;min-width:0}
+
+/* A card the watcher sees but has not read. Looks the same as the saved "Reading" card, so nothing jumps when it arrives. */
+.cd.unk.reading{border:1px solid #507b70;border-style:solid;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%) 0 0/240% 100%;color:#e5f5ef;animation:readsweep 1.2s linear infinite}
+.cd.unk.reading span{font:600 10px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+@keyframes readsweep{to{background-position:-240% 0}}
+.cd.back.shimmer{position:relative;overflow:hidden}
+.cd.back.shimmer::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgb(255 255 255/.22) 48%,transparent 66%);background-size:240% 100%;animation:readsweep 1.6s linear infinite;pointer-events:none}
+.ghosted{opacity:.92}
+.reveal>.cd{animation:revealin 200ms var(--ease) both}
+@keyframes revealin{from{opacity:0}to{opacity:1}}
+.leaving>.cd{box-shadow:0 4px 14px rgb(0 0 0/.5)}
+@media (prefers-reduced-motion:reduce){.cd.unk.reading,.cd.back.shimmer::after,.reveal>.cd{animation:none}.zc>.cd{transition:none}}

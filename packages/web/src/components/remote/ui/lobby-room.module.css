@@ -51,3 +51,12 @@
 .invite { display: grid; gap: 8px; min-width: 0; justify-items: end; }
 .manual { display: grid; gap: 6px; width: min(320px, 100%); color: var(--duel-ink-3); font-size: 12.5px; }
 .alert { margin-bottom: 20px; }
+
+/* The deck list step and the "Deck list: on" label under a seat's deck picker. */
+.deckList { display: grid; gap: 8px; min-width: 0; }
+.deckListHead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; color: var(--duel-ink-2, inherit); }
+.deckListHead b { color: var(--duel-ink, inherit); font-weight: 600; }
+.deckListHead > :last-child { margin-left: auto; }
+.deckListBody { display: grid; gap: 8px; }
+.deckListActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.listOn { margin: 0; font-size: 13px; color: var(--duel-ok); }

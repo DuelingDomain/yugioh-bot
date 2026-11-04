@@ -944,6 +944,9 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.getByTestId("create-room").click();
     await expect(page).toHaveURL(/\/duels\/remote\/[^/]+$/);
     await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
+    // The deck list step is offered but optional: the paste box opens on request and the room stays usable without it.
+    await page.getByTestId("deck-list-toggle").click();
+    await expect(page.getByTestId("deck-list-text")).toBeVisible();
     await shot(page, "created-room-1920");
     // The new table is listed on the Duels page. It is yours and solo, so it is still being set up, not open to join.
     await page.goto("/duels");
