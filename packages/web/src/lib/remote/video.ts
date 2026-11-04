@@ -1,7 +1,7 @@
 import { DesktopPhoneLink } from "./phone-desktop";
 import type { PhoneReading, PhoneScan } from "./phone-protocol";
 import {
-  ConnectionState, Room, RoomEvent, Track, VideoPresets, createLocalVideoTrack,
+  ConnectionState, Room, RoomEvent, Track, TrackEvent, VideoPresets, createLocalVideoTrack,
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
@@ -11,6 +11,7 @@ import {
 import {FieldTrackCache,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
+import { optimizeRecognitionCapture } from './camera-lock';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -128,9 +129,13 @@ export class RemoteVideo {
         facingMode: "environment", resolution: FIELD_CAMERA });
       if (this.closed || epoch !== this.epoch) { camera.stop(); await this.room.disconnect(); return; }
       this.camera = camera; camera.mediaStreamTrack.contentHint = "detail";
+      // LiveKit can replace the native track after device/foreground recovery without a room event.
+      camera.on(TrackEvent.Restarted, () => { if (this.camera === camera) this.sync(); });
+      await optimizeRecognitionCapture(camera.mediaStreamTrack);
+      if (this.closed || epoch !== this.epoch) { camera.stop(); return; }
       await this.room.localParticipant.publishTrack(camera, { name: "field-cam", source: Track.Source.Camera,
         videoCodec: "vp8", simulcast: true, videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
-        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 24 }, degradationPreference: "maintain-resolution" });
+        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 }, degradationPreference: "maintain-resolution" });
       if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
       }
       this.scans = new AbortController();
@@ -169,9 +174,11 @@ export class RemoteVideo {
   async selectCamera(deviceId: string) {
     const camera = this.camera; const epoch = this.epoch;
     if (!camera) { this.patch({ cameraId: deviceId }); return; }
-    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } });
+    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: FIELD_CAMERA });
     if (this.closed || epoch !== this.epoch || camera !== this.camera) { camera.stop(); return; }
     camera.mediaStreamTrack.contentHint = "detail";
+    await optimizeRecognitionCapture(camera.mediaStreamTrack);
+    if (this.closed || epoch !== this.epoch || camera !== this.camera) { camera.stop(); return; }
     this.patch({ cameraId: deviceId }); this.sync();
   }
   async setMicrophone(enabled: boolean) {

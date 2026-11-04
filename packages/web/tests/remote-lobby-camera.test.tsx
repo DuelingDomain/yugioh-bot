@@ -14,7 +14,7 @@ import { RemoteLobbyRoom } from '../src/components/remote/ui/lobby';
 afterEach(cleanup);
 
 it.each(['manual','phone'])('waits for the saved %s camera choice before mounting the preview',mode=>{
- const room={slug:'saved-choice',mySeat:0,createdBy:16,solo:true,seatCount:2,seats:[{seat:0,userId:16,displayName:'Smoke',ready:false}]} as RemoteRoom;
+ const room={slug:'saved-choice',mySeat:0,createdBy:16,solo:true,seatCount:2,state:{match:{bestOf:1}},seats:[{seat:0,userId:16,displayName:'Smoke',ready:false}]} as RemoteRoom;
  const ctl={operation:vi.fn(),busy:false,realtime:'Connected'} as unknown as RoomController;
  state.hub={rosterReady:false,manual:()=>false,phones:[]};
  const view=render(<RemoteLobbyRoom room={room} ctl={ctl}/>);

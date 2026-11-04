@@ -34,7 +34,7 @@ import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
-import { RecognitionSetting } from "./recognition-setting";
+import { CameraSettingsMore } from './camera-lock-control';
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
@@ -85,7 +85,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
     {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
-    <RecognitionSetting variant="menu" />
+    <CameraSettingsMore lock={hub.cameraLock} />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
 }

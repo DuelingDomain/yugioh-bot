@@ -18,6 +18,9 @@ import { detectCards, prewarmRecognizer } from "./recognizer";
 import { readableCards, toFeedCards } from "./quads";
 import { useVideoHub } from "./video-hub";
 import { RecognitionSetting } from "./recognition-setting";
+import { CameraLockControl } from './camera-lock-control';
+import { optimizeRecognitionCapture } from '@/lib/remote/camera-lock';
+import { useCameraLock } from '@/lib/remote/use-camera-lock';
 import s from "./lobby-camera-preview.module.css";
 
 export type CameraMode = "webcam" | "phone" | "manual";
@@ -147,6 +150,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [checking, setChecking] = useState(false);
   const expandButton = useRef<HTMLButtonElement>(null);
   const seatKey = seatKeyOf(room);
+  const cameraLock = useCameraLock(live ? stream.current?.getVideoTracks()[0] : undefined,
+    `${room.guildId}:${room.seats.find(seat => seat.seat === room.mySeat)?.userId ?? 'local'}`);
   const [calibration,setCalibration]=useState<FieldCalibration>();
   // "Calibrated" = the saved flag the table reads too (zones placed on the mat, not only a side picked).
   // Before the camera runs there is no camera to match, so no state is shown.
@@ -176,6 +181,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       if (id !== run.current) { media.getTracks().forEach(track => track.stop()); return; }
       stream.current = media;
       const track = media.getVideoTracks()[0];
+      await optimizeRecognitionCapture(track);
+      if (id !== run.current) { media.getTracks().forEach(track => track.stop()); return; }
       const settings = track?.getSettings() ?? {};
       if (settings.width && settings.height) setSize({ w: settings.width, h: settings.height });
       setCameraId(settings.deviceId ?? wanted); setCameraLabel(track?.label ?? "");
@@ -328,6 +335,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         <p className={cx(s.check, check === "found" && s.checkOn)} role="status" data-testid="lobby-cam-check" data-state={check}>{checkLine}</p>
       </div>
       <div className={s.row}><RecognitionSetting /></div>
+      <CameraLockControl lock={cameraLock} />
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}

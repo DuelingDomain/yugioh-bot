@@ -8,6 +8,17 @@ import { pickSelect } from "../helpers/themed-select";
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
 const FRAME = process.env.E2E_FAKE_FRAME ? readFileSync(process.env.E2E_FAKE_FRAME).toString("base64") : "";
+// Chrome's fake device can expose synthetic Image Capture controls. Also exercise a UVC device without them.
+async function withoutCameraLockCapabilities(page: Page) {
+  await page.addInitScript(() => {
+    const original = MediaStreamTrack.prototype.getCapabilities;
+    MediaStreamTrack.prototype.getCapabilities = function () {
+      const caps = original.call(this) as MediaTrackCapabilities & Record<string, unknown>;
+      for (const key of ['exposureMode', 'whiteBalanceMode', 'focusMode']) delete caps[key];
+      return caps;
+    };
+  });
+}
 async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
   if (!FRAME && !shape) return;
   await page.addInitScript(([data, size]) => {
@@ -560,7 +571,8 @@ test.describe("remote lobby camera step", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
   test("webcam preview plays, the card check runs, leaving the step releases the camera", async ({ page, context }) => {
-    await fakeCamera(page, "16:9");
+    // Keep Chrome's fake capture and remove only the optional image control capabilities.
+    await withoutCameraLockCapabilities(page);
     // Remember every stream the page opens, to prove they are all stopped later.
     await page.addInitScript(() => {
       const open: MediaStream[] = []; (window as unknown as { __opened: MediaStream[] }).__opened = open;
@@ -574,6 +586,8 @@ test.describe("remote lobby camera step", () => {
     await expect(preview).toBeVisible();
     const video = page.getByTestId("lobby-cam-video");
     await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && !el.paused)).toBe(true);
+    await expect(page.getByTestId('camera-lock')).toContainText('Not supported by this camera');
+    await expect(page.getByTestId('camera-lock').getByRole('button', { name: 'Camera lock: off' })).toBeDisabled();
     await expect(page.getByTestId("lobby-cam-mic")).toBeVisible();
     await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
     // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
@@ -584,6 +598,46 @@ test.describe("remote lobby camera step", () => {
     await expect(page.getByTestId("lobby-manual-note")).toBeVisible();
     await expect(video).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: MediaStream[] }).__opened.every(s => s.getTracks().every(track => track.readyState === "ended")))).toBe(true);
+  });
+
+  test('camera More menu reports unsupported locks and leaves Chrome fake video running', async ({ page, context }) => {
+    await withoutCameraLockCapabilities(page);
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId('camera-on-feed').click();
+    const video = page.locator('[data-testid="feed-0"] video');
+    await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.getVideoPlaybackQuality().totalVideoFrames)).toBeGreaterThan(5);
+    // Close any first-use calibration before opening the camera settings.
+    const calibration = page.getByRole('dialog', { name: /calibrat/i });
+    if (await calibration.isVisible()) await calibration.getByRole('button', { name: /cancel|close/i }).first().click();
+    await page.getByTestId('camera-more').click();
+    await expect(page.getByTestId('camera-lock')).toContainText('Not supported by this camera');
+    await expect(page.getByTestId('camera-lock').getByRole('button', { name: 'Camera lock: off' })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    const before = await video.evaluate((el: HTMLVideoElement) => el.getVideoPlaybackQuality().totalVideoFrames);
+    await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.getVideoPlaybackQuality().totalVideoFrames)).toBeGreaterThan(before + 5);
+  });
+
+  test('Chrome fake camera reports ignored automatic modes and remembers Off in the lobby', async ({ page, context }) => {
+    const created = await context.request.post('/api/remote', { data: { gameId: 'ygo', seatCount: 2, solo: true } });
+    expect(created.status()).toBe(201);
+    await page.goto(`/duels/remote/${(await created.json()).slug}`);
+    const lock = page.getByTestId('camera-lock');
+    await expect(lock.getByRole('button', { name: 'Camera lock: on' })).toBeEnabled();
+    await lock.getByRole('button', { name: 'Re-lock' }).click();
+    await expect(lock.getByRole('button', { name: 'Camera lock: on' })).toBeEnabled();
+    await lock.getByRole('button', { name: 'Camera lock: on' }).click();
+    // Chrome's fake Image Capture source advertises continuous but keeps reporting manual.
+    // Do not claim it has unlocked; keep the actual status and the saved Off choice.
+    await expect(lock).toContainText('Camera setting failed. Try camera lock again.');
+    const saved = await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('dd-camera-lock:v1:')));
+    expect(saved.length).toBe(1); expect(saved[0][1]).toBe('0');
+    await page.reload();
+    await expect.poll(() => page.getByTestId('lobby-cam-video').evaluate((el: HTMLVideoElement) => el.videoWidth)).toBeGreaterThan(0);
+    await expect(lock.getByRole('button', { name: 'Camera lock: off' })).toBeEnabled();
+    await expect(lock.getByRole('button', { name: 'Camera lock: off' })).toHaveAttribute('aria-pressed', 'false');
+    await lock.getByRole('button', { name: 'Camera lock: off' }).click();
+    await expect(lock.getByRole('button', { name: 'Camera lock: on' })).toBeEnabled();
   });
 
   test("zones calibrated in the lobby are the ones the table reads, so it does not ask again", async ({ page, context }) => {
