@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFieldWatcher } from './field-watcher';
 import { yugioh } from './games/yugioh';
-import type { DetectedQuad, RecognitionResult } from './types';
+import type { DetectedQuad, DetectOptions, RecognitionResult } from './types';
+import { createFieldCalibration, fieldMatPoint, fieldZoneCells } from './field-zones';
 
 test('cached identity settlement preserves deck observations until a real detector scan clears them', async () => {
   const quad = (x:number,y:number,down=false):DetectedQuad => ({kind:down?'face-down':'face-up',confidence:.95,partial:false,quad:[{x,y},{x:x+.06,y},{x:x+.06,y:y+.12},{x,y:y+.12}]});
@@ -38,5 +39,32 @@ test('cached identity settlement preserves deck observations until a real detect
     for(let i=0;i<35;i++)await tick();
     assert.equal(watcher.getSnapshot().piles?.length,0,'detector absence clears a deck after its three-second grace period');
     assert.equal(watcher.getSnapshot().metrics.errors,0);
+  } finally { watcher.dispose(); }
+});
+
+test('a low-score Extra Deck stack in its calibrated cell is a pile; below the pile floor it is only a debug score', async () => {
+  // Owner on :3000: light-sleeve Deck found (.66), pink-sleeve Extra Deck on a dark mat gets no box (score under .4).
+  const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:1}]);
+  const width=320,height=176;
+  // A card-shaped stack (59:86 in pixels) centred in the zone cell.
+  const cellQuad=(zone:string)=>{const c=fieldZoneCells('normal',calibration.zoneSpacing,calibration.zones).find(cell=>cell.zone===zone)!,m=fieldMatPoint({x:c.x+c.w/2,y:c.y+c.h/2},calibration),h=c.h*.7,w=h*height/width*59/86;
+    return [{x:m.x-w/2,y:m.y-h/2},{x:m.x+w/2,y:m.y-h/2},{x:m.x+w/2,y:m.y+h/2},{x:m.x-w/2,y:m.y+h/2}];};
+  const extra:DetectedQuad={kind:'face-down',confidence:.3,partial:false,kept:true,pile:true,quad:cellQuad('EXTRA')};
+  const deckProbe:DetectedQuad={kind:'face-down',confidence:.22,partial:false,kept:true,pile:true,quad:cellQuad('DECK')};
+  const back={width,height,data:new Uint8ClampedArray(width*height*4).fill(240)};
+  let at=0,asked:DetectOptions|undefined;
+  const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
+    buffer:{sample:async()=>({frame:back as ImageData,at})},
+    recognizer:{detectCards:async(_f,opts)=>{asked=opts;return structuredClone([extra,deckProbe]);},recognize:async()=>{throw new Error('piles are never read');}},
+    analyze:()=>({motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2),crop:()=>back}),
+  });
+  watcher.setCalibration(calibration);
+  try {
+    for(let i=0;i<8;i++){at+=100;await watcher.tick();await Promise.resolve();}
+    assert.equal(asked?.piles?.length,2,'the detector is given the Deck and Extra cells');
+    const snapshot=watcher.getSnapshot();
+    assert.deepEqual(snapshot.piles?.map(p=>p.zone),['EXTRA'],'the .3 Extra stack is a pile; the .22 Deck probe is not');
+    assert.deepEqual(snapshot.debug?.pileScores,{DECK:.22,EXTRA:.3});
+    assert.equal(snapshot.metrics.errors,0);
   } finally { watcher.dispose(); }
 });

@@ -54,9 +54,9 @@ export interface RecognitionPriors {
   /** Explicit caller restriction; inferred border colour remains a soft filter. */
   frameClasses?: string[];
 }
-export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean; covered?: boolean; /** Kept only to hold an existing card (low-score hysteresis or the shadow-lifted pass); never starts a new card. */ kept?: boolean }
-/** Detector call options for the field watcher. `keep`: outlines of cards already on the field (their low-score outlines stay). */
-export interface DetectOptions { region?: FractionalBox; keep?: Point[][] }
+export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean; covered?: boolean; /** Kept only to hold an existing card (low-score hysteresis or the shadow-lifted pass); never starts a new card. */ kept?: boolean; /** Kept only because it sits in a calibrated Deck/Extra cell (pile floor); may score below the pile floor (debug probe). */ pile?: boolean }
+/** Detector call options for the field watcher. `keep`: outlines of cards already on the field (their low-score outlines stay). `piles`: calibrated Deck/Extra cells (a stack there keeps a lower-score outline). */
+export interface DetectOptions { region?: FractionalBox; keep?: Point[][]; piles?: Point[][] }
 export type BoardSide = 'near' | 'far';
 export interface PeekOptions { card: DetectedQuad; cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface PeekResult {

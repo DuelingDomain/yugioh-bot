@@ -47,6 +47,12 @@ export const CARD_DETECTOR = {
    * read confidently as a card (a4-report.md).
    */
   minConfidence: 0.4,
+  /**
+   * A face-down stack inside a calibrated Deck/Extra cell counts from this score (field watcher). Coloured or
+   * dark sleeves (pink Extra Deck on a dark mat, coloured light) score below minConfidence; the main
+   * Deck in light sleeves scored .66 in the same frame. Same floor as the known-card hysteresis.
+   */
+  pileMinConfidence: 0.25,
   /** Of two outlines (either class) overlapping more than this (polygon IoU), the weaker goes. */
   nmsIoU: 0.5,
   maxDetections: 150,
