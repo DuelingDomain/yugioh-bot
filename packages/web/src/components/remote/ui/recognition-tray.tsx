@@ -15,6 +15,8 @@ export type TrayState = {
   tier?: Tier; aiToken?: number; covered?: boolean; faceDown?: boolean;
   /** The top guess is shown alone as "Best match". "Wrong card?" opens the top 5 and the search. */
   best?: boolean;
+  /** "hand": the chosen card is added to the hand, not placed on the board. */
+  intent?: "hand"; originId?: string; source?: "deck" | "gy" | "banish"; by?: { cardId: number; name: string };
 };
 import type { FeedbackSource } from "./recognizer";
 /** `feedback` names how a person chose this card; set only for an explicit choice, so it can be saved as a training sample. */

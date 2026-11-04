@@ -39,6 +39,15 @@ export function fieldPlacementProposals({track,seat,cardId,name,existing=false,f
 }
 
 /** A clear lift leaves its public zone once, retaining the physical ref privately. */
+export function fieldDepartureStillMissing(card:TwinCard,origin:Pick<TwinCard,'ref'|'zone'|'slot'>,tracks:readonly FieldTrack[]):boolean {
+  return ['monster','extra-monster','spell-trap','field','pendulum'].includes(card.zone)&&card.ref===origin.ref&&card.zone===origin.zone&&card.slot===origin.slot&&
+    !tracks.some(t=>t.id===card.ref&&t.visible&&!t.removed);
+}
+/** A fresh, unfinished field read may be the card just seen in the player's hand. */
+export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number):boolean {
+  return tracks.some(t=>t.visible&&!t.removed&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(t.zone)&&t.firstSeen>=readAt-800&&
+    t.state!=='dismissed'&&(!t.cardId||t.state==='candidate'));
+}
 export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'deck'|'extra'|undefined=undefined):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination||['graveyard','banished'].includes(card.zone)?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};

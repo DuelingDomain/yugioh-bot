@@ -199,7 +199,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
     else if ((event.key === "i" || event.key === "I") && card) { event.preventDefault(); onInspect(card); }
   }
   const drawn = new Set(Object.values(cells).map(cell => cell.card?.ref).filter(Boolean));
-  const extras = EXTRA_ZONES.map(zone => ({ ...zone, cards: twin.filter(card => card.zone === zone.id && !drawn.has(card.ref)) })).filter(zone => zone.cards.length);
+  const extras = EXTRA_ZONES.filter(zone => zone.id !== "hand" && zone.id !== "hand-reveal").map(zone => ({ ...zone, cards: twin.filter(card => card.zone === zone.id && !drawn.has(card.ref)) })).filter(zone => zone.cards.length);
   const banished = twin.filter(card => card.zone === "banished").length;
   // Zone rules (docs/remote-duels/zone-rules.md): soft marks, Trap Monster zones and Equip links.
   const equipSource = equipSourceOnField(twin, card => info(cardCode(card)));

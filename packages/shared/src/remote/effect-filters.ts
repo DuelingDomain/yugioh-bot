@@ -5,22 +5,29 @@ import { NO_FILTER, type CardFilter, type CardTags } from "../cards/effects/tags
 
 export type RemoteEffectSource = { cardId: number; name: string; cardRef?: string };
 export type RemoteEffectCandidate = { cardId: number; copyKey: number; name: string; copies: number };
+export const REMOTE_SEARCH_SOURCE_ZONES = {deck:'deck',gy:'graveyard',banish:'banished'} as const;
+export type RemoteSearchSource = keyof typeof REMOTE_SEARCH_SOURCE_ZONES;
 export type RemoteEffectPlan = {
-  destination: "set" | "hand"; filters: CardFilter[]; excludedNames: string[];
+  source: RemoteSearchSource; destination: "set" | "hand"; filters: CardFilter[]; excludedNames: string[];
   minimumCopies: number; announceRecommended: boolean; derivedFrom: "effect-index" | "text" | "fallback";
   pool: RemoteEffectCandidate[];
 };
 const empty = (): CardFilter => structuredClone(NO_FILTER);
 const normalize = (value: string) => value.replace(/[“”]/g, '"').replace(/\bTraps\b/g, "Trap").replace(/\bSpells\b/g, "Spell");
 
-/** Read the object moved from Deck, not costs or unrelated sentences elsewhere on the card. */
-function textFilter(clause: string): { filter: CardFilter; certain: boolean } {
-  const descriptor = clause.match(/(?:set|add|take|reveal|banish|choose|select|special summon)\s+(?:up to\s+)?\d+\s+(.+?)\s+(?:directly\s+)?from\s+(?:your\s+|the\s+)?Deck/i)?.[1] ?? "";
+/** Read the moved object, not costs or unrelated sentences elsewhere on the card. */
+function textFilter(clause: string, source: RemoteSearchSource): { filter: CardFilter; certain: boolean } {
+  const place = {deck:'Deck',gy:'(?:GY|Graveyard)',banish:'banishment'}[source];
+  const verbs = source==='deck' ? 'set|add|take|reveal|banish|choose|select|special summon' : 'add';
+  const descriptor = clause.match(new RegExp(`(?:${verbs})\\s+(?:up to\\s+)?\\d+\\s+(.+?)\\s+(?:directly\\s+)?from\\s+(?:your\\s+|the\\s+)?${place}`, 'i'))?.[1] ??
+    (source!=='deck' && /;\s*add\s+(?:it|them|that (?:target|card))\b/i.test(clause)
+      ? clause.match(new RegExp(`target\\s+(?:up to\\s+)?\\d+\\s+(.+?)\\s+in\\s+(?:your\\s+|the\\s+)?${place}`, 'i'))?.[1] ??
+        (source==='banish' ? clause.match(/target\s+\d+\s+(?:of your|your) banished (.+?);/i)?.[1] : undefined) : undefined) ?? "";
   const filter = empty();
   const facetWords=descriptor.replace(/"[^"]*"/g, "");
   if (/\bspell\b/i.test(facetWords)) filter.kinds.push("spell");
   if (/\btrap\b/i.test(facetWords)) filter.kinds.push("trap");
-  if (/\bmonster\b/i.test(facetWords)) filter.kinds.push("monster");
+  if (/\bmonsters?\b/i.test(facetWords)) filter.kinds.push("monster");
   for (const [pattern, subtype] of [[/\bnormal\b/i,"normal"], [/\bcontinuous\b/i,"continuous"], [/quick[- ]play/i,"quick_play"], [/\bfield\b/i,"field"], [/\bequip\b/i,"equip"], [/\bcounter\b/i,"counter"]] as const)
     if (pattern.test(facetWords)) filter.subtypes.push(subtype);
   for (const attribute of ATTRIBUTES) if (new RegExp(`\\b${attribute}\\b`, "i").test(facetWords)) filter.attributes.push(attribute);
@@ -40,17 +47,19 @@ function textFilter(clause: string): { filter: CardFilter; certain: boolean } {
   return { filter, certain: !!descriptor && !!(filter.kinds.length || filter.archetypes.length) };
 }
 
-/** Existing effect-search events carry the Deck action and CardFilter. Text supplies exclusions,
+/** Existing effect-search events carry the movement source and CardFilter. Text supplies exclusions,
  * same-name copy requirements and a conservative fallback when a card has no indexed reading. */
 export function deriveRemoteEffectPlans(source: Card, tags?: CardTags): Omit<RemoteEffectPlan, "pool">[] {
   const text = normalize(source.text);
   const clauses = text.split(/(?<=[.!])\s+|\r?\n/);
   const result: Omit<RemoteEffectPlan, "pool">[] = [];
-  for (const destination of ["set", "hand"] as const) {
+  for (const destination of ["set", "hand"] as const) for (const searchSource of ['deck','gy','banish'] as const) {
+    if(destination==='set' && searchSource!=='deck') continue;
+    const indexedSource=searchSource==='banish' ? 'banished' : searchSource;
     const indexed = tags?.effects.flatMap(effect => effect.actions.flatMap(event => {
       const search=effect.actions.find(a=>a.verb==="add_to_hand" && a.from.includes("deck") && a.player!=="opponent");
       const addThenSet=destination==="set" && event.from.includes("hand") && search;
-      if(event.what.this_card || event.player==="opponent" || (!event.from.includes("deck") && !addThenSet)) return [];
+      if(event.what.this_card || event.player==="opponent" || (!event.from.includes(indexedSource) && !addThenSet)) return [];
       if(destination==="hand" ? event.verb!=="add_to_hand" : event.verb!=="set_spell_trap" &&
         !(["special_summon","place_on_field"].includes(event.verb) && /face[- ]down/i.test(text))) return [];
       const filter=structuredClone(event.what);
@@ -64,11 +73,11 @@ export function deriveRemoteEffectPlans(source: Card, tags?: CardTags): Omit<Rem
       }
       return [filter];
     })) ?? [];
-    const relevant = clauses.filter(clause => /\bDeck\b/i.test(clause) && (destination === "set"
+    const relevant = clauses.filter(clause => (searchSource==='deck' ? /\bDeck\b/i.test(clause) : textFilter(clause,searchSource).certain) && (destination === "set"
       ? /\bSet\s+\d|\bto\s+Set\b|place.+face[- ]down|special summon.+face[- ]down/i.test(clause)
       : /\badd\b.+\bhand\b/i.test(clause)));
     if (!indexed.length && !relevant.length) continue;
-    const textReadings = relevant.map(textFilter);
+    const textReadings = relevant.map(clause=>textFilter(clause,searchSource));
     let filters = indexed.length ? structuredClone(indexed) : textReadings.filter(r=>r.certain).map(r=>r.filter);
     if(indexed.length && textReadings.length===1 && textReadings[0].certain) {
       const printed=textReadings[0].filter;
@@ -86,7 +95,7 @@ export function deriveRemoteEffectPlans(source: Card, tags?: CardTags): Omit<Rem
     // Some old facets omit the object of a same-name Set. The immediately preceding Deck object supplies it.
     if (destination === "set" && filters.every(f=>!f.kinds.length && !f.archetypes.length && !f.names.length) && textReadings.some(r=>r.certain))
       filters=textReadings.filter(r=>r.certain).map(r=>r.filter);
-    result.push({ destination, filters, excludedNames: [...text.matchAll(/except\s+"([^"]+)"/gi)].map(m=>m[1]),
+    result.push({ source:searchSource, destination, filters, excludedNames: [...text.matchAll(/except\s+"([^"]+)"/gi)].map(m=>m[1]),
       minimumCopies: destination === "set" && /banish.+Deck.+Set.+same name/i.test(relevant.join(" ")) ? 2 : 1,
       announceRecommended: destination === "hand" && !/do not (?:have to )?reveal|without revealing/i.test(relevant.join(" ")),
       derivedFrom: indexed.length ? "effect-index" : fallback ? "fallback" : "text" });

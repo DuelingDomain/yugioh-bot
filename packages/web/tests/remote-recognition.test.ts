@@ -411,6 +411,12 @@ it('departures leave field zones once with a named atomic move and retain physic
   expect(fieldSummonMaterials({kind:'link',rating:1,covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true,now:0})).toEqual(['b']);
   expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:ref=>ref!=='a',now:0})).toBeUndefined();
   expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true,now:0})).toEqual(['a','b']);
+  // Review r2 N1: two monsters vanish and a Link-2 is placed 1 s later, inside the 2 s departure wait. Both are still on the
+  // field in the twin (not in the hand yet): they are its materials, so none of them ever counts as a card in hand.
+  const waiting=[m('a','monster',{slot:1}),m('b','monster',{slot:2}),m('c','monster',{slot:3})],pending=[{ref:'a',at:1000},{ref:'b',at:1200}];
+  expect(fieldSummonMaterials({kind:'link',rating:2,covered:[],vanished:[],pending,firstSeen:2000,twins:waiting,removed:ref=>ref!=='c',now:0})).toEqual(['a','b']);
+  expect(fieldSummonMaterials({kind:'link',rating:2,covered:[],vanished:[],pending,firstSeen:2000,twins:waiting,removed:ref=>ref==='a',now:0})).toEqual(['a']);
+  expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished:[],pending:[pending[0]],firstSeen:2000,twins:waiting,removed:()=>true,now:0})).toBeUndefined();
   // Review r2 N3: Q on P, the 5 s default sent P to the hand, then the Xyz came: P (just left, 30 s) and Q are its materials.
   const held=[m('p','hand',{departedFrom:{zone:'monster',slot:3,at:10_000,auto:true}}),m('q','monster',{slot:3})];
   expect(fieldSummonMaterials({kind:'xyz',covered:['p','q'],vanished:[],firstSeen:0,twins:held,removed:()=>false,now:25_000})).toEqual(['p','q']);

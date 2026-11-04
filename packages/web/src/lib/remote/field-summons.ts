@@ -31,8 +31,9 @@ export const fieldSummonMinimum = (kind: RemoteSummonKind) => kind === 'link' ? 
  *   a pile), newest first, only as many as needed (Link: up to its rating; others: up to the minimum).
  * Undefined = no summon (the default rules apply).
  */
-export function fieldSummonMaterials({ kind, rating, covered, vanished, firstSeen, twins, removed, now }: {
+export function fieldSummonMaterials({ kind, rating, covered, vanished, pending = [], firstSeen, twins, removed, now }: {
   kind: RemoteSummonKind; rating?: number; covered: readonly string[]; vanished: readonly FieldVanish[]; firstSeen: number; twins: readonly TwinCard[];
+  /** Monsters that left the view during the 2 s departure wait: still on the field in the twin, not yet in the hand. */ pending?: readonly FieldVanish[];
   /** True while the camera still has this card out of view. */ removed: (ref: string) => boolean;
   /** Server time: a covered card that the default sent to the hand (held stack) still counts for 30 s. */ now: number;
 }): string[] | undefined {
@@ -45,11 +46,13 @@ export function fieldSummonMaterials({ kind, rating, covered, vanished, firstSee
   // A rank-up needs the Xyz under it, not 2 cards; the carried materials move with it on the server.
   const rankUp = kind === 'xyz' && under.some(ref => !!find(ref)?.materials?.length);
   const limit = kind === 'link' ? rating ?? 0 : Infinity;
-  const left = [...vanished].filter(v => Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
-    .map(v => v.ref).filter(ref => !under.includes(ref) && removed(ref) && (() => {
-      const card = find(ref);
-      return !!card && card.zone === 'hand' && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone);
-    })());
+  const gone = (ref: string) => { const card = find(ref); return !!card && card.zone === 'hand' && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone); };
+  // A pending departure is not in the hand yet: it counts while its twin still lies face-up in a Monster Zone and the camera has not seen it again.
+  const waiting = (ref: string) => { const card = find(ref); return !!card && card.faceUp && MONSTER_ZONES.has(card.zone); };
+  const left = [...vanished.map(v => ({ ...v, ok: gone })), ...pending.map(v => ({ ...v, ok: waiting }))]
+    .filter(v => Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
+    .filter((v, index, all) => all.findIndex(o => o.ref === v.ref) === index)
+    .map(v => v.ok(v.ref) ? v.ref : '').filter(ref => ref && !under.includes(ref) && removed(ref));
   const want = Math.max(0, (kind === 'link' ? limit : rankUp ? 0 : fieldSummonMinimum(kind)) - under.length);
   const refs = [...under, ...left.slice(0, kind === 'link' ? Math.max(0, limit - under.length) : want).reverse()].slice(0, kind === 'link' ? limit : undefined);
   return refs.length && (rankUp || refs.length >= fieldSummonMinimum(kind)) ? refs : undefined;

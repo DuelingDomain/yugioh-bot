@@ -1028,3 +1028,43 @@
 @keyframes revealin{from{opacity:0}to{opacity:1}}
 .leaving>.cd{box-shadow:0 4px 14px rgb(0 0 0/.5)}
 @media (prefers-reduced-motion:reduce){.cd.unk.reading,.cd.back.shimmer::after,.reveal>.cd{animation:none}.zc>.cd{transition:none}}
+
+/* ---- Revealed in hand: one-tap chip, strip under the board, webcam-only overlay ---- */
+.hchip{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--gold-ink,#e8b94f);border-radius:10px;background:rgb(30 20 8/.82);animation:pop .25s var(--ease)}
+.hchipl{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--gold-ink,#e8b94f)}
+.hchipb{border:1px solid var(--line2);background:var(--p1);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:13px;cursor:pointer}
+.hchipb:hover,.hchipb:focus-visible{border-color:var(--gold-ink,#e8b94f)}
+.hchipo{color:var(--ink2)}
+.hchipx{display:grid;place-items:center;width:24px;height:24px;border:0;background:transparent;color:var(--ink3);cursor:pointer;border-radius:6px}
+.hchipx:hover{color:var(--ink)}
+.hstrip{display:flex;flex-direction:column;gap:6px;min-width:0}
+.hrow{display:flex;align-items:center;gap:8px;min-width:0}
+.hlab{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+.hcards{display:flex;flex:1 1 auto;gap:6px;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto}
+.hcards li{flex:none}
+.hnone{font-size:12px;color:var(--ink3)}
+.hcard{display:flex;align-items:center;gap:7px;max-width:230px;padding:3px 8px 3px 3px;border:1px solid var(--line);border-radius:8px;background:var(--p1);color:var(--ink);text-align:left;cursor:pointer}
+.hcard:hover,.hcard:focus-visible{border-color:var(--c,var(--gold-ink,#e8b94f))}
+.hcard img{width:26px;height:38px;object-fit:cover;border-radius:3px;flex:none}
+.hcard span{display:flex;flex-direction:column;min-width:0}
+.hcard b{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcard small{font-size:10.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hfresh .hcard{animation:hpop .5s var(--ease);box-shadow:0 0 0 2px var(--gold-ink,#e8b94f),0 0 18px rgb(232 185 79/.55)}
+@keyframes hpop{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
+.hcount{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2)}
+.hcount button{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--p1);color:var(--ink);cursor:pointer;line-height:1}
+.hcount button:disabled{opacity:.4;cursor:default}
+.hover{position:absolute;left:6px;right:6px;bottom:6px;z-index:5;padding:6px;border-radius:10px;background:rgb(10 6 20/.78);backdrop-filter:blur(4px);pointer-events:none}
+.hover :is(button,a),.hover .hcards{pointer-events:auto}
+.toast button{margin-left:6px;border:1px solid var(--line2);background:var(--p1);color:var(--gold-ink);border-radius:6px;padding:2px 8px;cursor:pointer}
+
+/* duel effects layer: above the board, never takes a click */
+.fxl{position:fixed;inset:0;z-index:34;pointer-events:none;overflow:hidden}
+
+/* Quick look at a revealed hand card: fixed, no clicks. */
+.hprev{position:fixed;z-index:70;display:flex;flex-direction:column;gap:3px;padding:6px;border:1px solid var(--gold-ink,#e8b94f);border-radius:8px;background:rgb(12 8 24/.96);box-shadow:0 10px 30px rgb(0 0 0/.6);pointer-events:none}
+.hprev img{width:100%;aspect-ratio:59/86;object-fit:cover;border-radius:4px}
+.hprev b{font-size:13px;font-weight:600}
+.hprev small{font-size:11px;color:var(--ink3)}
+/* A phone: the open search chip stays in one row at the top (below popovers, drawers and the tray), whatever seat is scrolled to. */
+@media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:calc(var(--hdr) + 46px);z-index:33;flex-wrap:nowrap;overflow-x:auto;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}.hchip>*{flex:none}}
