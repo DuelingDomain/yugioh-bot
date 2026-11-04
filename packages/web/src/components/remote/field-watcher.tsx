@@ -2,8 +2,8 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
-import {recentFieldDeparture,type RemoteRoom,type TwinCard} from '@yugidraft/shared/remote';
+import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
+import {remoteHandActionFromVision,searchCandidates,recentFieldDeparture,type RemoteRoom,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
@@ -127,9 +127,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }),[seat]);
   useEffect(()=>{manual.current.clear();},[room.slug,seat]);
   /** The player's Undo owns the cards it touched: the camera does not redo the change until the real card moves. */
+  /** Refs the player brought back with Undo while the camera shows no card: only Scan field removes them again. */
+  const undoKept=useRef(new Set<string>());
+  useEffect(()=>{undoKept.current.clear();},[room.slug,seat]);
   const holdForPlayer=(ref:string)=>{
     const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);
     if(track?.visible&&!track.removed)manual.current.set(ref,{...fieldZoneLocation(track.zone),position:track.position});
+    else undoKept.current.add(ref);
   };
   const undoCards=useRef(new Map<string,string[]>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
@@ -388,6 +392,25 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(projected.moved)noteRowFix(target.card.ref);
     }finally{setPending(false);}
   }
+  function handleHeld(event:HeldCardEvent) {
+    // Reuse the physical episode ID across HTTP retries. No field placement is possible here.
+    const entry=entries.current.get(event.cardId),cardId=entry?catalogCardId(entry):Number(event.cardId);
+    if(typeof cardId!=='number'||!Number.isSafeInteger(cardId)||cardId<=0)return;
+    const actionId=event.id.slice(0,100);
+    void queue(async act=>{
+      if(!live())return;
+      const state=current.current.room.state,own=state.seats[seat];
+      const snapshot=watch.getSnapshot();
+      const bounce=own.twin.find(c=>cardCode(c)===cardId&&(c.zone==='hand'&&c.departedFrom&&serverNow()-(c.departedFrom.at??0)<10_000||publicField(c.zone)&&snapshot?.tracks.some(t=>(bindings.current.get(t.id)??t.id)===c.ref&&!t.visible&&performance.now()-t.lastSeen<10_000)));
+      const recent=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===seat&&o.destination==='hand'&&
+        serverNow()-(state.undoHistory?.find(e=>e.actionId+':hand'===o.id)?.at??0)<=120_000&&
+        searchCandidates(state,seat,o.source.cardId).some(c=>c.cardId===cardId));
+      const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand'||!!recent&&own.twin.some(c=>c.ref===recent.ref&&c.zone==='hand');
+      const proposal=remoteHandActionFromVision({cardId,mode:already||!bounce&&!recent?'reveal':'add',source:bounce?'field':recent?'deck':'unknown',...(recent?{by:{cardId:recent.source.cardId,name:recent.source.name}}:{})},seat);
+      const updated=await act(proposal,actionId);
+      if(updated){setNotice(`${entry?.name??'Card'} ${proposal.type==='hand.add'?'added to hand':'revealed in hand'} · auto`);setUndoId(updated.state.undo?.actionId??'');}
+    });
+  }
   function handle(event:FieldEvent) {
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);
     markFieldTiming(event.timing,'watcher',{type:event.type});
@@ -417,10 +440,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
       if(event.type==='placed'){await apply(event,act);return;}
       const ref=bindings.current.get(event.track.id)??event.track.id;
+      // The camera sees this card again: an earlier Undo no longer keeps it.
+      if(event.type==='moved')undoKept.current.delete(ref);
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!live()||!card)return;
       if(event.type==='removed') {
         if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
+        if(undoKept.current.has(card.ref))return;
         const proposal=fieldDepartureProposal(card,seat,event.destination==='DECK'?'deck':event.destination==='EXTRA'?'extra':undefined);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         const updated=await act({...proposal,...(card.faceUp?{name}:{})});
@@ -452,7 +478,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
   const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
-    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   const updateCalibration=useCallback((grid:FieldCalibration,placed?:boolean)=>{
     watch.setCalibration(grid,placed);
     // Keep an unanswered identity prompt, but require fresh visibility at the
@@ -662,6 +688,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){fixFailed(key,error);}
         if(current.current.room.lastSeq>before){changes++;lastUndo=current.current.room.state.undo?.actionId??lastUndo;}
       }
+      // 4. A field card whose zone shows no card in 2 full scans (no hand, no moving shadow), with or
+      // without a live track: remove it. An Undo keeps it until the player presses Scan field.
+      for(const ref of snap.missingTwins??[]){
+        const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+        if(!card||!publicField(card.zone))continue;
+        if(undoKept.current.has(ref)){if(!manualScan)continue;undoKept.current.delete(ref);}
+        const proposal=fieldDepartureProposal(card,seat);if(!proposal)continue;
+        const key=`remove:${ref}`;if(!tryFix(key))continue;
+        await write(key,proposal);
+      }
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
       // The note is a log line only: the server keeps it out of the undo history, so Undo reverts the last fix.
       if(changes){try{await act({type:'log.note',actorSeat:seat,text});}catch(error){console.info('[remote field] re-sync note skipped',error);}setNotice(text);setUndoId(lastUndo);}
@@ -688,7 +724,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
-  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
+  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);

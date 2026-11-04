@@ -7,6 +7,8 @@ export type RemoteEffectOrigin = {
   announceRecommended: boolean; derivedFrom: RemoteEffectPlan["derivedFrom"];
   /** Candidates and the controller's selection bookkeeping remain private, even for a public choice. */
   pool?: RemoteEffectCandidate[]; candidates?: RemoteEffectCandidate[]; eligibleIds?: number[]; chosenCardId?: number;
+  /** Server hand bookkeeping; prevents repeat publication after Forget or turn expiry. */
+  handCounted?: boolean; handRecorded?: boolean;
   minimumCopies?: number; announcedCard?: {cardId:number;name:string}; revealedCardId?: number;
 };
 export type RemoteEffectContext = { id: string; source: RemoteEffectSource; plan: RemoteEffectPlan; at: number };

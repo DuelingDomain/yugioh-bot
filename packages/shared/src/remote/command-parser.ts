@@ -1,3 +1,4 @@
+import { parseRemoteHandCommand, searchCandidates } from "./search-candidates.js";
 import { remoteUndoHistory } from "./undo.js";
 import { remoteActionSchema, type RemoteActionProposal } from "./actions.js";
 import type { GameModule } from "./types.js";
@@ -11,6 +12,9 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   const seat = state.seats.find(s => s.seat === actorSeat);
   if (!seat || text.length > 500) return null;
   const raw = text.trim().replace(/[.!?]+$/, ""); const words = fold(raw);
+  const searches = state.effectTracking?.origins.filter(o => o.seat === actorSeat && o.destination === 'hand') ?? [];
+  const hand = parseRemoteHandCommand({text, actorSeat, candidates: searches.flatMap(o => searchCandidates(state, actorSeat, o.source.cardId))});
+  if (hand) return hand;
   let proposal: RemoteActionProposal | null = null;
   const phase = parsePhaseCommand(text, state);
   if (phase?.kind === "undo") {

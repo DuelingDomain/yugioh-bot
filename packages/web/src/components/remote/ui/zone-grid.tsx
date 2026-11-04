@@ -100,7 +100,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
       {live.map(t => { const p = top(t.card.quad); return <span key={t.id} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%`, transform: "translate(0,2px)", background: "rgb(20 0 30/.8)", color: t.visible ? "#b8ffc8" : "#e2c6ff", fontSize: 10, padding: "1px 3px", maxWidth: 220, whiteSpace: "normal" }}>
         #{t.id.slice(-4)} {t.state}{t.faceDown ? " · down" : " · up"}{t.cardId ? ` · ${t.cardId}` : ""}{t.visible ? "" : " · hidden"} — {debug?.reasons[t.id] || "…"}</span>; })}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
-        {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}</> : null}
+        {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}{view.shadow && view.shadow.share >= .01 ? <><br />{`shadow: ${Math.round(view.shadow.share * 100)}%${view.shadow.hold ? " · hold" : ""}`}</> : null}{view.blur && (view.blur.hold || view.blur.ratio < .8) ? <><br />{`blur: ${view.blur.ratio.toFixed(2)}${view.blur.hold ? " · hold" : ""}`}</> : null}</> : null}
         {camera ? <>{view ? <br /> : null}{camera}</> : null}</span>
       <FieldProfilePanel />
     </div>
@@ -122,7 +122,7 @@ function FieldProfilePanel() {
     {PROFILE_SEGMENTS.map(k => `${k.padEnd(7)}${ms(last.segments[k]).padStart(6)}  ${stat(r => r.segments[k]).padStart(11)}`).join("\n")}
     {`\n${"total".padEnd(7)}${ms(last.totalMs).padStart(6)}  ${stat(r => r.totalMs).padStart(11)}\n`}
     {detail.map(([name, key]) => `${name.padEnd(15)}${ms(d[key]).padStart(5)}  ${stat(r => r.detail[key]).padStart(9)}`).join("\n")}
-    {`\npreclean: on, cast=${d.precleanGainR === undefined ? "–" : [d.precleanGainR, d.precleanGainG, d.precleanGainB].map(v => (v ?? 1).toFixed(2)).join(",")}, glare=${d.precleanGlare === undefined ? "–" : d.precleanGlare.toFixed(1)}%, used=${d.precleanUsed === undefined ? "–" : d.precleanUsed ? "clean" : "raw"}${d.precleanMs === undefined ? "" : ` (${d.precleanMs.toFixed(1)} ms)`}`}
+    {`\npreclean: on, cast=${d.precleanGainR === undefined ? "–" : [d.precleanGainR, d.precleanGainG, d.precleanGainB].map(v => (v ?? 1).toFixed(2)).join(",")}, glare=${d.precleanGlare === undefined ? "–" : d.precleanGlare.toFixed(1)}%, shadow=${d.precleanShadow === undefined ? "–" : d.precleanShadow.toFixed(0)}%, used=${d.precleanUsed === undefined ? "–" : d.precleanUsed ? "clean" : "raw"}${d.precleanMs === undefined ? "" : ` (${d.precleanMs.toFixed(1)} ms)`}`}
     {`\nreads ${d["n.reads"] ?? 0} · dropped ${d["n.readsDropped"] ?? 0} · embeds ${d.embedCount ?? 0} · det passes ${d["n.detects"] ?? 0} · face resets ${d["n.faceResets"] ?? 0}`}
   </span>;
 }

@@ -65,6 +65,8 @@ export type RemoteReductionContext = {
   pileArrivalGuard?: 1 | 2;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
+  /** Public added-to-hand semantics, absent on historic events. */
+  handKnowledge?: 1;
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };

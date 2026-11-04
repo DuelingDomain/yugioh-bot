@@ -1,7 +1,7 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
+import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
@@ -30,7 +30,7 @@ export interface Recognizer {
   prepare(opts?:PrepareOptions):Promise<{backend:'webgpu'|'wasm'}>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
-  detectCards(frame: ImageBitmap | ImageData, opts?:Pick<RecognizeOptions,'region'>): Promise<DetectedQuad[]>;
+  detectCards(frame: ImageBitmap | ImageData, opts?:DetectOptions): Promise<DetectedQuad[]>;
   /** Local name/tier only, without a crop, AI request or correction history. Same-frame outlines only. */
   peek(frame: ImageBitmap | ImageData, opts: PeekOptions): Promise<PeekResult>;
   /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
@@ -196,7 +196,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       } finally { lane.inFlight = false; }
     },
     async detectCards(frame, opts = {}) {
-      validateOptions(opts);
+      validateOptions({region:opts.region});
+      if(opts.keep!==undefined&&(!Array.isArray(opts.keep)||opts.keep.length>60||opts.keep.some(q=>!Array.isArray(q)||q.length!==4||q.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))))throw new Error('keep must be at most 60 four-point outlines');
       if(disposed) throw new Error('Recognizer is disposed');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       const lane = await laneFor('scene');

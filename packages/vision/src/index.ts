@@ -6,7 +6,7 @@ export { yugioh } from './games/yugioh';
 export type { GameProfile, ConfidenceThresholds, RecognitionTier, EmbeddingModelSpec, RecognizeOptions, RecognitionPriors, RecognitionResult, Candidate, IndexMeta, IndexEntry } from './types';
 
 export { hitTestQuad } from './scene';
-export type { DetectedQuad } from './types';
+export type { DetectedQuad, DetectOptions } from './types';
 export type { PeekOptions, PeekResult, ReadAllOptions, BoardResult, BoardCard, BoardSide } from './types';
 
 export type { FeedbackSource } from './client';
@@ -20,8 +20,8 @@ export type {RecognitionEvidence} from './types';
 
 export type {RealsetSample,RealsetExport} from './calibration';
 
-export {createFieldWatcher} from './field-watcher';
-export type {FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldDebug,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
+export {createFieldWatcher,createHeldCardReader} from './field-watcher';
+export type {HeldCardEvent,HeldCardTrack,FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldDebug,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
 export {FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,IDENTITY_FIELD_TRANSFORM,transformFieldCorners,flattenFieldCalibration} from './field-zones';
 export type {FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,FieldTransform,PlayerSide} from './field-zones';
 

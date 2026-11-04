@@ -8,7 +8,7 @@ import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/accou
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -78,6 +78,10 @@ writeFileSync(join(deckData, "strings.conf"), "");
     catalog.prepare("update texts set desc=? where id=?").run(text,id);
   }
   add(25311006, "Triple Tactics Talent", 2);
+  add(900001, "Man with the Mark", 33);
+  add(69299029, "Treasures of the Kings", 524290);
+  add(29762407, "Temple of the Kings", 131074);
+  catalog.prepare("update texts set desc=? where id=900001").run('Add 1 "Treasures of the Kings" or "Temple of the Kings" from your Deck to your hand.');
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
@@ -1955,6 +1959,7 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
 
 it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
   let state=ygoModule.initialState({seatCount:2});let serial=0;
   const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`atomic-${++serial}`,at:serial}));
   reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'set',slot:2,faceUp:false,position:'defense'}});
@@ -1972,4 +1977,273 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(state.seats[0].twin.find(c=>c.ref==='set')).toMatchObject({zone:'hand'});expect(state.seats[0].twin.find(c=>c.ref==='set')?.publicIdentity).toBeUndefined();
   expect(()=>reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toThrow(/public card zone/);
   expect(remoteActionSchema.safeParse({type:'twin.flip',actorSeat:0,seat:0,idempotencyKey:'bad',cardRef:'set',faceUp:false,cardId:46986414}).success).toBe(false);
+
+  // Strict hand actions are available to the UI without casts or a target seat.
+  const handProposals = [
+    {type:'hand.add',actorSeat:0,cardId:69299029,source:'field'},
+    {type:'hand.reveal',actorSeat:0,cardId:69299029},
+    {type:'hand.forget',actorSeat:0,id:'known-copy'},
+    {type:'hand.count',actorSeat:0,delta:1},
+    {type:'hand.count',actorSeat:0,value:0},
+  ] satisfies RemoteActionProposal[];
+  for (const proposal of handProposals) {
+    const input = {...proposal,idempotencyKey:'hand-schema'};
+    expect(remoteActionSchema.safeParse(input).success).toBe(true);
+    expect(remoteActionSchema.safeParse({...input,seat:1}).success).toBe(false);
+    expect(remoteActionSchema.safeParse({...input,hideAfterTurn:true}).success).toBe(false);
+  }
+  for (const payload of [{},{delta:1,value:5},{delta:1.5},{value:1.5},{value:-1},{value:1000000},{delta:1000000},{delta:-1000000},{value:'5'},{value:null},{delta:Infinity}])
+    expect(remoteActionSchema.safeParse({type:'hand.count',actorSeat:0,idempotencyKey:'invalid-count',...payload}).success).toBe(false);
+  state=ygoModule.initialState({seatCount:4});
+  state.deckChecks.format.settings.startingHand=7;
+  reduce({type:'hand.count',delta:1});expect(state.seats[0].handCount).toBe(8);
+  expect(state.seats[0].deckCount).toBeUndefined();
+  const counted=structuredClone(state),countId=state.undo!.actionId;
+  expect(sharedUndoLabel(state.undoHistory!.at(-1)!.action)).toBe('Changed hand count');
+  for (const viewer of [new Set<number>(),new Set([0]),new Set([1]),new Set([2]),new Set([3])])
+    expect(projectRemoteState(state,viewer).seats[0].handCount).toBe(8);
+  reduce({type:'undo',targetActionId:countId});expect(state.seats[0].handCount).toBeUndefined();
+  state=counted;reduce({type:'hand.count',delta:-2});expect(state.seats[0].handCount).toBe(6);
+  expect(projectRemoteState(state,new Set([1])).undo?.before.seats[0].handCount).toBe(8);
+  reduce({type:'hand.count',value:0});expect(state.seats[0].handCount).toBe(0);
+  expect(()=>reduce({type:'hand.count',delta:-1})).toThrow(/hand count/i);
+  reduce({type:'hand.count',value:999999});expect(()=>reduce({type:'hand.count',delta:1})).toThrow(/hand count/i);
+  reduce({type:'hand.count',value:5});reduce({type:'hand.count',delta:0});expect(state.seats[0].handCount).toBe(5);
+
+  // Shared hand contract: public knowledge and hand counts, private deck counts, exits and Undo.
+  const shared=await import('../../src/remote/index.js');
+  state=ygoModule.initialState({seatCount:2});
+  const by={cardId:900001,name:'Man with the Mark'};
+  reduce({type:'hand.add',cardId:69299029,source:'deck',by});
+  const added=structuredClone(state),addedId=state.undo!.actionId;
+  expect(state.seats[0].knownHand).toEqual([expect.objectContaining({id:addedId,cardId:69299029,source:'deck',by,revealed:true})]);
+  expect(state.seats[0].handCount).toBe(6);
+  const opponent=projectRemoteState(state,new Set([1]));
+  expect(opponent.seats[0].knownHand).toEqual(state.seats[0].knownHand);
+  expect(opponent.seats[0].handCount).toBe(6);
+  expect(opponent.undo?.before.seats[0].handCount).toBeUndefined();
+  reduce({type:'undo',targetActionId:addedId});expect(state.seats[0].knownHand??[]).toEqual([]);
+  state=added;
+  reduce({type:'hand.count',value:9});
+  expect(state.seats[0]).toEqual({...added.seats[0],handCount:9});
+  reduce({type:'undo',targetActionId:state.undo!.actionId});expect(state.seats).toEqual(added.seats);
+  reduce({type:'hand.reveal',cardId:69299029});expect(state.seats[0].knownHand).toHaveLength(1);expect(state.seats[0].handCount).toBe(6);
+  reduce({type:'twin.place',seat:0,zone:'field',card:{ref:'played-search',cardId:69299029}});
+  expect(state.seats[0].knownHand).toEqual([]);expect(state.seats[0].handCount).toBe(5);
+  expect(state.seats[0].twin.filter(c=>c.cardId===69299029)).toHaveLength(1);
+  reduce({type:'twin.move',seat:0,cardRef:state.seats[0].twin[0].ref,zone:'graveyard'});
+  const pile=structuredClone(state);
+  reduce({type:'hand.add',cardId:69299029,source:'gy'});
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toEqual([]);
+  reduce({type:'undo',targetActionId:state.undo!.actionId});expect(state.seats[0]).toEqual(pile.seats[0]);
+  reduce({type:'hand.add',cardId:69299029,source:'gy'});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  expect(state.seats[0].knownHand).toHaveLength(2);
+  const inHand=state.seats[0].twin.find(c=>c.zone==='hand')!;
+  reduce({type:'twin.move',seat:0,cardRef:inHand.ref,zone:'deck'});
+  expect(state.seats[0].knownHand).toHaveLength(1);
+  reduce({type:'hand.forget',id:state.seats[0].knownHand![0].id});expect(state.seats[0].knownHand).toEqual([]);
+  reduce({type:'hand.reveal',cardId:29762407});
+  reduce({type:'hand.reveal',cardId:69299029});
+  reduce({type:'turn.end'});expect(state.seats[0].knownHand?.map(c=>c.cardId)).toEqual([29762407,69299029]);
+  const oneTurn=ygoModule.initialState({seatCount:2});oneTurn.revealedHand='one-turn';state=oneTurn;
+  reduce({type:'hand.reveal',cardId:29762407});reduce({type:'turn.end'});expect(state.seats[0].knownHand).toEqual([]);
+  state=ygoModule.initialState({seatCount:2,firstSeat:1});state.revealedHand='one-turn';
+  reduce({type:'hand.reveal',cardId:29762407});
+  state=ygoModule.reduce(state,remoteActionSchema.parse({type:'turn.end',actorSeat:1,idempotencyKey:'other-turn',at:++serial}));
+  expect(state.seats[0].knownHand).toHaveLength(1);reduce({type:'turn.end'});expect(state.seats[0].knownHand).toEqual([]);
+  expect(()=>reduce({type:'hand.add',cardId:69299029,source:'banish'})).toThrow(/source|pile/i);
+  expect(shared.remoteHandActionFromVision({cardId:29762407,mode:'add'},0)).toEqual({type:'hand.add',actorSeat:0,cardId:29762407,source:'unknown'});
+  expect(shared.remoteHandActionFromVision({cardId:29762407,mode:'reveal'},0)).toEqual({type:'hand.reveal',actorSeat:0,cardId:29762407});
+
+  // Only effect additions, explicit reveals, and field returns enter public hand knowledge.
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'hand',card:{ref:'drawn',cardId:29762407,faceUp:false}});
+  expect(state.seats[0].knownHand).toEqual([]);
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'bounce',cardId:900001}});
+  reduce({type:'twin.move',seat:0,cardRef:'bounce',zone:'hand',source:'auto'});
+  expect(state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:900001,source:'field',revealed:true})]);
+  const bounceState=structuredClone(state),bounceId=state.undo!.actionId;
+  reduce({type:'undo',targetActionId:bounceId});expect(state.seats[0].knownHand).toEqual([]);
+  state=bounceState;reduce({type:'turn.end'});expect(state.seats[0].knownHand).toHaveLength(1);
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  const copyRef=state.seats[0].twin.find(c=>c.zone==='hand'&&c.cardId===69299029)!.ref;
+  reduce({type:'twin.move',seat:0,cardRef:copyRef,zone:'graveyard'});
+  expect(state.seats[0].knownHand?.map(c=>c.cardId)).toEqual([900001]);
+  reduce({type:'hand.add',cardId:69299029,source:'gy'});
+  const returnRef=state.seats[0].twin.find(c=>c.zone==='hand'&&c.cardId===69299029)!.ref;
+  reduce({type:'twin.move',seat:0,cardRef:returnRef,zone:'banished'});
+  reduce({type:'hand.add',cardId:69299029,source:'banish'});
+  expect(state.seats[0].twin.some(c=>c.zone==='banished')).toBe(false);
+  reduce({type:'hand.reveal',cardId:29762407});
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'discard-revealed',cardId:29762407}});
+  expect(state.seats[0].knownHand?.some(c=>c.cardId===29762407)).toBe(false);
+  reduce({type:'twin.place',seat:0,zone:'extra',card:{ref:'extra-card',cardId:29762407}});
+  reduce({type:'hand.add',cardId:29762407,source:'extra'});
+  expect(state.seats[0].twin.find(c=>c.ref==='extra-card')?.zone).toBe('hand');
+  expect(state.seats[0].knownHand?.at(-1)?.source).toBe('extra');
+  const beforeInspection=structuredClone(state.seats[0].knownHand);
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'inspection',cardId:99}});
+  reduce({type:'pile.lift',seat:0,zone:'graveyard',cardRefs:['inspection']});
+  expect(state.seats[0].knownHand).toEqual(beforeInspection);
+  // A direct pile origin must not consume an unrelated same-name hand copy.
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'direct-pile',cardId:69299029}});
+  const directPileRef=state.seats[0].twin.find(c=>c.zone==='graveyard'&&c.cardId===69299029)!.ref;
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  const knownCopies=state.seats[0].knownHand?.length;
+  reduce({type:'twin.place',seat:0,zone:'field',fromRef:directPileRef,card:{ref:'direct-field',cardId:69299029}});
+  expect(state.seats[0].knownHand).toHaveLength(knownCopies!);
+
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'explicit-bounce',cardId:900001,slot:3}});
+  const beforeFieldAdd=structuredClone(state);
+  reduce({type:'hand.add',cardId:900001,source:'field'});
+  expect(state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:900001,source:'field',revealed:true})]);
+  expect(state.seats[0].twin).toMatchObject([{ref:'explicit-bounce',zone:'hand',departedFrom:{zone:'monster',slot:3}}]);
+  expect(projectRemoteState(state,new Set([1])).seats[0].knownHand).toEqual(state.seats[0].knownHand);
+  reduce({type:'undo',targetActionId:state.undo!.actionId});expect(state.seats).toEqual(beforeFieldAdd.seats);
+
+  // A discard reuses the physical hand ref; automatic field re-reads keep the field owner.
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  const discardRef=state.seats[0].twin[0].ref;
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'discard-copy',cardId:69299029}});
+  expect(state.seats[0].twin).toMatchObject([{ref:discardRef,zone:'graveyard'}]);expect(state.seats[0].knownHand).toEqual([]);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'field',card:{ref:'field-owner',cardId:69299029}});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  reduce({type:'twin.place',seat:0,zone:'field',source:'auto',card:{ref:'new-camera-ref',cardId:69299029}});
+  expect(state.seats[0].twin.find(c=>c.ref==='field-owner')?.zone).toBe('field');expect(state.seats[0].knownHand).toHaveLength(1);
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'field-owner',cardId:69299029,slot:2}});
+  expect(state.seats[0].twin.find(c=>c.ref==='field-owner')).toMatchObject({zone:'monster',slot:2});expect(state.seats[0].knownHand).toHaveLength(1);
+  const historical=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone:'monster',anotherCopy:true,card:{ref:'historic-new-copy',cardId:69299029},idempotencyKey:'historic-copy',at:++serial}),{replay:true,twinPlacementGuard:5});
+  expect(historical.seats[0].twin.find(c=>c.ref==='historic-new-copy')).toBeDefined();expect(historical.seats[0].twin.filter(c=>c.zone==='hand')).toHaveLength(1);
+
+  // Held reads have no hold timer, emit only a sure front, and never enter field tracks.
+  const visionPath=new URL('../../../vision/src/field-watcher.ts',import.meta.url).pathname;
+  const vision=await import(visionPath);
+  const heldCard={kind:'face-up',confidence:.99,partial:false,quad:[{x:.05,y:.03},{x:.12,y:.03},{x:.12,y:.16},{x:.05,y:.16}]};
+  const frame={width:640,height:480,data:new Uint8ClampedArray(0)};
+  const sure={tier:'sure',candidates:[{cardId:'29762407',score:.99}],quality:{fallback:false,faceDown:false,partial:false},timingsMs:{}};
+  const evidence={motion:()=>0,sharpness:()=>100,touched:()=>.03,appearance:()=>[.1,.2,.3],halo:()=>[]};
+  const heldEvents:Record<string,unknown>[]=[];
+  let readTier='not sure',reads=0;
+  const heldReader=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},clone:async()=>frame,
+    recognizer:{recognize:async()=>{reads++;return {...sure,tier:readTier};}},onHeldCard:(event:Record<string,unknown>)=>heldEvents.push(event)});
+  let scan=heldReader.observe([heldCard],frame,evidence,10,undefined,undefined,false);
+  expect(scan.cards).toHaveLength(1);expect(scan.read).toBeDefined();await scan.read;
+  expect(heldEvents).toEqual([]);
+  readTier='sure';scan=heldReader.observe([heldCard],frame,evidence,260,undefined,undefined,false);await scan.read;
+  expect(heldEvents).toEqual([expect.objectContaining({type:'held',state:'held',cardId:'29762407'})]);
+  scan=heldReader.observe([heldCard],frame,evidence,510,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(reads).toBe(2);
+  heldReader.reset();
+  const fan={...heldCard,quad:heldCard.quad.map(p=>({x:p.x+.02,y:p.y+.02}))};
+  scan=heldReader.observe([heldCard,fan],frame,evidence,520,undefined,undefined,false);expect(scan.read).toBeUndefined();
+  heldReader.reset();
+  scan=heldReader.observe([heldCard],frame,{...evidence,touched:()=>0},530,undefined,undefined,false);expect(scan.cards).toEqual([]);
+  // A new face at the same spot gets a read. A slow sure read keeps its episode alive.
+  let heldNow=100,heldIdentity='29762407';
+  const episodeEvents:Record<string,unknown>[]=[];
+  const episodes=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
+    recognizer:{recognize:async()=>({...sure,candidates:[{cardId:heldIdentity,score:.99}]})},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
+  scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;
+  heldNow=200;heldIdentity='69299029';
+  const newFace={...evidence,appearance:()=>[.8,.1,.9]};
+  scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
+  expect(episodeEvents.map(e=>e.cardId)).toEqual(['29762407','69299029']);
+  let completeRead!:(value:unknown)=>void;
+  const slowResult=new Promise(resolve=>{completeRead=resolve;});heldNow=300;
+  const slow=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
+    recognizer:{recognize:()=>slowResult},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
+  scan=slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await Promise.resolve();heldNow=2300;completeRead(sure);await scan.read;
+  scan=slow.observe([heldCard],frame,evidence,2301,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(slow.snapshot()).toHaveLength(1);slow.reset();
+  const watcher=vision.createFieldWatcher({profile:{cardBack:{cardId:'back'}},now:()=>10,hidden:()=>false,
+    buffer:{sample:async()=>({frame,at:10})},clone:async()=>frame,analyze:()=>evidence,
+    recognizer:{detectCards:async()=>[heldCard],recognize:async()=>sure},onHeldCard:(event:Record<string,unknown>)=>heldEvents.push(event)});
+  await watcher.tick();await Promise.resolve();await Promise.resolve();
+  expect(watcher.getSnapshot().tracks).toEqual([]);expect(watcher.getSnapshot().held).toHaveLength(1);watcher.dispose();
+
+  // Service persistence and prediction share the existing engine fixture.
+  const session=deckSession('normal');
+  session.service.configure(session.room.slug,'g',session.users[0],{revealedHand:'one-turn'},2000);
+  session.select(session.save([69299029,29762407,...Array.from({length:38},(_,i)=>i+1)]).id);
+  expect(session.service.get(session.room.slug,'g',session.users[0]).revealedHand).toBe('one-turn');
+  expect(session.service.list('g',session.users[0]).find(t=>t.slug===session.room.slug)?.revealedHand).toBe('one-turn');
+  session.start();
+  const seq=session.room.lastSeq;
+  const candidates=session.service.searchCandidates(session.room.slug,'g',session.users[0],0,900001);
+  expect(candidates.map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
+  expect(session.service.get(session.room.slug,'g',session.users[0]).lastSeq).toBe(seq);
+  expect(Array.isArray(session.service.searchCandidates(session.room.slug,'g',session.users[0],1,900001))).toBe(true);
+  const other=setup();other.service.join(other.table.slug,'g',other.users[1],'B',1,1001);
+  expect(()=>other.service.searchCandidates(other.table.slug,'g',other.users[1],0,900001)).toThrow(/owner/i);
+  expect(shared.parseRemoteHandCommand({text:'search Treasures',actorSeat:0,candidates})).toMatchObject({type:'hand.add',cardId:69299029,source:'deck',by});
+  expect(shared.parseRemoteHandCommand({text:'add Temple of the Kings to hand',actorSeat:0,candidates})).toMatchObject({type:'hand.add',cardId:29762407});
+  expect(shared.parseRemoteHandCommand({text:'search Kings',actorSeat:0,candidates})).toBeNull();
+  session.act({type:'effect.activated',source:{cardId:900001}});
+  expect(shared.searchCandidates(session.room.state,0,900001).map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
+  session.act({type:'hand.add',cardId:69299029,source:'deck',by});
+  expect(session.room.state.effectTracking?.origins.find(o=>o.source.cardId===900001)?.announcedCard).toMatchObject({cardId:69299029});
+  expect(session.room.state.seats[0]).toMatchObject({handCount:6,deckCount:34});
+  expect(session.room.events.at(-1)?.messages).toContain("Sulman added Treasures of the Kings to hand (Man with the Mark's effect)");
+  expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  session.act({type:'turn.end'});expect(session.room.state.seats[0].knownHand).toEqual([]);
+  expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  session.act({type:'twin.place',seat:0,zone:'field',card:{ref:'return-to-deck',cardId:69299029}});
+  const deckReturnRef=session.room.state.seats[0].twin.find(c=>c.zone==='field')!.ref;
+  session.act({type:'twin.move',seat:0,cardRef:deckReturnRef,zone:'deck'});
+  expect(session.room.state.seats[0].deckCount).toBe(35);
+  expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  // Session ownership, public snapshots, retries and replay use the same strict actions.
+  const countsSession=deckSession('normal',false);
+  countsSession.select(countsSession.save().id);
+  countsSession.service.join(countsSession.room.slug,'g',countsSession.users[1],'Bob',1,2002);
+  const countDeck=countsSession.save(undefined,[],countsSession.users[1]);
+  countsSession.service.selectDeck(countsSession.room.slug,'g',countsSession.users[1],{savedDeckId:countDeck.id},2003);
+  countsSession.service.ready(countsSession.room.slug,'g',countsSession.users[1],true,2004);
+  countsSession.start();countsSession.act({type:'hand.add',cardId:69299029,source:'deck'});
+  const countRoom=countsSession.room, countService=countsSession.service, countUsers=countsSession.users;
+  const countInput={baseSeq:countRoom.lastSeq,action:{type:'hand.count',actorSeat:0,delta:1,idempotencyKey:'public-count'} satisfies RemoteAction};
+  expect(()=>countService.act(countRoom.slug,'g',countUsers[1],countInput,2200)).toThrow(/actor seat/i);
+  expect(()=>countService.act(countRoom.slug,'g',countUsers[0],{...countInput,action:{...countInput.action,actorSeat:1}},2200)).toThrow(/actor seat/i);
+  expect(countService.get(countRoom.slug,'g',countUsers[0]).lastSeq).toBe(countInput.baseSeq);
+  const publicCount=countService.act(countRoom.slug,'g',countUsers[0],countInput,2201);
+  expect(publicCount.state.seats[0]).toEqual({...countRoom.state.seats[0],handCount:7});
+  const retriedCount=countService.act(countRoom.slug,'g',countUsers[0],countInput,2202);
+  expect(retriedCount.lastSeq).toBe(publicCount.lastSeq);expect(retriedCount.state.seats[0].handCount).toBe(7);
+  const otherCount=countService.act(countRoom.slug,'g',countUsers[1],{baseSeq:publicCount.lastSeq,action:{type:'hand.count',actorSeat:1,value:3,idempotencyKey:'other-count'}},2203);
+  expect(otherCount.state.seats.map(s=>s.handCount)).toEqual([7,3]);
+  expect(otherCount.state.seats[0].deckCount).toBeUndefined();
+  expect(otherCount.state.undo?.before.seats[0].deckCount).toBeUndefined();
+  const countBroadcast=countService.snapshot(countRoom.slug,'g');
+  expect(countBroadcast.state.seats.map(s=>s.handCount)).toEqual([7,3]);
+  expect(countBroadcast.state.seats.every(s=>s.deckCount===undefined)).toBe(true);
+  expect(countBroadcast.events.find(e=>e.id==='public-count')?.action).toMatchObject(countInput.action);
+  for (const viewer of countUsers.slice(0,2))
+    expect(countService.replay(countRoom.slug,'g',viewer)).toEqual(countService.get(countRoom.slug,'g',viewer).state);
+  const countUndo=countService.act(countRoom.slug,'g',countUsers[0],{baseSeq:otherCount.lastSeq,action:{type:'undo',actorSeat:0,targetActionId:'public-count',idempotencyKey:'undo-count'}},2204);
+  expect(countUndo.state.seats.map(s=>s.handCount)).toEqual([6,3]);
+  expect(countUndo.state.seats[0]).toEqual(countRoom.state.seats[0]);
+  for (const viewer of countUsers.slice(0,2))
+    expect(countService.replay(countRoom.slug,'g',viewer)).toEqual(countService.get(countRoom.slug,'g',viewer).state);
+
+  // Existing picker path: an unnamed hand twin, then public camera identity.
+  const picker=deckSession('normal');picker.select(picker.save([69299029,29762407,...Array.from({length:38},(_,i)=>i+1)]).id);picker.start();
+  picker.act({type:'effect.activated',source:{cardId:900001}});
+  const handOrigin=picker.room.state.effectTracking!.origins.find(o=>o.destination==='hand')!;
+  picker.act({type:'twin.place',seat:0,zone:'hand',card:{ref:handOrigin.ref,faceUp:false}});
+  picker.act({type:'card.identified',seat:0,cardRef:handOrigin.ref,cardId:29762407,zone:'hand',source:'auto'});
+  expect(picker.room.state.seats[0]).toMatchObject({handCount:6,deckCount:34,knownHand:[expect.objectContaining({cardId:29762407,source:'deck'})]});
+  picker.act({type:'hand.forget',id:picker.room.state.seats[0].knownHand![0].id});
+  picker.act({type:'card.identified',seat:0,cardRef:handOrigin.ref,cardId:29762407,zone:'hand',source:'auto'});
+  expect(picker.room.state.seats[0].knownHand).toEqual([]);
+  expect(picker.service.replay(picker.room.slug,'g',picker.users[0])).toEqual(picker.room.state);
+  // A private choice becomes one public entry on explicit reveal; announcement cannot duplicate it.
+  const privatePick=originSession();privatePick.act({type:'effect.activated',source:{cardId:73628505}});
+  const privateOrigin=originOf(privatePick);privatePick.act({type:'effect.choose',originId:privateOrigin.id,cardId:47355498});
+  expect(privatePick.room.state.seats[0].knownHand).toEqual([]);
+  privatePick.act({type:'hand.reveal',cardId:47355498});privatePick.act({type:'effect.announce',originId:privateOrigin.id});
+  expect(privatePick.room.state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:47355498,source:'deck'})]);
+  expect(privatePick.room.state.seats[0].handCount).toBe(6);
+
 });

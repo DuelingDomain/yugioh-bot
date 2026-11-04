@@ -63,7 +63,9 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     remoteAssert(selected, "The chosen card origin is no longer available", 409);
     return { ref: selected.ref, card: selected };
   }
-  if (action.anotherCopy) return;
+  const hand = (!context?.replay || context.handKnowledge === 1) ? matches.find(t => t.zone === "hand" && (action.source !== "auto" || !t.departedFrom)) : undefined;
+  const handDestination = remoteFieldZone(action.zone) || pileZone(action.zone);
+  if (action.anotherCopy) return hand && handDestination ? {ref:hand.ref,card:hand} : undefined;
   const at = action.at ?? state.updatedAt, proof = action.copyProof;
   const exact = matches.find(t => t.ref === action.card.ref);
   if (exact && exact.zone === action.zone && remotePhysicalSlot(exact.zone, exact.slot) === remotePhysicalSlot(action.zone, action.card.slot)) {
@@ -80,7 +82,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     if (simultaneous && proof!.simultaneousQuads > matches.length) return;
     return {noop:true};
   }
-  if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return;
+  if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return (!context?.replay || context.handKnowledge === 1) && hand && handDestination ? {ref:hand.ref,card:hand} : undefined;
   if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 5) && action.source === "auto" && remoteFieldZone(action.zone) &&
       !matches.some(t => pileZone(t.zone))) {
     // A missed field card still owns its identity, even after a long correction.
@@ -88,8 +90,11 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone));
     if (owner) return {ref:owner.ref,card:owner};
   }
+  if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
+  if ((!context?.replay || context.handKnowledge === 1) && action.source !== "auto" && hand && handDestination) return {ref:hand.ref,card:hand};
   const field = exact && remoteFieldZone(exact.zone) ? exact : recent ?? matches.find(t => remoteFieldZone(t.zone));
   if (field) return {ref:field.ref,card:field};
+  if ((!context?.replay || context.handKnowledge === 1) && hand && handDestination) return {ref:hand.ref,card:hand};
   // An automatic pile top is an observation, not evidence of another copy.
   // A new physical copy needs a field origin or an explicit copy/fromRef action.
   if ((!context?.replay || context.pileArrivalGuard !== undefined) && action.source === "auto" && pileZone(action.zone) &&

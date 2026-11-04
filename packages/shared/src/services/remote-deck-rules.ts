@@ -1,3 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { loadEngineCardFacts } from './engine-card-facts.js';
+import { searchCandidates, type RemoteSearchKnowledge } from '../remote/search-candidates.js';
+import type { RemoteState } from '../remote/types.js';
 import type Database from "better-sqlite3";
 import { inspectDeck, remoteDeckCardFacts } from "../deck-legality/index.js";
 import type { DuelDeck, DuelDeckValidation } from "../duels/index.js";
@@ -12,6 +17,26 @@ import { remoteAssert } from "../remote/actions.js";
 /** Reads the editor validator's sources without starting an engine duel or calling a host. */
 export function createRemoteDeckRules(db: Database.Database, directory = deckEngineDataDirectory(db.name)) {
   return {
+    search(state: RemoteState, seat: number, recentCardId: number) {
+      const catalog = createInsightCatalog(db, directory);
+      try {
+        const source = catalog.candidate(recentCardId);
+        if (!source) return [];
+        const engine = loadEngineCardFacts(directory);
+        const pool = state.deckChecks.registrations[seat]?.deck.main;
+        const candidates = [...catalog.suggestionCandidates(pool)];
+        const cards = [source.card, ...candidates.filter(c => c.card.id !== source.card.id).map(c => {
+          const fact = engine.get(c.card.id);
+          return fact && (fact.type & 1) && !(fact.type & (0x800000 | 0x4000000)) ? {...c.card, level: fact.level & 0xff} : c.card;
+        })];
+        const path = resolve(process.env.VISION_DATA_DIR ?? resolve(directory, '../vision'), 'related-cards.json');
+        let related: RemoteSearchKnowledge['related'];
+        if (existsSync(path)) {
+          try { related = JSON.parse(readFileSync(path, 'utf8')); } catch { /* Optional prepared prior may be absent during setup. */ }
+        }
+        return searchCandidates(state, seat, recentCardId, {cards, tags: source.tags ? {[source.card.id]:source.tags} : {}, related});
+      } finally { catalog.close(); }
+    },
     effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[]) {
       const catalog=createInsightCatalog(db,directory);
       try {

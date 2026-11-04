@@ -15,6 +15,7 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
     if(next.identified.private || (attached ? !remotePublicCard(attached) : hidden(next.identified.zone) && next.identified.zone!==undefined)) next.identified=null;
     else { delete next.identified.notInDecklist; next.identified.addErrors=[]; }
   }
+  for(const seat of next.seats) if(!seats.has(seat.seat)) delete seat.deckCount;
   for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
     delete card.cardId; delete card.passcode; delete card.name; delete card.race;
   }

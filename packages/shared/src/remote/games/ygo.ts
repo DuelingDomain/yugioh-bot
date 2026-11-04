@@ -1,3 +1,4 @@
+import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch } from "../match.js";
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
@@ -95,6 +96,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     next.phase = phase;
   };
   switch (action.type) {
+    case "hand.add": case "hand.reveal": case "hand.forget": case "hand.count": reduceRemoteHandAction(next, action); break;
     case "phase.set": setPhase(action.phase); break;
     case "phase.advance": {
       const index = phases.findIndex(p => p.id === state.phase);
@@ -210,7 +212,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const ref of action.cardRefs) {
         const card = s.twin.find(c => c.ref === ref);
         remoteAssert(card && card.zone === action.zone, "A card left that pile before it was picked up", 409);
-        delete card.slot; delete card.departedFrom; delete card.publicIdentity; card.zone = "hand"; card.faceUp = false;
+        moveRemoteCardToHand(card);
       }
       break;
     }
@@ -218,6 +220,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   applyRemoteEffectTracking(next, state, deckAction, context);
   next = applyLiveDeckChecks(next, deckAction, context);
+  applyRemoteHand(next, state, action, context);
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
@@ -236,7 +239,7 @@ export const ygoModule: GameModule = {
   initialState({ seatCount, firstSeat = 0, bestOf }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
     return { gameId: "ygo", seatCount, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
-      seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
-      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, updatedAt: 0, undo: null };
+      seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [], knownHand: [] })),
+      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, revealedHand: "until-played", updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
 };
