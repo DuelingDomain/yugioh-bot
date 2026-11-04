@@ -102,6 +102,11 @@ export function publishFieldScan(next: FieldScanState) {
   if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.ready === next.ready && fieldScan.scan === next.scan) return;
   fieldScan = next; for (const listener of scanListeners) listener();
 }
+/** Starts a field scan for my seat when the camera is on and auto-detect is watching; the S key calls it. Returns false when it did nothing. */
+export function runFieldScan(): boolean {
+  if (!fieldScan.enabled || !fieldScan.ready || fieldScan.scanning || !fieldScan.scan) return false;
+  fieldScan.scan(); return true;
+}
 /** The scan state of my seat while auto-detect is on; null for any other seat. */
 export function useFieldScan(seat: number): FieldScanState | null {
   const value = useSyncExternalStore(listener => { scanListeners.add(listener); return () => { scanListeners.delete(listener); }; }, () => fieldScan, () => fieldScan);
