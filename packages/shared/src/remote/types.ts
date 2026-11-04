@@ -10,6 +10,8 @@ export type RemoteRevealedHand = 'until-played' | 'one-turn';
 export type RemoteKnownHandCard = {
   id: string; cardId: number; source: 'deck' | 'gy' | 'banish' | 'extra' | 'field' | 'unknown';
   by?: {cardId: number; name: string}; at: number; revealed: true;
+  /** An explicit owner reveal can publish a Deck addition even when automatic Deck publicity is off. */
+  publicIdentity?: true;
 };
 export type RemoteSeatState = {
   knownHand?: RemoteKnownHandCard[];

@@ -1198,7 +1198,7 @@ export function remoteDeckCardFacts(mode: DuelMode, dataDirectory: string, setti
     if (!card) continue;
     const canonical = canonicalCardCode(code, catalog.cards);
     const max = mode === "domain" ? 1 : 3;
-    facts[raw] = { code, copyKey: prepared.copyGroups[canonical] ?? canonical, name: card.name,
+    facts[raw] = { code, copyKey: prepared.copyGroups[canonical] ?? canonical, name: card.name, type: card.type,
       section: isExtraDeckMonster(card) ? "extra" : "main",
       limit: Math.min(max, limits ? listedLimitForIdentity(componentOf(card, prepared.identities), prepared.identities, catalog, limits) ?? max : max) };
   }

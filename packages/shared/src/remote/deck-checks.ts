@@ -2,7 +2,7 @@ import { DuelSettingsError, normalizeDuelSettings, PINNED_TCG_BANLIST_ID, type D
 import type { DuelDeck, DuelDeckValidation } from "../duels/index.js";
 import type { CardInsightFormat } from "../services/card-insights.js";
 import { remoteAssert, RemoteDuelError } from "./actions.js";
-import type { RemoteState } from "./types.js";
+import type { RemoteState, SeatCount } from "./types.js";
 
 export type RemoteFormat = { id: CardInsightFormat; mode: DuelSettingsMode; settings: DuelSettings };
 export const REMOTE_FORMATS = [
@@ -10,7 +10,7 @@ export const REMOTE_FORMATS = [
   { value: "genesys", label: "Genesys" }, { value: "genesys-domain", label: "Genesys Domain" },
 ] as const;
 /** The same mode, banlist defaults and Genesys normalizer used by ordinary tables. */
-export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown): RemoteFormat {
+export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown, seatCount:SeatCount=2): RemoteFormat {
   remoteAssert(REMOTE_FORMATS.some(f => f.value === id), "Unknown duel format");
   const format = id as CardInsightFormat;
   const mode = format.includes("domain") ? "domain" : "normal";
@@ -21,7 +21,7 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown): 
       ...raw, validateDeck: true,
       banlist: raw.banlist ?? (format === "normal" ? PINNED_TCG_BANLIST_ID : "none"),
       genesys: format.includes("genesys") ? raw.genesys ?? {} : null,
-    });
+    },seatCount===3?'ffa3':seatCount===4?'ffa4':'1v1');
     return { id: format, mode, settings };
   } catch (error) {
     if (error instanceof DuelSettingsError) throw new RemoteDuelError(error.message);
@@ -29,7 +29,7 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown): 
   }
 }
 export type RemoteDeckRegistration = { savedDeckId: number; name: string; deck: DuelDeck; validation: DuelDeckValidation };
-export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra" };
+export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra"; type?: number };
 export type RemoteCardFacts = Record<number, RemoteCardFact>;
 export type RemoteCardInstance = {
   id: string; seat: number; code: number; copyKey: number; name: string; limit: number;
@@ -56,6 +56,10 @@ export type RemoteReductionContext = {
   effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
   privateRecognition?: boolean;
   publicEffectChoice?: boolean;
+  /** Private hand/deck payloads are removed from public event projections. */
+  privateHandIdentity?: boolean;
+  /** Review fixes are versioned independently of the original hand feature. */
+  handReview?: 1;
   facts?: RemoteCardFacts; registration?: RemoteDeckRegistration;
   identified?: { notInDecklist: boolean; addErrors: string[] };
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */

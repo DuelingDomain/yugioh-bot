@@ -80,9 +80,13 @@ writeFileSync(join(deckData, "strings.conf"), "");
   }
   add(25311006, "Triple Tactics Talent", 2);
   add(900001, "Man with the Mark", 33);
+  add(900002, "GY Recovery", 2);
+  add(900003, "Banish Recovery", 2);
   add(69299029, "Treasures of the Kings", 524290);
   add(29762407, "Temple of the Kings", 131074);
   catalog.prepare("update texts set desc=? where id=900001").run('Add 1 "Treasures of the Kings" or "Temple of the Kings" from your Deck to your hand.');
+  catalog.prepare("update texts set desc=? where id=900002").run('Add 1 Spell from your GY to your hand.');
+  catalog.prepare("update texts set desc=? where id=900003").run('Add 1 Spell from your banishment to your hand.');
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
@@ -2009,7 +2013,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
   const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
   let state=ygoModule.initialState({seatCount:2});let serial=0;
-  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`atomic-${++serial}`,at:serial}));
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`atomic-${++serial}`,at:serial}),{facts:{900001:{code:900001,copyKey:900001,name:'Man with the Mark',limit:3,section:'main'}}});
   reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'set',slot:2,faceUp:false,position:'defense'}});
   const before=structuredClone(state);
   reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:true,cardId:46986414,name:'Dark Magician',position:'attack',source:'auto',bestMatch:true});
@@ -2167,7 +2171,182 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const historical=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone:'monster',anotherCopy:true,card:{ref:'historic-new-copy',cardId:69299029},idempotencyKey:'historic-copy',at:++serial}),{replay:true,twinPlacementGuard:5});
   expect(historical.seats[0].twin.find(c=>c.ref==='historic-new-copy')).toBeDefined();expect(historical.seats[0].twin.filter(c=>c.zone==='hand')).toHaveLength(1);
 
-  // Held reads have no hold timer, emit only a sure front, and never enter field tracks.
+  // Review regressions use this same test: private returns, counts, and physical copies.
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'spell-trap',card:{ref:'private-set',cardId:555,faceUp:false}});
+  reduce({type:'twin.move',seat:0,cardRef:'private-set',zone:'hand'});
+  expect(projectRemoteState(state,new Set([1])).seats[0].knownHand).toEqual([]);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'spell-trap',card:{ref:'private-set',cardId:555,faceUp:false}});
+  reduce({type:'hand.add',cardId:555,source:'field'});
+  expect(projectRemoteState(state,new Set([1])).seats[0].knownHand).toEqual([]);
+  state=ygoModule.initialState({seatCount:2});
+  state.seats[0].handCount=4;
+  state.seats[0].twin=[{ref:'link-material',cardId:10,zone:'monster',slot:1,faceUp:true,position:'attack'}];
+  reduce({type:'twin.place',seat:0,zone:'extra-monster',card:{ref:'link',cardId:20,slot:1},summon:{kind:'link',materialRefs:['link-material']}});
+  expect(state.seats[0].handCount).toBe(4);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'turn.end'});
+  state=ygoModule.reduce(state,remoteActionSchema.parse({type:'turn.end',actorSeat:1,idempotencyKey:'review-draw',at:++serial}));
+  expect(state.seats.map(s=>s.handCount)).toEqual([6,6]);
+  expect(ygoModule.parseCommand({text:'draw',actorSeat:0,state})).toEqual({type:'hand.draw',actorSeat:0,count:1});
+  reduce({type:'hand.draw',count:2});expect(state.seats[0].handCount).toBe(8);
+  reduce({type:'deck.count',value:30});
+  reduce({type:'deck.count',delta:-2});expect(state.seats[0].handCount).toBe(10);
+  reduce({type:'deck.count',delta:-1,cause:'other'});expect(state.seats[0].handCount).toBe(10);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'hand.count',value:3});
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'inspect-review',cardId:99}});
+  reduce({type:'pile.lift',seat:0,zone:'graveyard',cardRefs:['inspect-review']});
+  expect(state.seats[0].handCount).toBe(3);
+  reduce({type:'twin.move',seat:0,cardRef:'inspect-review',zone:'graveyard'});
+  expect(state.seats[0].handCount).toBe(3);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  reduce({type:'twin.place',seat:0,zone:'spell-trap',card:{ref:'anonymous-set',slot:1,faceUp:false}});
+  expect(state.seats[0].knownHand).toHaveLength(1);
+  expect(state.seats[0].handCount).toBe(5);
+  reduce({type:'twin.flip',seat:0,cardRef:'anonymous-set',faceUp:true,cardId:69299029});
+  expect(state.seats[0].knownHand).toEqual([]);
+  expect(state.seats[0].twin.filter(c=>c.zone==='hand')).toEqual([]);
+  expect(state.seats[0].handCount).toBe(5);
+  reduce({type:'hand.reveal',cardId:29762407});
+  const beforeNoop=state;
+  reduce({type:'hand.reveal',cardId:29762407});
+  expect(state).toBe(beforeNoop);
+
+  // Review guards must not reject historical actions that the old service accepted.
+  const legacyRepeat=structuredClone(state);
+  legacyRepeat.effectTracking={contexts:{},notes:[],origins:[{id:'legacy-counted',seat:0,ref:'old-search',destination:'hand',source:by,handCounted:true,announceRecommended:true,derivedFrom:'text',pool:[{cardId:69299029,copyKey:69299029,name:'Treasures',copies:1}]}]};
+  expect(()=>ygoModule.reduce(legacyRepeat,remoteActionSchema.parse({type:'hand.add',actorSeat:0,source:'deck',cardId:69299029,by,idempotencyKey:'legacy-repeat',at:++serial}),{replay:true,handKnowledge:1})).not.toThrow();
+  for(const [source,zone] of [['gy','graveyard'],['banish','banished']] as const) {
+    const legacyRecovery=structuredClone(legacyRepeat);
+    legacyRecovery.seats[0].twin.push({ref:'legacy-recovery',cardId:69299029,zone,faceUp:true,position:'attack'});
+    expect(()=>ygoModule.reduce(legacyRecovery,remoteActionSchema.parse({type:'hand.add',actorSeat:0,source,cardId:69299029,by,idempotencyKey:'legacy-recovery',at:++serial}),
+      {replay:true,handKnowledge:1,handReview:1})).not.toThrow();
+  }
+  const proposalsPath=new URL('../../../web/src/lib/remote/field-proposals.ts',import.meta.url).pathname;
+  const fieldProposals=await import(proposalsPath);
+  const departureCard={ref:'departure-race',zone:'monster',slot:1,cardId:42,faceUp:true,position:'attack' as const};
+  expect(fieldProposals.fieldDepartureStillMissing({...departureCard,zone:'graveyard'},departureCard,[])).toBe(false);
+  expect(fieldProposals.fieldDepartureStillMissing({...departureCard,slot:2},departureCard,[])).toBe(false);
+  expect(fieldProposals.fieldDepartureStillMissing(departureCard,departureCard,[])).toBe(true);
+  const pendingField={id:'unread-play',zone:'M1',visible:true,removed:false,state:'candidate',firstSeen:1200};
+  expect(fieldProposals.heldFieldReadPending([pendingField],1000)).toBe(true);
+  expect(fieldProposals.heldFieldReadPending([{...pendingField,state:'identified',cardId:'42'}],1000)).toBe(false);
+
+
+  // Extra Deck facts and tokens also skip the implicit play-from-hand decrement.
+  for(const type of [0x40,0x2000,0x800000,0x4000000,0x4000]) {
+    let countState=ygoModule.initialState({seatCount:2});countState.seats[0].handCount=4;
+    countState=ygoModule.reduce(countState,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref:'non-hand',cardId:42},idempotencyKey:'non-hand',at:++serial}),
+      {facts:{42:{code:42,copyKey:42,name:'Non-hand card',limit:3,section:type===0x4000?'main':'extra',type}}});
+    expect(countState.seats[0].handCount).toBe(4);
+  }
+  for(const firstTurnDraw of [true,false]) {
+    state=ygoModule.initialState({seatCount:3});
+    state.deckChecks.format=shared.normalizeRemoteFormat('domain',{firstTurnDraw,startingHand:5},3);
+    reduce({type:'turn.end'});
+    expect(state.seats.map(s=>s.handCount)).toEqual([firstTurnDraw?6:5,6,5]);
+  }
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'hand.count',value:3});
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'confirm-inspection',cardId:99}});
+  reduce({type:'pile.lift',seat:0,zone:'graveyard',cardRefs:['confirm-inspection']});
+  reduce({type:'hand.add',source:'gy',cardId:99});expect(state.seats[0].handCount).toBe(4);
+  expect(state.seats[0].twin).toHaveLength(1);
+  expect(state.seats[0].twin[0].inspectionFrom).toBeUndefined();
+
+  // A camera read without context is a local suggestion, never a valid write.
+  state=ygoModule.initialState({seatCount:2});
+  const localRead={cardId:69299029,id:'local-read',at:1000};
+  expect(shared.remoteHandReadDecision(state,0,localRead)).toEqual({type:'hand.suggest',actorSeat:0,...localRead});
+  expect(remoteActionSchema.safeParse({...shared.remoteHandReadDecision(state,0,localRead),idempotencyKey:'no-write'}).success).toBe(false);
+  state.effectTracking={contexts:{},notes:[],origins:[{id:'pending-search',seat:0,ref:'search-ref',destination:'hand',source:by,at:900,announceRecommended:true,derivedFrom:'text',pool:[{cardId:69299029,copyKey:69299029,name:'Treasures of the Kings',copies:1}]}]};
+  expect(shared.remoteHandReadDecision(state,0,localRead)).toMatchObject({type:'hand.add',source:'deck',by});
+  expect(shared.remoteHandReadDecision(state,0,localRead,true)?.type).toBe('hand.suggest');
+  state.seats[0].twin.push({ref:'played-candidate',zone:'spell-trap',cardId:69299029,faceUp:true,position:'attack'});
+  expect(shared.remoteHandReadDecision(state,0,localRead)).toBeUndefined();
+  state.seats[0].twin=[];state.effectTracking.origins[0].handCounted=true;
+  expect(shared.remoteHandReadDecision(state,0,localRead)?.type).toBe('hand.suggest');
+  state.effectTracking.origins[0].handCounted=false;
+  expect(shared.remoteHandReadDecision(state,0,{...localRead,at:61000})?.type).toBe('hand.suggest');
+
+  // Search plans retain the physical source through suggestions, voice, camera, and the pile exit.
+  const {CardTags,fillDefaults}=await import('../../src/cards/effects/tags.js');
+  const recoveryCard={id:900002,name:'Recovery',kind:'spell' as const,typeLine:'',subtypes:[],
+    text:'Add 1 Spell from your GY to your hand.',formats:[],views:0,url:''};
+  const recoveredCard={...recoveryCard,id:69299029,name:'Treasures of the Kings',text:''};
+  for(const [source,zone,indexedZone] of [['gy','graveyard','gy'],['banish','banished','banished']] as const) {
+    const card={...recoveryCard,text:`Add 1 Spell from your ${source==='gy'?'GY':'banishment'} to your hand.`};
+    const tags=CardTags.parse(fillDefaults({summary:'Recover a Spell',effects:[{timing:'ignition',actions:[{verb:'add_to_hand',player:'you',from:[indexedZone],what:{kinds:['spell']}}]}]}));
+    const plan=shared.deriveRemoteEffectPlans(card,tags).find(p=>p.destination==='hand');
+    expect(plan).toMatchObject({source,derivedFrom:'effect-index'});
+    expect(shared.deriveRemoteEffectPlans(card).find(p=>p.destination==='hand')).toMatchObject({source});
+    state=ygoModule.initialState({seatCount:2});
+    state.seats[0].handCount=5;state.seats[0].deckCount=35;
+    state.seats[0].twin=[{ref:'recovery-copy',zone,cardId:69299029,faceUp:true,position:'attack'}];
+    const pool=[{cardId:69299029,copyKey:69299029,name:'Treasures of the Kings',copies:1}];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.activated',actorSeat:0,source:{cardId:card.id},idempotencyKey:`recover-${source}`,at:++serial}),
+      {effect:{source:{cardId:card.id,name:card.name},plans:[{...plan!,pool}]}});
+    const candidates=shared.searchCandidates(state,0,card.id);
+    expect(candidates).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(shared.searchCandidates(state,0,card.id,{cards:[card,recoveredCard],tags:{[card.id]:tags}})).toMatchObject(candidates.map(({cardId,name,source,by})=>({cardId,name,source,by})));
+    expect(ygoModule.parseCommand({text:'search Treasures',actorSeat:0,state})).toMatchObject({type:'hand.add',source});
+    const decision=shared.remoteHandReadDecision(state,0,localRead);
+    expect(decision).toMatchObject({type:'hand.add',source,by:{cardId:card.id}});
+    const pending=structuredClone(state);
+    reduce(decision!);
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35,knownHand:[{cardId:69299029,source}]});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'recovery-copy',zone:'hand'})]);
+    expect(state.effectTracking!.origins[0].handCounted).toBe(true);
+    expect(shared.searchCandidates(state,0,card.id)).toEqual([]);
+    expect(()=>reduce(decision!)).toThrow(/already counted/);
+    reduce({type:'undo',targetActionId:state.undo!.actionId});
+    expect(state.seats[0]).toEqual(pending.seats[0]);
+    expect(shared.searchCandidates(state,0,card.id)).toEqual(candidates);
+    const originId=state.effectTracking!.origins[0].id;
+    reduce({type:'effect.choose',originId,cardId:69299029});
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'recovery-copy',zone:'hand'})]);
+    expect(state.seats[0].knownHand?.[0].source).toBe(source);
+    reduce({type:'undo',targetActionId:state.undo!.actionId});
+    expect(state.seats[0]).toEqual(pending.seats[0]);
+    // An inspected pile card keeps its source until the owner confirms the add.
+    reduce({type:'pile.lift',seat:0,zone,cardRefs:['recovery-copy']});
+    expect(shared.searchCandidates(state,0,card.id)).toEqual(candidates);
+    reduce(decision!);
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35});
+    expect(state.seats[0].twin).toHaveLength(1);
+    expect(state.seats[0].twin[0].inspectionFrom).toBeUndefined();
+    expect(state.effectTracking!.origins[0].handCounted).toBe(true);
+  }
+  const targetRecovery={...recoveryCard,text:'Target 1 Spell in your GY; add that target to your hand.'};
+  expect(shared.deriveRemoteEffectPlans(targetRecovery)[0]).toMatchObject({source:'gy',filters:[{kinds:['spell']}]});
+  expect(shared.deriveRemoteEffectPlans({...targetRecovery,text:'Target 1 of your banished monsters; add it to your hand.'})[0]).toMatchObject({source:'banish',filters:[{kinds:['monster']}]});
+  const multiTags=CardTags.parse(fillDefaults({summary:'Recover from either pile',effects:[{timing:'ignition',actions:[
+    {verb:'add_to_hand',player:'you',from:['gy','banished'],what:{kinds:['spell']}},
+  ]}]}));
+  state=ygoModule.initialState({seatCount:2});
+  state.seats[0].twin=[{ref:'gy-choice',zone:'graveyard',cardId:69299029,faceUp:true,position:'attack'},
+    {ref:'banish-choice',zone:'banished',cardId:69299029,faceUp:true,position:'attack'}];
+  const multiPlans=shared.deriveRemoteEffectPlans({...recoveryCard,text:''},multiTags).map(plan=>({...plan,pool:[{cardId:69299029,copyKey:69299029,name:'Treasures of the Kings',copies:1}]}));
+  multiPlans.unshift({...multiPlans[0],source:'deck'});
+  state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.activated',actorSeat:0,source:{cardId:recoveryCard.id},idempotencyKey:'ambiguous-recovery',at:++serial}),
+    {showCardsSetFromDeck:true,effect:{source:{cardId:recoveryCard.id,name:recoveryCard.name},plans:multiPlans}});
+  const multiCandidates=shared.searchCandidates(state,0,recoveryCard.id);
+  expect(multiCandidates.map(c=>c.source)).toEqual(['banish','deck','gy']);
+  expect(shared.parseRemoteHandCommand({text:'search Treasures',actorSeat:0,candidates:multiCandidates})).toBeNull();
+  expect(shared.remoteHandReadDecision(state,0,localRead)?.type).toBe('hand.suggest');
+  for(const source of ['deck','gy'] as const) {
+    const originId=state.effectTracking!.origins.find(o=>o.searchSource===source)!.id;
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.choose',actorSeat:0,originId,cardId:69299029,idempotencyKey:`multi-choice-${source}`,at:++serial}),{showCardsSetFromDeck:true});
+  }
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toEqual([]);
+  expect(state.seats[0].twin.filter(c=>c.zone==='hand')).toHaveLength(2);
+  expect(state.seats[0].knownHand?.map(c=>c.source)).toEqual(['deck','gy']);
+
+  // Held reads require 200 ms of stillness, emit only a sure front, and never enter field tracks.
   const visionPath=new URL('../../../vision/src/field-watcher.ts',import.meta.url).pathname;
   const vision=await import(visionPath);
   const heldCard={kind:'face-up',confidence:.99,partial:false,quad:[{x:.05,y:.03},{x:.12,y:.03},{x:.12,y:.16},{x:.05,y:.16}]};
@@ -2179,9 +2358,10 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const heldReader=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},clone:async()=>frame,
     recognizer:{recognize:async()=>{reads++;return {...sure,tier:readTier};}},onHeldCard:(event:Record<string,unknown>)=>heldEvents.push(event)});
   let scan=heldReader.observe([heldCard],frame,evidence,10,undefined,undefined,false);
-  expect(scan.cards).toHaveLength(1);expect(scan.read).toBeDefined();await scan.read;
+  expect(scan.cards).toHaveLength(1);expect(scan.read).toBeUndefined();
+  scan=heldReader.observe([heldCard],frame,evidence,210,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
   expect(heldEvents).toEqual([]);
-  readTier='sure';scan=heldReader.observe([heldCard],frame,evidence,260,undefined,undefined,false);await scan.read;
+  readTier='sure';scan=heldReader.observe([heldCard],frame,evidence,460,undefined,undefined,false);await scan.read;
   expect(heldEvents).toEqual([expect.objectContaining({type:'held',state:'held',cardId:'29762407'})]);
   scan=heldReader.observe([heldCard],frame,evidence,510,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(reads).toBe(2);
   heldReader.reset();
@@ -2189,27 +2369,80 @@ it('reveals identity and position in one undoable action, then hides a public Se
   scan=heldReader.observe([heldCard,fan],frame,evidence,520,undefined,undefined,false);expect(scan.read).toBeUndefined();
   heldReader.reset();
   scan=heldReader.observe([heldCard],frame,{...evidence,touched:()=>0},530,undefined,undefined,false);expect(scan.cards).toEqual([]);
+  scan=heldReader.observe([heldCard],frame,{...evidence,touched:()=>0,halo:()=>[.7,.4,.3]},540,undefined,undefined,false);expect(scan.cards).toEqual([]);
   // A new face at the same spot gets a read. A slow sure read keeps its episode alive.
   let heldNow=100,heldIdentity='29762407';
   const episodeEvents:Record<string,unknown>[]=[];
   const episodes=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
     recognizer:{recognize:async()=>({...sure,candidates:[{cardId:heldIdentity,score:.99}]})},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
-  scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;
-  heldNow=200;heldIdentity='69299029';
+  scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);expect(scan.read).toBeUndefined();
+  heldNow=300;scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;
+  heldNow=400;heldIdentity='69299029';
   const newFace={...evidence,appearance:()=>[.8,.1,.9]};
-  scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
+  scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeUndefined();
+  heldNow=600;scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
   expect(episodeEvents.map(e=>e.cardId)).toEqual(['29762407','69299029']);
   let completeRead!:(value:unknown)=>void;
-  const slowResult=new Promise(resolve=>{completeRead=resolve;});heldNow=300;
+  const slowResult=new Promise(resolve=>{completeRead=resolve;});heldNow=700;
   const slow=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
     recognizer:{recognize:()=>slowResult},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
-  scan=slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await Promise.resolve();heldNow=2300;completeRead(sure);await scan.read;
+  slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);heldNow=900;
+  scan=slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await Promise.resolve();
+  slow.observe([],frame,evidence,1000,undefined,undefined,true);
+  heldNow=2300;completeRead(sure);await scan.read;expect(episodeEvents).toHaveLength(3);
   scan=slow.observe([heldCard],frame,evidence,2301,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(slow.snapshot()).toHaveLength(1);slow.reset();
+  // Field provenance wins over size and fingers, including a recent invisible field track.
+  let blockedReads=0;
+  const blocked=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},clone:async()=>frame,
+    recognizer:{recognize:async()=>{blockedReads++;return sure;}}});
+  const fieldCard={...heldCard,quad:heldCard.quad.map(p=>({x:p.x+.15,y:p.y+.36}))};
+  blocked.observe([fieldCard],frame,evidence,0,undefined,undefined,false);
+  const lifted={...fieldCard,quad:fieldCard.quad.map(p=>({x:p.x,y:p.y-.17}))};
+  for(const at of [200,450,700,1000])await blocked.observe([lifted],frame,evidence,at,undefined,undefined,false).read;
+  expect(blockedReads).toBe(0);
+  for(const at of [3500,3700,3950])await blocked.observe([heldCard],frame,evidence,at,undefined,undefined,false).read;
+  expect(blockedReads).toBe(0);
+  blocked.reset();
+  const recentTrack={id:'field-before-lift',zone:'M1',card:heldCard,lastSeen:100,firstSeen:0,visible:false,removed:false,state:'identified',faceDown:false,position:'attack'};
+  for(const at of [200,450,700])await blocked.observe([heldCard],frame,evidence,at,undefined,undefined,false,[recentTrack]).read;
+  expect(blockedReads).toBe(0);
+  blocked.reset();
+  blocked.observe([{...fieldCard,kind:'face-down'}],frame,evidence,0,undefined,undefined,false);
+  const flippedAway={...heldCard,quad:heldCard.quad.map(p=>({x:p.x+.4,y:p.y+.88}))};
+  for(const at of [3000,3200,3450])await blocked.observe([flippedAway],frame,{...evidence,appearance:()=>[.8,.1,.9]},at,undefined,undefined,false).read;
+  expect(blockedReads).toBe(0); // An unseen Set can change face before it reappears far away.
+  let tries=0;
+  const retries=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},clone:async()=>frame,
+    recognizer:{recognize:async()=>{tries++;return {...sure,tier:'not sure'};}}});
+  for(const at of [0,200,450,700,950,1200,1450])await retries.observe([heldCard],frame,evidence,at,undefined,undefined,false).read;
+  expect(tries).toBe(3); // Initial read plus two retries.
   const watcher=vision.createFieldWatcher({profile:{cardBack:{cardId:'back'}},now:()=>10,hidden:()=>false,
     buffer:{sample:async()=>({frame,at:10})},clone:async()=>frame,analyze:()=>evidence,
     recognizer:{detectCards:async()=>[heldCard],recognize:async()=>sure},onHeldCard:(event:Record<string,unknown>)=>heldEvents.push(event)});
   await watcher.tick();await Promise.resolve();await Promise.resolve();
   expect(watcher.getSnapshot().tracks).toEqual([]);expect(watcher.getSnapshot().held).toHaveLength(1);watcher.dispose();
+
+  // A held read does not wait for the empty-field idle interval; pending field work gets the next read.
+  let fairAt=0,fairField=false;
+  const fairReads:string[]=[];
+  const cropWidth=96,cropHeight=140,cropData=new Uint8ClampedArray(cropWidth*cropHeight*4);
+  for(let py=0;py<cropHeight;py++)for(let px=0;px<cropWidth;px++){
+    const x=px/cropWidth,y=py/cropHeight;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    cropData.set([...rgb,255],(py*cropWidth+px)*4);
+  }
+  const fair=vision.createFieldWatcher({profile:{cardBack:{cardId:'back'},embedding:{dim:2}},now:()=>fairAt,hidden:()=>false,
+    buffer:{sample:async()=>({frame,at:fairAt})},clone:async()=>frame,
+    analyze:()=>({...evidence,touched:(c:typeof heldCard)=>c.quad[0].x<.15?.03:0,appearance:(c:typeof heldCard)=>c.quad[0].x<.15?[.1,.2,.3]:[.7,.8,.2],crop:()=>({width:cropWidth,height:cropHeight,data:cropData})}),
+    recognizer:{detectCards:async()=>fairField?[heldCard,fieldCard]:[heldCard],recognize:async(_frames:unknown,options:{card:typeof heldCard})=>{
+      const held=options.card.quad[0].x<.15;fairReads.push(held?'held':'field');return {...sure,tier:held?'not sure':'sure'};
+    }}});
+  await fair.tick();fairAt=200;fairField=true;await fair.tick();
+  for(let i=0;i<5;i++)await Promise.resolve();
+  expect(fairReads).toEqual(['held']);
+  fairAt=450;await fair.tick();for(let i=0;i<5;i++)await Promise.resolve();
+  expect(fairReads.slice(0,2)).toEqual(['held','field']);
+  expect(fair.getSnapshot().error).toBeUndefined();fair.dispose();
 
   // Service persistence and prediction share the existing engine fixture.
   const session=deckSession('normal');
@@ -2242,6 +2475,29 @@ it('reveals identity and position in one undoable action, then hides a public Se
   session.act({type:'twin.move',seat:0,cardRef:deckReturnRef,zone:'deck'});
   expect(session.room.state.seats[0].deckCount).toBe(35);
   expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  for(const [source,zone,sourceCardId] of [['gy','graveyard',900002],['banish','banished',900003]] as const) {
+    const recovery=deckSession('normal');recovery.select(recovery.save().id);recovery.start();
+    // The recovered card is outside the registered Deck. Only the current pile determines availability.
+    recovery.act({type:'twin.place',seat:0,zone,card:{ref:'service-recovery',cardId:69299029}});
+    const recoverySearch=()=>recovery.service.searchCandidates(recovery.room.slug,'g',recovery.users[0],0,sourceCardId);
+    const recoverySeq=recovery.room.lastSeq;
+    expect(recoverySearch()).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(recovery.service.get(recovery.room.slug,'g',recovery.users[0]).lastSeq).toBe(recoverySeq);
+    recovery.act({type:'effect.activated',source:{cardId:sourceCardId}});
+    expect(shared.searchCandidates(recovery.room.state,0,sourceCardId)).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    const beforeRecovery=structuredClone(recovery.room.state);
+    const proposal=shared.parseRemoteHandCommand({text:'search Treasures',actorSeat:0,candidates:recoverySearch()});
+    expect(proposal).toMatchObject({type:'hand.add',source});
+    recovery.act(proposal!);
+    expect(recovery.room.state.seats[0]).toMatchObject({handCount:6,deckCount:35,knownHand:[{cardId:69299029,source}]});
+    expect(recovery.room.state.seats[0].twin).toEqual([expect.objectContaining({ref:'service-recovery',zone:'hand'})]);
+    expect(recoverySearch()).toEqual([]);
+    expect(recovery.service.replay(recovery.room.slug,'g',recovery.users[0])).toEqual(recovery.room.state);
+    recovery.act({type:'undo',targetActionId:recovery.room.state.undo!.actionId});
+    expect(recovery.room.state.seats[0]).toEqual(beforeRecovery.seats[0]);
+    expect(recoverySearch()).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(recovery.service.replay(recovery.room.slug,'g',recovery.users[0])).toEqual(recovery.room.state);
+  }
   // Session ownership, public snapshots, retries and replay use the same strict actions.
   const countsSession=deckSession('normal',false);
   countsSession.select(countsSession.save().id);
@@ -2286,6 +2542,58 @@ it('reveals identity and position in one undoable action, then hides a public Se
   picker.act({type:'card.identified',seat:0,cardRef:handOrigin.ref,cardId:29762407,zone:'hand',source:'auto'});
   expect(picker.room.state.seats[0].knownHand).toEqual([]);
   expect(picker.service.replay(picker.room.slug,'g',picker.users[0])).toEqual(picker.room.state);
+  // Both write paths enforce Deck publicity, and repeats cannot count a search twice.
+  for(const show of [true,false]) {
+    const addSearch=originSession(show);addSearch.act({type:'effect.activated',source:{cardId:73628505}});
+    addSearch.act({type:'hand.add',cardId:47355498,source:'deck',by:{cardId:73628505,name:'UNTRUSTED_SOURCE_NAME'}});
+    const publicAdd=addSearch.service.snapshot(addSearch.room.slug,'g');
+    expect(addSearch.room.state.seats[0].knownHand?.[0].by?.name).toBe('Terraforming');
+    expect(publicAdd.state.seats[0].handCount).toBe(6);
+    expect(publicAdd.state.seats[0].knownHand?.length).toBe(show?1:0);
+    expect(publicAdd.state.effectTracking?.origins[0].announcedCard?.cardId).toBe(show?47355498:undefined);
+    if(!show) {
+      expect(JSON.stringify(publicAdd)).not.toContain('Necrovalley');
+      expect(JSON.stringify(publicAdd)).not.toContain('47355498');
+      expect(publicAdd.events.at(-1)?.messages?.join(' ')).toContain('added a card to hand');
+    }
+    expect(JSON.stringify(publicAdd)).not.toContain('UNTRUSTED_SOURCE_NAME');
+    if(!show){
+      const privateSeq=addSearch.room.lastSeq;
+      addSearch.act({type:'hand.reveal',cardId:47355498});
+      expect(addSearch.room.lastSeq).toBe(privateSeq+1);
+      expect(addSearch.service.snapshot(addSearch.room.slug,'g').state.seats[0].knownHand?.map(c=>c.cardId)).toEqual([47355498]);
+      const revealedSeq=addSearch.room.lastSeq;addSearch.act({type:'hand.reveal',cardId:47355498});expect(addSearch.room.lastSeq).toBe(revealedSeq);
+    }
+    const countBefore=structuredClone(addSearch.room.state.seats[0]);
+    expect(()=>addSearch.act({type:'hand.add',cardId:47355498,source:'deck',by:{cardId:73628505,name:'Terraforming'}})).toThrow(/already counted/);
+    expect(addSearch.room.state.seats[0]).toEqual(countBefore);
+    expect(addSearch.service.replay(addSearch.room.slug,'g',addSearch.users[0])).toEqual(addSearch.room.state);
+    if(show) {
+      const noopBefore=addSearch.room;
+      addSearch.act({type:'hand.reveal',cardId:47355498});
+      expect(addSearch.room.lastSeq).toBe(noopBefore.lastSeq);
+      expect(addSearch.room.state.undo?.actionId).toBe(noopBefore.state.undo?.actionId);
+    }
+  }
+  const countedPick=originSession(true);countedPick.act({type:'effect.activated',source:{cardId:73628505}});
+  countedPick.act({type:'effect.choose',originId:originOf(countedPick).id,cardId:47355498});
+  expect(()=>countedPick.act({type:'hand.add',cardId:47355498,source:'deck',by:{cardId:73628505,name:'Terraforming'}})).toThrow(/already counted/);
+  // Playing another eligible card does not consume the searched copy or change its origin.
+  const searchedCopy=originOf(countedPick).ref;
+  countedPick.act({type:'twin.place',seat:0,zone:'field',card:{ref:'other-search-candidate',cardId:67616300}});
+  expect(countedPick.room.state.seats[0].twin.find(c=>c.ref===searchedCopy)?.zone).toBe('hand');
+  expect(countedPick.room.state.seats[0].knownHand?.map(c=>c.cardId)).toEqual([47355498]);
+  for(const actionType of ['twin.move','hand.add']) {
+    const setReturn=originSession();
+    setReturn.act({type:'twin.place',seat:0,zone:'spell-trap',card:{ref:'private-return',cardId:555,faceUp:false,name:'PRIVATE_SET_SENTINEL'}});
+    setReturn.act(actionType==='twin.move'?{type:'twin.move',seat:0,cardRef:'private-return',zone:'hand',name:'PRIVATE_SET_SENTINEL'}:{type:'hand.add',cardId:555,source:'field'});
+    const publicReturn=setReturn.service.snapshot(setReturn.room.slug,'g');
+    expect(publicReturn.state.seats[0].knownHand).toEqual([]);
+    expect(JSON.stringify(publicReturn)).not.toContain('PRIVATE_SET_SENTINEL');
+    expect(publicReturn.events.at(-1)?.messages?.join(' ')).toContain('a Set card returned to hand');
+    expect(setReturn.service.replay(setReturn.room.slug,'g',setReturn.users[0])).toEqual(setReturn.room.state);
+  }
+
   // A private choice becomes one public entry on explicit reveal; announcement cannot duplicate it.
   const privatePick=originSession();privatePick.act({type:'effect.activated',source:{cardId:73628505}});
   const privateOrigin=originOf(privatePick);privatePick.act({type:'effect.choose',originId:privateOrigin.id,cardId:47355498});

@@ -1,15 +1,19 @@
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { remotePublicCard, remotePublicZone, type RemoteReductionContext } from "./deck-checks.js";
-import type { RemoteEffectCandidate, RemoteEffectPlan, RemoteEffectSource } from "./effect-filters.js";
+import { REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectCandidate, type RemoteEffectPlan, type RemoteEffectSource } from "./effect-filters.js";
+import { reduceRemoteHandAction } from "./hand.js";
 import type { RemoteState } from "./types.js";
 export type RemoteEffectOrigin = {
   id: string; seat: number; ref: string; destination: "set" | "hand"; source: RemoteEffectSource;
+  /** Physical search source. Historical Deck origins omit this field. */
+  searchSource?: RemoteEffectPlan['source'];
   announceRecommended: boolean; derivedFrom: RemoteEffectPlan["derivedFrom"];
   /** Candidates and the controller's selection bookkeeping remain private, even for a public choice. */
   pool?: RemoteEffectCandidate[]; candidates?: RemoteEffectCandidate[]; eligibleIds?: number[]; chosenCardId?: number;
   /** Server hand bookkeeping; prevents repeat publication after Forget or turn expiry. */
   handCounted?: boolean; handRecorded?: boolean;
   minimumCopies?: number; announcedCard?: {cardId:number;name:string}; revealedCardId?: number;
+  at?: number;
 };
 export type RemoteEffectContext = { id: string; source: RemoteEffectSource; plan: RemoteEffectPlan; at: number };
 export type RemoteEffectTracking = {
@@ -18,10 +22,12 @@ export type RemoteEffectTracking = {
   notes: {id:string;seat:number;originId:string;message:string;dismissed:boolean}[];
 };
 export const initialEffectTracking = (): RemoteEffectTracking => ({contexts:{},origins:[],notes:[]});
-export function availableEffectCandidates(state: RemoteState, pool: RemoteEffectCandidate[], seat: number, minimumCopies = 1): RemoteEffectCandidate[] {
+export function availableEffectCandidates(state: RemoteState, pool: RemoteEffectCandidate[], seat: number, minimumCopies = 1, source:RemoteEffectPlan['source']='deck'): RemoteEffectCandidate[] {
   return pool.flatMap(candidate=>{
     const seen=state.deckChecks.instances.filter(i=>i.seat===seat && i.copyKey===candidate.copyKey && i.public).length;
-    const copies=Math.max(0,candidate.copies-seen);
+    const zone=REMOTE_SEARCH_SOURCE_ZONES[source];
+    const copies=source==='deck' ? Math.max(0,candidate.copies-seen) : state.seats[seat].twin.filter(c=>
+      (c.zone===zone || c.zone==='hand'&&c.inspectionFrom===zone)&&(c.cardId??c.passcode)===candidate.cardId).length;
     return copies>=minimumCopies ? [{...candidate,copies}] : [];
   });
 }
@@ -32,9 +38,10 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
   if (before.phase!==next.phase || before.turn!==next.turn) tracking.contexts={};
   for(const [seat, active] of Object.entries(tracking.contexts)) if ((action.at ?? next.updatedAt)-active.at>120_000 || next.seats[Number(seat)].eliminated) delete tracking.contexts[Number(seat)];
   const newOrigin=(id:string, seat:number, ref:string, source:RemoteEffectSource, plan:RemoteEffectPlan) => {
-    const candidates=availableEffectCandidates(next,plan.pool,seat,plan.minimumCopies);
+    const candidates=availableEffectCandidates(next,plan.pool,seat,plan.minimumCopies,plan.source);
     const origin: RemoteEffectOrigin={id,seat,ref,source,destination:plan.destination,announceRecommended:plan.announceRecommended,derivedFrom:plan.derivedFrom,
-      minimumCopies:plan.minimumCopies,pool:structuredClone(plan.pool),candidates,eligibleIds:candidates.map(c=>c.cardId)};
+      ...(plan.source ? {searchSource:plan.source} : {}),
+      minimumCopies:plan.minimumCopies,pool:structuredClone(plan.pool),candidates,eligibleIds:candidates.map(c=>c.cardId),...(!context.replay||context.handReview===1?{at:action.at??next.updatedAt}:{})};
     tracking.origins.push(origin);
     publish.add(origin.id);
     const twin=next.seats[seat].twin.find(c=>c.ref===ref); if(twin && plan.destination==="set") twin.setBy=source;
@@ -50,7 +57,10 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
         const prepared=plan.minimumCopies>1 ? {...plan,minimumCopies:1,pool:plan.pool.filter(c=>eligible.some(e=>e.cardId===c.cardId))} : plan;
         tracking.contexts[action.actorSeat]={id:action.idempotencyKey,source:context.effect.source,plan:prepared,at:action.at ?? next.updatedAt};
       }
-      else newOrigin(action.idempotencyKey+":hand",action.actorSeat,"search-"+action.idempotencyKey.slice(0,90),context.effect.source,plan);
+      else {
+        const suffix=plan.source&&plan.source!=='deck'?':'+plan.source:'';
+        newOrigin(action.idempotencyKey+":hand"+suffix,action.actorSeat,"search-"+action.idempotencyKey.slice(0,90-suffix.length)+suffix,context.effect.source,plan);
+      }
     }
     const sourceRef=context.effect.source.cardRef;
     const source=sourceRef ? next.seats[action.actorSeat].twin.find(c=>c.ref===sourceRef) : undefined;
@@ -73,6 +83,12 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
       remoteAssert(pick,"Choose an available candidate",409);
       origin.chosenCardId=pick.cardId;
       publish.add(origin.id);
+      if(origin.destination==='hand' && origin.searchSource && origin.searchSource!=='deck') {
+        reduceRemoteHandAction(next,{...action,type:'hand.add',source:origin.searchSource,by:origin.source},context);
+        origin.ref=next.seats[origin.seat].twin.find(c=>c.zone==='hand'&&!c.inspectionFrom&&(c.cardId??c.passcode)===pick.cardId&&
+          before.seats[origin.seat].twin.some(old=>old.ref===c.ref&&(old.zone!=='hand'||old.inspectionFrom)))!.ref;
+        origin.handRecorded=true;
+      }
       let twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
       if(!twin && origin.destination==="hand") {
         remoteAssert(next.seats[origin.seat].twin.length<100,"Field is full",409);
@@ -117,7 +133,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
         if(!tracking.notes.some(n=>n.originId===origin.id && n.message===message)) tracking.notes.push({id:"note:"+action.idempotencyKey.slice(0,80)+":"+tracking.notes.length,seat:origin.seat,originId:origin.id,message,dismissed:false});
       }
     }
-    if(origin.pool) origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
+    if(origin.pool) origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
   }
 }
 
