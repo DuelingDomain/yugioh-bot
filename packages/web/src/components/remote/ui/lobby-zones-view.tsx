@@ -1,41 +1,40 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Check, Crosshair, LassoSelect } from "lucide-react";
-import type { FieldCalibration, FieldFormat, ZoneOverrides } from "@yugidraft/vision";
+import { Check, Crosshair } from "lucide-react";
+import { createFieldCalibration, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
-import { ZONE_SPACING } from "@/lib/remote/use-field-watcher";
-import { defaultSideFor, displayCalibration } from "@/lib/remote/zone-grid";
-import { useZoneEditor, ZoneEditorOverlay, ZoneEditorToolbar } from "../zone-editor";
+import { defaultSideFor } from "@/lib/remote/zone-grid";
+import { FieldMoveSurface, FieldTransformControls, useFieldTransform } from "../field-transform";
 import { FieldOrientationControls } from "../field-orientation";
 import { PreviewGrid } from "./lobby-preview-grid";
 import s from "./lobby-zones-view.module.css";
 
 /**
  * The large check for the lobby webcam: the live feed under the zone grid, as big as the screen allows.
- * Side, spacing and Redo are here, so the zones can be judged and fixed in one place. "Looks good" closes it.
+ * Move, size, width, height, flip, undo, reset and Recalibrate are here, so the grid can be judged and fixed in one place.
+ * The zones keep their shape; only the whole grid moves. "Looks good" closes it.
  * Escape closes it too, and focus goes back to the control that opened it (or to `restoreFocus`).
  */
-export function LobbyZonesView({ stream, ratio, format, calibration, calibrated, changed = false, onConfirm, zoneSpacing, restoreFocus, onChange, onSpacing, onZones, onRedo, onClose }: {
-  stream: MediaStream | null; ratio: number; format: FieldFormat; calibration?: FieldCalibration; calibrated: boolean; zoneSpacing: number;
+export function LobbyZonesView({ stream, ratio, format, calibration, calibrated, changed = false, onConfirm, restoreFocus, onChange, onRedo, onClose }: {
+  stream: MediaStream | null; ratio: number; format: FieldFormat; calibration?: FieldCalibration; calibrated: boolean;
   /** The saved zones were made with an older layout: shown for a check, and "Looks good" confirms them. */ changed?: boolean; onConfirm?(): void;
   restoreFocus?: () => HTMLElement | null;
-  onChange(value: FieldCalibration): void; onSpacing(value: number): void; onZones(zones: ZoneOverrides | undefined): void; onRedo(): void; onClose(): void;
+  onChange(value: FieldCalibration): void; onRedo(): void; onClose(): void;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
   const restore = useRef(restoreFocus); restore.current = restoreFocus;
   const video = useRef<HTMLVideoElement>(null);
-  const [editing, setEditing] = useState(false);
-  const editingRef = useRef(false); editingRef.current = editing;
-  const shown = displayCalibration(calibration, defaultSideFor("webcam"));
-  const editor = useZoneEditor(shown, format);
   const usable = calibrated || changed;
-  const wasEditing = useRef(false);
-  const edit = () => { editor.begin(calibration?.zones); setEditing(true); };
-  // Done and Cancel remove the editor; focus goes back to the button that opened it.
-  useEffect(() => { if (wasEditing.current && !editing) dialog.current?.querySelector<HTMLElement>('[data-testid="lobby-zones-edit"]')?.focus({ preventScroll: true }); wasEditing.current = editing; }, [editing]);
+  const latest = useRef(calibration); latest.current = calibration;
+  // Every change is saved at once, with the side the player already set.
+  const tf = useFieldTransform(calibration?.corners, corners => {
+    const side = latest.current?.orientation;
+    if (!side) return;
+    try { onChange(createFieldCalibration(corners, side)); } catch { /* the transform keeps the field inside the picture */ }
+  });
 
   useEffect(() => {
     const el = video.current;
@@ -53,7 +52,7 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
     modal.focus({ preventScroll: true });
     const focusable = () => Array.from(modal.querySelectorAll<HTMLElement>('button:not(:disabled),summary,input:not(:disabled),[tabindex="0"]'));
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (editingRef.current) setEditing(false); else close.current(); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close.current(); return; }
       if (event.key !== "Tab") return;
       const items = focusable(), first = items[0], last = items.at(-1);
       if (!first) { event.preventDefault(); modal.focus(); }
@@ -80,26 +79,18 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
       </header>
       <div className={s.stage} style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}>
         <video ref={video} className={s.video} autoPlay muted playsInline data-testid="lobby-zones-view-video" />
-        {editing
-          ? <ZoneEditorOverlay editor={editor} ratio={ratio} />
-          : <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!usable} large ratio={ratio} />}
+        <PreviewGrid calibration={calibration} format={format} kind="webcam" guess={!usable} large ratio={ratio} />
+        {usable ? <FieldMoveSurface tf={tf} /> : null}
       </div>
       <div className={s.controls}>
-        {editing ? <ZoneEditorToolbar editor={editor} onCancel={() => setEditing(false)} onDone={zones => { setEditing(false); onZones(Object.keys(zones).length ? zones : undefined); }} />
-        : usable ? <>
+        {usable ? <>
           <FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("webcam")} confirmHint={false} onChange={onChange} />
-          <label className={s.spacing}>
-            <span>Zone spacing</span>
-            <input type="range" min={ZONE_SPACING.min} max={ZONE_SPACING.max} step={ZONE_SPACING.step} value={zoneSpacing}
-              onChange={event => onSpacing(Number(event.currentTarget.value))} data-testid="lobby-zones-spacing" aria-valuetext={`${zoneSpacing.toFixed(2)} times`} />
-            <output>{zoneSpacing.toFixed(2)}×</output>
-          </label>
-        </> : <p className={s.note}>Press Calibrate zones to place the grid on your mat. Then you can set the side and the zone spacing here.</p>}
-        {editing ? null : <div className={s.actions}>
-          {usable ? <SheetButton size="sm" onClick={edit} data-testid="lobby-zones-edit"><LassoSelect size={14} strokeWidth={1.6} aria-hidden /> Edit zones</SheetButton> : null}
-          <SheetButton size="sm" onClick={onRedo} data-testid="lobby-zones-view-calibrate">{usable ? "Redo" : "Calibrate zones"}</SheetButton>
+          <FieldTransformControls tf={tf} />
+        </> : <p className={s.note}>Press Calibrate zones to place the grid on your mat. Then you can move it, resize it and set the side here.</p>}
+        <div className={s.actions}>
+          <SheetButton size="sm" onClick={onRedo} data-testid="lobby-zones-view-calibrate">{usable ? "Recalibrate" : "Calibrate zones"}</SheetButton>
           <SheetButton kind="primary" size="sm" onClick={() => { if (changed) onConfirm?.(); onClose(); }} data-testid="lobby-zones-view-done">Looks good</SheetButton>
-        </div>}
+        </div>
       </div>
     </div>
   </div>, document.body);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { defaultGridCalibration, isPlacedCalibration } from './zone-grid';
-import { createFieldCalibration, createFieldWatcher, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
+import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
 export interface UseFieldWatcherOptions {
@@ -10,7 +10,7 @@ export interface UseFieldWatcherOptions {
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
 }
 export const fieldCalibrationKey=(seatKey:string,deviceKey?:string)=>`dd-field-watcher:v1:${seatKey}${deviceKey?`:device:${encodeURIComponent(deviceKey)}`:''}`;
-interface SavedRecord {enabled?:boolean;calibration?:FieldCalibration;cameraId?:string;cameraLabel?:string;placed?:boolean;zoneSpacing?:number}
+interface SavedRecord {enabled?:boolean;calibration?:FieldCalibration;cameraId?:string;cameraLabel?:string;placed?:boolean}
 const parseRecord=(raw:string|null):SavedRecord|undefined=>{
   if(!raw)return undefined;
   try{const value=JSON.parse(raw);return value&&typeof value==='object'&&!Array.isArray(value)?value:undefined;}catch{return undefined;}
@@ -41,7 +41,7 @@ function pickRecord(seatKey:string,deviceKey?:string,label?:string):SavedRecord|
   // Another camera for the same seat: keep which side the player sits on, but not the other camera's corners.
   const orientation=last.calibration?.orientation;
   if(!orientation)return undefined;
-  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation,last.calibration?.zoneSpacing,last.calibration?.zones),placed:false};}catch{return undefined;}
+  try{return {enabled:last.enabled,calibration:createFieldCalibration(defaultGridCalibration().corners,orientation),placed:false};}catch{return undefined;}
 }
 function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
   try {
@@ -52,32 +52,32 @@ function readSaved(seatKey:string,deviceKey?:string,label?:string):SavedRecord {
 }
 /** A record made before the saved flag counts as placed when its corners left the first guess. */
 const isPlaced=(saved:SavedRecord,calibration?:FieldCalibration)=>saved.placed??isPlacedCalibration(calibration);
-/** How far apart the zones are drawn: 1 = as placed, more = more room between zones (sideways set cards). */
-export const ZONE_SPACING={min:.85,max:1.4,step:.05,default:1} as const;
-export const clampZoneSpacing=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)?Number((Math.round(Math.min(ZONE_SPACING.max,Math.max(ZONE_SPACING.min,value))/ZONE_SPACING.step)*ZONE_SPACING.step).toFixed(2)):ZONE_SPACING.default;
-/** Lobby and table share the same seat + camera record, including orientation and whether the zones were placed. */
-export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;zoneSpacing:number;layoutChanged:boolean} {
+/**
+ * Lobby and table share the same seat + camera record, including orientation and whether the field was placed.
+ * The calibration is remembered per user and camera: a saved record is reused without asking; only a camera with no record asks.
+ * Records saved with per-zone edits or a zone spacing come back as the whole-field fit of their outer box.
+ */
+export function loadFieldCalibrationRecord(seatKey:string,deviceKey?:string,label?:string):{calibration?:FieldCalibration;placed:boolean;layoutChanged:boolean} {
   try {
-    const saved=readSaved(seatKey,deviceKey,label),spacing=clampZoneSpacing(saved.calibration?.zoneSpacing??saved.zoneSpacing);
-    const calibration=saved.calibration?createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,spacing,saved.calibration.zones):undefined;
+    const saved=readSaved(seatKey,deviceKey,label);
+    const calibration=saved.calibration?flattenFieldCalibration(createFieldCalibration(saved.calibration.corners,saved.calibration.orientation,saved.calibration.zoneSpacing,saved.calibration.zones) ):undefined;
     // A record confirmed under an older zone layout lines its zones up differently: it stays unconfirmed until the player checks it again.
     const confirmed=!!calibration?.orientation&&isPlaced(saved,calibration),current=saved.calibration?.layout===FIELD_ZONE_LAYOUT;
-    return {calibration,placed:confirmed&&current,zoneSpacing:spacing,layoutChanged:confirmed&&!current};
-  }catch{return {placed:false,zoneSpacing:ZONE_SPACING.default,layoutChanged:false};}
+    return {calibration,placed:confirmed&&current,layoutChanged:confirmed&&!current};
+  }catch{return {placed:false,layoutChanged:false};}
 }
 export function loadFieldCalibration(seatKey:string,deviceKey?:string,label?:string):FieldCalibration|undefined {
   return loadFieldCalibrationRecord(seatKey,deviceKey,label).calibration;
 }
 /** `placed` marks a save from the calibration dialog; a side flip leaves it as it was. */
-export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string,meta:{label?:string;placed?:boolean;zoneSpacing?:number}={}) {
+export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,cameraId?:string,meta:{label?:string;placed?:boolean}={}) {
   try {
     const before=readSaved(seatKey,cameraId,meta.label);
-    const zoneSpacing=clampZoneSpacing(meta.zoneSpacing??grid.zoneSpacing??before.zoneSpacing);
     const placed=meta.placed??isPlaced(before,before.calibration);
     // Only a confirmed save carries the current layout mark; edits to an older record keep it marked as old until "Looks good".
     const confirmed=meta.placed===true||before.calibration?.layout===FIELD_ZONE_LAYOUT;
-    const calibration={...createFieldCalibration(grid.corners,grid.orientation,zoneSpacing,grid.zones),...(confirmed?{}:{layout:undefined})};
-    const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed,zoneSpacing};
+    const calibration={...createFieldCalibration(grid.corners,grid.orientation),...(confirmed?{}:{layout:undefined})};
+    const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.
     if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));
@@ -105,7 +105,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     setGrid(record.calibration);setPlaced(record.placed);
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel]);
-  const save=useCallback((on:boolean,grid?:FieldCalibration,isPlacedNow=placedRef.current)=>{try{const value=JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey,cameraLabel:options.deviceLabel,placed:isPlacedNow,zoneSpacing:readSaved(options.seatKey,options.deviceKey,options.deviceLabel).zoneSpacing});localStorage.setItem(storageKey,value);
+  const save=useCallback((on:boolean,grid?:FieldCalibration,isPlacedNow=placedRef.current)=>{try{const value=JSON.stringify({enabled:on,calibration:grid,cameraId:options.deviceKey,cameraLabel:options.deviceLabel,placed:isPlacedNow});localStorage.setItem(storageKey,value);
     // Same last-camera pointer the lobby writes, so a flip made at the table shows in the lobby and the reverse.
     if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.deviceLabel,options.seatKey]);
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);

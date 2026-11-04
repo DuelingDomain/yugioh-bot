@@ -597,37 +597,26 @@ test.describe("remote lobby camera step", () => {
     await page.getByTestId("lobby-cam-calibrate").click();
     const dialog = page.getByRole("dialog", { name: "Calibrate field zones" });
     await dialog.getByTestId("camera-faces-me").click();
-    await dialog.getByRole("button", { name: "Top-left grid corner" }).focus();
-    for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight");
+    // The whole grid moves with the arrow keys; there are no per-zone or per-corner handles.
+    await expect(dialog.getByRole("button", { name: /grid corner/ })).toHaveCount(0);
+    await dialog.getByTestId("field-move").focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
     await dialog.getByRole("button", { name: "Save calibration" }).click();
     // The large live check opens after the save. "Looks good" closes it, and the lobby shows Calibrated.
     const view = page.getByTestId("lobby-zones-view");
     await expect(view).toBeVisible();
     await shot(page, "lobby-zones-view");
-    // The spacing slider writes the saved record and the grid in the view follows it: the cells get wider.
+    // The width slider changes the whole grid at once and saves it; the zones keep their shape (M3 and M4 stay the same size). Undo brings the width back.
     const gridWidth = () => view.locator("polygon").evaluateAll(polygons => { const xs = polygons.flatMap(p => (p.getAttribute("points") ?? "").split(" ").map(pair => Number(pair.split(",")[0]))); return Math.max(...xs) - Math.min(...xs); });
-    const narrow = await gridWidth();
-    await view.getByTestId("lobby-zones-spacing").fill("1.3");
-    await expect(view.getByTestId("lobby-cam-grid")).toHaveAttribute("data-spacing", "1.3");
-    expect(await gridWidth()).toBeGreaterThan(narrow + 50);
-    // Edit zones: select M3, drag one edge handle, press Done. The saved rectangle is the one the table draws below.
-    const zonePoints = (zone: string) => view.locator(`polygon[data-zone="${zone}"]`);
-    const before = (await zonePoints("M3").getAttribute("points"))!, m4Before = (await zonePoints("M4").getAttribute("points"))!;
-    await view.getByTestId("lobby-zones-edit").click();
-    const editor = view.getByTestId("zone-editor");
-    await expect(editor).toBeVisible();
-    await shot(page, "lobby-zones-edit");
-    const cell = (await editor.locator('polygon[data-zone="M3"]').boundingBox())!;
-    await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
-    await expect(view.getByTestId("zone-editor-status")).toContainText("1 selected: M3");
-    const grip = (await view.getByTestId("zone-handle-e").boundingBox())!;
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-    await page.mouse.down(); await page.mouse.move(grip.x + grip.width / 2 + 40, grip.y + grip.height / 2, { steps: 6 }); await page.mouse.up();
+    const cellWidth = async (zone: string) => { const xs = ((await view.locator(`polygon[data-zone="${zone}"]`).getAttribute("points")) ?? "").split(" ").map(pair => Number(pair.split(",")[0])); return Math.max(...xs) - Math.min(...xs); };
+    const wide = await gridWidth(), m3Wide = await cellWidth("M3");
+    await view.getByTestId("field-width").fill("0.8");
+    await expect.poll(gridWidth).toBeLessThan(wide - 50);
+    expect(Math.abs((await cellWidth("M3")) - (await cellWidth("M4")))).toBeLessThan(2);
     await shot(page, "lobby-zones-edited");
-    await view.getByTestId("zone-editor-done").click();
-    // The edit is read with a poll, not once: the view redraws after Done. Only M3 changes.
-    await expect(zonePoints("M3")).not.toHaveAttribute("points", before);
-    await expect(zonePoints("M4")).toHaveAttribute("points", m4Before);
+    await view.getByTestId("field-undo").click();
+    await expect.poll(async () => Math.abs((await gridWidth()) - wide)).toBeLessThan(2);
+    expect(Math.abs((await cellWidth("M3")) - m3Wide)).toBeLessThan(2);
     await view.getByTestId("lobby-zones-view-done").click();
     await expect(view).toBeHidden();
     await expect(zones).toHaveAttribute("data-state", "done");

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug } from "@/lib/remote/zone-grid";
+import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration } from "@yugidraft/vision";
@@ -83,8 +83,8 @@ const top = (quad: readonly { x: number; y: number }[]) => ({ x: Math.min(...qua
  * the motion crop, and every track with its id, state and last decision. Local only.
  */
 export function FieldDebugOverlay({ box }: { box: Box | null }) {
-  const view = useFieldDebug();
-  if (!box || !view) return null;
+  const view = useFieldDebug(), allowed = useFieldDeveloper();
+  if (!allowed || !box || !view) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
   const debug = view.debug, live = view.tracks.filter(t => !t.removed);
   return <>

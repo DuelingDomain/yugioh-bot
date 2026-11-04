@@ -12,7 +12,7 @@ import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt 
 import { useVideoHub, useFieldBacks, type Health } from "./video-hub";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
-import { readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldScan } from "@/lib/remote/zone-grid";
+import { readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper, useFieldScan } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 
@@ -139,7 +139,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   // "Show zone grid": on by default for my own feed, off for opponents, remembered on this device.
   const [gridOn, setGridOn] = useState(you); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
-  const debugOn = useFieldDebugEnabled();
+  const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper();
   const fieldScan = useFieldScan(seat);
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
@@ -544,7 +544,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn} onClick={toggleGrid} data-testid="zone-grid-toggle" title={you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
-        {you ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
+        {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && fieldScan ? <button type="button" className={s.fzbtn} disabled={fieldScan.scanning} onClick={() => fieldScan.scan?.()} data-testid="field-scan" title="Compare the camera with the board now and fix differences">{fieldScan.scanning ? "Scanning…" : "Scan field"}</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}

@@ -37,7 +37,7 @@ export function displayCalibration(calibration: FieldCalibration | undefined, de
   if (calibration?.orientation) return calibration;
   const cache = calibration ? guessedFrom.get(calibration) ?? guessedFrom.set(calibration, new Map()).get(calibration)! : guessed;
   let value = cache.get(defaultSide);
-  if (!value) { value = createFieldCalibration(calibration?.corners ?? DEFAULT_GRID_CORNERS, { playerSide: defaultSide, mirrored: false },calibration?.zoneSpacing,calibration?.zones); cache.set(defaultSide, value); }
+  if (!value) { value = createFieldCalibration(calibration?.corners ?? DEFAULT_GRID_CORNERS, { playerSide: defaultSide, mirrored: false }); cache.set(defaultSide, value); }
   return value;
 }
 
@@ -122,12 +122,15 @@ export function writeGridPref(own: boolean, on: boolean) { try { localStorage.se
 
 /** Owner debug overlay: what the field watcher saw on its last scan. Own feed only, never sent to other seats. */
 export interface FieldDebugView { debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number; writeError?: string; backend?: string }
-let debugOn = false, debugView: FieldDebugView | null = null;
+/** Debug tools are for developers only: the server says so (`room.isDeveloper`); the saved switch alone never turns them on. */
+let debugPref = false, developer = false, debugOn = false, debugView: FieldDebugView | null = null;
 const debugListeners = new Set<() => void>();
 const debugNotify = () => { for (const listener of debugListeners) listener(); };
-try { debugOn = typeof localStorage !== "undefined" && localStorage.getItem("dd-field-debug") === "1"; } catch { /* storage may be blocked */ }
+try { debugPref = typeof localStorage !== "undefined" && localStorage.getItem("dd-field-debug") === "1"; } catch { /* storage may be blocked */ }
 export const fieldDebugEnabled = () => debugOn;
-export function setFieldDebugEnabled(on: boolean) { debugOn = on; if (!on) debugView = null; try { localStorage.setItem("dd-field-debug", on ? "1" : "0"); } catch { /* storage may be blocked */ } debugNotify(); }
+export function setFieldDeveloper(on: boolean) { if (developer === on) return; developer = on; debugOn = developer && debugPref; if (!debugOn) debugView = null; debugNotify(); }
+export const useFieldDeveloper = () => useSyncExternalStore(subscribeDebug, () => developer, () => false);
+export function setFieldDebugEnabled(on: boolean) { debugPref = on; debugOn = developer && on; if (!debugOn) debugView = null; try { localStorage.setItem("dd-field-debug", on ? "1" : "0"); } catch { /* storage may be blocked */ } debugNotify(); }
 export function publishFieldDebug(next: FieldDebugView | null) { if (!debugOn && next) return; debugView = next; debugNotify(); }
 const subscribeDebug = (listener: () => void) => { debugListeners.add(listener); return () => { debugListeners.delete(listener); }; };
 export const useFieldDebugEnabled = () => useSyncExternalStore(subscribeDebug, () => debugOn, () => false);

@@ -80,4 +80,5 @@ export type RemoteTable = {
   format?: RemoteFormat;
   showCardsSetFromDeck?: boolean;
 };
-export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number };
+/** `isDeveloper` is decided on the server (owner list); the browser only reads it to show developer tools. */
+export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean };

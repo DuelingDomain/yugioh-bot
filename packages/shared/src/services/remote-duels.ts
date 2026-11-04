@@ -5,6 +5,7 @@ import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFo
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import type Database from "better-sqlite3";
+import { isOwnerUser } from "../access/owner-access.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
@@ -113,7 +114,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       .all(row.id, afterSeq ?? Math.max(0, row.last_seq - 50)) as EventRow[];
     const metadata = table(row);
     const projected=projectRemoteSnapshot({table:metadata,state:knownState ?? readState(row),events:events.map(e=>event(e,metadata.seats))}, privateSeats(row,userId));
-    return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events};
+    return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events,isDeveloper:isOwnerUser(userId)};
   }
   function privateSeats(row:Row,userId:number):Set<number> {
     return new Set(seats(row).filter(s=>s.userId===userId || (!!row.solo && row.created_by===userId && s.bot)).map(s=>s.seat));

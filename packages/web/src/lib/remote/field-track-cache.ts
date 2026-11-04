@@ -1,7 +1,7 @@
 import {markBackTiming} from './field-timing';
 import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type TwinCard} from '@yugidraft/shared/remote';
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
-import {catalogCardId,createFieldCalibration} from '@yugidraft/vision';
+import {catalogCardId,createFieldCalibration,flattenFieldCalibration} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
 const emptyCards:RemoteFieldCard[]=[];
 /** One shared empty list: a store snapshot must be the same object on every read. */
@@ -41,7 +41,7 @@ export class FieldTrackCache {
   receive(seat:number,input:unknown){
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
-    try{if(parsed.data.calibration)calibration=createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing,parsed.data.calibration.zones);}catch{return false;}
+    try{if(parsed.data.calibration)calibration=flattenFieldCalibration(createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing,parsed.data.calibration.zones));}catch{return false;}
     const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
     this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration});
     for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
