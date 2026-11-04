@@ -63,6 +63,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     summon: summon.optional() }),
   /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
+  /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
+  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
+    .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     zoneRule: z.string().trim().min(1).max(80).optional(),
     /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */

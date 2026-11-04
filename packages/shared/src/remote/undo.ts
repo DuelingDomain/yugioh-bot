@@ -56,7 +56,7 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
     case "twin.place": add(action.seat, action.card.ref); break;
     case "twin.move": case "twin.flip": case "twin.remove": case "card.identified": add(action.seat, action.cardRef); break;
     case "cards.identified": for (const card of action.cards) add(action.seat, card.cardRef); break;
-    case "pile.lift": for (const ref of action.cardRefs) add(action.seat, ref); break;
+    case "pile.lift": case "pile.order": for (const ref of action.cardRefs) add(action.seat, ref); break;
     case "effect.activated": add(action.actorSeat, action.source.cardRef); break;
     case "effect.choose": case "effect.announce": {
       const origin = before.effectTracking?.origins.find(o => o.id === action.originId);
@@ -241,6 +241,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
+    case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} order changed`;
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
     case "phase.set": return action.phase;

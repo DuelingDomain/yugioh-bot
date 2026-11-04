@@ -1470,6 +1470,11 @@ describe("tolerant voice attack resolution", () => {
     const left = act(detached, { type: "twin.move", cardRef: "x2", zone: "graveyard" });
     expect(left.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["m1", "x2", "m2", "x1"]);
     expect(left.seats[0].twin.some(c => c.zone === "material" || c.materialOf || c.materials)).toBe(false);
+    // The owner fixes the GY order; one Undo restores it.
+    const fixed = act(left, { type: "pile.order", zone: "graveyard", cardRefs: ["x1", "m2", "x2", "m1"] });
+    expect(fixed.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["x1", "m2", "x2", "m1"]);
+    expect(undo(fixed, fixed.undo!.actionId).seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["m1", "x2", "m2", "x1"]);
+    expect(() => act(left, { type: "pile.order", zone: "graveyard", cardRefs: ["x1", "m2"] })).toThrow(/every card/);
     // Synchro Summon on a card already on the field: its materials go to the GY in one action.
     const synchro = act(act(mats, { type: "twin.place", zone: "extra-monster", card: { ref: "s1", slot: 2, cardId: 31 } }),
       { type: "twin.attach", cardRef: "s1", kind: "synchro", materialRefs: ["m1", "m2"] });

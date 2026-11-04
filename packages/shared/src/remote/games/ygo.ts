@@ -266,6 +266,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (["hand", "deck", "extra"].includes(action.zone)) { delete material.publicIdentity; if (action.zone !== "hand") material.faceUp = false; }
       break;
     }
+    case "pile.order": {
+      const s = ownField(action.seat); const pile = s.twin.filter(c => c.zone === action.zone);
+      remoteAssert(pile.length === action.cardRefs.length && action.cardRefs.every(ref => pile.some(c => c.ref === ref)), "The order must list every card of the pile", 409);
+      const ordered = action.cardRefs.map(ref => pile.find(c => c.ref === ref)!);let i = 0;
+      s.twin = s.twin.map(c => c.zone === action.zone ? ordered[i++] : c);
+      break;
+    }
     case "pile.lift": {
       const s = ownField(action.seat);
       for (const ref of action.cardRefs) {
