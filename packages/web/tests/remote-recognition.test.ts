@@ -238,7 +238,18 @@ it("parses activation with a named source and activation after identifying a car
     ["Like I said we should check the main phase rules after this game", "main1", "quiet"],
     ["Do you think I should set this in trap zone one or keep it", "main1", "quiet"],
     ["I was talking about the battle phase and the monster zone two", "main1", "quiet"],
-    ["Um battle phase", "main1", "quiet"],
+    ["Um battle phase", "main1", "phase:battle"],
+    ["uh standby", "draw", "phase:standby"],
+    ["okay main phase two", "battle", "phase:main2"],
+    ["so, end phase", "main2", "phase:end"],
+    ["alright, draw phase", "end", "phase:draw"],
+    ["and, battle phase", "main1", "phase:battle"],
+    ["Um, uh, okay, so, alright, and, battle phase", "main1", "phase:battle"],
+    ["um, and phase", "main2", "phase:end"],
+    ["okay, and my turn", "main2", "turn"],
+    ["okay, The main phase is next", "main1", "quiet"],
+    ["so, main phase rules", "main1", "quiet"],
+    ["battle um phase", "main1", "quiet"],
     ["Thanks for the game", "main1", "quiet"],
     ["The main phase is next", "main1", "quiet"],
     ["don't end turn", "main1", "quiet"],
@@ -280,6 +291,8 @@ it("parses activation with a named source and activation after identifying a car
   expect(interpret("See You Later!",{...ctx,trayOpen:true}).kind).toBe("name");
   expect(interpret("I activate There Can Be Only One",ctx).kind).toBe("effect");
   expect(interpret("You're Finished!",{...ctx,trayOpen:true,cardNames:["You're Finished!"]}).kind).toBe("name");
+  expect(interpret("And the Band Played On",{...ctx,trayOpen:true,cardNames:["And the Band Played On"]})).toEqual({kind:"name",name:"And the Band Played On"});
+  expect(interpret("um, And the Band Played On",{...ctx,trayOpen:true,cardNames:["And the Band Played On"]})).toEqual({kind:"name",name:"And the Band Played On"});
   const {voiceCardNames}=await import("../src/components/remote/ui/model");
   const voiceRoom={state:{...state,seats:[{...state.seats[0],twin:[{ref:"new",name:"New board card"},{ref:"old",cardId:2}]}],undoHistory:[{cards:["0:old"]},{cards:["0:new"]}]},seats:[{seat:0,deck:{deck:{main:[3],extra:[],side:[]}}}]} as any;
   expect(voiceCardNames(voiceRoom,id=>({name:id===2?"Old board card":"Deck card"}))).toEqual(["Trap Tracks","New board card","Old board card","Deck card"]);

@@ -56,6 +56,20 @@ function contextCardNames(ctx: GrammarContext): string[] {
     ...(ctx.state.identified?.name ? [ctx.state.identified.name] : [])];
 }
 
+/** Remove only leading speech fillers; keep card names and the "and"/"end" sound-alike. */
+function commandText(raw: string, ctx: GrammarContext): string {
+  let text = raw.trim();
+  const cards = contextCardNames(ctx).map(norm).filter(Boolean);
+  let filler: RegExpExecArray | null;
+  while ((filler = /^(um|uh|okay|so|alright|and)\b[\s,]*/i.exec(text))) {
+    const words = norm(text);
+    if (cards.some(card => words === card || words.startsWith(`${card} `))) break;
+    if (filler[1].toLowerCase() === "and" && parsePhaseCommand(text, ctx.state)) break;
+    text = text.slice(filler[0].length);
+  }
+  return text;
+}
+
 /** Check sentence scaffolding outside known card names. Card names can contain ordinary words. */
 function commandUtterance(raw: string, ctx: GrammarContext): boolean {
   let text = ` ${norm(raw)} `;
@@ -123,10 +137,11 @@ function findSeat(text: string, ctx: GrammarContext): number | undefined {
 
 /** Turns one finished transcript into a single intent. `tolerant` numbers and names are resolved here. */
 export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
+  raw = commandText(raw, ctx);
   const text = norm(raw);
   if (!commandUtterance(raw, ctx)) return { kind: "none" };
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
-  const phase = parsePhaseCommand(raw, ctx.state);
+  const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) return phase;
   const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state});
   if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
@@ -173,6 +188,7 @@ export function trySaying(players: { seat: number; displayName: string }[], me: 
 
 /** Suggestions are labels for explicit user picks, never a fallback execution path. */
 export function suggestCommands(raw: string, ctx: GrammarContext): string[] {
+  raw = commandText(raw, ctx);
   if (!commandUtterance(raw, ctx) || interpret(raw, ctx).kind !== "none") return [];
   const words = new Set(norm(raw).split(" "));
   const cardNames = contextCardNames(ctx);
