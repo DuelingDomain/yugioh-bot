@@ -1050,7 +1050,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
           }else if(winner&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)){
             t.view.bestMatch=result?.tier!=='sure'||!inDeck;t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;if(earlyNow){t.early={card:structuredClone(pending.card??c),art:pending.art};t.identityAppearance=undefined;stage(t,'early');}emit('placed',t,{result,latencyMs:metrics.latencyMs});
-          }else if(t.view.state==='candidate'&&!t.promptOnly&&!pile&&result?.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&
+          }else if(t.view.state==='candidate'&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)&&result?.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&
             result.tier!=='low match'){
             // Never stay in Reading: an unsure or flagged read (glare) reads once
             // more, then the top match is placed as a Best match (Wrong card? fixes

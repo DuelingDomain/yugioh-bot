@@ -9,6 +9,7 @@ const cardId = z.number().int().positive().max(0xffffffff);
 const slot = z.number().int().min(1).max(5);
 /** Extra Deck summons whose materials the table records: Xyz keeps them attached, the others send them to the GY. */
 export const remoteSummonKinds = ["xyz", "synchro", "link", "fusion"] as const;
+export type RemoteSummonKind = (typeof remoteSummonKinds)[number];
 const summon = z.strictObject({ kind: z.enum(remoteSummonKinds), materialRefs: z.array(id).min(1).max(10)
   .refine(refs => new Set(refs).size === refs.length, "Duplicate material") });
 const sighting = {

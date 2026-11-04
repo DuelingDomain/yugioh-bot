@@ -32,7 +32,13 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
    "Synchro Summon: X + Y → Z (materials to GY)"). Link: at most `link rating` materials (the newest vanished); never
    more than the vanished/covered cards. Synchro/Fusion need 2+, Link 1+.
 5. **Default.** Outside a summon, a vanished card goes to the hand as today. A covered card stays on the field.
-6. **GY/banished pile.** Each new top (new outline or a changed top look after a hand passed) is read with priority and
+6. **GY/banished pile (a log, not a picture).** The camera only confirms the top and adds new tops.
+   - Pile lift (`pile.lift`, toast with Undo) only after >= 2 s of sharp frames (blur gate from `feat/remote-detect-fix`
+     plus the pile's own sharpness baseline), no hand, no outline, and a spot that no longer looks like the pile.
+   - A top that looks the same = no change. A lower card seen on top = the cards above it left (existing rule).
+   - A top that cannot be read: unsure reads get a best match (as on the field); a low match pushes an unnamed card.
+   - Pile viewer: newer/older (`pile.order`), "Name it" (`card.identified`), "Remove from pile" (`twin.remove`).
+   Earlier text of this rule: Each new top (new outline or a changed top look after a hand passed) is read with priority and
    pushed once in order. Idempotent: the same physical top (same look as the known top) is never pushed again. If the
    new top cannot be read in 3 s, the glue pushes an unnamed face-up card ("Unknown card") so the count stays right;
    the player names it later (pile viewer). The board shows the pile count; the pile viewer lists all cards in order.
@@ -41,7 +47,8 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
 
 - `TwinCard.materials?: string[]` (Xyz, bottom first), `TwinCard.materialOf?: string`; zone `material` (pile shape,
   public, never a physical slot).
-- Actions: `twin.place.summon?`, `twin.attach {cardRef, materialRefs, kind}`, `twin.detach {cardRef, materialRef, zone}`.
+- Actions: `twin.place.summon?`, `twin.attach {cardRef, materialRefs, kind}`, `twin.detach {cardRef, materialRef, zone}`,
+  `pile.order {zone, cardRefs}` (owner fixes the pile order).
   A material must be the actor's card on the field (M/EMZ) or in the hand with `departedFrom` M/EMZ within 30 s.
 - One reducer path `applySummon` for place and attach; links are cleaned after each action (like Equip links).
 
@@ -56,6 +63,13 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
   partly covered stays, 3-card GY sequence (Apophis → Temple → Man with the Mark, hands over the pile) count 3, in order.
 - Shared reducer test (`preserves slot metadata ...`): Xyz place with materials, rank-up, detach, Xyz leaves → GY,
   Synchro materials to GY, Undo.
+
+## Limits
+
+- The look rule applies only when the new card has the same orientation as the covered card's last seen look. An Xyz
+  in Attack Position on materials in Defense Position is seen as the material turning (old rule). Use the inspector.
+- A same-zone cover that is not a summon (for example a monster put on a monster) is the old rule: the card under it
+  leaves (default: hand) when the new card is placed.
 
 ## Not in scope
 
