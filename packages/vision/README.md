@@ -914,7 +914,7 @@ rerank visually supported candidates but cannot supply clean confidence evidence
 The watcher still owns its identity gallery and its save/restore lifecycle.
 
 The field watcher passes `gallery.entries()`, enables `deckFirst` when a deck is
-present, and defaults `earlyExitMargin` to `0.08`. Table and lobby camera startup
+present, and defaults `earlyExitMargin` to `0.02` for its gallery. Deck exits require a raw score of at least `0.92` and a margin of at least `0.08`. Table and lobby camera startup
 warm the shared reader; restored gallery entries preload before calibration
 finishes. Reads refresh prepared references so owner corrections also reach the
 fallback reranker.
@@ -1004,3 +1004,55 @@ recall matched, but browser WASM click detection was slower. Delete experimental
 QDQ models and `data/vision/model-inputs` after measurement. Rebuild the small
 checked-in SIMD byte array from its WAT source with the export script's `--simd`
 option (requires `wasmtime`). No new CI tests or dependencies are introduced.
+
+### Remote recognition: deck and game knowledge
+
+An attached Main/Extra/Side deck enables `deckFirst` by default. Search visits every
+indexed artwork for its card IDs, with the card back included as a competitor.
+A clean, uncovered face-up view can skip the catalog at an unboosted score of
+`0.92` or higher and a margin of at least `0.08`. A weaker first view goes straight
+to the ordinary catalog path and reuses its embedding. `deckFirst:false` disables
+this exit for comparisons. `quality.searchSource` reports `deck`, `gallery`, or
+`catalog`; `includeRaw` retains the actual evidence used by that path.
+
+The web reader builds per-seat context from the board, GY, banishment and recent
+public actions in the current game. It keeps session sightings separate from deck
+membership. Hidden hands and private identifications do not seed related-card
+context. The generated relation map shares the effect search's `quotedNames`,
+`compactEffectName`, and engine `inArchetype` logic. It adds Lua listed names,
+named-card filters and archetype filters. Archetype members are stored as groups,
+not expanded pairs. This is a relation hint, not a simulation of effect legality.
+
+Generate the map in the **same vision directory used by the web server**. Use the
+server's engine directory as `DUEL_DATA_DIR`; the engine bundle must already exist.
+From the repo root, with Node 22:
+
+```sh
+DUEL_DATA_DIR=/path/to/engine VISION_DATA_DIR=/path/to/vision \
+  node --import tsx scripts/vision/prepare.ts --bundle-only --related
+```
+
+The standalone `scripts/vision/build-related.ts` generates just
+`related-cards.json`. The map is below 1 MiB on the local engine bundle and stays
+under ignored `data/`; do not commit it. Missing knowledge data leaves visual and
+deck recognition available. The reader fetches it once per page and caches context
+lookups. Reload the page after preparing new assets.
+
+Only candidates within `0.04` of the visual leader and above the visual floor get
+ranking hints: related `0.025`, previously seen `0.01`, voice `0.04`. The strongest
+applicable hint wins. Hints keep the original score and never replace an already
+sure visual winner. A changed suggestion must still pass the independent raw
+confidence checks, so context cannot manufacture a sure read. Debug appends the
+winner's reason, for example `prior: mentioned by Treasures of the Kings`.
+
+`mentionVoiceCard(room, seat, passcode, heardAt?)` in the web remote-priors helper
+accepts a resolved voice intent. The grammar's name, summon/move and effect outputs
+use it. Hints are scoped to room/game/seat, expire ten seconds after speech, reject
+late/out-of-order lookup results, and are checked again when a queued read ranks.
+Prepared worker defaults never retain a voice hint.
+
+Run the paired existing-photo benchmark with
+`node --import tsx scripts/vision/benchmark-prior.ts`. `PRIOR_BASE` selects the base
+revision and `PRIOR_TRIALS` selects repeats (default two). It uses local assets only,
+includes a 60-card deck with alternate art and wrong-context/disjoint-deck controls,
+and writes its full results under `data/vision/benchmark/prior/`.

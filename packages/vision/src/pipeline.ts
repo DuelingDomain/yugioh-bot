@@ -21,7 +21,7 @@ import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
-import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions } from './search';
+import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions, rankWithPriors } from './search';
 import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
 
 /** Worker-only source ownership; never included in its public reply. */
@@ -46,7 +46,9 @@ export class RecognitionPipeline {
   setLearning(value:LearningSnapshot) { this.learning=value; }
   private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string,clean?:Candidate[],deckCandidates?:Candidate[]) {
     const deck=deckCandidates??(priors?.decklist?.length?topK(vector,index,Math.max(k,2),undefined,undefined,new Set(priors.decklist)):[]);
-    const catalog=learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',Math.max(k,2),priors,frameClass,this.catalog,clean);
+    // Session/context/voice hints run once on the final shortlist. Reuse clean SIMD results.
+    const visualPriors=priors?.frameClasses?.length?{frameClasses:priors.frameClasses}:undefined;
+    const catalog=learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',Math.max(k,2),visualPriors,frameClass,this.catalog,clean);
     return preferDeck(deck,catalog,this.profile.embedding.thresholds).slice(0,k);
   }
   private confused(list:Candidate[]) {return this.learning.confusions.some(p=>p.a===list[0]?.cardId||p.b===list[0]?.cardId);}
@@ -141,9 +143,14 @@ export class RecognitionPipeline {
       return ranked.filter((c):c is Candidate=>Boolean(c.cardId && this.catalog.has(c.cardId)));
     };
     let shortlistExit=false;
+    let searchSource:'deck'|'gallery'|'catalog'='catalog';
     // Reuse unboosted evidence for each hypothesis and the single-frame final
     // decision. This cache lasts one read, so mutable caller queries cannot go stale.
-    const deckIds=opts.priors?.decklist?.length?new Set(opts.priors.decklist):undefined;
+    // The back must compete even when the detector mistakes a face-down card for a front.
+    const deckIds=opts.priors?.decklist?.length?new Set([...opts.priors.decklist,this.profile.cardBack.cardId]):undefined;
+    const deckFirst=opts.deckFirst!==false && Boolean(deckIds);
+    const clearDeck=(list:Candidate[])=>clearShortlist(list) && list[0].score>=Math.max(.92,thresholds.score)
+      && list[0].cardId!==this.profile.cardBack.cardId && list[0].score-(list[1]?.score??0)>=Math.max(.08,earlyExitMargin);
     const deckCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
     const deckSearch=(query:Float32Array,index:LoadedIndex)=>{
       if(!deckIds)return [];
@@ -233,16 +240,19 @@ export class RecognitionPipeline {
       const wholeHypotheses=this.fullArtIndex?.meta.count?[{image:warped,rotation:0},{image:rotate180(warped),rotation:180}]:[];
       let fastMatch:{vector:Float32Array;index:LoadedIndex;rotation:number;candidates:Candidate[]}|undefined;
       // Try every relevant local view before touching the catalog. Reuse its embeddings on a miss.
-      if(opts.earlyExit!==false && (opts.deckFirst && deckIds || opts.gallery?.length) && !views.length && !frameEvidence.length && found && !partial && !covered && !faceDown && (!fullArt || this.fullArtIndex?.meta.count)) {
+      if(opts.earlyExit!==false && (deckFirst || opts.gallery?.length) && !views.length && !frameEvidence.length && found && !partial && !covered && !faceDown && (!fullArt || this.fullArtIndex?.meta.count)) {
         const localViews=[...hypotheses.map(h=>({...h,index:this.index})),...wholeHypotheses.map(h=>({...h,index:this.fullArtIndex!}))];
         for(const hypothesis of localViews) {
-          if(!(opts.deckFirst && deckIds) && !opts.gallery?.some(e=>e.embedding.space===(hypothesis.index===this.fullArtIndex?'whole-card':'art-box')))continue;
+          if(!deckFirst && !opts.gallery?.some(e=>e.embedding.space===(hypothesis.index===this.fullArtIndex?'whole-card':'art-box')))continue;
           const vector=await embed(hypothesis.image),started=performance.now();
           const gallery=opts.gallery?.length?gallerySearch(vector,hypothesis.index):[];
-          const deck=opts.deckFirst?deckSearch(vector,hypothesis.index):[];
-          const candidates=gallery.length?gallery:clearShortlist(deck)?deck:[];
+          const deck=deckFirst?deckSearch(vector,hypothesis.index):[];
+          const candidates=clearDeck(deck)?deck:gallery.length?gallery:[];
           timings.search+=performance.now()-started;
-          if(candidates.length) {fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+          if(candidates.length) {searchSource=candidates===deck?'deck':'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+          // A weak upright deck view falls through immediately; do not pay for extra
+          // orientations before the ordinary catalog path has assessed that view.
+          if(deckFirst && !opts.gallery?.length)break;
         }
       }
       if(fastMatch) {
@@ -338,6 +348,7 @@ export class RecognitionPipeline {
         candidates = candidates.map(c => ({ ...c, score: c.score * .85 }));
       }
     }
+    candidates=rankWithPriors(candidates,visual,opts.priors,thresholds);
     const blocked:string[]=[];
     if(fallback || views.length!==frameEvidence.length)blocked.push('fallback');
     if(views.some(v=>v.partial))blocked.push('partial');
@@ -354,6 +365,6 @@ export class RecognitionPipeline {
     const collect=opts.includeFeedback && safeEvidence;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
     const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const}:undefined;
-    return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+    return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), prior:candidates[0]?.prior, candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { searchSource, faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }

@@ -8,6 +8,22 @@ export function normalize(v: Float32Array): Float32Array {
   if (!Number.isFinite(norm) || norm === 0) throw new Error('Invalid embedding');
   return Float32Array.from(v, x => x / norm);
 }
+/** Priors only break close visual ties. Keep raw scores for all confidence decisions. */
+export function rankWithPriors(ranked: Candidate[], visual: Candidate[], priors: RecognitionPriors | undefined, thresholds: ConfidenceThresholds): Candidate[] {
+  if (!priors || decide(visual, thresholds).confident) return ranked;
+  const best = visual[0]?.score ?? -Infinity;
+  const scores = new Map(visual.map(c => [c.cardId, c.score]));
+  const related = new Map(priors.related?.map(c => [c.cardId, c.reason]));
+  const seen = new Set(priors.seen), voice = new Set(priors.voiceExpiresAt === undefined || Date.now() < priors.voiceExpiresAt ? priors.voiceMentioned : []);
+  return ranked.map((candidate, order) => {
+    const score = scores.get(candidate.cardId) ?? -Infinity;
+    const reason = voice.has(candidate.cardId) ? 'voice mention (10 s)' : related.get(candidate.cardId)
+      ?? (seen.has(candidate.cardId) ? 'seen this session' : undefined);
+    const boost = score >= thresholds.floor && best - score <= .04 && reason
+      ? voice.has(candidate.cardId) ? .04 : related.has(candidate.cardId) ? .025 : .01 : 0;
+    return { candidate: boost ? { ...candidate, prior: reason } : candidate, rank: candidate.score + boost, order };
+  }).sort((a,b) => b.rank - a.rank || a.order - b.order).map(row => row.candidate);
+}
 interface SearchData { dots?:ReturnType<typeof createSimdSearch>; inverseNorms:Float64Array; rowsByCard:Map<string,number[]>; order:Map<string,number> }
 const prepared=new WeakMap<LoadedIndex,SearchData>();
 /** Immutable loaded indexes live for the worker lifetime; norms never depend on a query. */

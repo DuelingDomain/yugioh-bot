@@ -10,7 +10,7 @@ import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
-import { deckIdsOf, seenCardIds } from "./model";
+import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
@@ -129,9 +129,9 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const video = new RemoteVideo({
       slug: room.slug, guildId: room.guildId, seat: mySeat, members: JSON.parse(members),
       onPhoneScan: setPhoneScan, onPhonePresence: () => { void roster.mutate(); },
-      readPhone: (canvas,point,signal) => readCard(null,point,{decklist:[],seen:[]},signal,undefined,[canvas]),
+      readPhone: (canvas,point,signal) => readCard(null,point,recognitionPriorsFor(roomRef.current,mySeat),signal,undefined,[canvas]),
       recognize: makeRecognizeRawFeed(
-        async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }),
+        async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }, () => recognitionPriorsFor(roomRef.current,mySeat)),
     });
     setController(video); setSnap(video.getSnapshot());
     const off = video.subscribe(() => setSnap(video.getSnapshot()));
@@ -237,7 +237,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const snapRef = useRef(snap); snapRef.current = snap;
   const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[],force=false): Promise<ReadResult> => {
     const current = roomRef.current;
-    const priors = { decklist: deckIdsOf(current, seat), seen: seenCardIds(current) };
+    const priors = recognitionPriorsFor(current, seat);
     // Own webcam reads retain the worker's queue-aware timeout and native frame ring.
     if (seat === mySeat && !controller?.phone.forSeat(mySeat)) {
       const track = localOnly ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
@@ -262,7 +262,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     } finally { clearTimeout(timer); if (requestId) wait.current.delete(requestId); }
   }, [mySeat, localOnly, controller]);
 
-  const priorsOf = useCallback((seat: number) => ({ decklist: deckIdsOf(roomRef.current, seat), seen: seenCardIds(roomRef.current) }), []);
+  const priorsOf = useCallback((seat: number) => recognitionPriorsFor(roomRef.current, seat), []);
   const peek = useCallback((seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal) => peekCard(frame, card, cards, priorsOf(seat), signal), [priorsOf]);
   const board = useCallback((seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal) => readBoard(frame, cards, priorsOf(seat), signal), [priorsOf]);
 
