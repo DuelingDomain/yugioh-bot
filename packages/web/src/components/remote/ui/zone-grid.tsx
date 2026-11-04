@@ -95,7 +95,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
       {live.map(t => <polygon key={t.id} points={pts(t.card.quad)} fill="none" stroke={t.visible ? "#7dff9b" : "#c58bff"} strokeWidth={.002} strokeDasharray=".008 .005" />)}
     </svg>
     <div className={s.zglabels} style={{ ...frame, zIndex: 5 }} aria-hidden="true">
-      {debug?.detections.map((d, i) => { const p = top(d.quad), bad = !d.use.startsWith("track"); return <span key={`d${i}`} className={`${s.zgdbg} ${s.zgraw}`} data-bad={bad} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }} title={`${d.kind === "face-down" ? "back" : "front"} ${d.confidence.toFixed(2)} · ${d.zone} · ${d.use}`}>
+      {debug?.detections.map((d, i) => { const p = top(d.quad), bad = !d.use.startsWith("track"); return <span key={`d${i}`} className={`${s.zgdbg} ${s.zgraw}`} data-bad={bad} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%` }} title={`${d.kind === "face-down" ? "back" : "front"} ${d.confidence.toFixed(2)} · ${d.zone} · ${d.use}`}>
         {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2).replace(/^0/, "")} {d.zone}</span>; })}
       {live.map(t => <TrackLabel key={t.id} t={t} reason={debug?.reasons[t.id]} />)}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
