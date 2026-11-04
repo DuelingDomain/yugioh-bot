@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Check, Keyboard, LoaderCircle, Maximize2, Mic, RefreshCw, ScanLine, Smartphone, TriangleAlert } from "lucide-react";
 import type { RemoteRoom } from "@yugidraft/shared/remote";
-import { createFieldCalibration, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
+import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { loadFieldCalibration, loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
@@ -11,7 +11,7 @@ import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
 import { LobbyZonesView } from "./lobby-zones-view";
 import { PreviewGrid } from "./lobby-preview-grid";
-import { defaultSideFor, normalizeZoneSpacing } from "@/lib/remote/zone-grid";
+import { defaultSideFor } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
 import { detectCards, prewarmRecognizer } from "./recognizer";
@@ -331,9 +331,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
-    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }} zoneSpacing={normalizeZoneSpacing(calibration?.zoneSpacing)}
-      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)} onSpacing={value => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, value, calibration.zones)); }}
-      onZones={zones => { if (calibration?.orientation) saveCalibration(createFieldCalibration(calibration.corners, calibration.orientation, calibration.zoneSpacing, zones)); }}
+    {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }}
+      restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}
   </div>;
 }

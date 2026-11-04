@@ -11,7 +11,7 @@ import s from "./lobby-camera-preview.module.css";
 /**
  * The lobby's "Calibrate zones" step for a webcam. The grid on the preview shows the result live.
  * First time: highlighted and recommended, never a block. A skip is safe: the table asks for the side and the zones.
- * With a saved calibration: one compact line with Redo. The record is the one the table reads.
+ * With a saved calibration: one compact line with Recalibrate. The record is the one the table reads.
  * "Calibrated" means the zones were saved from the calibration dialog, so the side buttons show only then (to flip a saved side).
  */
 export function LobbyZonesStep({ live, calibrated, changed = false, skipped, calibration, onCalibrate, onCheck, onSkip, onChange }: {
@@ -29,13 +29,13 @@ export function LobbyZonesStep({ live, calibrated, changed = false, skipped, cal
       <p className={calibrated ? s.zonesOk : s.zonesWarn} role="status" aria-live="polite">
         {calibrated ? <><Check size={15} strokeWidth={2} aria-hidden /> Calibrated</> : changed ? "Check needed" : live ? "Not calibrated" : "Camera is off"}
       </p>
-      {calibrated ? <SheetButton size="sm" onClick={onCalibrate} data-testid="lobby-cam-calibrate">Redo</SheetButton> : null}
+      {calibrated ? <SheetButton size="sm" onClick={onCalibrate} data-testid="lobby-cam-calibrate">Recalibrate</SheetButton> : null}
     </div>
     {changed ? <>
       <p className={ui.hint} role="status" data-testid="lobby-cam-zones-changed">The zone layout changed. Check your zones.</p>
       <div className={s.zonesActions}>
         <SheetButton kind="primary" size="sm" disabled={!live} onClick={onCheck} data-testid="lobby-cam-check-zones">Check zones</SheetButton>
-        <SheetButton size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Redo</SheetButton>
+        <SheetButton size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Recalibrate</SheetButton>
       </div>
     </> : calibrated ? null : <>
       {state === "first" ? <p className={ui.hint}>{live

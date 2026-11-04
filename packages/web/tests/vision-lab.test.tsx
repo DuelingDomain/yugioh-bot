@@ -458,9 +458,9 @@ describe('field calibration modal',()=>{
     const modal=screen.getByRole('dialog',{name:'Calibrate field zones'});
     expect(screen.getByTestId('small-calibration-feed')).not.toContainElement(modal);
     expect(modal).toHaveAttribute('aria-modal','true');expect(modal).toHaveFocus();
-    const cancel=within(modal).getByRole('button',{name:'Cancel calibration'});
-    cancel.focus();fireEvent.keyDown(cancel,{key:'Tab'});expect(within(modal).getAllByRole('button')[0]).toHaveFocus();
-    modal.focus();fireEvent.keyDown(modal,{key:'Tab',shiftKey:true});expect(cancel).toHaveFocus();
+    const stops=Array.from(modal.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),[tabindex="0"]')),first=stops[0],last=stops[stops.length-1];
+    last.focus();fireEvent.keyDown(last,{key:'Tab'});expect(first).toHaveFocus();
+    modal.focus();fireEvent.keyDown(modal,{key:'Tab',shiftKey:true});expect(last).toHaveFocus();
     fireEvent.keyDown(modal,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();expect(opener).toHaveFocus();
   });
 });

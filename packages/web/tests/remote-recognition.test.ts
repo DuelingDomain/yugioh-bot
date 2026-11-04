@@ -742,7 +742,7 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   expect(mapFieldZone(read(deck.x+deck.w/2,deck.y+deck.h/2,.04),edited).zone).toBe('DECK');expect(mapFieldZone(read(.5+(.92-.5)*spacing,deck.y+deck.h/2,.04),edited).zone).not.toBe('DECK');
   expect(rotateFieldCalibration(calibration,180).zoneSpacing).toBe(spacing);expect(mirrorFieldCalibration(calibration).zoneSpacing).toBe(spacing);
   const message={type:'field.tracks',cards:[],calibration};expect(remoteFieldTracksSchema.safeParse(message).success).toBe(true);
-  const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);expect(cache.calibration(0)?.zoneSpacing).toBe(spacing);
+  const cache=new FieldTrackCache();expect(cache.receive(0,message)).toBe(true);/* Legacy spacing from an old client is flattened to the whole-field fit on receipt. */expect(cache.calibration(0)?.zoneSpacing).toBe(1);expect(cache.calibration(0)?.zones).toBeUndefined();
  }
  expect(createFieldCalibration(points).zoneSpacing).toBe(1);
 });

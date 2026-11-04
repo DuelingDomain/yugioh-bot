@@ -165,6 +165,50 @@ export function createFieldCalibration(points: Point[], orientation?:FieldOrient
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
   return {version:1,layout:FIELD_ZONE_LAYOUT,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }
+/** The whole-field transform the calibration screen edits. `scale` grows both axes, `width` and `height` stretch one axis each; all are factors around the grid centre (1 = unchanged). */
+export interface FieldTransform { dx: number; dy: number; scale: number; width: number; height: number }
+export const IDENTITY_FIELD_TRANSFORM: FieldTransform = { dx: 0, dy: 0, scale: 1, width: 1, height: 1 };
+/**
+ * Apply a whole-field transform to a base quad. Stretching follows the mat axes (so perspective stays right).
+ * The result is shifted to stay inside the image; `applied` is the transform with that shift folded into dx/dy (so repeated
+ * nudges at the edge do not pile up). Null when the field cannot fit.
+ */
+export function transformFieldCorners(base: Point[], t: FieldTransform): { corners: Point[]; applied: FieldTransform } | null {
+  const flat: FieldCalibration = { version: 1, corners: base };
+  const kx = t.scale * t.width, ky = t.scale * t.height;
+  if (![t.dx, t.dy, kx, ky].every(Number.isFinite) || kx < .2 || ky < .2 || kx > 4 || ky > 4) return null;
+  const moved = unitCorners.map(u => { const p = fieldMatPoint({ x: .5 + (u.x - .5) * kx, y: .5 + (u.y - .5) * ky }, flat); return { x: p.x + t.dx, y: p.y + t.dy }; });
+  if (moved.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
+  const b = boundsOf(moved);
+  if (b.w > 1 || b.h > 1) return null;
+  const sx = b.x < 0 ? -b.x : b.x + b.w > 1 ? 1 - (b.x + b.w) : 0, sy = b.y < 0 ? -b.y : b.y + b.h > 1 ? 1 - (b.y + b.h) : 0;
+  const corners = moved.map(p => ({ x: Math.max(0, Math.min(1, p.x + sx)), y: Math.max(0, Math.min(1, p.y + sy)) }));
+  try { createFieldCalibration(corners); } catch { return null; }
+  return { corners, applied: { ...t, dx: t.dx + sx, dy: t.dy + sy } };
+}
+/**
+ * Migration for records saved with per-zone rectangles or a zone spacing: the same orientation and the default zone layout,
+ * with the mat quad fitted to the OUTER box of the old zones. Fixed zone proportions can then never drift apart from the picture.
+ * Falls back to the plain corners if the fitted quad would leave the image.
+ */
+export function flattenFieldCalibration(calibration: FieldCalibration, format: FieldFormat = 'normal'): FieldCalibration {
+  const orientation = calibration.orientation, plain = () => createFieldCalibration(calibration.corners, orientation);
+  const custom = !!normalizeZones(calibration.zones) || (calibration.zoneSpacing !== undefined && Math.abs(normalizeZoneSpacing(calibration.zoneSpacing) - 1) > 1e-6);
+  if (!custom) return calibration.zones === undefined && calibration.zoneSpacing === undefined ? calibration : plain();
+  try {
+    const old = fieldZoneBounds(calibration, format), def = fieldZoneBounds(undefined, format), turned = orientation ?? DEFAULT_FIELD_ORIENTATION;
+    for (let shrink = 1, i = 0; i < 24; i++, shrink *= .96) {
+      const cx = (old.minX + old.maxX) / 2, cy = (old.minY + old.maxY) / 2;
+      const corners = unitCorners.map(v => {
+        const u = orient(v, turned, true);
+        const m = { x: cx + ((u.x - def.minX) / (def.maxX - def.minX) - .5) * (old.maxX - old.minX) * shrink, y: cy + ((u.y - def.minY) / (def.maxY - def.minY) - .5) * (old.maxY - old.minY) * shrink };
+        return fieldMatPoint(m, calibration);
+      });
+      try { return createFieldCalibration(corners, orientation); } catch { /* shrink the fitted box until it fits the image */ }
+    }
+  } catch { /* fall through */ }
+  return plain();
+}
 /** True inverse homography for a flat mat under perspective; matrices stay out of persisted data. */
 export function onMat(p:Point, calibration?:FieldCalibration):Point {
   return calibration?orient(project(plane(calibration).inverse,p),calibration.orientation??DEFAULT_FIELD_ORIENTATION,true):p;

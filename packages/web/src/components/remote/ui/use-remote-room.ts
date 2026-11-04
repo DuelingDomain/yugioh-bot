@@ -56,7 +56,7 @@ export function useRemoteRoom(slug: string) {
       if (snapshot.table.slug !== slug) return;
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq
-        ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat } : current, { revalidate: false });
+        ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper } : current, { revalidate: false });
     });
     socket.connect(); const timer = setInterval(() => void join(), 4 * 60_000);
     return () => { disposed = true; clearInterval(timer); socket.emit("remote:leave"); socket.disconnect(); socketRef.current = null; };

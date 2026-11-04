@@ -50,7 +50,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useZoneGrid,currentZoneGrid} from '@/lib/remote/zone-grid';
+import {useZoneGrid,currentZoneGrid,setFieldDeveloper} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -69,6 +69,8 @@ type Pending = Proposal & { requestId?: string; run: () => void };
 export function RemoteTableScreen({ slug }: { slug: string }) {
   const ctl = useRemoteRoom(slug);
   const room = ctl.room;
+  const isDeveloper = room?.isDeveloper === true;
+  useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
   if (!room) return <div className={`${duelFontClasses} ${s.app}`} data-mode="1v1"><div className={s.shell} style={{ display: "grid", placeItems: "center", alignContent: "center", gap: 12 }}>
     <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
