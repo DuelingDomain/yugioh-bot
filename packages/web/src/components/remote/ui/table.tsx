@@ -30,6 +30,7 @@ import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
+import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { takeCameraReady } from "./camera-choice";
@@ -756,6 +757,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
   const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
+    const heardAt = Date.now();
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
     const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray", cardNames: voiceCardNames(now, cardInfo) });
@@ -765,10 +767,17 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       return;
     }
     if (intent.kind === "wake") { setTranscript(old => ({ ...old, result: "Chain response noted" })); addVoiceLog(`${name(now.mySeat)} is responding: “${final.text}”`); toast(<><b>{name(now.mySeat)}</b> is responding to the chain.</>); return; }
+    if ((intent.kind === 'move' && intent.move.query) || intent.kind === 'effect') {
+      const query = intent.kind === 'move' ? intent.move.query : intent.proposal.type === 'effect.activated' ? intent.proposal.source.name : undefined;
+      const hit = final.cardMatches[0];
+      const sourceId = intent.kind === 'effect' && intent.proposal.type === 'effect.activated' ? intent.proposal.source.cardId : undefined;
+      if (hit || sourceId) mentionVoiceCard(now, me, hit?.passcode ?? sourceId!, heardAt);
+      else if (query) void searchCards(query).then(cards => { if (cards[0]) mentionVoiceCard(now, me, cards[0].id, heardAt); }).catch(() => undefined);
+    }
     if (intent.kind === "name") {
       const hit = final.cardMatches[0]; const top = hit ? undefined : (await searchCards(intent.name))[0];
       const card = hit ? { cardId: hit.passcode, name: hit.name } : top ? { cardId: top.id, name: top.name } : undefined;
-      if (card) { setTranscript(old => ({ ...old, result: `Picked ${card.name}` })); void identify({ cardId: card.cardId, name: card.name, via: "voice", feedback: R.current.layer === "tray" ? "voice" : undefined }, "voice"); }
+      if (card) { mentionVoiceCard(now, me, card.cardId, heardAt); setTranscript(old => ({ ...old, result: `Picked ${card.name}` })); void identify({ cardId: card.cardId, name: card.name, via: "voice", feedback: R.current.layer === "tray" ? "voice" : undefined }, "voice"); }
       else setTranscript(old => ({ ...old, result: "No card with that name", ignored: true }));
       return;
     }

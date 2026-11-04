@@ -134,9 +134,90 @@ test('a late whole-card confusion winner is checked in both whole-card rotations
 import {topK,preferDeck} from './search';
 import {learnedTopK} from './learning';
 const searchIndex=(ids:string[],vectors:number[])=>({meta:{dim:2,count:ids.length,entries:ids.map(cardId=>({cardId,passcode:Number(cardId)||1,name:cardId,frameClass:'Effect'}))},vectors:new Float32Array(vectors)}) as LoadedIndex;
-test('deck restriction searches only its artwork rows before catalog fallback',()=>{
+test('deck restriction searches only its artwork rows before catalog fallback',async()=>{
   const index=searchIndex(['1','2'],[1,0,.8,.6]);
   assert.deepEqual(topK(new Float32Array([1,0]),index,5,undefined,undefined,new Set(['2'])).map(c=>c.cardId),['2']);
+  const fast=await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,includeRaw:true,priors:{decklist:['A']}});
+  assert.equal(fast.quality.searchSource,'deck');
+  assert.equal(fast.tier,'sure');assert.equal(fast.candidates[0].cardId,'A');
+  assert.equal(fast.raw?.visual[0].score,fast.candidates[0].score);
+  for(const decklist of [[],['missing'],['B']]) {
+    const miss=await fixture(false).recognize([frame],{card:selected,preclean:false,priors:{decklist}});
+    assert.equal(miss.quality.searchSource,'catalog');assert.equal(miss.candidates[0].cardId,'A');
+  }
+  const weak=await fixture(false,undefined,[.83]).recognize([frame],{card:selected,preclean:false,priors:{decklist:['A']}});
+  assert.equal(weak.quality.searchSource,'catalog');
+  const disabled=await fixture(false).recognize([frame],{card:selected,preclean:false,deckFirst:false,priors:{decklist:['A']}});
+  assert.equal(disabled.quality.searchSource,'catalog');
+  const alts=searchIndex(['A','B','A'],[0,1,.8,.6,1,0]);
+  assert.equal(topK(new Float32Array([1,0]),alts,5,undefined,undefined,new Set(['A']))[0].score,1);
+  const {rankWithPriors}=await import('./search');
+  const limits={score:.8,margin:.05,floor:.74};
+  const close=[{cardId:'A',score:.82},{cardId:'B',score:.81}];
+  const priors={related:[{cardId:'B',reason:'mentioned by Treasures of the Kings'}]};
+  const boosted=rankWithPriors(close,close,priors,limits);
+  assert.equal(boosted[0].cardId,'B');assert.equal(boosted[0].score,.81);
+  assert.equal(boosted[0].prior,'mentioned by Treasures of the Kings');
+  const raw:any={visual:close,winnerId:'B',cardBackId:'back',blocked:[],frames:[{eligible:true,clean:close,ranked:boosted}],priors};
+  assert.equal(replayTier(raw,limits),'not sure');
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2,thresholds:limits}};
+  class PriorTensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
+  const model={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([1,0])}})} as unknown as ModelSession;
+  const pipeline=new RecognitionPipeline(profile,searchIndex(['A','B'],[.82,Math.sqrt(1-.82**2),.81,Math.sqrt(1-.81**2)]),model,model,PriorTensor as unknown as TensorCtor);
+  const contextual=await pipeline.recognize([frame],{card:selected,priors,preclean:false,includeRaw:true});
+  assert.equal(contextual.candidates[0].cardId,'B');assert.equal(contextual.tier,'not sure');
+  assert.equal(contextual.prior,'mentioned by Treasures of the Kings');assert.equal(contextual.raw?.visual[0].cardId,'A');
+  assert.equal(rankWithPriors(close,close,{voiceMentioned:['B'],voiceExpiresAt:0},limits)[0].cardId,'A');
+  for(const scores of [[.9,.7],[.72,.71],[.83,.75]]) {
+    const list=close.map((c,i)=>({...c,score:scores[i]}));
+    assert.equal(rankWithPriors(list,list,priors,limits)[0].cardId,'A');
+  }
+  const {VoicePrior,relatedPriors}=await import('./context-prior');
+  const voice=new VoicePrior();voice.mention('room:0',2,1000);
+  assert.deepEqual(voice.current('room:0',10999),[2]);assert.deepEqual(voice.current('room:1',1001),[]);
+  assert.equal(voice.expiresAt('room:0'),11000);
+  assert.deepEqual(voice.current('room:0',11000),[]);
+  const delayed=new VoicePrior();delayed.mention('room:0',2,5000,5000);
+  delayed.mention('room:0',1,1000,6000);assert.deepEqual(delayed.current('room:0',6000),[2]);
+  delayed.mention('expired',3,1000,11001);assert.equal(delayed.expiresAt('expired'),undefined);
+  const {buildRelatedCards}=await import('../../../scripts/vision/build-related');
+  const relations=buildRelatedCards([
+    {id:1,name:'Treasures of the Kings',text:'Add 1 "Apophis" card, or "Temple of the Kings".',setcodes:[],script:'s.listed_series={SET_APOPHIS}\ns.listed_names={3}\nCard.IsCode(c,3)'},
+    {id:2,name:'Apophis the Swamp Deity',text:'',setcodes:[0x1c2],script:''},
+    {id:3,name:'Temple of the Kings',text:'',setcodes:[],script:''},
+    {id:4,name:'Kashtira Fenrir',text:'',setcodes:[0x18a],script:''},
+    {id:5,name:'Kashtira Unicorn',text:'',setcodes:[0x18a],script:''},
+    {id:6,name:'Script source',text:'',setcodes:[],script:'s.listed_names={CARD_TARGET}\naux.FilterBoolFunction(Card.IsCode,2)\nc:IsSetCard(SET_APOPHIS,fc,SUMMON_TYPE_SPECIAL+1,tp)'},
+    {id:7,name:'Unrelated card',text:'',setcodes:[1],script:''},
+  ],new Map([[0x1c2,'Apophis'],[0x18a,'Kashtira'],[1,'Ally of Justice']]),'SET_APOPHIS = 0x1c2\nCARD_TARGET = 5');
+  const related=relatedPriors(relations,[1]);
+  assert.equal(related.find(c=>c.cardId==='3')?.reason,'mentioned by Treasures of the Kings');
+  assert.ok(related.some(c=>c.cardId==='2'));assert.ok(!related.some(c=>c.cardId==='5'));
+  assert.ok(relatedPriors(relations,[4]).some(c=>c.cardId==='5'&&c.reason.includes('Kashtira')));
+  assert.ok(relatedPriors(relations,[6]).some(c=>c.cardId==='5'&&c.reason==='script link from Script source'));
+  assert.ok(relatedPriors(relations,[6]).some(c=>c.cardId==='2'));
+  assert.ok(!relatedPriors(relations,[6]).some(c=>c.cardId==='7'));
+  const {recognitionPriorsFor}=await import('../../web/src/lib/remote/recognition-priors');
+  const room:any={slug:'test',seats:[{seat:0,deck:{deck:{main:[1],extra:[2],side:[3]}}}],state:{match:{game:1},seats:[
+    {seat:0,twin:[{ref:'a',cardId:1,zone:'field',faceUp:true},{ref:'hidden',cardId:2,zone:'hand',faceUp:true}]},
+    {seat:1,twin:[{ref:'b',cardId:4,zone:'graveyard',faceUp:true}]},
+  ]},events:[{actorSeat:0,action:{type:'card.identified',seat:0,cardId:3}}]};
+  assert.deepEqual(recognitionPriorsFor(room,0).decklist,[1,2,3]);
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,3]);
+  assert.ok(!recognitionPriorsFor(room,0).seen.includes(4));
+  assert.deepEqual(recognitionPriorsFor(room,1).context,[4]);
+  room.events.push({action:{type:'match.first'},seq:2});
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1]);
+  // A draw or siding timeout can start game 2 without a match.first action.
+  room.state.match.games=[{endedAt:200}];
+  room.events=[{at:100,actorSeat:0,action:{type:'card.identified',seat:0,cardId:3}},
+    {at:210,actorSeat:0,action:{type:'side.ready',seat:0}},
+    {at:220,actorSeat:0,action:{type:'card.identified',seat:0,cardId:6}}];
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,6]);
+  assert.ok(!recognitionPriorsFor(room,0).seen.includes(3));
+  room.state.seats[0].twin.push({ref:'scale',cardId:8,zone:'pendulum',faceUp:true},{ref:'private-set',cardId:9,zone:'monster',faceUp:false});
+  room.events.push({at:230,actorSeat:0,action:{type:'card.identified',seat:0,cardRef:'private-set',cardId:9,zone:'monster'}});
+  assert.ok(recognitionPriorsFor(room,0).context?.includes(8));assert.ok(!recognitionPriorsFor(room,0).context?.includes(9));
 });
 test('poisoned learned label cannot introduce a card outside the clean top ten',()=>{
   const ids=Array.from({length:11},(_,i)=>String(i+1));

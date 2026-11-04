@@ -1,9 +1,11 @@
 import type { RecognizeRawFeed } from "@/lib/remote/video";
+import { relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
+import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
 import { engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, type EngineBackend } from "./recognition-backend";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
 export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
-export type Priors = { decklist: number[]; seen: number[] };
+export type { Priors } from '@/lib/remote/recognition-priors';
 export type ReaderStatus = "vision" | "priors" | "none";
 export type ReadResult = {
   guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match";
@@ -19,7 +21,7 @@ export type ReadResult = {
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
 export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
 
-type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
+type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; related?: RelatedCards };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawResult = { quality?: { sharpness?: number }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
@@ -80,7 +82,17 @@ export function prewarmRecognizer(): Promise<void> {
 function loadMeta() {
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
     const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
-    return response.ok ? await response.json() as Meta : null;
+    if (!response.ok) return null;
+    const found = await response.json() as Meta;
+    // Optional generated knowledge is loaded once, outside the per-read path.
+    try {
+      const response = await fetch('/dev/vision-assets/related-cards.json', { cache: 'force-cache', signal: AbortSignal.timeout(3000) });
+      if (response.ok) {
+        const data = await response.json() as RelatedCards;
+        if (data.version === 1 && data.names && data.links && data.groups && data.cardGroups && data.aliases) found.related = data;
+      }
+    } catch { /* Recognition also works before engine knowledge is prepared. */ }
+    return found;
   }).catch(() => null);
   return meta;
 }
@@ -93,11 +105,33 @@ function loadRecognizer() {
   return recognizer;
 }
 
+const metaIds = new WeakMap<Meta, Map<number, string[]>>();
 const idsFor = (found: Meta, passcodes: number[]) => {
-  const byPasscode = new Map(found.entries.map(entry => [entry.passcode, entry]));
-  return passcodes.map(code => byPasscode.get(code)?.cardId).filter((id): id is string => !!id);
+  let byPasscode = metaIds.get(found);
+  if (!byPasscode) {
+    byPasscode = new Map();
+    for (const entry of found.entries) for (const code of [entry.passcode, entry.imageId].filter((id): id is number => !!id)) {
+      const ids = byPasscode.get(code) ?? []; if (!ids.includes(entry.cardId)) ids.push(entry.cardId); byPasscode.set(code, ids);
+    }
+    metaIds.set(found, byPasscode);
+  }
+  return [...new Set(passcodes.flatMap(code => byPasscode!.get(code) ?? byPasscode!.get(found.related?.aliases[code] ?? code) ?? []))];
 };
-const priorsFor = (found: Meta, priors: Priors) => ({ decklist: idsFor(found, priors.decklist), seen: idsFor(found, priors.seen) });
+const relatedCache = new WeakMap<Meta, Map<string, RecognitionPriors["related"]>>();
+const priorsFor = (found: Meta, priors: Priors, voice = true): RecognitionPriors => {
+  const hint = voice ? voiceHintFor(priors.scope) : { cards: [], expiresAt: undefined };
+  let cache = relatedCache.get(found); if (!cache) { cache = new Map(); relatedCache.set(found, cache); }
+  const key = (priors.context ?? []).join(",");
+  if (!cache.has(key)) {
+    cache.set(key, found.related ? relatedPriors(found.related, priors.context ?? []).flatMap(c => idsFor(found, [Number(c.cardId)]).map(cardId => ({ ...c, cardId }))) : []);
+    if (cache.size > 16) cache.delete(cache.keys().next().value!);
+  }
+  return {
+  decklist: idsFor(found, priors.decklist), seen: idsFor(found, priors.seen),
+  voiceMentioned: idsFor(found, hint.cards), voiceExpiresAt: hint.expiresAt,
+  related: cache.get(key),
+  };
+};
 const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });
 
 export type Peek = { cardId?: number; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
@@ -286,10 +320,10 @@ export async function detectCards(frame: ImageBitmap, opts?:Pick<import("@yugidr
   });
 }
 
-/** Adapter for RemoteVideo: reads raw buffered frames without seeding peer guesses from private state. */
-export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
+/** Adapter for RemoteVideo: the feed owner supplies its own scoped knowledge; only image matches leave it. */
+export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Map<number, string>>, getPriors: () => Priors = () => ({decklist:[],seen:[]})): RecognizeRawFeed {
   return async ({ track, request, signal }) => {
-    const result = await readCard(track, { x: request.x, y: request.y }, { decklist: [], seen: [] }, signal, undefined, undefined, true);
+    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal, undefined, undefined, true);
     if (result.reader !== "vision") return {candidates:[],tier:"low match",faceDown:!!result.faceDown,covered:!!result.covered};
     const names = await resolveNames(result.guesses.filter(g => !g.name).map(g => g.cardId));
     const candidates = result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);
@@ -310,7 +344,7 @@ export function attachOwnFeed(video: HTMLVideoElement) {
 /** Shared by the table and its lobby preview; the resident worker warms once. */
 export async function prepareOwnReader(priors?:Priors) {
   const [reader,found]=await Promise.all([loadRecognizer(),loadMeta()]);
-  if(reader&&found){const info=await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors)}:undefined));if(info?.backend)reportBackend(info.backend);}
+  if(reader&&found){const info=await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors,false)}:undefined));if(info?.backend)reportBackend(info.backend);}
 }
 export function detachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo !== video) return;

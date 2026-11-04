@@ -1781,3 +1781,40 @@ shows `detector.readback` beside `run`; on WebGPU `run` becomes submit time and
 
 Not done: graph capture (needs fixed input shapes and GPU inputs; passes alternate
 448 crops and 960 frames) and a GPU top-k graph (would need a new pinned model).
+
+## Remote deck and context priors (2026-11-03)
+
+Code: `5cf3b08c29f3f88687e6ffe94ee47001d6806342`. Base: `b7adf67ed5bda9983104968a097f22786d4caaf7`.
+
+Deck search now runs first for an attached Main/Extra/Side list. It includes all indexed art and a card-back competitor. A sure exit needs raw score >= 0.92 and raw margin >= 0.08. A miss reuses the embedding in full catalog search. Context and voice change only close suggestions; they keep raw scores and cannot create a sure read.
+
+The offline map uses engine text, Lua listed names/filters and archetype setcodes. It reuses the shared effect search quote/name matchers and the engine archetype rule. The map stores groups once. The web client uses one seat and one game for board/GY/recent public actions and seen cards. It logs the winning prior reason in Debug. Voice hints expire ten seconds after speech; late lookups cannot replace newer hints.
+
+Measured with Node v22.23.3, Chromium 153.0.8010.12, WASM on AMD Ryzen 7 9800X3D 8-Core Processor. Runtime: `{'crossOriginIsolated': True, 'wasmThreads': 4, 'simd': True}`. The same 30 existing synthetic photos ran twice in each condition. The active physical index has 14,652 artwork rows; the fixed deck has 60 card IDs and 67 art rows. Context contains up to five previous confirmed fixture plays and never the current target.
+
+| Condition | Reads | Top-1 | Sure | Wrong sure | Read p50 / p95 ms | Search p50 ms | Deck exits |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Before, no deck | 60 | 100% | 100% | 0 | 155.00 / 267.30 | 1.315 | 0 |
+| After, no deck | 60 | 100% | 100% | 0 | 157.64 / 325.44 | 1.420 | 0 |
+| Before, deck | 60 | 100% | 100% | 0 | 151.57 / 319.60 | 1.405 | 0 |
+| After, deck | 60 | 100% | 100% | 0 | 161.48 / 339.09 | 0.120 | 54 |
+| After, wrong context | 60 | 100% | 100% | 0 | 157.82 / 348.77 | 0.630 | 0 |
+| After, disjoint deck | 60 | 100% | 100% | 0 | 164.94 / 311.70 | 1.490 | 0 |
+
+Read time is wall time around the worker call, after bitmap creation. The separate warmed search probe measured catalog p50 0.945 ms and deck p50 0.025 ms. The full-read search stage fell from 1.405 to 0.120 ms. Inference dominates the complete read.
+
+No prior changed a fixture winner: these reads already had clear visual evidence. These fixtures show no accuracy or overall read-speed gain. They do show a smaller search cost and preserve the wrong-context and disjoint-deck controls. The extended regression checks a close suggestion corrected by context, unchanged low/clear matches, and no manufactured sure. These are synthetic fixtures, not real webcam or hardware GPU accuracy measurements.
+
+Validation: 44 pipeline tests, 3 named search tests, and 102 web recognition tests pass (149 total). Vision and web package typechecks pass with their TypeScript 5.9.3 compiler and Node 22.23.3. Only the existing deck-restriction test was extended; no test files were added. Review fixes cover new-game boundaries after siding timeouts, Pendulum/private-field visibility, Lua summon-context arguments, and delayed voice lookup order/expiry.
+
+The generated `data/vision/related-cards.json` has 14,578 cards and 851,198 bytes. It is ignored and is not committed. Raw paired measurements are in `data/vision/benchmark/prior/results.json` in this worktree. Reproduce with `node --import tsx scripts/vision/benchmark-prior.ts` (`PRIOR_BASE=b7adf67ed`, `PRIOR_TRIALS=2` by default).
+
+After this branch lands on :3000, run this from that checkout with Node 22. These paths match the server environment observed during this task:
+
+```sh
+DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/local-all/data/engine-local-ready \
+VISION_DATA_DIR=/home/sulman633/repos/yugioh-bot/.worktrees/remote-vision-feedback/data/vision \
+  node --import tsx scripts/vision/prepare.ts --bundle-only --related
+```
+
+This builds the worker and relation map in the server asset directory. Reload open Remote Duels pages with the cache cleared. This task prepared only its own data directory; it did not replace the live :3000 assets. The main checkout has its original changes.

@@ -205,7 +205,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
           if(message.opts) {
             const gallery=message.opts.sessionGallery??[];
             if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
-            preparedOptions=message.opts;
+            preparedOptions={...message.opts,priors:message.opts.priors?{...message.opts.priors,voiceMentioned:undefined}:undefined};
           }
           reply({id:message.id,result:{backend:backendStatus().backend}});return;}
         if(learningCache) {

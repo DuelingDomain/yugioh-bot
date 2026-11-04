@@ -48,6 +48,9 @@ export interface GameProfile {
 }
 export interface RecognitionPriors {
   decklist?: string[]; seen?: string[]; voiceMentioned?: string[];
+  /** Epoch time, checked when ranking so a queued read cannot revive an expired hint. */
+  voiceExpiresAt?: number;
+  related?: { cardId: string; reason: string }[];
   /** Explicit caller restriction; inferred border colour remains a soft filter. */
   frameClasses?: string[];
 }
@@ -66,15 +69,17 @@ export interface RecognizeOptions {
   preclean?: boolean;
   /** Serializable session identities (e.g. fieldGallery.entries()); absent by default. */
   gallery?: readonly FieldIdentityEntry[];
-  /** Allow confident priors.decklist matches to skip catalog search. Default: false. */
+  /** Allow strong unboosted priors.decklist matches to skip catalog search. Default: true. */
   deckFirst?: boolean;
-  /** Minimum unboosted winner/runner-up gap for gallery/deck exits. Default: 0.08. */
+  /** Minimum unboosted gallery gap (default .02); deck exits require at least .08. */
   earlyExitMargin?: number;
   /** Normalized source region, including neighbouring-card margin; detector uses a 448px crop. */ region?: FractionalBox; /** Consume ImageData buffers instead of copying them. */ transferFrames?: boolean; clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; /** Small decision crop only; no AI source retention or feedback collection. */ includeDiagnosticCrop?:boolean; /** Keep AI source pixels in the worker; warp/encode only for an explicit askAI call. */ deferAICrop?:boolean; includeFeedback?: boolean; /** Reuse clean visual evidence for local identity tracking without retaining pixels. */ includeIdentityEmbedding?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Permit a clean upright answer to skip the reverse view, including when retaining raw evidence. */ preferUpright?:boolean; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal and gallery/deck early exits for calibration/motion audits. */ earlyExit?: boolean; /** Feed clicks require an actual detected card. */ regionFallback?: boolean
 }
-export interface Candidate { cardId: string; score: number }
+export interface Candidate { cardId: string; score: number; prior?: string }
 export interface RecognitionResult {
   candidates: Candidate[];
+  /** Bounded ranking reason; confidence always uses raw visual evidence. */
+  prior?: string;
   /** Normalized outline in the sharpest successfully read frame; absent for fallback crops. */
   detectedCard?: DetectedQuad;
   /** Present only on request; never uploaded automatically. */
@@ -92,7 +97,7 @@ export interface RecognitionResult {
   /** Opt-in clean visual reference for local tracking; never uploaded or broadcast automatically. */
   identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
-  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
+  quality: { searchSource?: 'deck' | 'gallery' | 'catalog'; sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number; /** Light/glare pre-clean (Debug line): crop cost, glare %, 1 when the clean crop won, applied RGB gains. */ precleanMs?:number; precleanGlare?:number; precleanUsed?:number; precleanGainR?:number; precleanGainG?:number; precleanGainB?:number };
   backend: 'webgpu' | 'wasm';
   /** Light/glare pre-clean report for the Debug line: glare share, applied RGB gains and which crop won. */
