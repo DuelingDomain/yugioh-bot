@@ -1035,3 +1035,6 @@
 .hover{position:absolute;left:6px;right:6px;bottom:6px;z-index:5;padding:6px;border-radius:10px;background:rgb(10 6 20/.78);backdrop-filter:blur(4px);pointer-events:none}
 .hover :is(button,a){pointer-events:auto}
 .toast button{margin-left:6px;border:1px solid var(--line2);background:var(--p1);color:var(--gold-ink);border-radius:6px;padding:2px 8px;cursor:pointer}
+
+/* duel effects layer: above the board, never takes a click */
+.fxl{position:fixed;inset:0;z-index:60;pointer-events:none;overflow:hidden}

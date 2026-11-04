@@ -151,7 +151,7 @@ export function SeatPanel(p: SeatPanelProps) {
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
-            <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
+            <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`} data-lp-seat={p.seat}>{p.lp}</span>
             <span className={`${s.lpd} ${s.num} ${delta ? s.show : ""} ${delta > 0 ? s.gain : ""}`} aria-hidden="true">{delta ? sg(delta) : ""}</span>
             <input className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
               value={input} disabled={!p.canLp} onChange={event => setInput(event.target.value)}

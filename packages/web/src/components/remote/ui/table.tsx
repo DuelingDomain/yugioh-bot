@@ -26,6 +26,7 @@ import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
+import { RemoteFx } from "./remote-fx";
 import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
@@ -1161,5 +1162,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
     <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
+    <RemoteFx state={state} webcamOnly={webcamOnly} />
   </div>;
 }
