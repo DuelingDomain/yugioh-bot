@@ -47,6 +47,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** A camera card that the zone rules put in another row than seen ("Trap → S3"). Log text only. */ zoneRule: z.string().trim().min(1).max(80).optional(),
     /** Same-identity physical cards visible together in one camera frame, in epoch milliseconds. */
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
     /** Explicit origin answer; independent of recognition source. */
@@ -57,6 +58,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    zoneRule: z.string().trim().min(1).max(80).optional(),
     /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */
     trapMonster: z.boolean().optional() }),
   /** Link an Equip Card to the monster it equips (any seat), or clear the link with `target: null`. */

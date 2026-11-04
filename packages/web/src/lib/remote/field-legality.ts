@@ -8,7 +8,8 @@ export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null
 /** `trapZone`: a Trap Monster keeps this Spell & Trap Zone occupied while it is a monster. */
 type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
-type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string };
+/** `moved`: the camera row was not legal for this card; it went to the nearest legal zone ("Trap → S3"). */
+type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string; moved?:string };
 /** Context that can make a soft placement plausible: an Equip effect on the same field. */
 export type ZoneContext = { faceDown?:boolean; equipSource?:boolean };
 const piles = new Set(['GY','BANISHED','DECK','EXTRA','graveyard','banished','deck','extra','hand','hand-reveal']);
@@ -71,37 +72,51 @@ export function fieldZoneLabel(zone:string):string {
 const columnOf=(zone:FieldZone)=>zone==='EMZ1'?2:zone==='EMZ2'?4:/^[MS][1-5]$/.test(zone)?Number(zone[1]):1;
 const twinLocation=(zone:string,slot?:number)=>/^[MS][1-5]$|^EMZ[12]$|^FIELD$/.test(zone)?fieldZoneLocation(zone as FieldZone):{zone,slot};
 
+type Verdict = { legal:'ok'|'unusual'|'illegal'; reason?:string };
 /**
- * Soft zone rule. Undefined = the zone is plausible for this card. A string = keep the card there,
- * but mark it "Check zone?" with this reason. Never a reason to move the card.
+ * Zone by card type (docs/remote-duels/zone-rules.md). Legal by type is the default: Spell/Trap → S/T
+ * (Field Spell → FIELD), Monster → M (Extra Deck / Pendulum also EMZ). Only cards whose facts allow the
+ * other row are exceptions: Trap Monsters in M, monsters that are Set as Spells or equip (Artifact,
+ * Union, "equip this card", an equip effect on the field), Pendulum scales in S1/S5. An exception card in
+ * an odd spot is "unusual" (kept, "Check zone?"); any other wrong row is "illegal" (moved).
  */
-export function fieldZoneCheck(facts:FieldZoneFacts|undefined,zone:string,slot?:number,context:ZoneContext={}):string|undefined {
-  if(piles.has(zone))return;
+function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|undefined,context:ZoneContext):Verdict {
   const {zone:destination,slot:targetSlot}=twinLocation(zone,slot);
-  if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(destination))return;
   const kind=cardKind(facts);
-  if(!kind.known)return;
-  if(destination==='field')return kind.field||kind.spellSubtypeUnknown?undefined:'Only Field Spells normally belong in the Field Spell Zone.';
-  if(kind.field)return 'Field Spells normally belong in the Field Spell Zone.';
-  if(destination==='monster')return kind.monster||kind.trapMonster?undefined:kind.trap?'This Trap has no Trap Monster text.':'Spell Cards normally belong outside Main Monster Zones.';
-  if(destination==='extra-monster')return kind.extra||kind.pendulum?undefined:'Extra Monster Zones require Fusion, Synchro, Xyz, or Link Monsters.';
-  if(destination==='pendulum')return kind.pendulum?undefined:'Only Pendulum Monsters normally belong in Pendulum Zones.';
-  if(kind.spell||kind.trap)return;
-  if(kind.spellTrapText)return;
-  if(!context.faceDown&&(kind.equip||context.equipSource))return;
-  if(kind.pendulum)return targetSlot===1||targetSlot===5?undefined:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales.';
-  return 'Monsters in a Spell/Trap Zone need an Equip, Set or Continuous effect.';
+  if(piles.has(zone)||!kind.known||!['monster','extra-monster','spell-trap','field','pendulum'].includes(destination))return {legal:'ok'};
+  const illegal=(reason:string):Verdict=>({legal:'illegal',reason});
+  if(destination==='field')return kind.field||kind.spellSubtypeUnknown?{legal:'ok'}:illegal('Only Field Spells belong in the Field Spell Zone.');
+  if(kind.field)return {legal:'unusual',reason:'Field Spells belong in the Field Spell Zone.'};
+  if(destination==='monster')return kind.monster||kind.trapMonster?{legal:'ok'}:kind.trap?illegal('This Trap has no Trap Monster text, so it belongs in a Spell/Trap Zone.'):illegal('Spell Cards belong in Spell/Trap Zones, not Monster Zones.');
+  if(destination==='extra-monster')return kind.extra||kind.pendulum?{legal:'ok'}:illegal('Extra Monster Zones require Fusion, Synchro, Xyz, or Link Monsters.');
+  if(destination==='pendulum')return kind.pendulum?{legal:'ok'}:illegal('Only Pendulum Monsters belong in Pendulum Zones.');
+  if(kind.spell||kind.trap)return {legal:'ok'};
+  // A monster in a Spell & Trap Zone.
+  if(kind.spellTrapText)return {legal:'ok'};
+  if(kind.equip||context.equipSource)return context.faceDown?{legal:'unusual',reason:'A face-down monster in a Spell/Trap Zone needs a Set effect.'}:{legal:'ok'};
+  if(kind.pendulum)return targetSlot===1||targetSlot===5?{legal:'ok'}:{legal:'unusual',reason:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales.'};
+  return illegal('Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.');
 }
 
+/** "Check zone?": only for an exception card in an unusual zone. Never a reason to move the card. */
+export function fieldZoneCheck(facts:FieldZoneFacts|undefined,zone:string,slot?:number,context:ZoneContext={}):string|undefined {
+  const verdict=zoneVerdict(facts,zone,slot,context);
+  return verdict.legal==='unusual'?verdict.reason:undefined;
+}
+
+const kindLabel=(kind:ReturnType<typeof cardKind>)=>kind.field?'Field Spell':kind.spell?'Spell':kind.trap?'Trap':kind.link?'Link Monster':'Monster';
+/** Log text for a rule move: "Trap → S3", "Field Spell → FIELD". */
+export function zoneMoveLabel(facts:FieldZoneFacts|undefined,target:FieldZone):string { return `${kindLabel(cardKind(facts))} → ${target==='FIELD'?'Field Zone':target}`; }
 /**
- * Hard zone rules. Field Spell → FIELD, Link Monster → Monster Zones. Other cards stay where
- * the camera saw them (a soft rule only marks "Check zone?"). Occupied zones use the nearest free
- * zone of the same row; a full row abstains.
+ * Where a camera card goes. Legal by type: a card in a wrong row goes to the nearest free legal zone of the
+ * same column (M3 → S3, EMZ1 → M2), with `moved` for the log. An exception card in an unusual zone stays with
+ * `check`. An occupied zone uses the nearest free zone of the same row; a full row abstains. Face-down cards
+ * keep their row (the camera cannot see their type).
  */
 export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='normal',equipSource=false}:{
   zone:FieldZone; facts?:FieldZoneFacts; twins:readonly FieldTwin[]; ref?:string; faceDown?:boolean; format?:FieldFormat; equipSource?:boolean;
 }):Projection {
-  const accept=(target:FieldZone,check?:string):Projection=>({zone:target,label:fieldZoneLabel(target),...(check?{check}:{})});
+  const accept=(target:FieldZone,check?:string,moved?:string):Projection=>({zone:target,label:fieldZoneLabel(target),...(check?{check}:{}),...(moved?{moved}:{})});
   const abstain=(reason:string):Projection=>({label:fieldZoneLabel(zone),reason});
   if(piles.has(zone))return accept(zone);
   const occupied=(target:FieldZone)=>{
@@ -111,11 +126,11 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
       (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
       (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));
   };
-  const row=(prefix:'M'|'S',check?:(target:FieldZone)=>string|undefined):Projection=>{
+  const row=(prefix:'M'|'S',check?:(target:FieldZone)=>string|undefined,moved?:(target:FieldZone)=>string):Projection=>{
     const col=columnOf(zone);
     const free=[1,2,3,4,5].sort((a,b)=>Math.abs(a-col)-Math.abs(b-col)||a-b)
       .map(slot=>`${prefix}${slot}` as FieldZone).find(target=>!occupied(target));
-    return free?accept(free,check?.(free)):abstain(`No free ${prefix==='M'?'Main Monster':'Spell/Trap'} Zone. Choose a zone manually.`);
+    return free?accept(free,check?.(free),moved?.(free)):abstain(`No free ${prefix==='M'?'Main Monster':'Spell/Trap'} Zone. Choose a zone manually.`);
   };
   if(faceDown){
     if(zone.startsWith('M'))return row('M');
@@ -126,22 +141,24 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   const kind=cardKind(facts);
   if(!kind.known)return abstain(unknownType);
   const check=(target:FieldZone)=>fieldZoneCheck(facts,target,undefined,{equipSource});
-  // Hard rules.
-  if(kind.field&&!occupied('FIELD'))return accept('FIELD');
-  if(kind.link&&(zone.startsWith('S')||zone==='FIELD'))return row('M');
-  if(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format))return row('M',check);
-  // Soft rules: the camera zone wins when it is free.
-  if(!occupied(zone))return accept(zone,check(zone));
+  const moved=(target:FieldZone)=>target===zone?'':zoneMoveLabel(facts,target);
+  if(kind.field&&!occupied('FIELD'))return accept('FIELD',undefined,moved('FIELD'));
+  if(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format))return row(kind.monster?'M':'S',check,moved);
+  if(kind.field&&zone!=='FIELD'&&!zone.startsWith('S'))return row('S',check,moved);
+  const verdict=zoneVerdict(facts,zone,undefined,{equipSource});
+  if(verdict.legal==='illegal')return row(kind.monster||kind.trapMonster&&zone.startsWith('EMZ')?'M':'S',check,moved);
+  if(!occupied(zone))return accept(zone,verdict.legal==='unusual'?verdict.reason:undefined);
   if(zone==='FIELD')return abstain('Field Spell Zone is occupied. Choose a zone manually.');
   return row(zone.startsWith('S')?'S':'M',check);
 }
 
-/** A hard rule target that differs from the card's zone (Field Spell outside FIELD, Link in S/T). */
-export function hardFieldZone(facts:FieldZoneFacts|undefined,zone:FieldZone,twins:readonly FieldTwin[],ref:string,format:FieldFormat='normal'):FieldZone|undefined {
+/** A rule target that differs from the card's zone: a card in a row its type does not allow (Trap in M, Field Spell in S/T). */
+export function hardFieldZone(facts:FieldZoneFacts|undefined,zone:FieldZone,twins:readonly FieldTwin[],ref:string,format:FieldFormat='normal',equipSource=false):FieldZone|undefined {
   const kind=cardKind(facts);
-  if(!(kind.field&&zone!=='FIELD')&&!(kind.link&&(zone.startsWith('S')||zone==='FIELD')))return;
-  const target=projectFieldZone({zone,facts,twins,ref,format}).zone;
-  return target&&target!==zone&&(kind.field?target==='FIELD':target.startsWith('M'))?target:undefined;
+  if(!kind.known||piles.has(zone))return;
+  if(!(kind.field&&zone!=='FIELD')&&zoneVerdict(facts,zone,undefined,{equipSource}).legal!=='illegal'&&!(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format)))return;
+  const target=projectFieldZone({zone,facts,twins,ref,format,equipSource}).zone;
+  return target&&target!==zone&&!(kind.field&&target!=='FIELD'&&zone.startsWith('S'))?target:undefined;
 }
 
 /** Explicit moves remain available; callers can display a warning alongside the move. */
@@ -150,14 +167,14 @@ export function manualFieldZoneWarning(facts:FieldZoneFacts|undefined,zone:strin
   const {zone:destination}=twinLocation(zone,slot);
   if(!['monster','extra-monster','spell-trap','field','pendulum'].includes(destination))return;
   if(!cardKind(facts).known)return unknownType;
-  const check=fieldZoneCheck(facts,zone,slot,context);
-  return check?`${check} Check this manual move.`:undefined;
+  const verdict=zoneVerdict(facts,zone,slot,context);
+  return verdict.reason?`${verdict.reason} Check this manual move.`:undefined;
 }
 
 /** Plausible choices for a prompt in the observed zone. Callers list them first; others still follow. */
 export function fieldCandidateFitsZone(zone:FieldZone,facts:FieldZoneFacts|undefined):boolean {
   if(piles.has(zone))return true;
-  return cardKind(facts).known&&!fieldZoneCheck(facts,zone);
+  return cardKind(facts).known&&zoneVerdict(facts,zone,undefined,{}).legal==='ok';
 }
 
 /**
