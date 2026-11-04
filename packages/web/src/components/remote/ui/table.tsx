@@ -888,7 +888,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       for (const card of knownHandOf(state, seat)) {
         if (old.has(card.id) || !ids.has(card.id)) continue;
         if (seat === mySeat || solo) {
-          if (manualAdds.current.has(card.cardId)) continue;
+          if (manualAdds.current.has(card.cardId) || card.by) continue;
           toast(<span data-testid="hand-seen">Seen: {card.name} {"\u2192"} added to hand {"\u00b7 "}<button type="button" onClick={() => void doUndo()}>Undo</button></span>, 6000);
         } else toast(`${name(seat)} added ${card.name} to hand`, 4200);
       }

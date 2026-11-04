@@ -42,6 +42,8 @@ const snapOf = (state: RemoteState): Snap => {
 const boxOf = (el: Element | null): Box | null => {
   if (!el) return null;
   const rect = el.getBoundingClientRect();
+  // A card that is scrolled out of sight gets no effect.
+  if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) return null;
   return rect.width > 2 && rect.height > 2 ? { x: rect.left, y: rect.top, w: rect.width, h: rect.height } : null;
 };
 const cardEl = (ref: string) => document.querySelector(`[data-zone][data-ref="${CSS.escape(ref)}"], [data-ref="${CSS.escape(ref)}"]`);
@@ -136,6 +138,7 @@ export function RemoteFx({ state, webcamOnly }: { state: RemoteState; webcamOnly
           const info = cardInfo(attacker?.cardId);
           const tint = ATTRIBUTE_TINT[String(info?.attribute ?? "").toUpperCase()] ?? "255 170 90";
           if (from && to && used < MAX_PER_STATE) { used += 1; strike(from, to, tint); }
+          else if (to && used < MAX_PER_STATE) { used += 1; glow(to, tint, 1.4); ring(to, tint); }
         }
 
         for (const [ref, now] of next.cards) {
