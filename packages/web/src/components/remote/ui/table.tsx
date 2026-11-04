@@ -55,7 +55,7 @@ import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from 
 import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
-import { handAdd, handCount, handCountOf, knownHandOf, openSearch, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
+import { handAdd, handCount, handCountOf, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -844,7 +844,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   };
 
   // ---- added to hand ----
-  const [dismissedSearch, setDismissedSearch] = useState<ReadonlySet<string>>(new Set());
+  // A dismissed or finished chip stays gone after a reload (kept per table in this tab's session storage).
+  const dismissKey = `remote-hand-dismissed:${room.slug}`;
+  const [dismissedSearch, setDismissedSearchRaw] = useState<ReadonlySet<string>>(() => {
+    try { return new Set<string>(JSON.parse(sessionStorage.getItem(dismissKey) ?? "[]")); } catch { return new Set<string>(); }
+  });
+  const setDismissedSearch = useCallback((update: (old: ReadonlySet<string>) => ReadonlySet<string>) => setDismissedSearchRaw(old => {
+    const next = update(old);
+    try { sessionStorage.setItem(dismissKey, JSON.stringify([...next].slice(-40))); } catch { /* storage can be blocked */ }
+    return next;
+  }), [dismissKey]);
+  // The chip lives for the search window (2 minutes after the effect), then goes by itself.
+  const [searchTick, setSearchTick] = useState(0);
+  useEffect(() => { const timer = setInterval(() => setSearchTick(n => n + 1), 10_000); return () => clearInterval(timer); }, []);
+  const searchFresh = useCallback((id: string) => { const at = room.events.find(event => event.id === id.replace(/:hand$/, ""))?.at; return at !== undefined && serverNow() - at < SEARCH_WINDOW_MS; }, [room.events, searchTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const addToHand = useCallback((seat: number, card: HandCandidate, source: "deck" | "unknown", by?: HandBy, originId?: string) => {
     if (originId) setDismissedSearch(old => new Set([...old, originId]));
     void act(handAdd(seat, card, source, by));
@@ -864,12 +877,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setSubject({ cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     layers.open("insp");
   };
+  // One chip at a time (a solo table has a chip for each bot seat), and none while a popover, drawer or tray is open.
+  const chipSeat = layers.layer ? undefined : state.seats.map(item => item.seat).find(seat => live && (solo || seat === mySeat) && openSearch(state, seat, dismissedSearch, searchFresh));
   const handOf = (seat: number): HandProps | undefined => {
     const own = live && (solo || seat === mySeat);
-    const search = own ? openSearch(state, seat, dismissedSearch) : undefined;
+    const search = own && seat === chipSeat ? openSearch(state, seat, dismissedSearch, searchFresh) : undefined;
     return {
       cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => openKnown(seat, card),
-      ...(own ? { onCount: (count: number) => void act(handCount(solo ? seat : mySeat, count)) } : {}),
+      ...(own ? { onCount: (delta: number) => void act(handCount(solo ? seat : mySeat, delta)) } : {}),
       ...(search ? { search: {
         by: search.by, candidates: search.candidates, onPick: card => addToHand(seat, card, "deck", search.by, search.id),
         onOther: () => searchForHand(seat, search.id, search.by), onDismiss: () => setDismissedSearch(old => new Set([...old, search.id])),
@@ -887,7 +902,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const old = before.get(seat) ?? new Set<string>();
       for (const card of knownHandOf(state, seat)) {
         if (old.has(card.id) || !ids.has(card.id)) continue;
-        toast(card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : `${name(seat)} added ${card.name} to hand`, 4200);
+        toast(card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : card.source === "unknown" ? `${name(seat)} revealed ${card.name} in hand` : `${name(seat)} added ${card.name} to hand`, 4200);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1174,6 +1189,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
     <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
-    <RemoteFx state={state} webcamOnly={webcamOnly} />
+    <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} lastType={room.events.find(event => event.seq === room.lastSeq)?.action.type} />
   </div>;
 }

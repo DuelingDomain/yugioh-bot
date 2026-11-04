@@ -15,7 +15,7 @@ import s from "./remote-ui.module.css";
 
 type Box = { x: number; y: number; w: number; h: number };
 type Seen = { seat: number; zone: string; faceUp: boolean; cardId?: number };
-type Snap = { gameId: string; attackId: string | null; undone: number; lp: number[]; cards: Map<string, Seen>; contexts: Set<string> };
+type Snap = { game: string; seq: number; undo: boolean; attackId: string | null; lp: number[]; cards: Map<string, Seen>; contexts: Set<string> };
 
 const ON_FIELD = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 const IN_MONSTER = new Set(["monster", "extra-monster"]);
@@ -30,11 +30,11 @@ const SUMMON_TINT: Record<string, string> = {
 const GOLD = "244 226 180";
 const LOSS = "228 90 77";
 
-const snapOf = (state: RemoteState): Snap => {
+const snapOf = (state: RemoteState, seq: number, undo: boolean): Snap => {
   const cards = new Map<string, Seen>();
   for (const seat of state.seats) for (const card of seat.twin) cards.set(card.ref, { seat: seat.seat, zone: card.zone, faceUp: card.faceUp !== false, cardId: card.cardId ?? card.passcode });
   return {
-    gameId: state.gameId, attackId: state.attack?.id ?? null, undone: (state.undoHistory ?? []).filter(entry => entry.undone).length, lp: state.seats.map(seat => seat.resources.lp ?? 0), cards,
+    game: `${state.gameId}:${state.match?.games?.length ?? 0}`, seq, undo, attackId: state.attack?.id ?? null, lp: state.seats.map(seat => seat.resources.lp ?? 0), cards,
     contexts: new Set(Object.keys(state.effectTracking?.contexts ?? {})),
   };
 };
@@ -57,14 +57,19 @@ function tintOfCard(cardId: number | undefined, fallback: string): string {
   return fallback;
 }
 
-export function RemoteFx({ state, webcamOnly }: { state: RemoteState; webcamOnly: boolean }) {
+/**
+ * `seq` is the table's newest event number; `lastType` is the action type of that event. Effects play only when exactly one
+ * new event arrived since the last render: not on first load, not after a reconnect that brings many events, and not for an
+ * Undo (the server marks it as an `undo` event, so every seat sees the same).
+ */
+export function RemoteFx({ state, webcamOnly, seq, lastType }: { state: RemoteState; webcamOnly: boolean; seq: number; lastType?: string }) {
   const layer = useRef<HTMLDivElement>(null);
   const prev = useRef<Snap | null>(null);
   const rects = useRef(new Map<string, Box>());
 
   useLayoutEffect(() => {
     const host = layer.current; if (!host) return;
-    const next = snapOf(state);
+    const next = snapOf(state, seq, lastType === "undo");
     const before = prev.current;
     prev.current = next;
     const reduced = (() => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } })();
@@ -123,7 +128,7 @@ export function RemoteFx({ state, webcamOnly }: { state: RemoteState; webcamOnly
     };
 
     // An Undo puts cards back where they were: that is not a summon, a destroy or an attack, so it plays nothing.
-    if (before && before.gameId === next.gameId && next.undone === before.undone && !document.hidden) {
+    if (before && before.game === next.game && next.seq - before.seq === 1 && !next.undo && !document.hidden) {
       next.lp.forEach((value, seat) => {
         const old = before.lp[seat];
         if (old !== undefined && old !== value && used < MAX_PER_STATE) { used += 1; lpFlash(seat, value - old); }
@@ -171,7 +176,7 @@ export function RemoteFx({ state, webcamOnly }: { state: RemoteState; webcamOnly
     document.querySelectorAll<HTMLElement>("[data-zone] [data-ref], [data-zone][data-ref]").forEach(el => {
       const ref = el.getAttribute("data-ref"); const box = boxOf(el); if (ref && box) rects.current.set(ref, box);
     });
-  }, [state, webcamOnly]);
+  }, [state, webcamOnly, seq, lastType]);
 
   return <div ref={layer} className={s.fxl} aria-hidden="true" data-testid="remote-fx" />;
 }

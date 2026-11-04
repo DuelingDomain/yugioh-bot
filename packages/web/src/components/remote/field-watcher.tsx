@@ -84,7 +84,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [failedUpdate,setFailedUpdate]=useState<{work:(act:RoomMutation)=>Promise<void>;event?:FieldEvent;humanChoice?:boolean}|null>(null);
-  const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
+  const [seen,setSeen]=useState<{id:string;cardId:number;name:string}|null>(null),seenDismissed=useRef(new Set<string>()),[notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   // Grid check: when the card type contradicts the camera row for 2+ cards in 2 minutes, the zones are
   // probably shifted by one row. One hint per table and seat.
@@ -409,19 +409,39 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     // Reuse the physical episode ID across HTTP retries. No field placement is possible here.
     const entry=entries.current.get(event.cardId),cardId=entry?catalogCardId(entry):Number(event.cardId);
     if(typeof cardId!=='number'||!Number.isSafeInteger(cardId)||cardId<=0)return;
-    const actionId=event.id.slice(0,100);
+    const actionId=event.id.slice(0,100),name=entry?.name??'Card';
     void queue(async act=>{
       if(!live())return;
       const state=current.current.room.state,own=state.seats[seat];
-      const snapshot=watch.getSnapshot();
-      const bounce=own.twin.find(c=>cardCode(c)===cardId&&(c.zone==='hand'&&c.departedFrom&&serverNow()-(c.departedFrom.at??0)<10_000||publicField(c.zone)&&snapshot?.tracks.some(t=>(bindings.current.get(t.id)??t.id)===c.ref&&!t.visible&&performance.now()-t.lastSeen<10_000)));
-      const recent=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===seat&&o.destination==='hand'&&
+      // A card that is already known, or already back in hand (the server saw it leave the field), needs nothing.
+      if(own.knownHand?.some(c=>c.cardId===cardId)||own.twin.some(c=>c.zone==='hand'&&cardCode(c)===cardId&&c.departedFrom&&serverNow()-(c.departedFrom.at??0)<10_000))return;
+      // A search effect from the last 2 minutes that this card can answer: add it from the Deck.
+      const recent=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===seat&&o.destination==='hand'&&!o.handCounted&&!o.chosenCardId&&!o.announcedCard&&
         serverNow()-(state.undoHistory?.find(e=>e.actionId+':hand'===o.id)?.at??0)<=120_000&&
         searchCandidates(state,seat,o.source.cardId).some(c=>c.cardId===cardId));
-      const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand'||!!recent&&own.twin.some(c=>c.ref===recent.ref&&c.zone==='hand');
-      const proposal=remoteHandActionFromVision({cardId,mode:already||!bounce&&!recent?'reveal':'add',source:bounce?'field':recent?'deck':'unknown',...(recent?{by:{cardId:recent.source.cardId,name:recent.source.name}}:{})},seat);
+      if(!recent){
+        // No search context: a card in the air is usually a card on its way to the field. Offer a local chip; send nothing.
+        if(!seenDismissed.current.has(actionId))setSeen({id:actionId,cardId,name});
+        return;
+      }
+      // Wait a moment: a card that lands on the field right after is a normal play, not a search result.
+      await new Promise(resolve=>setTimeout(resolve,800));
+      const after=current.current.room.state.seats[seat];
+      if(after.twin.some(c=>c.zone!=='hand'&&c.zone!=='deck'&&cardCode(c)===cardId&&!own.twin.some(old=>old.ref===c.ref)))return;
+      const proposal=remoteHandActionFromVision({cardId,mode:'add',source:'deck',by:{cardId:recent.source.cardId,name:recent.source.name}},seat);
       const updated=await act(proposal,actionId);
-      if(updated){setNotice(`Seen: ${entry?.name??'Card'} → ${proposal.type==='hand.add'?(proposal.source==='field'?'returned to hand':'added to hand'):'revealed in hand'}`);setUndoId(updated.state.undo?.actionId??'');}
+      if(updated){setNotice(`Seen: ${name} → added to hand`);setUndoId(updated.state.undo?.actionId??'');}
+    });
+  }
+  /** The chip for a card seen without a search: the owner decides. */
+  function answerSeen(mode:'add'|'reveal'|'dismiss'){
+    const card=seen;setSeen(null);if(!card)return;
+    seenDismissed.current.add(card.id);
+    if(mode==='dismiss')return;
+    void queue(async act=>{
+      if(!live())return;
+      const updated=await act(remoteHandActionFromVision({cardId:card.cardId,mode,source:'unknown'},seat),card.id+':'+mode);
+      if(updated){setNotice(`Seen: ${card.name} → ${mode==='add'?'added to hand':'revealed in hand'}`);setUndoId(updated.state.undo?.actionId??'');}
     });
   }
   function handle(event:FieldEvent) {
@@ -767,6 +787,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
+  useEffect(()=>{if(!seen)return;const timer=setTimeout(()=>setSeen(null),15000);return()=>clearTimeout(timer);},[seen]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0);});
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
@@ -805,7 +826,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:seen?<span data-testid="hand-seen">Seen: {seen.name}<button type="button" onClick={()=>answerSeen('add')}>Add to hand</button><button type="button" onClick={()=>answerSeen('reveal')}>Reveal</button><button type="button" onClick={()=>answerSeen('dismiss')}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)watch.setEnabled(false);setCalibrating(false);}}/>:null}

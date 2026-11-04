@@ -45,7 +45,7 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) search.onDismiss(); };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, [search]);
-  return <div className={s.hchip} role="group" aria-label={`Add to hand, from ${search.by.name}`} data-testid="hand-chip">
+  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add to hand, from ${search.by.name}`} data-testid="hand-chip">
     <span className={s.hchipl}>Add to hand</span>
     {shown.map(card => <button type="button" key={card.cardId} className={s.hchipb} onClick={() => search.onPick(card)} data-testid="hand-chip-card">{card.name}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={search.onOther} data-testid="hand-chip-other">Other{"…"}</button>
@@ -70,8 +70,9 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const fresh = useFresh(hand.cards);
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
   const { count, onCount } = hand;
-  if (!hand.cards.length && count === undefined && !hand.search) return null;
-  return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
+  // The webcam overlay stays out of the feed until there is something to show.
+  if (!hand.cards.length && !hand.search && (hand.overlay || count === undefined)) return null;
+  return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
     {hand.search ? <HandChip search={hand.search} /> : null}
     <div className={s.hrow}>
       <span className={s.hlab}>Revealed in hand</span>
@@ -85,9 +86,9 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
         {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
       </ul>
       {count !== undefined || onCount ? <span className={s.hcount} data-testid={`hand-count-${seat}`}>
-        {onCount ? <button type="button" onClick={() => onCount(Math.max(0, (count ?? 0) - 1))} aria-label="Hand minus one" disabled={!count}>{"−"}</button> : null}
+        {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
         <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>
-        {onCount ? <button type="button" onClick={() => onCount((count ?? 0) + 1)} aria-label="Hand plus one">+</button> : null}
+        {onCount ? <button type="button" onClick={() => onCount(1)} aria-label="Hand plus one">+</button> : null}
       </span> : null}
     </div>
     {look ? <HandPreview card={look.card} box={look.box} /> : null}

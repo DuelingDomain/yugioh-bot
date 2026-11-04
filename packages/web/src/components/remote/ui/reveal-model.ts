@@ -26,8 +26,9 @@ export function knownHandOf(state: RemoteState, seat: number): KnownHandCard[] {
 export const handCountOf = (state: RemoteState, seat: number): number | undefined => state.seats[seat]?.handCount;
 
 /** An open search for this seat: a search card was used and no card is chosen yet. Candidates are deck-filtered. */
-export function openSearch(state: RemoteState, seat: number, dismissed: ReadonlySet<string>) {
-  const origin = (state.effectTracking?.origins ?? []).filter(o => o.seat === seat && o.destination === "hand" && !o.chosenCardId && !o.announcedCard && !dismissed.has(o.id)).at(-1);
+export const SEARCH_WINDOW_MS = 120_000;
+export function openSearch(state: RemoteState, seat: number, dismissed: ReadonlySet<string>, fresh: (id: string) => boolean) {
+  const origin = (state.effectTracking?.origins ?? []).filter(o => o.seat === seat && o.destination === "hand" && !o.chosenCardId && !o.announcedCard && !o.handCounted && !dismissed.has(o.id) && fresh(o.id)).at(-1);
   if (!origin) return undefined;
   const found = searchCandidates(state, seat, origin.source.cardId);
   const candidates: HandCandidate[] = found.length ? found.map(c => ({ cardId: c.cardId, name: c.name })) : (origin.candidates ?? []).map(c => ({ cardId: c.cardId, name: c.name }));
@@ -37,5 +38,5 @@ export function openSearch(state: RemoteState, seat: number, dismissed: Readonly
 /** The actor owns the hand; no seat field in the action. */
 export const handAdd = (actor: number, card: HandCandidate, source: HandSource, by?: HandBy): RemoteActionProposal =>
   ({ type: "hand.add", actorSeat: actor, cardId: card.cardId, source, ...(by ? { by } : {}) });
-/** The owner sets the hand size. */
-export const handCount = (actor: number, count: number): RemoteActionProposal => ({ type: "hand.count", actorSeat: actor, value: count });
+/** The owner changes the hand size by a step (two quick taps add up). */
+export const handCount = (actor: number, delta: number): RemoteActionProposal => ({ type: "hand.count", actorSeat: actor, delta });
