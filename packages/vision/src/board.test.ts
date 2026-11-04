@@ -165,6 +165,7 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   const reads=r.reads;
   r.appearance=Array.from({length:12},(_,i)=>i%2);r.embedding=[0,1];r.identity='B';
   r.outlines=[card(.31,.3,.25,.15)];for(let i=0;i<30;i++)await r.tick(200);
+  if(process.env.DBG)console.log('DBG9',JSON.stringify(r.events.map(e=>[e.type,e.track.id,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.map(t=>[t.id,t.state,t.cardId,t.under,t.removed])),JSON.stringify(r.watcher.getSnapshot().debug?.reasons));
   assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads,reads,'bound identity is changed only by an explicit correction');
   assert.equal(r.watcher.getSnapshot().tracks[0].id,'owner-ref');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'A');r.watcher.dispose();
   const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
@@ -417,7 +418,10 @@ test('busy tracking refreshes known geometry from pixels without inference and i
   r.busy=true;r.appearance=Array(12).fill(.8);await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'stationary replacements are invalidated');
   const oldRef=r.watcher.getSnapshot().tracks[0].id;r.busy=false;await r.tick();
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef)?.visible,false,'the detector cannot restore the old identity onto replacement pixels');
-  assert.equal(r.reads,reads);for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,reads,'an acknowledged ref is not reread onto replacement pixels');r.watcher.dispose();
+  for(let i=0;i<6;i++)await r.tick();
+  // Owner 2026-11-03: different pixels on the same spot are a new card on top. The acknowledged ref keeps its identity, hidden under it.
+  const old=r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef);assert.equal(old?.cardId,'A','an acknowledged ref is not reread onto replacement pixels');assert.equal(old?.visible,false);
+  assert.ok(old?.under&&r.watcher.getSnapshot().tracks.some(t=>t.id===old.under),'the old card lies under the new outline');r.watcher.dispose();
 });
 
 test('pixel refreshes between slow detector samples preserve same-ref movement settlement',async()=>{
