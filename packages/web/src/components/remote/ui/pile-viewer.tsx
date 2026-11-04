@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { cardArt, type CardInfo } from "./catalog";
+import { cardArt, searchCards, type CardInfo } from "./catalog";
 import { DragGhost, VERDICT_CLASS, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
 import { cardCode, cardName, type TwinCard, type ZoneKey } from "./model";
@@ -21,11 +21,15 @@ export const pileCards = (twin: readonly TwinCard[], zone: PileZone): TwinCard[]
  * The owner sees the name of a face-down banished card; the others get a card back (the server never sends them the name).
  * The owner can drag a card from the pile to a zone of the field, or to the hand chip, with the same rules as the field.
  */
-export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: dnd, onOpenCard, onClose }: {
+export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: dnd, onOpenCard, onOrder, onName, onRemove, onClose }: {
   seat: number; name: string; mine: boolean; twin: readonly TwinCard[]; zone: PileZone; onZone: (zone: PileZone) => void;
   info: (id: number | undefined) => CardInfo | undefined; drag?: FieldDrag;
   /** Opens the card popup (text, stats and the move buttons) beside the tile. */
   onOpenCard: (card: TwinCard, anchor: Rect) => void; onClose: () => void;
+  /** Owner only. Sets the whole pile order, oldest first (one `pile.order`). */
+  onOrder?: (zone: PileZone, refsOldestFirst: string[]) => void;
+  /** Owner only. Names an unnamed face-up card (`card.identified` with its ref), and removes a card (`twin.remove`). */
+  onName?: (card: TwinCard, cardId: number, name: string) => void; onRemove?: (card: TwinCard) => void;
 }) {
   const cards = pileCards(twin, zone);
   const counts: Record<PileZone, number> = { graveyard: pileCards(twin, "graveyard").length, banished: pileCards(twin, "banished").length };
@@ -75,6 +79,13 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
     stop.current = () => { cleanup(); unmark(); };
   }
 
+  /** Swaps a tile with its newer (-1) or older (+1) neighbour. The viewer lists newest first; the action wants oldest first. */
+  function shift(index: number, by: -1 | 1) {
+    const next = [...cards]; const to = index + by; if (!onOrder || to < 0 || to >= next.length) return;
+    [next[index], next[to]] = [next[to], next[index]];
+    onOrder(zone, next.map(card => card.ref).reverse());
+  }
+
   /** Arrow keys move focus over the tiles, Home and End jump to the newest and the oldest. */
   function keys(event: KeyboardEvent<HTMLUListElement>) {
     const items = [...(list.current?.querySelectorAll<HTMLElement>("button[data-tile]") ?? [])];
@@ -114,6 +125,10 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
                 <span className={s.pileNo}>{index === 0 ? "TOP" : index + 1}</span>
                 <span className={s.pileName}>{title}</span>
               </button>
+              {onOrder && cards.length > 1 ? <span className={s.pileOrd}>
+                <button type="button" disabled={index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
+                <button type="button" disabled={index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
+              </span> : null}
             </li>;
           })}
         </ul> : <p className={s.pileEmpty} data-testid="pile-empty">No cards in the {PILE_LABEL[zone]} yet.</p>}
@@ -122,12 +137,30 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
             <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} />
             {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} />
               : <h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2>}
+            {onName && previewCard.faceUp && !previewCode && !previewCard.name ? <NameIt key={previewCard.ref} onName={(id, nm) => onName(previewCard, id, nm)} onRemove={onRemove ? () => onRemove(previewCard) : undefined} /> : null}
           </> : null}
         </aside>
       </div>
-      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{dnd ? ", drag a card to the field or hand to bring it back" : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
+      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{onOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? ", drag a card to the field or hand to bring it back" : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
     </div>
     {dnd ? <div className={s.pileHand} data-hand-drop data-testid="pile-hand-drop" aria-hidden="true"><Icon name="hand" />Drop here: to hand</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}
+  </div>;
+}
+
+/** Owner only: an unnamed face-up card in a pile. Search the catalog to name it, or remove it. */
+function NameIt({ onName, onRemove }: { onName: (cardId: number, name: string) => void; onRemove?: () => void }) {
+  const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[]>([]);
+  useEffect(() => {
+    const text = query.trim(); if (text.length < 2) { setFound([]); return; }
+    let live = true; const timer = setTimeout(() => { void searchCards(text).then(list => { if (live) setFound(list.slice(0, 5)); }); }, 200);
+    return () => { live = false; clearTimeout(timer); };
+  }, [query]);
+  return <div className={s.pileName2} data-testid="pile-name-it">
+    <p className={s.dmeta}>Unknown card. Name it:</p>
+    <div className={s.srch}><Icon name="search" /><input type="text" placeholder="Search any card" aria-label="Name this card" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)}
+      onKeyDown={event => { if (event.key === "Enter" && found[0]) { event.preventDefault(); onName(found[0].id, found[0].name); } else if (event.key !== "Escape") event.stopPropagation(); }} /></div>
+    {found.map(card => <button key={card.id} type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => onName(card.id, card.name)} data-testid="pile-name-pick">{card.name}</button>)}
+    {onRemove ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={onRemove} data-testid="pile-remove">Remove from pile</button> : null}
   </div>;
 }
