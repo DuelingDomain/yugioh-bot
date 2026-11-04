@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cardArt } from "./catalog";
 import { Icon } from "./icons";
 import { sourceText, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
@@ -52,9 +53,22 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
   </div>;
 }
 
+/** A quick look at a card of the strip: big art, name, where it came from. Hover or keyboard focus opens it; it never takes a click. */
+function HandPreview({ card, box }: { card: KnownHandCard; box: DOMRect }) {
+  const host = typeof document === "undefined" ? null : document.querySelector('[data-testid="remote-table"]');
+  if (!host) return null;
+  const width = 170; const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), window.innerWidth - width - 8);
+  const above = box.top > 300;
+  return createPortal(<div className={s.hprev} style={{ left, width, ...(above ? { bottom: window.innerHeight - box.top + 8 } : { top: box.bottom + 8 }) }} data-testid="hand-preview" aria-hidden="true">
+    <img src={cardArt(card.cardId, "full")} alt="" draggable={false} />
+    <b>{card.name}</b><small>{sourceText(card)}</small>
+  </div>, host);
+}
+
 /** "Revealed in hand": mini arts of the cards everybody knows are in this hand, and the hand count. */
 export function HandStrip({ seat, name, hand }: { seat: number; name: string; hand: HandProps }) {
   const fresh = useFresh(hand.cards);
+  const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
   const { count, onCount } = hand;
   if (!hand.cards.length && count === undefined && !hand.search) return null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
@@ -63,7 +77,7 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
       <span className={s.hlab}>Revealed in hand</span>
       <ul className={s.hcards}>
         {hand.cards.map(card => <li key={card.id} className={fresh.has(card.id) ? s.hfresh : undefined}>
-          <button type="button" className={s.hcard} onClick={() => hand.onInspect(card)} title={`${card.name} · ${sourceText(card)}`} data-testid="hand-card">
+          <button type="button" className={s.hcard} onClick={() => { setLook(null); hand.onInspect(card); }} onMouseEnter={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setLook(null)} onFocus={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onBlur={() => setLook(null)} data-testid="hand-card">
             <img src={cardArt(card.cardId, "small")} alt="" draggable={false} />
             <span><b>{card.name}</b><small>{sourceText(card)}</small></span>
           </button>
@@ -76,5 +90,6 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
         {onCount ? <button type="button" onClick={() => onCount((count ?? 0) + 1)} aria-label="Hand plus one">+</button> : null}
       </span> : null}
     </div>
+    {look ? <HandPreview card={look.card} box={look.box} /> : null}
   </div>;
 }

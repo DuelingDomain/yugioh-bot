@@ -1038,3 +1038,11 @@
 
 /* duel effects layer: above the board, never takes a click */
 .fxl{position:fixed;inset:0;z-index:60;pointer-events:none;overflow:hidden}
+
+/* Quick look at a revealed hand card: fixed, no clicks. */
+.hprev{position:fixed;z-index:70;display:flex;flex-direction:column;gap:3px;padding:6px;border:1px solid var(--gold-ink,#e8b94f);border-radius:8px;background:rgb(12 8 24/.96);box-shadow:0 10px 30px rgb(0 0 0/.6);pointer-events:none}
+.hprev img{width:100%;aspect-ratio:59/86;object-fit:cover;border-radius:4px}
+.hprev b{font-size:13px;font-weight:600}
+.hprev small{font-size:11px;color:var(--ink3)}
+/* A phone: the open search chip stays in view at the top, whatever seat is scrolled to. */
+@media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:58px;z-index:65;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}}

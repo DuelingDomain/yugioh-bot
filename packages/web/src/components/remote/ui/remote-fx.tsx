@@ -15,7 +15,7 @@ import s from "./remote-ui.module.css";
 
 type Box = { x: number; y: number; w: number; h: number };
 type Seen = { seat: number; zone: string; faceUp: boolean; cardId?: number };
-type Snap = { gameId: string; attackId: string | null; lp: number[]; cards: Map<string, Seen>; contexts: Set<string> };
+type Snap = { gameId: string; attackId: string | null; undone: number; lp: number[]; cards: Map<string, Seen>; contexts: Set<string> };
 
 const ON_FIELD = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 const IN_MONSTER = new Set(["monster", "extra-monster"]);
@@ -34,7 +34,7 @@ const snapOf = (state: RemoteState): Snap => {
   const cards = new Map<string, Seen>();
   for (const seat of state.seats) for (const card of seat.twin) cards.set(card.ref, { seat: seat.seat, zone: card.zone, faceUp: card.faceUp !== false, cardId: card.cardId ?? card.passcode });
   return {
-    gameId: state.gameId, attackId: state.attack?.id ?? null, lp: state.seats.map(seat => seat.resources.lp ?? 0), cards,
+    gameId: state.gameId, attackId: state.attack?.id ?? null, undone: (state.undoHistory ?? []).filter(entry => entry.undone).length, lp: state.seats.map(seat => seat.resources.lp ?? 0), cards,
     contexts: new Set(Object.keys(state.effectTracking?.contexts ?? {})),
   };
 };
@@ -122,7 +122,8 @@ export function RemoteFx({ state, webcamOnly }: { state: RemoteState; webcamOnly
       play(text, [{ opacity: 0, transform: "translate(-50%, 6px)" }, { opacity: 1, transform: "translate(-50%, -8px)", offset: .2 }, { opacity: 0, transform: "translate(-50%, -44px)" }], 1200);
     };
 
-    if (before && before.gameId === next.gameId && !document.hidden) {
+    // An Undo puts cards back where they were: that is not a summon, a destroy or an attack, so it plays nothing.
+    if (before && before.gameId === next.gameId && next.undone === before.undone && !document.hidden) {
       next.lp.forEach((value, seat) => {
         const old = before.lp[seat];
         if (old !== undefined && old !== value && used < MAX_PER_STATE) { used += 1; lpFlash(seat, value - old); }

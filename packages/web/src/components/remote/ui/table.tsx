@@ -843,10 +843,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   // ---- added to hand ----
   const [dismissedSearch, setDismissedSearch] = useState<ReadonlySet<string>>(new Set());
-  /** Cards this person added by hand (chip, menu): they get no "Seen" toast. */
-  const manualAdds = useRef(new Set<number>());
   const addToHand = useCallback((seat: number, card: HandCandidate, source: "deck" | "unknown", by?: HandBy, originId?: string) => {
-    manualAdds.current.add(card.cardId); setTimeout(() => manualAdds.current.delete(card.cardId), 6000);
     if (originId) setDismissedSearch(old => new Set([...old, originId]));
     void act(handAdd(seat, card, source, by));
   }, [act]);
@@ -870,31 +867,29 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const search = own ? openSearch(state, seat, dismissedSearch) : undefined;
     return {
       cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => openKnown(seat, card),
-      ...(own ? { onCount: (count: number) => void act(handCount(solo ? seat : mySeat, seat, count)) } : {}),
+      ...(own ? { onCount: (count: number) => void act(handCount(solo ? seat : mySeat, count)) } : {}),
       ...(search ? { search: {
         by: search.by, candidates: search.candidates, onPick: card => addToHand(seat, card, "deck", search.by, search.id),
         onOther: () => searchForHand(seat, search.id, search.by), onDismiss: () => setDismissedSearch(old => new Set([...old, search.id])),
       } } : {}),
     };
   };
-  // A card that shows up in a hand without a tap here (a held card read by the camera) gets a short note with Undo. Other seats get a plain note.
+  // A card another seat adds to its known hand gets a plain note. The own seat's held-card note (with Undo) comes from the field watcher.
   const handSeen = useRef<Map<number, Set<string>> | null>(null);
   useEffect(() => {
     const now = new Map(state.seats.map(item => [item.seat, new Set(knownHandOf(state, item.seat).map(card => card.id))] as const));
     const before = handSeen.current; handSeen.current = now;
     if (!before) return;
     for (const [seat, ids] of now) {
+      if (seat === mySeat || solo) continue;
       const old = before.get(seat) ?? new Set<string>();
       for (const card of knownHandOf(state, seat)) {
         if (old.has(card.id) || !ids.has(card.id)) continue;
-        if (seat === mySeat || solo) {
-          if (manualAdds.current.has(card.cardId) || card.by) continue;
-          toast(<span data-testid="hand-seen">Seen: {card.name} {"\u2192"} added to hand {"\u00b7 "}<button type="button" onClick={() => void doUndo()}>Undo</button></span>, 6000);
-        } else toast(`${name(seat)} added ${card.name} to hand`, 4200);
+        toast(card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : `${name(seat)} added ${card.name} to hand`, 4200);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.seats, state.effectTracking]);
+  }, [state.seats]);
 
   // ---- card actions ----
   const subjectCard = subject?.ref ? findCard(subject.seat, subject.ref) : undefined;

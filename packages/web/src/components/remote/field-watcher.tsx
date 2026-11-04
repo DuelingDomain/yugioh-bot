@@ -408,7 +408,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand'||!!recent&&own.twin.some(c=>c.ref===recent.ref&&c.zone==='hand');
       const proposal=remoteHandActionFromVision({cardId,mode:already||!bounce&&!recent?'reveal':'add',source:bounce?'field':recent?'deck':'unknown',...(recent?{by:{cardId:recent.source.cardId,name:recent.source.name}}:{})},seat);
       const updated=await act(proposal,actionId);
-      if(updated){setNotice(`${entry?.name??'Card'} ${proposal.type==='hand.add'?'added to hand':'revealed in hand'} · auto`);setUndoId(updated.state.undo?.actionId??'');}
+      if(updated){setNotice(`Seen: ${entry?.name??'Card'} → ${proposal.type==='hand.add'?(proposal.source==='field'?'returned to hand':'added to hand'):'revealed in hand'}`);setUndoId(updated.state.undo?.actionId??'');}
     });
   }
   function handle(event:FieldEvent) {
