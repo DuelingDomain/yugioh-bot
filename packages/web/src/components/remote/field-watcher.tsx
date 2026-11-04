@@ -18,7 +18,6 @@ import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
-import {isTypingTarget} from '@/lib/typing-target';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
@@ -583,7 +582,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const tryFix=(key:string)=>{const board=boardState(),seen=resynced.current.get(key);if(seen?.board===board)return false;resynced.current.set(key,{board,fails:seen?.fails??0});return true;};
   const fixFailed=(key:string,error:unknown)=>{console.info('[remote field] re-sync write skipped',key,error instanceof Error?error.message:error);const seen=resynced.current.get(key);if(seen&&++seen.fails<3)seen.board='';};
   function resync(manualScan=false) {
-    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan){setScanning(false);setNotice(resyncing.current?'Board check already running':'Camera is not watching the field');}return;}
+    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan){setScanning(false);setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
     resyncing.current=true;
     void queue(async act=>{
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
@@ -652,17 +651,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.scanNow,watch.getSnapshot]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
-  // "S" scans the field from anywhere on the page, like the button beside the board.
-  const canScan=ownsSource&&hub.cameraOn&&watch.enabled&&!scanning;
-  const scanRef=useRef({canScan,scanField});scanRef.current={canScan,scanField};
-  useEffect(()=>{
-    const onKey=(event:KeyboardEvent)=>{
-      if((event.key!=='s'&&event.key!=='S')||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.defaultPrevented||isTypingTarget(event.target))return;
-      if(!scanRef.current.canScan||document.querySelector('[role="dialog"][aria-modal="true"]'))return;
-      event.preventDefault();scanRef.current.scanField();
-    };
-    document.addEventListener('keydown',onKey);return()=>document.removeEventListener('keydown',onKey);
-  },[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
   useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
   useEffect(()=>()=>publishFieldDebug(null),[]);

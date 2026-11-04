@@ -43,6 +43,21 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 test.describe("remote duels screen, solo", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
 
+  test("Scan field button beside the board and the S key", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    await fakeCamera(page);
+    await page.goto(`/duels/remote/${slug}`);
+    const scan = page.getByTestId("field-scan");
+    await expect(scan).toBeVisible(); await expect(scan).toHaveAttribute("aria-disabled", "true"); await expect(scan).toContainText("Camera off");
+    await page.getByTestId("camera-on-feed").click();
+    await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+    await scan.evaluate(button => { const w = window as unknown as { __scanSeen: boolean }; w.__scanSeen = false; new MutationObserver(() => { if (button.textContent?.includes("Scanning")) w.__scanSeen = true; }).observe(button, { childList: true, subtree: true, characterData: true }); });
+    await page.keyboard.press("s");
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __scanSeen: boolean }).__scanSeen)).toBe(true);
+    await expect(scan).toContainText("Scan field");
+  });
+
   test("1v1 table: phase rail, LP, undo, drawers", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
     await page.goto(`/duels/remote/${slug}`);
