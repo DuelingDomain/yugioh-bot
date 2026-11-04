@@ -356,7 +356,7 @@
 @container seat (min-aspect-ratio:1.55){
   .sbody{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:8px}
   .feedcol{--cellw:calc((100cqw - 26px) * .63);flex:none;min-height:0}
-  .camsel [data-lbl]{display:none}.camsel button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:100px}
+  .camsel [data-lbl]{display:none}.camsel > button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:100px}
   .fside{flex:none;min-height:0;justify-content:center}
   .fwrap{--fw:calc((100cqw - 26px) * .37 - var(--scanw,0px));--fh:calc(100cqh - 128px)}
   .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
@@ -670,7 +670,7 @@
   .sbody{padding:0 8px 8px;display:flex;flex-direction:column;gap:8px}
   .seat .lp{order:-1}
   .feedcol{flex:none;min-height:0;width:100%}
-  .camsel [data-lbl]{display:none}.camsel button{width:36px;padding:0;justify-content:center}.camsel select{flex-basis:110px}
+  .camsel [data-lbl]{display:none}.camsel > button{width:36px;padding:0;justify-content:center}.camsel select{flex-basis:110px}
   .feedcol>.cams{flex:none;width:100%;max-height:none}
   .fside{flex:none}
   .lp{flex:none;min-height:0;max-height:none;grid-template-rows:none}
@@ -772,11 +772,11 @@
 /* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
 /* One row under the video box: it never covers the video and never wraps. Labels drop out (icons stay, with a title) when the row is narrow. */
 .camsel{flex:none;width:100%;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:28px}
-.camsel>div{display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0}
+.camsel>div:not([popover]){display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0}
 .camsel select{min-width:0;flex:0 1 180px;max-width:200px;height:28px;border-radius:6px;background:var(--p0);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
-.camsel button{flex:none;height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;white-space:nowrap}
+.camsel > button{flex:none;height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;white-space:nowrap}
 .camsel [role=alert]{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--loss)}
-@container seat (max-width:760px){.camsel [data-lbl]{display:none}.camsel button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:120px}}
+@container seat (max-width:760px){.camsel [data-lbl]{display:none}.camsel > button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:120px}}
 .fzauto[aria-pressed=true]{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .fzbtn kbd{padding:1px 4px}
 .cams:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}

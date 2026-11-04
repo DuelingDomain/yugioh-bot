@@ -62,6 +62,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
+  const video=host?.querySelector('video')??null;
+  const [captureSize,setCaptureSize]=useState<{width:number;height:number}>();
+  useEffect(()=>{
+    if(!video){setCaptureSize(undefined);return;}
+    const update=()=>{if(video.videoWidth&&video.videoHeight)setCaptureSize({width:video.videoWidth,height:video.videoHeight});};
+    update();video.addEventListener('loadedmetadata',update);video.addEventListener('resize',update);
+    return()=>{video.removeEventListener('loadedmetadata',update);video.removeEventListener('resize',update);};
+  },[video,source]);
   const lastWriteError=useRef('');
   const recognition=useRecognitionBackend();
   const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
@@ -442,7 +450,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
-  const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
+  const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
     async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   const updateCalibration=useCallback((grid:FieldCalibration,placed?:boolean)=>{
     watch.setCalibration(grid,placed);
@@ -489,7 +497,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },500);
     return()=>clearInterval(timer);
   },[room.slug,seat,watch.enabled]);
-  const video=host?.querySelector('video')??null;
   useEffect(()=>{
     const active=new Set(watch.snapshot.tracks.filter(t=>t.state==='prompt'&&!t.removed).map(t=>`${t.id}:${t.revision??0}`));
     for(const key of prompted.current)if(!active.has(key))prompted.current.delete(key);
@@ -700,7 +707,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  const label=watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const label=watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
     const zone=card.zone==='monster'?`m${card.slot??1}`:card.zone==='spell-trap'?`s${card.slot??1}`:card.zone==='extra-monster'?`emz${card.slot??1}`:'f';

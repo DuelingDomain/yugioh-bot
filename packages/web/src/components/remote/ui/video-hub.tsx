@@ -10,7 +10,7 @@ import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
-import { optimizeRecognitionCapture } from '@/lib/remote/camera-lock';
+import { optimizeRecognitionCapture, releaseCameraLock } from '@/lib/remote/camera-lock';
 import { useCameraLock } from '@/lib/remote/use-camera-lock';
 import { currentZoneGrid } from '@/lib/remote/zone-grid';
 import { loadFieldCalibrationRecord } from '@/lib/remote/use-field-watcher';
@@ -162,14 +162,20 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
       void controller.connect("",false);
   },[controller,phoneWanted,rosterKey,manual,mySeat]);
   useEffect(() => { if(phoneScan && !phones.some(p=>p.id===phoneScan.pairId))setPhoneScan(null); },[rosterKey,phoneScan]);
-  useEffect(() => () => { ++localEpoch.current; localRef.current?.getTracks().forEach(t => t.stop()); disposeRecognizer(); }, []);
+  useEffect(() => () => { ++localEpoch.current; const media = localRef.current; localRef.current = null; if (media) void Promise.all(media.getVideoTracks().map(releaseCameraLock)).then(() => media.getTracks().forEach(t => t.stop())); disposeRecognizer(); }, []);
 
-  const stopLocal = useCallback(() => { ++localEpoch.current;localTracks.current.clear();localRef.current?.getTracks().forEach(t => t.stop()); localRef.current = null; setLocal(null); }, []);
-  useEffect(() => { if (phoneWanted) { stopLocal(); void controller?.suspendCamera().catch(e => controller.fail(e)); } },[phoneWanted,controller,stopLocal]);
+  const stopLocal = useCallback(async () => {
+    ++localEpoch.current; localTracks.current.clear();
+    const media = localRef.current; localRef.current = null; setLocal(null);
+    if (media) { await Promise.all(media.getVideoTracks().map(releaseCameraLock)); media.getTracks().forEach(t => t.stop()); }
+  }, []);
+  useEffect(() => { if (phoneWanted) { void stopLocal(); void controller?.suspendCamera().catch(e => controller.fail(e)); } },[phoneWanted,controller,stopLocal]);
   const startLocal = useCallback(async (deviceId: string) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("The camera needs HTTPS or localhost and browser permission.");
-    stopLocal();
+    const stopped = stopLocal();
     const epoch = localEpoch.current;
+    await stopped;
+    if (epoch !== localEpoch.current) return;
     const any = FIELD_CAMERA_CONSTRAINTS;
     // A remembered camera can be gone (unplugged, or the id changed). Fall back to the default camera instead of failing.
     const wanted = deviceId || readSavedCamera();
@@ -178,7 +184,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
       : await navigator.mediaDevices.getUserMedia({ video: any, audio: false });
     if (epoch !== localEpoch.current) { media.getTracks().forEach(track => track.stop()); return; }
     localRef.current = media;
-    await optimizeRecognitionCapture(media.getVideoTracks()[0]);
+    try { await optimizeRecognitionCapture(media.getVideoTracks()[0]); }
+    catch (error) { media.getTracks().forEach(t => t.stop()); if (localRef.current === media) localRef.current = null; throw error; }
     if (epoch !== localEpoch.current) { media.getTracks().forEach(track => track.stop()); return; }
     setLocal(media); setLocalCamera(media.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId);
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -208,7 +215,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     await roster.mutate();
     if (solo) await startLocal(localCamera); else await controller?.connect(await savedCameraIfPresent());
   }), [guard, phones, solo, startLocal, localCamera, controller, roster.mutate]);
-  const disableCamera = useCallback(() => guard(async () => { if (localOnly) stopLocal(); else await controller?.stop(); }), [guard, localOnly, stopLocal, controller]);
+  const disableCamera = useCallback(() => guard(async () => { if (localOnly) await stopLocal(); else await controller?.stop(); }), [guard, localOnly, stopLocal, controller]);
   const selectCamera = useCallback((id: string) => guard(() => localOnly ? startLocal(id) : controller ? controller.selectCamera(id) : Promise.resolve()), [guard, localOnly, startLocal, controller]);
   const setMic = useCallback((on: boolean) => { setMicOn(on); if (controller && connected) void controller.setMicrophone(on).catch(e => controller.fail(e)); }, [controller, connected]);
 
@@ -288,7 +295,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
 
   const value = useMemo<Hub>(() => ({
     solo, rosterReady, phones, phoneScan, manual, refreshPhones: roster.mutate, cameraLock,
-    receivePhone: async () => { stopLocal(); await controller?.connect("",false); },
+    receivePhone: async () => { await stopLocal(); await controller?.connect("",false); },
     answerPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note);},
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
