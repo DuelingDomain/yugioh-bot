@@ -18,7 +18,7 @@ import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceInten
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, seenCardIds, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -727,9 +727,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   useEffect(() => { if (!wake) return; const timer = setTimeout(() => setWakeTick(n => n + 1), Math.max(0, wake - Date.now()) + 50); return () => clearTimeout(timer); }, [wake]);
   const setMic = hub.setMic; const micPublished = hub.micPublished;
   useEffect(() => { if (!solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
-  const hotwords = useMemo(() => [...new Set([...deckCodes, ...twinCodes, ...seenCardIds(room)].map(id => cardInfo(id)?.name).filter((value): value is string => !!value))].slice(0, 400),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deckCodes.join(","), twinCodes.join(","), info]);
+  const hotwords = useMemo(() => voiceCardNames(room, cardInfo), [room, info]);
 
   const propose = (title: string, sub: string, confirmLabel: string, run: () => void, requestId?: string) => setProposal({ id: ++proposalId.current, title, sub, confirmLabel, run, requestId });
   const apply = useCallback((intent: VoiceIntent, text: string, requestId: string) => {
@@ -758,7 +756,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
-    const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray" });
+    const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray", cardNames: voiceCardNames(now, cardInfo) });
     if (gate === "idle") {
       if (intent.kind === "wake") { setWake(Date.now() + WAKE_MS); setTranscript(old => ({ ...old, result: "Wake word · listening 8 s" })); addVoiceLog(`${name(now.mySeat)} said “${final.text}”`); toast(<>Heard <b>“{final.text}”</b>. Listening for 8 seconds.</>); }
       else setTranscript(old => ({ ...old, result: "Idle. Say “chain” first.", ignored: true }));
@@ -782,7 +780,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setProposal(old => {
       if (!old || old.requestId !== final.requestId) return old;
       const { room: now, state: current } = R.current;
-      const intent = interpret(final.text, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false });
+      const intent = interpret(final.text, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, cardInfo) });
       if (intent.kind === "lp") return { ...old, title: `${name(intent.seat)} ${sg(intent.delta)} LP`, sub: `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, run: () => void changeLp(intent.seat, intent.delta, "Voice adjustment") };
       return old;
     });
@@ -1037,7 +1035,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
         <MicSection state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
-        <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false }) : trySaying(room.seats, mySeat)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
+        <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
         <UndoSection label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
       </footer>

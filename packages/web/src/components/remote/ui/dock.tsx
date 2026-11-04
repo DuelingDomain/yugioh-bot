@@ -40,8 +40,8 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLElement>(null);
-  const suggest = transcript.ignored && transcript.result === "Not understood";
-  const expanded = open || suggest;
+  const suggest = samples.length > 0 && transcript.ignored && transcript.result === "Not understood";
+  const expanded = samples.length > 0 && (open || suggest);
   // The list floats over the field on small screens. Any press or key outside it closes it, and the press still reaches the field.
   useEffect(() => {
     if (!open) return;
@@ -51,11 +51,11 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
     return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
   }, [open]);
   return <section ref={root} className={`${s.dk} ${s.vox} ${proposal ? s.has : ""} ${expanded ? s.sopen : ""}`} aria-label="Voice commands">
-    {proposal ? null : <div className={`${s.chip} ${s.tr}`} data-testid="transcript">
-      <span className={s.who}><Icon name="mic" />YOU</span>
+    <div className={`${s.chip} ${s.tr}`} data-testid="transcript" aria-live="polite">
+      <span className={s.who}><Icon name="mic" />Heard</span>
       <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase, an LP change or an attack."}</q>
       {transcript.result ? <span className={`${s.res} ${transcript.ignored ? s.ig : ""}`}>{transcript.result}</span> : null}
-    </div>}
+    </div>
     {proposal ? <div className={`${s.chip} ${s.prop}`} role="group" aria-label="Confirm voice command" data-testid="proposal">
       <Icon name="check" className={s.pi} />
       <div className={s.pm}><div className={s.pt}>{proposal.title}</div><div className={s.ps}>{proposal.sub}</div></div>
@@ -64,8 +64,8 @@ export function VoxSection({ transcript, proposal, samples, onConfirm, onCancel,
         <button type="button" className={`${s.btn} ${s.q}`} onClick={onCancel}>Cancel <kbd>Esc</kbd></button>
       </div>
     </div> : null}
-    {proposal ? null : <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={expanded} onClick={() => setOpen(v => !v)}>{suggest ? "Did you mean…?" : "Try saying…"}</button>}
-    {proposal ? null : <div className={`${s.samples} ${expanded ? s.open : ""} ${suggest ? s.suggest : ""}`} data-testid={suggest ? "voice-suggestions" : undefined} role={suggest ? "group" : undefined} aria-label={suggest ? "Did you mean" : undefined}><span>{suggest ? "Did you mean…?" : "Try saying…"}</span>
+    {proposal || !samples.length ? null : <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.trybtn}`} aria-expanded={expanded} onClick={() => setOpen(v => !v)}>{suggest ? "Did you mean…?" : "Try saying…"}</button>}
+    {proposal || !samples.length ? null : <div className={`${s.samples} ${expanded ? s.open : ""} ${suggest ? s.suggest : ""}`} data-testid={suggest ? "voice-suggestions" : undefined} role={suggest ? "group" : undefined} aria-label={suggest ? "Did you mean" : undefined}><span>{suggest ? "Did you mean…?" : "Try saying…"}</span>
       {samples.map(text => <button type="button" key={text} onClick={() => { setOpen(false); onSample(text); }}>{text}</button>)}</div>}
   </section>;
 }

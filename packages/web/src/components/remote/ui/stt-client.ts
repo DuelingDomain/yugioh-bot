@@ -12,6 +12,25 @@ export type SttEvents = {
 
 export const sttUrl = () => process.env.NEXT_PUBLIC_REMOTE_STT_URL || "ws://localhost:4020/ws";
 
+const GAME_WORDS = ["Yu-Gi-Oh", "draw phase", "standby phase", "main phase one", "battle phase", "main phase two", "end phase",
+  "end turn", "pass", "next phase", "summon", "normal summon", "set", "tribute", "activate", "chain", "banish", "graveyard", "GY",
+  "special summon", "link summon", "XYZ summon", "synchro summon", "fusion summon", "attach", "detach", "negate", "LP", "life points minus 1000", "life points plus 1000"];
+
+/** At most 600 UTF-8 bytes (about 200 English tokens). Cards arrive most recent first. */
+export function speechHotwords(cards: readonly string[]): string[] {
+  const words: string[] = [];
+  const seen = new Set<string>();
+  let bytes = 0;
+  for (const value of [...GAME_WORDS, ...cards]) {
+    if (!value.trim() || value.length > 120 || /[\r\n]/.test(value)) continue;
+    const word = value.trim(); const key = word.toLowerCase();
+    const size = new TextEncoder().encode(word).length + (words.length ? 2 : 0);
+    if (seen.has(key) || bytes + size > 600) continue;
+    words.push(word); seen.add(key); bytes += size;
+  }
+  return words;
+}
+
 /** One socket to the local speech service. One utterance at a time: start, frames, end. */
 export class SttClient {
   private socket: WebSocket | null = null;
@@ -55,7 +74,7 @@ export class SttClient {
     else if (message.type === "error") { this.active = null; this.events.onError?.(String(message.error ?? "Speech service error")); }
   }
 
-  /** Begins an utterance. `hotwords` are card names from both decks and cards seen at the table. */
+  /** Adds phase/verb vocabulary to recent table/deck cards using the service hotwords protocol. */
   async start(hotwords: string[]): Promise<string | null> {
     if (this.active) return null;
     let socket: WebSocket;
@@ -63,7 +82,7 @@ export class SttClient {
     if (this.active) return null;
     const requestId = `cmd-${this.session}-${++this.serial}`;
     this.active = { requestId, started: false, queue: [], ended: false, cancelled: false };
-    const names = [...new Set(hotwords.map(name => name.slice(0, 120)))].slice(0, 256);
+    const names = speechHotwords(hotwords);
     socket.send(JSON.stringify({ type: "start", requestId, mode: "ptt", sampleRate: 16000, format: "s16le", partials: true, hotwords: names }));
     return requestId;
   }

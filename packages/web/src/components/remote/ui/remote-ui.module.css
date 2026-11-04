@@ -421,10 +421,9 @@
 @media (max-height:850px){
   .micb{width:40px;height:40px}.mlab{font-size:14px}.msub{font-size:12px}.mctl .btn{height:24px}.dk{padding:6px 10px}
   .ubtn .ul{font-size:18px}.ubtn .usub{display:none}
-  /* In the dock only: the open list replaces the transcript line and scrolls sideways. It never floats over the field. */
+  /* Keep the heard text visible while the command list scrolls sideways. */
   .samples{display:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;min-height:0}
   .samples.open{display:flex}
-  .vox.sopen .tr{display:none}
   .trybtn{display:inline-flex}
   .tr{min-height:26px;padding:3px 10px}.prop{padding:3px 6px 3px 10px}.prop .btn{height:28px}.prop .ps{display:none}
 }
@@ -698,9 +697,10 @@
   .dock{position:fixed;left:0;right:0;bottom:0;z-index:36;display:grid;grid-template-columns:.8fr 1.2fr;grid-template-areas:"vox vox" "mic undo";gap:6px 10px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:#120b22;border-top:1px solid var(--line2);border-radius:14px 14px 0 0}
   .dock .mic,.dock .undo{border:0;background:none;padding:0}
   .vox{grid-area:vox;border:0;background:none;padding:0}
-  .vox .tr,.vox .samples,.vox .trybtn{display:none}
+  .vox .tr{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:12px}
+  .vox .tr q{min-width:120px}.vox .tr .res{white-space:normal}
+  .vox .samples,.vox .trybtn{display:none}
   .vox .prop{padding:6px 8px 6px 10px}.vox .prop .pt{white-space:normal;font-size:14px}.vox .prop .ps{display:none}
-  .vox:not(.has){display:none}
   .mic{grid-area:mic;min-width:0}
   .undo{grid-area:undo;min-width:0;height:48px}
   .micb{width:44px;height:44px}
