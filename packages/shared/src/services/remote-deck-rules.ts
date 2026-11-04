@@ -51,7 +51,7 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
         return searchCandidates(state, seat, recentCardId, knowledge);
       } finally { catalog.close(); }
     },
-    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[], twin:readonly TwinCard[]=[]) {
+    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[] | undefined, twin:readonly TwinCard[]=[]) {
       const catalog=createInsightCatalog(db,directory);
       try {
         const candidate=source.cardId ? catalog.candidate(source.cardId) : source.name ? catalog.byName(source.name) : undefined;
@@ -59,9 +59,11 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
         const resolved:RemoteEffectSource={cardId:candidate.card.id,name:candidate.card.name,...(source.cardRef ? {cardRef:source.cardRef} : {})};
         const plans=deriveRemoteEffectPlans(candidate.card,candidate.tags).map(plan=>{
           const pool=new Map<number,{cardId:number;copyKey:number;name:string;copies:number}>();
-          const codes=plan.source==='deck' ? main : twin.filter(c=>c.zone===REMOTE_SEARCH_SOURCE_ZONES[plan.source] || c.zone==='hand'&&c.inspectionFrom===REMOTE_SEARCH_SOURCE_ZONES[plan.source]).flatMap(c=>c.cardId??c.passcode??[]);
-          for(const code of codes) {
-            const card=catalog.candidate(code)?.card;
+          // An absent list means unknown Deck contents. An explicitly empty list stays empty.
+          const codes=plan.source==='deck' ? main ?? [] : twin.filter(c=>c.zone===REMOTE_SEARCH_SOURCE_ZONES[plan.source] || c.zone==='hand'&&c.inspectionFrom===REMOTE_SEARCH_SOURCE_ZONES[plan.source]).flatMap(c=>c.cardId??c.passcode??[]);
+          const cards=plan.source==='deck' && main===undefined ? catalog.suggestionCandidates() : codes.map(code=>catalog.candidate(code));
+          for(const entry of cards) {
+            const card=entry?.card;
             if(!card || !remoteEffectMatches(plan,card)) continue;
             const row=pool.get(card.id);
             if(row) row.copies++; else pool.set(card.id,{cardId:card.id,copyKey:card.id,name:card.name,copies:1});

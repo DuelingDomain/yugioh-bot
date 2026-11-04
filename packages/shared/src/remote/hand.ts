@@ -30,6 +30,10 @@ function counts(state: RemoteState, seat: number, reviewed=true) {
   if (main) s.deckCount ??= Math.max(0, main.length - settings.startingHand-openingDraw);
   return s;
 }
+/** Establish opening counts before any play or turn change; an unknown Deck stays unknown. */
+export function initializeRemoteHandCounts(state: RemoteState): void {
+  for (const seat of state.seats) counts(state,seat.seat);
+}
 function remember(state: RemoteState, seat: number, cardId: number, source: RemoteKnownHandCard['source'], id: string, by?: RemoteKnownHandCard['by']) {
   (state.seats[seat].knownHand ??= []).push({id, cardId, source, ...(by ? {by: structuredClone(by)} : {}), at: state.updatedAt, revealed: true});
 }
@@ -132,6 +136,11 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
   }
   for (const s of next.seats) {
     const old = before.seats[s.seat];
+    // The camera deletes an unread face-up placeholder when it resolves a move to an existing ref.
+    // That cancels the implicit play from hand. A Set or an identified field removal is a real exit.
+    if ((!context?.replay || context.handCountCorrections===1) && action.type==='twin.remove' && action.seat===s.seat &&
+      old.twin.some(c=>c.ref===action.cardRef && remoteFieldZone(c.zone) && c.faceUp && !codeOf(c) && !c.name))
+      counts(next,s.seat,reviewed).handCount!++;
     for (const card of s.twin) {
       const previous = old.twin.find(c => c.ref === card.ref);
       if (card.zone === 'hand' && !card.inspectionFrom && (previous?.zone !== 'hand'||previous.inspectionFrom)) {
@@ -230,6 +239,6 @@ export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{
     searchCandidates(state,actorSeat,o.source.cardId).some(c=>c.cardId===read.cardId&&c.source===(o.searchSource??'deck')));
   const origin=origins[0];
   if(origin&&!fieldReadPending&&new Set(origins.map(o=>o.searchSource??'deck')).size===1)
-    return {type:'hand.add',actorSeat,cardId:read.cardId,source:origin.searchSource??'deck',by:origin.source};
+    return {type:'hand.add',actorSeat,cardId:read.cardId,source:origin.searchSource??'deck',by:{cardId:origin.source.cardId,name:origin.source.name}};
   return {type:'hand.suggest',actorSeat,...read};
 }

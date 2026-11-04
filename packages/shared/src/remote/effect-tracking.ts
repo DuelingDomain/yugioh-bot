@@ -26,7 +26,7 @@ export function availableEffectCandidates(state: RemoteState, pool: RemoteEffect
   return pool.flatMap(candidate=>{
     const seen=state.deckChecks.instances.filter(i=>i.seat===seat && i.copyKey===candidate.copyKey && i.public).length;
     const zone=REMOTE_SEARCH_SOURCE_ZONES[source];
-    const copies=source==='deck' ? Math.max(0,candidate.copies-seen) : state.seats[seat].twin.filter(c=>
+    const copies=source==='deck' ? (state.deckChecks.registrations[seat] ? Math.max(0,candidate.copies-seen) : candidate.copies) : state.seats[seat].twin.filter(c=>
       (c.zone===zone || c.zone==='hand'&&c.inspectionFrom===zone)&&(c.cardId??c.passcode)===candidate.cardId).length;
     return copies>=minimumCopies ? [{...candidate,copies}] : [];
   });

@@ -84,6 +84,9 @@ writeFileSync(join(deckData, "strings.conf"), "");
   add(900003, "Banish Recovery", 2);
   add(69299029, "Treasures of the Kings", 524290);
   add(29762407, "Temple of the Kings", 131074);
+  add(97522863, "The Man with the Mark", 33);
+  catalog.prepare("update texts set desc=? where id=97522863").run('If this card is Normal or Special Summoned: You can take 1 "Temple of the Kings", or 1 Spell/Trap that mentions it, from your Deck and either add it to your hand or send it to the GY. You can only use this effect of "The Man with the Mark" once per turn. While you control "Temple of the Kings", this card and "Apophis" monsters you control cannot be destroyed by battle or card effects. "Temple of the Kings" you control cannot be destroyed by card effects.');
+  catalog.prepare("update texts set desc=? where id=69299029").run('When this card is activated: You can Set 1 "Apophis" Trap from your Deck. This card\'s name becomes "Temple of the Kings" while in the Field Zone. Once per turn, if you have 2 or more Set cards on your field, or a Trap in your GY: You can add 1 monster that mentions "Temple of the Kings" from your Deck to your hand. You can only activate 1 "Treasures of the Kings" per turn.');
   catalog.prepare("update texts set desc=? where id=900001").run('Add 1 "Treasures of the Kings" or "Temple of the Kings" from your Deck to your hand.');
   catalog.prepare("update texts set desc=? where id=900002").run('Add 1 Spell from your GY to your hand.');
   catalog.prepare("update texts set desc=? where id=900003").run('Add 1 Spell from your banishment to your hand.');
@@ -106,6 +109,97 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,room.state.seats[0].twin.length+1),at:room.state.updatedAt},card: { ref, cardId, slot } });
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
+it('resolves the real Mark search clause including Spell/Traps that mention the named card', async () => {
+  const {createRemoteDeckRules}=await import('../../src/services/remote-deck-rules.js');
+  const {createInsightCatalog}=await import('../../src/services/card-insight-catalog.js');
+  const {deriveRemoteEffectPlans,remoteEffectMatches}=await import('../../src/remote/effect-filters.js');
+  const {CardTags,fillDefaults}=await import('../../src/cards/effects/tags.js');
+  const {db}=setup(), catalog=createInsightCatalog(db,deckData);
+  try {
+    const mark=catalog.candidate(97522863)!.card, treasure=catalog.candidate(69299029)!.card, temple=catalog.candidate(29762407)!.card;
+    // The live indexed reading retains only the first alternative; printed text must supply the other.
+    const tags=CardTags.parse(fillDefaults({summary:'Search Temple or its support',effects:[{timing:'trigger',actions:[{verb:'add_to_hand',player:'you',from:['deck'],what:{names:['Temple of the Kings']}}]}]}));
+    for(const reading of [undefined,tags]) {
+      const plan=deriveRemoteEffectPlans(mark,reading).find(p=>p.destination==='hand')!;
+      expect(remoteEffectMatches(plan,temple)).toBe(true);
+      expect(remoteEffectMatches(plan,treasure)).toBe(true);
+      expect(remoteEffectMatches(plan,mark)).toBe(false); // It mentions Temple, but is a monster.
+      expect(remoteEffectMatches(plan,{...mark,archetype:'Temple of the Kings'})).toBe(false);
+      expect(remoteEffectMatches(plan,{...treasure,id:99,name:'Unrelated Spell',text:'Draw 1 card.'})).toBe(false);
+    }
+    const rules=createRemoteDeckRules(db,deckData);
+    expect(rules.effect({cardId:97522863},[69299029,29762407]).plans.find(p=>p.destination==='hand')!.pool.map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
+    const recovery=deriveRemoteEffectPlans({...treasure,text:'Add 1 Spell/Trap that mentions "Temple of the Kings" from your GY to your hand.'})[0];
+    expect(remoteEffectMatches(recovery,treasure)).toBe(true);
+    expect(remoteEffectMatches(recovery,{...treasure,text:''})).toBe(false);
+  } finally {catalog.close();}
+});
+
+it('resolves unregistered Deck searches and publishes a held add with the table privacy rule', async () => {
+  const {searchCandidates,remoteHandReadDecision}=await import('../../src/remote/index.js');
+  for(const showCardsSetFromDeck of [true,false]) {
+    const s=deckSession('normal',false);
+    s.service.configure(s.room.slug,'g',s.users[0],{showCardsSetFromDeck},2000);
+    s.service.join(s.room.slug,'g',s.users[1],'Opponent',1,2001);
+    s.service.ready(s.room.slug,'g',s.users[1],true,2002);s.start();
+    expect(s.room.state.deckChecks.registrations[0]).toBeUndefined();
+    // Seeing a copy outside Deck is not evidence that an unregistered Deck has no others.
+    s.act({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'seen-temple',cardId:29762407}});
+    s.act({type:'twin.place',seat:0,zone:'monster',card:{ref:'mark',cardId:97522863}});
+    const seq=s.room.lastSeq;
+    expect(s.service.searchCandidates(s.room.slug,'g',s.users[0],0,97522863).map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
+    expect(s.service.get(s.room.slug,'g',s.users[0]).lastSeq).toBe(seq);
+    s.act({type:'effect.activated',source:{cardId:97522863,cardRef:'mark'}});
+    expect(searchCandidates(s.room.state,0,97522863).map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
+    const proposal=remoteHandReadDecision(s.room.state,0,{cardId:69299029,id:'held-treasure',at:s.room.state.updatedAt+1})!;
+    expect(proposal).toMatchObject({type:'hand.add',cardId:69299029,source:'deck',by:{cardId:97522863}});
+    s.act(proposal);
+    expect(s.room.state.seats[0]).toMatchObject({handCount:5,knownHand:[{cardId:69299029,source:'deck',by:{cardId:97522863}}]});
+    expect(s.room.state.seats[0].deckCount).toBeUndefined();
+    const opponent=s.service.snapshot(s.room.slug,'g',s.users[1]);
+    expect(opponent.state.seats[0].knownHand).toHaveLength(showCardsSetFromDeck?1:0);
+    expect(opponent.state.seats[0].handCount).toBe(5);
+    if(showCardsSetFromDeck)expect(opponent.events.at(-1)!.messages!.join(' ')).toContain('Treasures of the Kings');
+    else expect(JSON.stringify(opponent)).not.toContain('69299029');
+    expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+    s.act({type:'undo',targetActionId:s.room.state.undo!.actionId});
+    expect(s.room.state.seats[0].knownHand).toEqual([]);
+  }
+});
+
+it('keeps opening draws and plays before turn changes while canceled camera placeholders refund their play', async () => {
+  const s=deckSession('normal');s.start();
+  expect(s.room.state.seats.map(seat=>seat.handCount)).toEqual([5,5]);
+  s.act({type:'hand.draw',count:1});
+  expect(s.room.state.seats[0].handCount).toBe(6);
+  s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{ref:'mark',cardId:97522863,slot:3}});
+  expect(s.room.state.seats[0].handCount).toBe(5);
+  for(let i=0;i<6;i++) {
+    const before=s.room.state.seats[0].handCount;
+    s.act({type:'twin.place',seat:0,zone:'spell-trap',source:'auto',card:{ref:'placeholder-'+i,faceUp:true,slot:2}});
+    const placed=structuredClone(s.room.state);
+    s.act({type:'twin.remove',seat:0,cardRef:'placeholder-'+i});
+    expect(s.room.state.seats[0].handCount).toBe(before);
+    if(i===0) {
+      const event=s.room.events.at(-1)!;
+      const historic=ygoModule.reduce(placed,event.action as RemoteAction,{...event.effects,replay:true,handCountCorrections:undefined});
+      expect(historic.seats[0].handCount).toBe(before!-1);
+      s.act({type:'undo',targetActionId:event.id});expect(s.room.state.seats[0].handCount).toBe(before!-1);
+      s.act({type:'twin.remove',seat:0,cardRef:'placeholder-'+i});expect(s.room.state.seats[0].handCount).toBe(before);
+    }
+  }
+  s.act({type:'hand.add',source:'deck',cardId:69299029});expect(s.room.state.seats[0].handCount).toBe(6);
+  s.act({type:'turn.end'});expect(s.room.state.seats.map(seat=>seat.handCount)).toEqual([6,6]);
+  expect(s.room.state.seats[0].deckCount).toBeUndefined();
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+  const custom=deckSession('normal');
+  custom.service.configure(custom.room.slug,'g',custom.users[0],{rules:{startingHand:7}},2000);custom.start();
+  expect(custom.room.state.seats.map(seat=>seat.handCount)).toEqual([7,7]);
+  custom.act({type:'twin.place',seat:0,zone:'monster',card:{ref:'first-play',cardId:97522863}});
+  custom.act({type:'hand.draw',count:2});expect(custom.room.state.seats[0].handCount).toBe(8);
+  expect(custom.service.replay(custom.room.slug,'g',custom.users[0])).toEqual(custom.room.state);
+});
+
 describe("remote deck registration and live checks", () => {
   it("slides recent field cards and creates new copies without an origin prompt", () => {
     const s = deckSession("normal"); s.start();

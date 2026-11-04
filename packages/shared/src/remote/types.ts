@@ -79,7 +79,7 @@ export type RemoteSystemAction =
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
   | { type: "seat.ready"; seat: number; ready: boolean }
-  | { type: "table.started" }
+  | { type: "table.started"; handCounts?: 1 }
   | { type: "idle.warning"; closesAt: number }
   | { type: "table.ended"; reason: "idle" | "creator-left" };
 export type RemoteEvent = {

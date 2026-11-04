@@ -71,6 +71,8 @@ export type RemoteReductionContext = {
   fieldFaceState?: 1;
   /** Public added-to-hand semantics, absent on historic events. */
   handKnowledge?: 1;
+  /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
+  handCountCorrections?: 1;
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
