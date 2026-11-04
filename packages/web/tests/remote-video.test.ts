@@ -6,7 +6,7 @@ const media = vi.hoisted(() => ({
 vi.mock("livekit-client", () => ({
   ConnectionState: { Disconnected: "disconnected", Connecting: "connecting", Connected: "connected" },
   Track: { Source: { Camera: "camera", Microphone: "microphone" }, Kind: { Video: "video", Audio: "audio" } },
-  VideoPresets: { h360: {}, h720: {} }, RoomEvent: new Proxy({}, {get: (_,key) => String(key)}),
+  VideoPresets: { h360: {}, h720: {} }, RoomEvent: new Proxy({}, {get: (_,key) => String(key)}), TrackEvent: { Restarted: 'restarted' },
   Room: class {
     static async getLocalDevices() { return []; }
     state = "disconnected"; remoteParticipants = new Map();
@@ -19,7 +19,7 @@ vi.mock("livekit-client", () => ({
     async connect() { this.state = "connected"; }
     async disconnect() { this.state = "disconnected"; }
   },
-  createLocalVideoTrack: async () => ({ mediaStreamTrack: media.raw, stop: media.stop, restartTrack: media.restart, getDeviceId: async () => "camera-a", isMuted: false }),
+  createLocalVideoTrack: async () => ({ mediaStreamTrack: media.raw, stop: media.stop, restartTrack: media.restart, getDeviceId: async () => "camera-a", isMuted: false, on: () => undefined }),
 }));
 import { RemoteVideo,type RecognizeRawFeed } from "../src/lib/remote/video";
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });

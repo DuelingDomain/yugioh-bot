@@ -576,11 +576,34 @@ test.describe("remote lobby camera step", () => {
 
   test("webcam preview plays, the card check runs, leaving the step releases the camera", async ({ page, context }) => {
     await fakeCamera(page, "16:9");
-    // Remember every stream the page opens, to prove they are all stopped later.
+    test.setTimeout(240_000);
+    // A local camera with persistent UVC controls. Its pixels stay real browser video.
     await page.addInitScript(() => {
-      const open: MediaStream[] = []; (window as unknown as { __opened: MediaStream[] }).__opened = open;
-      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      navigator.mediaDevices.getUserMedia = async constraints => { const stream = await original(constraints); open.push(stream); return stream; };
+      const state = { reject: false, supported: sessionStorage.getItem('camlock-unsupported') !== '1', stale: false, glare: false, requests: [] as number[], controls: { exposureMode: 'continuous', whiteBalanceMode: 'continuous', focusMode: 'continuous', exposureTime: 120, colorTemperature: 4500, focusDistance: 40 }, opened: [] as MediaStream[], stopped: [] as string[] };
+      Object.assign(window, { __camlock: state });
+      const canvas = document.createElement('canvas'); canvas.width = 1920; canvas.height = 1080;
+      const ctx = canvas.getContext('2d')!;
+      const paint = () => {
+        ctx.fillStyle = state.stale && state.controls.exposureMode === 'manual' ? '#151515' : '#888888'; ctx.fillRect(0, 0, 1920, 1080);
+        ctx.fillStyle = '#999999'; for (let x = 0; x < 1920; x += 32) ctx.fillRect(x, 0, 4, 1080);
+        if (state.glare) { ctx.fillStyle = '#ffffff'; ctx.fillRect(800, 250, 300, 300); }
+      };
+      setInterval(paint, 50);
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        if (!constraints?.video) throw new DOMException('No audio fixture', 'NotFoundError');
+        paint(); const stream = canvas.captureStream(30), track = stream.getVideoTracks()[0];
+        const stop = track.stop.bind(track);
+        track.stop = () => { state.stopped.push(state.controls.exposureMode); stop(); };
+        track.getSettings = () => ({ deviceId: 'uvc-fixture', width: 1920, height: 1080, frameRate: 30, ...state.controls });
+        track.getCapabilities = () => ({ width: { min: 1280, max: 1920 }, height: { min: 720, max: 1080 }, frameRate: { min: 15, max: 30 }, ...(state.supported ? { exposureMode: ['continuous','manual'], whiteBalanceMode: ['continuous','manual'], focusMode: ['continuous','manual'], exposureTime: { min: 10, max: 1000 }, colorTemperature: { min: 2000, max: 8000 }, focusDistance: { min: 0, max: 100 } } : {}) });
+        track.applyConstraints = async constraints => {
+          if (constraints?.width && sessionStorage.getItem('camlock-size-hang')) return new Promise<void>(() => {});
+          if (state.reject && constraints?.advanced?.some(value => Object.values(value).includes('manual'))) throw new DOMException('Rejected', 'OverconstrainedError');
+          for (const value of constraints?.advanced ?? []) { if ('exposureTime' in value) state.requests.push((value as any).exposureTime); Object.assign(state.controls, value); }
+        };
+        state.opened.push(stream); return stream;
+      };
+      navigator.mediaDevices.enumerateDevices = async () => [];
     });
     const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true } });
     expect(created.status()).toBe(201);
@@ -589,6 +612,25 @@ test.describe("remote lobby camera step", () => {
     await expect(preview).toBeVisible();
     const video = page.getByTestId("lobby-cam-video");
     await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && !el.paused)).toBe(true);
+    const lock = page.getByTestId('camera-lock'), toggle = lock.getByRole('button', { name: 'Camera lock', exact: true });
+    await expect(lock).toContainText('Locked:', { timeout: 30_000 });
+    await page.evaluate(() => { (window as any).__camlock.glare = true; });
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.requests.some((value: number) => value < 120))).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureTime)).toBe(120);
+    await page.evaluate(() => { (window as any).__camlock.glare = false; });
+    await toggle.click(); await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
+    await page.evaluate(() => { (window as any).__camlock.reject = true; });
+    await toggle.click(); await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(lock).toContainText('stays on auto', { timeout: 30_000 });
+    expect(await page.evaluate(() => localStorage.getItem('dd-camera-lock:v1:900000000000000001:101:device:uvc-fixture'))).toBe('1');
+    await toggle.click(); await page.evaluate(() => { (window as any).__camlock.reject = false; (window as any).__camlock.stale = true; });
+    await toggle.click(); await expect(lock).toContainText('stays on auto', { timeout: 30_000 });
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
+    await page.evaluate(() => { (window as any).__camlock.stale = false; });
+    await lock.getByRole('button', { name: 'Re-lock' }).click(); await expect(lock).toContainText('Locked:');
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
     await expect(page.getByTestId("lobby-cam-mic")).toBeVisible();
     await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
     // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
@@ -598,7 +640,24 @@ test.describe("remote lobby camera step", () => {
     await page.getByRole("radio", { name: "No camera" }).click({ force: true });
     await expect(page.getByTestId("lobby-manual-note")).toBeVisible();
     await expect(video).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: MediaStream[] }).__opened.every(s => s.getTracks().every(track => track.readyState === "ended")))).toBe(true);
+    await expect.poll(() => page.evaluate(() => ((window as any).__camlock.opened as MediaStream[]).every(s => s.getTracks().every(track => track.readyState === "ended")))).toBe(true);
+    expect(await page.evaluate(() => (window as any).__camlock.stopped.every((mode: string) => mode === 'continuous'))).toBe(true);
+    await page.evaluate(() => { sessionStorage.setItem('camlock-unsupported','1'); sessionStorage.setItem('camlock-size-hang','1'); });
+    for (const seats of [2, 4] as const) {
+      const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
+      await page.getByTestId('camera-on-feed').click();
+      for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
+        await page.setViewportSize({width,height}); await page.getByTestId('camera-more').click();
+        await expect(lock).toContainText('Not supported by this browser or camera');
+        await expect(toggle).toContainText('On (not supported)');
+        const picker = page.getByTestId('recognition-mode-trigger');
+        await expect(picker).toBeVisible();
+        const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
+        const more = await page.getByTestId('camera-more').boundingBox(); expect(more!.width).toBeGreaterThan(40);
+        await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
+      }
+    }
+
   });
 
   test("zones calibrated in the lobby are the ones the table reads, so it does not ask again", async ({ page, context }) => {

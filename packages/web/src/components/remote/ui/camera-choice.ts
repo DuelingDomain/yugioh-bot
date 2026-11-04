@@ -19,8 +19,8 @@ export async function savedCameraIfPresent(): Promise<string | undefined> {
   } catch { return undefined; }
 }
 
-/** The field camera everywhere: the lobby preview, the local table camera and the table video track. 16:9, 1080p, 24 fps. */
-export const FIELD_CAMERA = { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } as const;
+/** The field camera everywhere: prefer 16:9, 1080p, 30 fps. Unsupported sizes remain optional. */
+export const FIELD_CAMERA = { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 30 } as const;
 /** The same asks as `getUserMedia` video constraints. */
 export const FIELD_CAMERA_CONSTRAINTS = {
   width: { ideal: FIELD_CAMERA.width }, height: { ideal: FIELD_CAMERA.height },

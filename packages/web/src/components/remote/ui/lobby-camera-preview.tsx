@@ -11,6 +11,7 @@ import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
 import { LobbyZonesView } from "./lobby-zones-view";
 import { PreviewGrid } from "./lobby-preview-grid";
+import { useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { defaultSideFor } from "@/lib/remote/zone-grid";
 import { FieldCalibrationControl } from "../field-calibration";
 import { FIELD_CAMERA_CONSTRAINTS, markCameraReady, readSavedCamera, saveCamera } from "./camera-choice";
@@ -18,6 +19,9 @@ import { detectCards, prewarmRecognizer } from "./recognizer";
 import { readableCards, toFeedCards } from "./quads";
 import { useVideoHub } from "./video-hub";
 import { RecognitionSetting } from "./recognition-setting";
+import { CameraLockControl } from './camera-lock-control';
+import { optimizeRecognitionCapture, releaseCameraLock } from '@/lib/remote/camera-lock';
+import { useCameraLock } from '@/lib/remote/use-camera-lock';
 import s from "./lobby-camera-preview.module.css";
 
 export type CameraMode = "webcam" | "phone" | "manual";
@@ -83,7 +87,7 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
   const [calibrating,setCalibrating]=useState(false);
   const seatKey=room?seatKeyOf(room):undefined;
   useEffect(()=>{setCalibration(seatKey?loadFieldCalibration(seatKey,cameraKey):undefined);},[seatKey,cameraKey]);
-  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed});setCalibration(grid);}};
+  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed,captureSize:video.current?.videoWidth?{width:video.current.videoWidth,height:video.current.videoHeight}:undefined});setCalibration(grid);}};
   const inFlight = useRef(false);
   const [note, setNote] = useState("");
   const [reading, setReading] = useState(false);
@@ -151,19 +155,31 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   // "Calibrated" = the saved flag the table reads too (zones placed on the mat, not only a side picked).
   // Before the camera runs there is no camera to match, so no state is shown.
   const [placed,setPlaced]=useState(false),[layoutChanged,setLayoutChanged]=useState(false),[cameraLabel,setCameraLabel]=useState("");
+  const [aspectChanged,setAspectChanged]=useState(false);
+  const debugAllowed=useFieldDeveloper(),debugEnabled=useFieldDebugEnabled();
   const calibrated=live&&placed;
+  const cameraLock = useCameraLock(live ? stream.current?.getVideoTracks()[0] : undefined,
+    `${room.guildId}:${room.seats.find(seat => seat.seat === room.mySeat)?.userId ?? 'local'}`,
+    { video: () => video.current, corners: () => calibrated ? calibration?.corners : undefined });
   const skipKey=`dd-lobby-zones-skip:${room.slug}`;
   const [zonesSkipped,setZonesSkippedState]=useState(false);
   useEffect(()=>{try{setZonesSkippedState(sessionStorage.getItem(skipKey)==="1");}catch{/* not remembered */}},[skipKey]);
   const setZonesSkipped=(on:boolean)=>{setZonesSkippedState(on);try{sessionStorage.setItem(skipKey,on?"1":"0");}catch{/* not remembered */}};
-  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined);setCalibration(record.calibration);setPlaced(record.placed);setLayoutChanged(record.layoutChanged);},[seatKey,cameraId,cameraLabel]);
-  const saveCalibration=(grid:FieldCalibration,placedNow?:boolean)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow});readCalibration();};
+  const readCalibration=useCallback(()=>{const record=loadFieldCalibrationRecord(seatKey,cameraId||undefined,cameraLabel||undefined,live?{width:size.w,height:size.h}:undefined);setCalibration(record.calibration);setPlaced(record.placed);setLayoutChanged(record.layoutChanged||!!record.aspectChanged);setAspectChanged(!!record.aspectChanged);},[seatKey,cameraId,cameraLabel,live,size.w,size.h]);
+  const saveCalibration=(grid:FieldCalibration,placedNow?:boolean)=>{saveFieldCalibration(seatKey,grid,cameraId||undefined,{label:cameraLabel||undefined,placed:placedNow,captureSize:{width:size.w,height:size.h}});readCalibration();};
   useEffect(() => { readCalibration(); }, [readCalibration]);
 
-  const release = useCallback(() => { stream.current?.getTracks().forEach(track => track.stop()); stream.current = null; }, []);
+  const release = useCallback(async () => {
+    const media = stream.current; stream.current = null;
+    if (!media) return;
+    await Promise.all(media.getVideoTracks().map(releaseCameraLock));
+    media.getTracks().forEach(track => track.stop());
+  }, []);
   const start = useCallback(async (wanted: string) => {
     const id = ++run.current;
-    release(); setAsked(true); setLive(false); setStarting(true); setProblem(null); setOutlines([]);
+    setAsked(true); setLive(false); setStarting(true); setProblem(null); setOutlines([]);
+    await release();
+    if (id !== run.current) return;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("The camera needs HTTPS or localhost and browser permission.");
       // A remembered camera can be gone. Fall back to the default camera only then, not when the browser blocks it.
@@ -176,6 +192,8 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       if (id !== run.current) { media.getTracks().forEach(track => track.stop()); return; }
       stream.current = media;
       const track = media.getVideoTracks()[0];
+      await optimizeRecognitionCapture(track);
+      if (id !== run.current) { media.getTracks().forEach(track => track.stop()); return; }
       const settings = track?.getSettings() ?? {};
       if (settings.width && settings.height) setSize({ w: settings.width, h: settings.height });
       setCameraId(settings.deviceId ?? wanted); setCameraLabel(track?.label ?? "");
@@ -190,7 +208,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       });
       setLive(true);
       try { setDevices((await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === "videoinput")); } catch { /* the list is optional */ }
-    } catch (error) { if (id === run.current) setProblem(problemOf(error)); }
+    } catch (error) { if (id === run.current) { await release(); setProblem(problemOf(error)); } }
     finally { if (id === run.current) setStarting(false); }
   }, [release, room.slug]);
   useEffect(() => {
@@ -201,7 +219,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
       if (microphone) setMicWanted(true);
       if (camera) void start(readSavedCamera());
     })();
-    return () => { off = true; run.current++; release(); };
+    return () => { off = true; run.current++; void release(); };
   }, [start, release]);
   // The table opens its camera by itself after Start, but only if this preview worked.
   useEffect(() => { if (live) markCameraReady(room.slug, true); }, [live, room.slug]);
@@ -328,6 +346,9 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         <p className={cx(s.check, check === "found" && s.checkOn)} role="status" data-testid="lobby-cam-check" data-state={check}>{checkLine}</p>
       </div>
       <div className={s.row}><RecognitionSetting /></div>
+      <CameraLockControl lock={cameraLock} />
+      {aspectChanged?<p className={ui.hint} role="status">Camera shape changed. Check the zones.</p>:null}
+      {debugAllowed&&debugEnabled&&cameraLock.debug?<p className={ui.hint} data-testid="lobby-camera-debug">{cameraLock.debug}</p>:null}
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}

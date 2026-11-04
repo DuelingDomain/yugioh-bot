@@ -1,8 +1,8 @@
 import { DesktopPhoneLink } from "./phone-desktop";
 import type { PhoneReading, PhoneScan } from "./phone-protocol";
 import {
-  ConnectionState, Room, RoomEvent, Track, VideoPresets, createLocalVideoTrack,
-  type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
+  ConnectionState, Room, RoomEvent, Track, TrackEvent, VideoPresets, createLocalVideoTrack,
+  type ConnectionQuality, type LocalVideoTrack, type LocalAudioTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
@@ -11,6 +11,7 @@ import {
 import {FieldTrackCache,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
+import { optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -23,9 +24,12 @@ export type VideoSnapshot = {
 export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal }) => Promise<RecognitionAnswer>;
 
 export class RemoteVideo {
-  private room = new Room({ adaptiveStream: true, dynacast: true });
+  private room = new Room({ adaptiveStream: true, dynacast: true, stopLocalTrackOnUnpublish: false });
   readonly phone: DesktopPhoneLink;
   private camera?: LocalVideoTrack;
+  private readyTrack?: MediaStreamTrack;
+  private microphoneTrack?: LocalAudioTrack;
+  private preparing?: { track: MediaStreamTrack; promise: Promise<void> };
   private channel?: RecognitionChannel;
   private scans = new AbortController();
   private listeners = new Set<() => void>();
@@ -37,6 +41,13 @@ export class RemoteVideo {
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
     onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void }) {
+    // The SDK also disconnects on pagehide, beforeunload and freeze. Guard that boundary too.
+    const disconnect = this.room.disconnect.bind(this.room);
+    this.room.disconnect = async stopTracks => {
+      const track = this.camera?.mediaStreamTrack;
+      if (track) await releaseCameraLock(track);
+      await disconnect(stopTracks);
+    };
     this.phone = new DesktopPhoneLink(this.room, { ...options, read: options.readPhone, onScan: options.onPhoneScan, changed: () => this.sync() });
     this.room.on(RoomEvent.ParticipantConnected, () => this.options.onPhonePresence?.());
     const sync = () => this.sync();
@@ -49,7 +60,12 @@ export class RemoteVideo {
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
       this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
       if (connection !== ConnectionState.Connected) this.fieldTracks.clear();
-      if (connection === ConnectionState.Disconnected) { this.channel?.close(); this.scans.abort(); }
+      if (connection === ConnectionState.Disconnected) {
+        this.channel?.close(); this.scans.abort();
+        this.microphoneTrack?.stop(); this.microphoneTrack = undefined;
+        const camera = this.camera; this.camera = undefined; this.readyTrack = undefined; this.preparing = undefined;
+        if (camera) { ++this.epoch; void this.stopCamera(camera).catch(error => this.fail(error)); this.sync(); }
+      }
     });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic, _encryption, identity) => {
       if (bytes.byteLength > 8192) return;
@@ -71,7 +87,7 @@ export class RemoteVideo {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
   /** Raw camera capture, before any SFU encoding, available at its actual native resolution. */
-  get rawLocalTrack() { return this.camera?.mediaStreamTrack; }
+  get rawLocalTrack() { return this.readyTrack === this.camera?.mediaStreamTrack && this.readyTrack?.readyState === 'live' ? this.readyTrack : undefined; }
   private patch(value: Partial<VideoSnapshot>) {
     if (this.closed) return;
     this.snapshot = { ...this.snapshot, ...value }; for (const listener of this.listeners) listener();
@@ -109,12 +125,32 @@ export class RemoteVideo {
     const devices = await Room.getLocalDevices("videoinput", false);
     this.patch({ devices, cameraId: await this.camera?.getDeviceId() ?? this.snapshot.cameraId });
   }
+  private async stopCamera(camera: LocalVideoTrack | undefined) {
+    if (!camera) return;
+    await releaseCameraLock(camera.mediaStreamTrack);
+    camera.stop();
+  }
+  private prepareCamera(camera: LocalVideoTrack) {
+    const track = camera.mediaStreamTrack, epoch = this.epoch;
+    if (this.preparing?.track === track) return this.preparing.promise;
+    this.readyTrack = undefined; this.sync();
+    const promise = (async () => {
+      track.contentHint = 'detail';
+      await optimizeRecognitionCapture(track);
+      if (this.closed || epoch !== this.epoch || this.camera !== camera || camera.mediaStreamTrack !== track) return;
+      if (track.readyState === 'ended') throw new Error('The camera stopped. Try again.');
+      this.readyTrack = track; this.sync();
+    })();
+    this.preparing = { track, promise };
+    return promise;
+  }
   async connect(deviceId = this.snapshot.cameraId, capture = true) {
     if (this.closed || this.starting) return;
     this.starting = true; const epoch = ++this.epoch;
     this.patch({ error: "", connection: ConnectionState.Connecting });
     try {
-      await this.room.disconnect(); this.camera = undefined;
+      const previous = this.camera; this.camera = undefined; this.readyTrack = undefined; this.preparing = undefined;
+      await this.stopCamera(previous); await this.room.disconnect();
       const response = await fetch(`/api/remote/${encodeURIComponent(this.options.slug)}/livekit${capture ? "" : "?receive=1"}`, { method: "POST", cache: "no-store" });
       const credentials = await response.json();
       if (!response.ok) throw new Error(credentials.error ?? "Video is unavailable");
@@ -126,12 +162,30 @@ export class RemoteVideo {
       if (capture) {
       const camera = await createLocalVideoTrack({ deviceId: deviceId ? { exact: deviceId } : undefined,
         facingMode: "environment", resolution: FIELD_CAMERA });
-      if (this.closed || epoch !== this.epoch) { camera.stop(); await this.room.disconnect(); return; }
-      this.camera = camera; camera.mediaStreamTrack.contentHint = "detail";
+      if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); await this.room.disconnect(); return; }
+      this.camera = camera;
+      // SDK restarts (unmute, device change, foreground recovery) must release the old UVC controls first.
+      const restart = camera.restartTrack.bind(camera), mute = camera.mute?.bind(camera);
+      camera.restartTrack = async options => {
+        this.readyTrack = undefined; this.preparing = undefined; this.sync();
+        await releaseCameraLock(camera.mediaStreamTrack);
+        await restart(options);
+      };
+      if (mute) camera.mute = async () => {
+        this.readyTrack = undefined; this.preparing = undefined; this.sync();
+        await releaseCameraLock(camera.mediaStreamTrack);
+        return mute();
+      };
+      camera.on(TrackEvent.Restarted, () => {
+        if (this.camera === camera) void this.prepareCamera(camera).catch(async error => { await this.stopCamera(camera); this.fail(error); this.sync(); });
+      });
+      await this.prepareCamera(camera);
+      if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); return; }
+      if (camera.mediaStreamTrack.readyState === 'ended') throw new Error('The camera stopped before it could be shared. Try again.');
       await this.room.localParticipant.publishTrack(camera, { name: "field-cam", source: Track.Source.Camera,
         videoCodec: "vp8", simulcast: true, videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
-        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 24 }, degradationPreference: "maintain-resolution" });
-      if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
+        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 }, degradationPreference: "maintain-resolution" });
+      if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); await this.room.disconnect(); return; }
       }
       this.scans = new AbortController();
       this.channel = new RecognitionChannel(this.options.seat, async (message, destination, announcement) => {
@@ -157,25 +211,27 @@ export class RemoteVideo {
         owner => this.phone.forSeat(owner) ? 60_000 : 10_000);
       this.patch({ connection: this.room.state, microphone: false }); this.sync(); await this.refreshDevices();
     } catch (error) {
-      this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
+      await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.room.disconnect();
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
   }
   async suspendCamera() {
-    const camera = this.camera; this.camera = undefined;
-    if (camera) { await this.room.localParticipant.unpublishTrack(camera); camera.stop(); }
+    const camera = this.camera; this.camera = undefined; this.readyTrack = undefined;
+    if (camera) { await releaseCameraLock(camera.mediaStreamTrack); await this.room.localParticipant.unpublishTrack(camera); camera.stop(); }
     this.sync();
   }
   async selectCamera(deviceId: string) {
     const camera = this.camera; const epoch = this.epoch;
     if (!camera) { this.patch({ cameraId: deviceId }); return; }
-    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: { width: 1920, height: 1080, aspectRatio: 16 / 9, frameRate: 24 } });
-    if (this.closed || epoch !== this.epoch || camera !== this.camera) { camera.stop(); return; }
-    camera.mediaStreamTrack.contentHint = "detail";
+    await camera.restartTrack({ deviceId: deviceId ? { exact: deviceId } : undefined, resolution: FIELD_CAMERA });
+    if (this.closed || epoch !== this.epoch || camera !== this.camera) { await this.stopCamera(camera); return; }
+    await this.prepareCamera(camera);
+    if (this.closed || epoch !== this.epoch || camera !== this.camera) { await this.stopCamera(camera); return; }
     this.patch({ cameraId: deviceId }); this.sync();
   }
   async setMicrophone(enabled: boolean) {
-    await this.room.localParticipant.setMicrophoneEnabled(enabled);
+    const publication = await this.room.localParticipant.setMicrophoneEnabled(enabled);
+    this.microphoneTrack = publication?.audioTrack ?? this.microphoneTrack;
     if (this.closed) { await this.room.disconnect(); return; }
     this.patch({ microphone: enabled });
   }
@@ -204,7 +260,7 @@ export class RemoteVideo {
     this.phone.reset();
     this.fieldTracks.clear();
     ++this.epoch; this.channel?.close(); this.channel = undefined; this.scans.abort();
-    this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
+    await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
   dispose() { this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }

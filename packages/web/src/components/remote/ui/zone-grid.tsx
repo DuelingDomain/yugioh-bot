@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration } from "@yugidraft/vision";
@@ -83,10 +83,11 @@ const top = (quad: readonly { x: number; y: number }[]) => ({ x: Math.min(...qua
  * the motion crop, and every track with its id, state and last decision. Local only.
  */
 export function FieldDebugOverlay({ box }: { box: Box | null }) {
-  const view = useFieldDebug(), allowed = useFieldDeveloper();
-  if (!allowed || !box || !view) return null;
+  const view = useFieldDebug(), allowed = useFieldDeveloper(), enabled = useFieldDebugEnabled();
+  const camera = useVideoHub().cameraLock?.debug;
+  if (!allowed || !enabled || !box || (!view && !camera)) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
-  const debug = view.debug, live = view.tracks.filter(t => !t.removed);
+  const debug = view?.debug, live = view?.tracks.filter(t => !t.removed) ?? [];
   return <>
     <svg className={s.zgrid} style={{ ...frame, zIndex: 4 }} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="field-debug">
       {debug?.region ? <rect x={debug.region.x} y={debug.region.y} width={debug.region.w} height={debug.region.h} fill="none" stroke="#ffd166" strokeWidth={.002} strokeDasharray=".01 .006" /> : null}
@@ -99,7 +100,8 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
       {live.map(t => { const p = top(t.card.quad); return <span key={t.id} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%`, transform: "translate(0,2px)", background: "rgb(20 0 30/.8)", color: t.visible ? "#b8ffc8" : "#e2c6ff", fontSize: 10, padding: "1px 3px", maxWidth: 220, whiteSpace: "normal" }}>
         #{t.id.slice(-4)} {t.state}{t.faceDown ? " · down" : " · up"}{t.cardId ? ` · ${t.cardId}` : ""}{t.visible ? "" : " · hidden"} — {debug?.reasons[t.id] || "…"}</span>; })}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
-        {view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}</span>
+        {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}</> : null}
+        {camera ? <>{view ? <br /> : null}{camera}</> : null}</span>
       <FieldProfilePanel />
     </div>
   </>;
