@@ -238,6 +238,14 @@ test('an unsure identity check (.68-.84) reads again and keeps the same card, ne
   assert.equal(track.state,'identified');assert.equal(track.cardId,'A');assert.ok(r.reads>reads+1,'fresh reads, not the held one');r.watcher.dispose();
 });
 
+test('blur baseline learns a darker exposure: at once on a camera lock event, or after 3 s of stable soft frames',async()=>{
+  const r=fieldRig();r.frameSharpness=100;for(let i=0;i<5;i++)await r.tick(100);
+  r.frameSharpness=20;await r.tick(100);assert.equal(r.watcher.getSnapshot().blur?.hold,true,'a sudden drop is blur');
+  for(let i=0;i<36;i++)await r.tick(100);assert.equal(r.watcher.getSnapshot().blur?.hold,false,'stable soft frames are the new normal');
+  r.frameSharpness=100;for(let i=0;i<5;i++)await r.tick(100);r.frameSharpness=20;await r.tick(100);assert.equal(r.watcher.getSnapshot().blur?.hold,true);
+  r.watcher.resetBaselines();await r.tick(100);assert.equal(r.watcher.getSnapshot().blur?.hold,false,'a lock event learns again at once');r.watcher.dispose();
+});
+
 test('clear-mat evidence requires uniform surrounding pixels and rejects a stationary hand inside the old quad',async()=>{
   const {clearFieldBackground}=await import('./field-motion');
   assert.equal(typeof clearFieldBackground,'function');

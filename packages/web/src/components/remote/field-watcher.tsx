@@ -642,6 +642,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
   const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
     async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+  // Every camera lock step (the first lock at camera start, a re-lock, an anti-glare exposure step, lock off)
+  // changes brightness and sharpness: the watcher learns its blur and shadow baselines again.
+  const lock=hub.cameraLock,lockKey=lock?`${lock.enabled}|${lock.locked}|${lock.busy}|${lock.debug??''}`:'';
+  const {resetBaselines}=watch;
+  useEffect(()=>{if(lockKey)resetBaselines();},[lockKey,resetBaselines]);
   const updateCalibration=useCallback((grid:FieldCalibration,placed?:boolean)=>{
     watch.setCalibration(grid,placed);
     // Keep an unanswered identity prompt, but require fresh visibility at the
