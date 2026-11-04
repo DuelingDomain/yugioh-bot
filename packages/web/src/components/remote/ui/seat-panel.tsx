@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { ScanLine } from "lucide-react";
+import { useFieldScan } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
@@ -62,6 +64,7 @@ function useFieldView(key: string) {
 export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
   const fieldView = fieldViewPref && !p.webcamOnly;
+  const scan = useFieldScan(p.seat);
   // A click on the empty field or its frame enlarges it. Cards, zones that hold a card, buttons and a pending attack pick keep their own click.
   const enlargeFromField = (event: MouseEvent<HTMLElement>) => {
     if (fieldView || p.picking) return;
@@ -124,7 +127,11 @@ export function SeatPanel(p: SeatPanelProps) {
           {(Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).filter(([key, cell]) => cell?.card && !isPile(key)).map(([key, cell]) =>
             <li key={cell!.card!.ref}><button type="button" onClick={() => p.onInspect(cell!.card!)}>{`${ZN[key]}: ${cardName(cell!.card!, p.info(cardCode(cell!.card!)))}`}</button></li>)}
         </ul> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-testid={`fwrap-${p.seat}`}>
+        <div className={s.fboard}>
+        {scan ? <button type="button" className={s.scanbtn} disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" onClick={() => scan.scan?.()} data-testid="field-scan"
+          title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
+          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span><kbd>S</kbd></button> : null}
+        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
@@ -133,6 +140,7 @@ export function SeatPanel(p: SeatPanelProps) {
               freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
           </div>
           <div className={s.projector} />
+        </div>
         </div>
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>

@@ -18,6 +18,7 @@ import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
+import {isTypingTarget} from '@/lib/typing-target';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
@@ -649,8 +650,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(full>since&&full>=asked-50||performance.now()-asked>=3000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
     },100);
   },[watch.scanNow,watch.getSnapshot]);
-  useEffect(()=>{publishFieldScan({seat,scanning,scan:ownsSource&&hub.cameraOn&&watch.enabled?scanField:undefined});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
-  useEffect(()=>()=>publishFieldScan({seat:null,scanning:false}),[]);
+  useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
+  useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
+  // "S" scans the field from anywhere on the page, like the button beside the board.
+  const canScan=ownsSource&&hub.cameraOn&&watch.enabled&&!scanning;
+  const scanRef=useRef({canScan,scanField});scanRef.current={canScan,scanField};
+  useEffect(()=>{
+    const onKey=(event:KeyboardEvent)=>{
+      if((event.key!=='s'&&event.key!=='S')||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.defaultPrevented||isTypingTarget(event.target))return;
+      if(!scanRef.current.canScan||document.querySelector('[role="dialog"][aria-modal="true"]'))return;
+      event.preventDefault();scanRef.current.scanField();
+    };
+    document.addEventListener('keydown',onKey);return()=>document.removeEventListener('keydown',onKey);
+  },[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
   useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
