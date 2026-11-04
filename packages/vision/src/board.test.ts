@@ -166,9 +166,11 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   const reads=r.reads;
   r.appearance=Array.from({length:12},(_,i)=>i%2);r.embedding=[0,1];r.identity='B';
   r.outlines=[card(.31,.3,.25,.15)];for(let i=0;i<30;i++)await r.tick(200);
-  // A turn with a look that does not match: one identity check read; a read that is not sure keeps the confirmed card.
-  assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.ok(r.reads<=reads+1,'bound identity is changed only by an explicit correction');assert.equal(r.events.filter(e=>e.type==='placed').length,1);
-  assert.equal(r.watcher.getSnapshot().tracks[0].id,'owner-ref');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'A');r.watcher.dispose();
+  // Review r2 N1: a new look on the spot with a read that is not sure is a new card (best match), never merged into the
+  // confirmed card. The confirmed card keeps its identity; no prompt.
+  assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.ok(r.reads<=reads+1,'one read for the new card');
+  const newer=r.events.filter(e=>e.type==='placed').at(-1)!;assert.ok(newer.track.id!=='owner-ref'&&newer.track.bestMatch,'the new card is placed as a best match');
+  assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='owner-ref')?.cardId,'A','bound identity is changed only by an explicit correction');r.watcher.dispose();
   const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
   const q=fieldRig('low match');for(let i=0;i<8;i++)await q.tick();const prompt=q.events.find(e=>e.type==='prompt')!;
   q.watcher.dismiss(prompt.track.id);q.appearance=Array.from({length:12},(_,i)=>i%2);q.identity='B';q.outlines=[card(.4,.3)];
@@ -892,9 +894,11 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.equal(r.events.slice(from).some(e=>e.type==='placed'||e.type==='removed'),false,'glare makes no new card and removes nothing');
  assert.equal(trackOf(xyz!.track.id)?.under,undefined,'the Xyz keeps its outline');
  // Review r1 BLOCKER (watcher part): Rank-Up. X2 goes on top of X; X (with P and Q) goes under X2, nothing leaves.
- const lookX2=look(53);looks={M3:lookX2};names={M3:'X2'};r.motion=.2;await r.tick(100);r.motion=0;
+ // Review r2 N1: in poor light (read not sure) it is still a new card on top, never merged into X.
+ const lookX2=look(53);looks={M3:lookX2};names={M3:'X2'};r.tierAt=c=>zoneOf(c)==='M3'?'not sure':'sure';r.motion=.2;await r.tick(100);r.motion=0;
  for(let i=0;i<30&&!placedIn('M3','X2',from);i++)await r.tick(100);for(let i=0;i<5;i++)await r.tick(100);
- const rankUp=placedIn('M3','X2',from);assert.ok(rankUp&&rankUp.track.id!==xyz!.track.id,'the Rank-Up Xyz is a new card on top');
+ const rankUp=placedIn('M3','X2',from);r.tierAt=undefined;assert.ok(rankUp&&rankUp.track.id!==xyz!.track.id,'the Rank-Up Xyz is a new card on top');
+ assert.equal(rankUp!.track.bestMatch,true,'an unsure read is a best match, not lost');assert.equal(trackOf(xyz!.track.id)?.cardId,'X');
  assert.equal(trackOf(xyz!.track.id)?.under,rankUp!.track.id,'the old Xyz is under the new one');
  assert.equal(r.events.slice(from).some(e=>e.type==='removed'&&[ids.P,ids.Q,xyz!.track.id].includes(e.track.id)),false,'no material leaves');
  r.watcher.confirm(rankUp!.track.id,'X2');setKnown([...kn,{id:rankUp!.track.id,zone:'M3',cardId:'X2'}]);looks={M3:lookX2};names={M3:'X2'};
