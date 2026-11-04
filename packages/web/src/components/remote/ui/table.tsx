@@ -857,7 +857,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   // The chip lives for the search window (2 minutes after the effect), then goes by itself.
   const [searchTick, setSearchTick] = useState(0);
   useEffect(() => { const timer = setInterval(() => setSearchTick(n => n + 1), 10_000); return () => clearInterval(timer); }, []);
-  const searchFresh = useCallback((id: string) => { const at = room.events.find(event => event.id === id.replace(/:hand$/, ""))?.at; return at !== undefined && serverNow() - at < SEARCH_WINDOW_MS; }, [room.events, searchTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The server writes the activation time on the origin (`at`). Old origins have none: use their event, which may be gone from the last 50.
+  const searchFresh = useCallback((origin: { id: string; at?: number }) => {
+    const at = origin.at ?? room.events.find(event => event.id === origin.id.replace(/:hand(:gy|:banish)?$/, ""))?.at;
+    return at !== undefined && serverNow() - at < SEARCH_WINDOW_MS;
+  }, [room.events, searchTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const addToHand = useCallback((seat: number, card: HandCandidate, source: HandSource, by?: HandBy, originId?: string) => {
     if (originId) setDismissedSearch(old => new Set([...old, originId]));
     void act(handAdd(seat, card, source, by));

@@ -30,8 +30,8 @@ export const handCountOf = (state: RemoteState, seat: number): number | undefine
 
 /** An open search for this seat: a search card was used and no card is chosen yet. Candidates are deck-filtered. */
 export const SEARCH_WINDOW_MS = 120_000;
-export function openSearch(state: RemoteState, seat: number, dismissed: ReadonlySet<string>, fresh: (id: string) => boolean) {
-  const origin = (state.effectTracking?.origins ?? []).filter(o => o.seat === seat && o.destination === "hand" && !o.chosenCardId && !o.announcedCard && !o.handCounted && !dismissed.has(o.id) && fresh(o.id)).at(-1);
+export function openSearch(state: RemoteState, seat: number, dismissed: ReadonlySet<string>, fresh: (origin: { id: string; at?: number }) => boolean) {
+  const origin = (state.effectTracking?.origins ?? []).filter(o => o.seat === seat && o.destination === "hand" && !o.chosenCardId && !o.announcedCard && !o.handCounted && !dismissed.has(o.id) && fresh(o)).at(-1);
   if (!origin) return undefined;
   const found = searchCandidates(state, seat, origin.source.cardId);
   const candidates: HandCandidate[] = found.length ? found.map(c => ({ cardId: c.cardId, name: c.name, source: c.source })) : (origin.candidates ?? []).map(c => ({ cardId: c.cardId, name: c.name, source: origin.searchSource ?? "deck" }));

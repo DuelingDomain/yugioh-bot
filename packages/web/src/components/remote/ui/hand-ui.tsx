@@ -55,7 +55,7 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
   </div>;
 }
 
-const SUGGEST_SOURCES: { source: HandSource; label: string }[] = [{ source: "deck", label: "Deck" }, { source: "gy", label: "Graveyard" }, { source: "banish", label: "Banished" }, { source: "unknown", label: "Not sure" }];
+const SUGGEST_SOURCES: { source: HandSource; label: string }[] = [{ source: "deck", label: "Deck" }, { source: "gy", label: "Graveyard" }, { source: "banish", label: "Banished" }];
 
 /** The camera saw a card in the hand and no effect explains it: the owner picks the source, shows it, or dismisses it. Nothing is sent before a choice. */
 export function HandSuggestChip({ suggest }: { suggest: NonNullable<HandProps["suggest"]> }) {
@@ -67,6 +67,7 @@ export function HandSuggestChip({ suggest }: { suggest: NonNullable<HandProps["s
     <span className={s.hchipl}>Add {suggest.card.name} to hand?</span>
     {SUGGEST_SOURCES.map(item => <button type="button" key={item.source} className={s.hchipb} onClick={() => suggest.onAdd(item.source)} data-testid={`hand-suggest-${item.source}`}>{item.label}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={suggest.onReveal} data-testid="hand-suggest-reveal">Reveal</button>
+    <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={suggest.onDismiss} data-testid="hand-suggest-known">Already in hand</button>
     <button type="button" className={s.hchipx} onClick={suggest.onDismiss} aria-label="Dismiss suggestion" title="Dismiss (Esc)"><Icon name="x" /></button>
   </div>;
 }
