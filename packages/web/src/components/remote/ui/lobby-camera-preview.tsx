@@ -150,13 +150,14 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   const [checking, setChecking] = useState(false);
   const expandButton = useRef<HTMLButtonElement>(null);
   const seatKey = seatKeyOf(room);
-  const cameraLock = useCameraLock(live ? stream.current?.getVideoTracks()[0] : undefined,
-    `${room.guildId}:${room.seats.find(seat => seat.seat === room.mySeat)?.userId ?? 'local'}`);
   const [calibration,setCalibration]=useState<FieldCalibration>();
   // "Calibrated" = the saved flag the table reads too (zones placed on the mat, not only a side picked).
   // Before the camera runs there is no camera to match, so no state is shown.
   const [placed,setPlaced]=useState(false),[layoutChanged,setLayoutChanged]=useState(false),[cameraLabel,setCameraLabel]=useState("");
   const calibrated=live&&placed;
+  const cameraLock = useCameraLock(live ? stream.current?.getVideoTracks()[0] : undefined,
+    `${room.guildId}:${room.seats.find(seat => seat.seat === room.mySeat)?.userId ?? 'local'}`,
+    { video: () => video.current, corners: () => calibrated ? calibration?.corners : undefined });
   const skipKey=`dd-lobby-zones-skip:${room.slug}`;
   const [zonesSkipped,setZonesSkippedState]=useState(false);
   useEffect(()=>{try{setZonesSkippedState(sessionStorage.getItem(skipKey)==="1");}catch{/* not remembered */}},[skipKey]);

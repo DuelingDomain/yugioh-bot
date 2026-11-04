@@ -10,8 +10,33 @@ const CONTROLS: { mode: Mode; value: Value }[] = [
   { mode: 'whiteBalanceMode', value: 'colorTemperature' },
   { mode: 'focusMode', value: 'focusDistance' },
 ];
-export type CameraLockSnapshot = { supported: boolean; enabled: boolean; locked: boolean; busy: boolean; note: string };
+export type CameraLockSnapshot = { supported: boolean; enabled: boolean; locked: boolean; busy: boolean; note: string; debug?: string };
 export const CAMERA_LOCK_INITIAL: CameraLockSnapshot = { supported: false, enabled: true, locked: false, busy: false, note: '' };
+export type CameraPoint = { x: number; y: number };
+export type CameraLight = { clipped: number; mean: number };
+
+/** Near-white clipping and mean Rec. 709 luminance, in the convex mat quad or centre 70%.
+ * Pixel centres are tested against the quad itself, so light outside a tilted mat is excluded.
+ */
+export function measureCameraLight({ data, width, height }: Pick<ImageData, 'data' | 'width' | 'height'>, corners?: readonly CameraPoint[]): CameraLight | null {
+  const quad = corners?.length === 4 ? corners : [{ x: .15, y: .15 }, { x: .85, y: .15 }, { x: .85, y: .85 }, { x: .15, y: .85 }];
+  let count = 0, clipped = 0, luminance = 0;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const px = (x + .5) / width, py = (y + .5) / height;
+    let positive = false, negative = false;
+    for (let edge = 0; edge < 4; edge++) {
+      const a = quad[edge], b = quad[(edge + 1) % 4];
+      const cross = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+      if (cross > 1e-10) positive = true;
+      if (cross < -1e-10) negative = true;
+    }
+    if (positive && negative) continue;
+    const i = (y * width + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2];
+    count++; if (r >= 250 && g >= 250 && b >= 250) clipped++;
+    luminance += .2126 * r + .7152 * g + .0722 * b;
+  }
+  return count ? { clipped: clipped / count, mean: luminance / count } : null;
+}
 
 function capabilities(track: MediaStreamTrack): CameraCapabilities {
   try { return track.getCapabilities?.() ?? {}; } catch { return {}; }
@@ -58,7 +83,8 @@ export class CameraLock {
   private applied: Control[] = [];
   private readonly key: string | undefined;
   private readonly lastKey: string;
-  constructor(private track: MediaStreamTrack, userKey: string, private changed: (state: CameraLockSnapshot) => void) {
+  constructor(private track: MediaStreamTrack, userKey: string, private changed: (state: CameraLockSnapshot) => void,
+    private measure?: () => CameraLight | null) {
     const device = settings(track).deviceId;
     // Like calibration, the setting stays in guarded localStorage. Seat changes keep this user's choice.
     this.key = device ? `dd-camera-lock:v1:${userKey}:device:${encodeURIComponent(device)}` : undefined;
@@ -124,7 +150,78 @@ export class CameraLock {
       if (generation !== this.generation) return;
       this.patch({ supported: candidates.length > 0, locked: this.applied.length > 0, busy: false,
         note: this.applied.length ? `Locked: ${this.applied.map(control => control.mode.replace('Mode', '')).join(', ')}.` : candidates.length ? 'Camera did not accept the lock. Try Re-lock.' : '' });
+      if (this.snapshot.locked) this.watchGlare(generation);
     }); }, 1500);
+  }
+  private watchGlare(generation: number) {
+    if (!this.measure) return;
+    const deadline = Date.now() + 10000;
+    // Keep the mat's mean luminance within 50..220 on the 8-bit scale. Predict before
+    // applying, then verify the next settled frame and restore if the driver overshoots.
+    const inRange = (mean: number) => mean >= 50 && mean <= 220;
+    const active = () => this.live() && generation === this.generation && this.snapshot.enabled && this.snapshot.locked;
+    let first: { exposure?: number; light: CameraLight } | undefined;
+    let previous: number | undefined;
+    let steps = 0, stopped = '';
+    const report = (light: CameraLight, note = stopped, exposure = settings(this.track).exposureTime) => {
+      const pct = (value: number) => `${Math.round(value * 100)}%`;
+      this.patch({ debug: `camera: exposure ${first?.exposure ?? '–'}→${exposure ?? '–'}, glare ${pct(first!.light.clipped)}→${pct(light.clipped)}, mean ${Math.round(light.mean)}${note ? `; ${note}` : ''}` });
+    };
+    const rollback = async (reason: string) => {
+      const target = previous!; previous = undefined;
+      stopped = `${reason}; exposure restored to ${target}`;
+      try { await this.apply([{ exposureMode: 'manual', exposureTime: target }]); }
+      catch { stopped = `${reason}; exposure restore failed`; }
+      if (settings(this.track).exposureTime !== target) stopped = `${reason}; exposure restore failed`;
+    };
+    const schedule = () => {
+      const remaining = deadline - Date.now();
+      if (active() && (remaining > 0 || previous !== undefined))
+        this.timer = setTimeout(() => { void this.enqueue(check); }, remaining > 0 ? Math.min(2000, remaining) : 2000);
+    };
+    const check = async () => {
+      // Browser timers can run late. Allow the final verification up to one second late.
+      if (!active() || (Date.now() > deadline + 1000 && previous === undefined)) return;
+      let light: CameraLight | null = null;
+      try { light = this.measure!(); } catch { /* A missing frame must not break the camera lock. */ }
+      if (!light || !Number.isFinite(light.mean) || !Number.isFinite(light.clipped)) {
+        if (previous !== undefined && Date.now() >= deadline) {
+          await rollback('glare measurement unavailable');
+          if (active()) this.patch({ debug: `camera: exposure ${first?.exposure ?? '–'}→${settings(this.track).exposureTime ?? '–'}; ${stopped}` });
+          return;
+        }
+        this.patch({ debug: 'camera: glare measurement unavailable' }); schedule(); return;
+      }
+      const current = settings(this.track), exposure = current.exposureTime;
+      first ??= { exposure, light };
+      if (previous !== undefined && !inRange(light.mean)) {
+        await rollback('luminance outside 50–220');
+        if (!active()) return;
+        report(light, stopped, exposure); schedule(); return;
+      }
+      previous = undefined;
+      report(light);
+      // The final sample verifies the last change; it must not start an unverified change.
+      if (stopped || steps >= 3 || light.clipped <= .03 || !inRange(light.mean) || Date.now() >= deadline) { schedule(); return; }
+      const range = capabilities(this.track).exposureTime;
+      if (current.exposureMode !== 'manual' || !Number.isFinite(exposure) || !range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) {
+        stopped = 'manual exposure unavailable'; report(light); schedule(); return;
+      }
+      const quantum = range.step && Number.isFinite(range.step) && range.step > 0 ? range.step : 1;
+      // A small exposure step (~one third EV), rounded down to the driver's value grid.
+      const target = Number(Math.max(range.min, Math.min(range.max, range.min + Math.floor((exposure! * .77 - range.min) / quantum) * quantum)).toPrecision(12));
+      if (target >= exposure! || target <= 0 || !inRange(light.mean * target / exposure!)) { schedule(); return; }
+      steps++;
+      try { await this.apply([{ exposureMode: 'manual', exposureTime: target }]); }
+      catch { stopped = 'exposure change rejected'; }
+      if (!active()) return;
+      // Even a rejected or rounded constraint can partially change the driver's state.
+      previous = exposure!;
+      const actual = settings(this.track);
+      if (!stopped && (actual.exposureTime !== target || actual.exposureMode !== 'manual')) stopped = 'exposure change ignored';
+      report(light, stopped || 'checking glare'); schedule();
+    };
+    schedule();
   }
   private async restore() {
     if (!this.live() || !this.applied.length) return;
@@ -143,7 +240,7 @@ export class CameraLock {
   setEnabled(enabled: boolean): Promise<void> {
     this.cancel();
     const generation = this.generation;
-    this.patch({ enabled, busy: true, note: '' });
+    this.patch({ enabled, busy: true, note: '', debug: undefined });
     try {
       if (this.key) localStorage.setItem(this.key, enabled ? '1' : '0');
       if (this.track.label) localStorage.setItem(this.lastKey, JSON.stringify({ label: this.track.label, enabled }));

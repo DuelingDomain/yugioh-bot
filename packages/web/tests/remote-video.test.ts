@@ -27,7 +27,7 @@ vi.mock("livekit-client", () => ({
   },
 }));
 import { RemoteVideo,type RecognizeRawFeed } from "../src/lib/remote/video";
-import { CameraLock, optimizeRecognitionCapture } from "../src/lib/remote/camera-lock";
+import { CameraLock, measureCameraLight, optimizeRecognitionCapture } from "../src/lib/remote/camera-lock";
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 async function connected(recognize?:ConstructorParameters<typeof RemoteVideo>[0]["recognize"]) {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ seat: 0, room: "remote-t", url: "ws://local", token: "test" })));
@@ -261,5 +261,199 @@ it('checks capabilities again after the first frames have settled', async () => 
     Object.assign(caps, saved);
     await vi.advanceTimersByTimeAsync(1500);
     expect(lock.getSnapshot()).toMatchObject({ supported: true, locked: true, busy: false });
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('measures clipped highlights inside the mat polygon or the centre 70% of the image', () => {
+  const width = 100, height = 100, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const value = x < 15 || x >= 85 || y < 15 || y >= 85 ? 255 : 100;
+    data.set([value, value, value, 255], (y * width + x) * 4);
+  }
+  expect(measureCameraLight({ data, width, height })).toEqual({ clipped: 0, mean: 100 });
+  // Bright bounding-box corners lie outside this diamond and must not count as glare.
+  const corners = [{ x: .5, y: .15 }, { x: .85, y: .5 }, { x: .5, y: .85 }, { x: .15, y: .5 }];
+  data.set([255, 255, 255, 255], (16 * width + 16) * 4);
+  expect(measureCameraLight({ data, width, height }, corners)).toEqual({ clipped: 0, mean: 100 });
+  const mat = [{ x: 0, y: 0 }, { x: .1, y: 0 }, { x: .1, y: .1 }, { x: 0, y: .1 }];
+  const light = measureCameraLight({ data, width, height }, mat)!;
+  expect(light.clipped).toBe(1); expect(light.mean).toBeCloseTo(255);
+});
+
+it('checks glare every two seconds for ten seconds and logs the measured exposure result', async () => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera(); settings.exposureTime = 156;
+  const measure = vi.fn(() => ({ clipped: settings.exposureTime === 156 ? .06 : .01, mean: 120 }));
+  const lock = new CameraLock(track, 'guild:101', () => {}, measure);
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(1999); expect(measure).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); expect(settings.exposureTime).toBe(120);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(measure).toHaveBeenCalledTimes(5); expect(apply).toHaveBeenCalledTimes(1);
+    expect(lock.getSnapshot().debug).toContain('camera: exposure 156→120, glare 6%→1%');
+    expect(settings).toMatchObject({ whiteBalanceMode: 'manual', focusMode: 'manual' });
+    await vi.advanceTimersByTimeAsync(10000); expect(measure).toHaveBeenCalledTimes(5);
+    await lock.relock(); await vi.advanceTimersByTimeAsync(3500);
+    expect(measure).toHaveBeenCalledTimes(6);
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('limits glare correction to three bounded driver-aligned exposure steps', async () => {
+  vi.useFakeTimers();
+  const { track, settings, caps, apply } = lockableCamera();
+  Object.assign(caps.exposureTime, { min: 40, max: 1000, step: 10 }); settings.exposureTime = 200;
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: 120 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(apply).toHaveBeenCalledTimes(3);
+    const values = apply.mock.calls.map(([c]) => (c.advanced![0] as { exposureTime: number }).exposureTime);
+    expect(values).toEqual([150, 110, 80]);
+    await lock.relock(); settings.exposureTime = 40;
+    await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(10000); expect(apply).not.toHaveBeenCalled();
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it.each([45, 55, 230])('keeps exposure unchanged when mean luminance %s cannot stay in range', async mean => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(settings.exposureTime).toBe(120); expect(apply).not.toHaveBeenCalled();
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('restores the last safe exposure if measured luminance drops below range', async () => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: settings.exposureTime === 120 ? 100 : 35 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(2000); expect(settings.exposureTime).toBeLessThan(120);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(settings.exposureTime).toBe(120); expect(apply).toHaveBeenCalledTimes(2);
+    expect(lock.getSnapshot().debug).toContain('luminance');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it.each(['rounded', 'partially rejected'])('restores safe exposure after a driver %s the requested change', async mode => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: settings.exposureTime === 120 ? 100 : 35 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    const original = apply.getMockImplementation()!;
+    apply.mockImplementationOnce(async constraints => {
+      await original(constraints); settings.exposureTime -= 20;
+      if (mode === 'partially rejected') throw new Error('Partial driver failure');
+    });
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(settings.exposureTime).toBe(120); expect(apply).toHaveBeenCalledTimes(2);
+    expect(lock.getSnapshot().debug).toContain('exposure restored');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('verifies an exposure write that completes after the ten-second window', async () => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: settings.exposureTime === 120 ? 100 : 35 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500);
+    const original = apply.getMockImplementation()!;
+    let finish!: () => Promise<void>;
+    apply.mockImplementationOnce(constraints => new Promise<void>(resolve => {
+      finish = async () => { await original(constraints); resolve(); };
+    }));
+    await vi.advanceTimersByTimeAsync(12000); await finish();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(settings.exposureTime).toBe(120);
+    expect(lock.getSnapshot().debug).toContain('camera: exposure 120→92');
+    expect(lock.getSnapshot().debug).toContain('exposure restored to 120');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('restores safe exposure when no frame can verify the change before the window ends', async () => {
+  vi.useFakeTimers();
+  const { track, settings } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => settings.exposureTime === 120 ? { clipped: .06, mean: 100 } : null);
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(11500);
+    expect(settings.exposureTime).toBe(120);
+    expect(lock.getSnapshot().debug).toContain('measurement unavailable');
+    expect(lock.getSnapshot().debug).toContain('exposure restored');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it.each(['ignored', 'rejected'])('stops glare correction when the driver %s the exposure constraint', async mode => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: 120 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    apply.mockImplementation(async () => { if (mode === 'rejected') throw new Error('Unsupported exposure'); });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(settings.exposureTime).toBe(120); expect(apply).toHaveBeenCalledTimes(1);
+    expect(lock.getSnapshot()).toMatchObject({ locked: true, busy: false });
+    expect(lock.getSnapshot().debug).toContain('exposure');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it.each(['off', 'ended', 'disposed'])('cancels glare checks when the camera is %s', async mode => {
+  vi.useFakeTimers();
+  const { track, apply } = lockableCamera(), measure = vi.fn(() => ({ clipped: .06, mean: 120 }));
+  const lock = new CameraLock(track, 'guild:101', () => {}, measure);
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500);
+    if (mode === 'off') await lock.setEnabled(false);
+    else if (mode === 'disposed') lock.dispose();
+    else Object.defineProperty(track, 'readyState', { value: 'ended' });
+    apply.mockClear(); await vi.advanceTimersByTimeAsync(10000);
+    expect(measure).not.toHaveBeenCalled(); expect(apply).not.toHaveBeenCalled();
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('does not lower exposure at the three percent clipping threshold', async () => {
+  vi.useFakeTimers();
+  const { track, apply } = lockableCamera(), measure = vi.fn(() => ({ clipped: .03, mean: 120 }));
+  const lock = new CameraLock(track, 'guild:101', () => {}, measure);
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(measure).toHaveBeenCalledTimes(5); expect(apply).not.toHaveBeenCalled();
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('keeps a focus-only lock when manual exposure is unavailable', async () => {
+  vi.useFakeTimers();
+  const { track, caps, apply } = lockableCamera(); caps.exposureMode = ['continuous'];
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: 120 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500); apply.mockClear();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(apply).not.toHaveBeenCalled(); expect(lock.getSnapshot().locked).toBe(true);
+    expect(lock.getSnapshot().debug).toContain('manual exposure unavailable');
+  } finally { lock.dispose(); vi.useRealTimers(); }
+});
+
+it('finishes an exposure write before restoring auto mode when Off arrives during glare correction', async () => {
+  vi.useFakeTimers();
+  const { track, settings, apply } = lockableCamera();
+  const lock = new CameraLock(track, 'guild:101', () => {}, () => ({ clipped: .06, mean: 120 }));
+  try {
+    lock.start(); await vi.advanceTimersByTimeAsync(1500);
+    const original = apply.getMockImplementation()!;
+    let finish!: () => Promise<void>;
+    apply.mockImplementationOnce(constraints => new Promise<void>(resolve => {
+      finish = async () => { await original(constraints); resolve(); };
+    }));
+    await vi.advanceTimersByTimeAsync(2000);
+    const off = lock.setEnabled(false); await finish(); await off;
+    expect(settings.exposureMode).toBe('continuous');
+    expect(lock.getSnapshot()).toMatchObject({ enabled: false, locked: false, debug: undefined });
+    apply.mockClear(); await vi.advanceTimersByTimeAsync(10000); expect(apply).not.toHaveBeenCalled();
   } finally { lock.dispose(); vi.useRealTimers(); }
 });

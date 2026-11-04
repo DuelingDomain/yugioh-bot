@@ -12,6 +12,8 @@ import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
 import { optimizeRecognitionCapture } from '@/lib/remote/camera-lock';
 import { useCameraLock } from '@/lib/remote/use-camera-lock';
+import { currentZoneGrid } from '@/lib/remote/zone-grid';
+import { loadFieldCalibrationRecord } from '@/lib/remote/use-field-watcher';
 import { deckIdsOf, seenCardIds } from "./model";
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
@@ -114,8 +116,14 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const localEpoch = useRef(0);
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
   const mySeat = room.mySeat;
-  const cameraLock = useCameraLock(phoneWanted ? undefined : localOnly ? local?.getVideoTracks()[0] : controller?.rawLocalTrack,
-    `${room.guildId}:${room.seats.find(seat => seat.seat === mySeat)?.userId ?? 'local'}`);
+  const lockTrack = phoneWanted ? undefined : localOnly ? local?.getVideoTracks()[0] : controller?.rawLocalTrack;
+  const cameraUserKey = `${room.guildId}:${room.seats.find(seat => seat.seat === mySeat)?.userId ?? 'local'}`;
+  const cameraLock = useCameraLock(lockTrack, cameraUserKey, { corners: () => {
+    const grid = currentZoneGrid();
+    if (grid.ownSeat === mySeat && grid.placed) return grid.calibration?.corners;
+    const saved = loadFieldCalibrationRecord(`${cameraUserKey}:${mySeat}`, lockTrack?.getSettings().deviceId, lockTrack?.label);
+    return saved.placed ? saved.calibration?.corners : undefined;
+  } });
   const localTracks=useRef(new FieldTrackCache());
   const publishFieldTracks=useCallback((message:RemoteFieldTracks)=>{
     localTracks.current.receive(mySeat,message);

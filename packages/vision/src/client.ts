@@ -58,7 +58,7 @@ export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' |
   if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return { split: false };
   if (backend === 'wasm' || !nav?.gpu) return { split: false };
   try {
-    const adapter = await nav.gpu.requestAdapter();
+    const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
     // A software adapter (SwiftShader) runs on the CPU like WASM: keep one worker.
     if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return { split: false };
   } catch { return { split: false }; }
