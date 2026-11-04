@@ -127,9 +127,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }),[seat]);
   useEffect(()=>{manual.current.clear();},[room.slug,seat]);
   /** The player's Undo owns the cards it touched: the camera does not redo the change until the real card moves. */
+  /** Refs the player brought back with Undo while the camera shows no card: only Scan field removes them again. */
+  const undoKept=useRef(new Set<string>());
+  useEffect(()=>{undoKept.current.clear();},[room.slug,seat]);
   const holdForPlayer=(ref:string)=>{
     const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);
     if(track?.visible&&!track.removed)manual.current.set(ref,{...fieldZoneLocation(track.zone),position:track.position});
+    else undoKept.current.add(ref);
   };
   const undoCards=useRef(new Map<string,string[]>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
@@ -436,10 +440,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
       if(event.type==='placed'){await apply(event,act);return;}
       const ref=bindings.current.get(event.track.id)??event.track.id;
+      // The camera sees this card again: an earlier Undo no longer keeps it.
+      if(event.type==='moved')undoKept.current.delete(ref);
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!live()||!card)return;
       if(event.type==='removed') {
         if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
+        if(undoKept.current.has(card.ref))return;
         const proposal=fieldDepartureProposal(card,seat,event.destination==='DECK'?'deck':event.destination==='EXTRA'?'extra':undefined);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         const updated=await act({...proposal,...(card.faceUp?{name}:{})});
@@ -681,6 +688,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){fixFailed(key,error);}
         if(current.current.room.lastSeq>before){changes++;lastUndo=current.current.room.state.undo?.actionId??lastUndo;}
       }
+      // 4. A field card whose zone shows no card in 2 full scans (no hand, no moving shadow), with or
+      // without a live track: remove it. An Undo keeps it until the player presses Scan field.
+      for(const ref of snap.missingTwins??[]){
+        const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+        if(!card||!publicField(card.zone))continue;
+        if(undoKept.current.has(ref)){if(!manualScan)continue;undoKept.current.delete(ref);}
+        const proposal=fieldDepartureProposal(card,seat);if(!proposal)continue;
+        const key=`remove:${ref}`;if(!tryFix(key))continue;
+        await write(key,proposal);
+      }
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
       // The note is a log line only: the server keeps it out of the undo history, so Undo reverts the last fix.
       if(changes){try{await act({type:'log.note',actorSeat:seat,text});}catch(error){console.info('[remote field] re-sync note skipped',error);}setNotice(text);setUndoId(lastUndo);}
@@ -707,7 +724,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
-  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
+  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics;publishFieldDebug({blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
