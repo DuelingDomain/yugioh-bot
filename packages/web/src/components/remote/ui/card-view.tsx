@@ -50,7 +50,12 @@ export type CardEdit = {
   equip?: { current?: string; options: { key: string; label: string }[]; onEquip: (key: string | null) => void };
 };
 
+/** One Xyz material under the open card. `onDetach` is set for the owner only. */
+export type CardMaterial = { ref: string; cardId?: number; name: string; onDetach?: () => void };
+
 export type CardActions = {
+  /** Xyz materials under this card, bottom first. */
+  materials?: CardMaterial[];
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
   onActivate?: () => void; onReveal?: () => void;
@@ -68,8 +73,20 @@ export type CardActions = {
   undo?: { label: string; reason?: string; onUndo: () => void };
 };
 
+function MaterialList({ items }: { items: CardMaterial[] }) {
+  return <div className={s.mats} role="group" aria-label="Xyz materials" data-testid="card-materials">
+    <p>{items.length} MATERIAL{items.length === 1 ? "" : "S"}</p>
+    {items.map(item => <div key={item.ref} className={s.mat} data-testid="card-material">
+      {item.cardId ? <img src={cardArt(item.cardId, "small")} alt="" loading="lazy" draggable={false} /> : <i className={s.matBack} />}
+      <span title={item.name}>{item.name}</span>
+      {item.onDetach ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={item.onDetach} data-testid="detach-material" title="Send this material to the Graveyard">Detach</button> : null}
+    </div>)}
+  </div>;
+}
+
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
+    {a.materials?.length ? <MaterialList items={a.materials} /> : null}
     {a.zoneCheck ? <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {a.zoneCheck} The card stays here; move it if the zone is wrong.</p> : null}
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
     {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}

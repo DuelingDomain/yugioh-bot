@@ -722,6 +722,13 @@ describe("solo remote tables", () => {
     speak("end turn", 0); speak("next phase"); expect(state.phase).toBe("standby");
     speak("main 1 phase"); expect(state.phase).toBe("main1");
     speak("remove Dark Magician"); expect(state.seats[1].twin).toEqual([]);
+    speak("place Xyz One in monster slot 1"); speak("place Mat A in monster slot 2"); speak("place Mat B in monster slot 3");
+    expect(ygoModule.parseCommand({ text: "detach", actorSeat: 1, state })).toBeNull();
+    const xyz = state.seats[1].twin.find(c => c.name === "Xyz One")!; const [matA, matB] = state.seats[1].twin.filter(c => c.name?.startsWith("Mat"));
+    state = ygoModule.reduce(state, { type: "twin.attach", actorSeat: 1, seat: 1, cardRef: xyz.ref, kind: "xyz", materialRefs: [matA.ref, matB.ref], idempotencyKey: `speech-${++n}`, at: n });
+    speak("detach a material"); speak("detach material from Xyz One");
+    expect(state.seats[1].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual([matA.ref, matB.ref]);
+    expect(ygoModule.parseCommand({ text: "detach", actorSeat: 1, state })).toBeNull();
     expect(ygoModule.parseCommand({ text: "nonsense", actorSeat: 1, state })).toBeNull();
     expect(ygoModule.parseCommand({ text: "gain 0 LP", actorSeat: 1, state })).toBeNull();
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();

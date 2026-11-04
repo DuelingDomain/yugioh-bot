@@ -5,7 +5,7 @@ import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/fiel
 import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
-import type { FieldCalibration } from "@yugidraft/vision";
+import type { FieldCalibration, FieldTrack } from "@yugidraft/vision";
 import s from "./remote-ui.module.css";
 
 interface Box { left: number; top: number; width: number; height: number }
@@ -95,16 +95,24 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
       {live.map(t => <polygon key={t.id} points={pts(t.card.quad)} fill="none" stroke={t.visible ? "#7dff9b" : "#c58bff"} strokeWidth={.002} strokeDasharray=".008 .005" />)}
     </svg>
     <div className={s.zglabels} style={{ ...frame, zIndex: 5 }} aria-hidden="true">
-      {debug?.detections.map((d, i) => { const p = top(d.quad); return <span key={`d${i}`} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, transform: "translate(0,-100%)", background: "rgb(0 0 0/.75)", color: d.use.startsWith("track") ? "#9be8ff" : "#ffb0b0", fontSize: 10, padding: "1px 3px", whiteSpace: "nowrap" }}>
-        {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2)} · {d.zone} · {d.use}</span>; })}
-      {live.map(t => { const p = top(t.card.quad); return <span key={t.id} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%`, transform: "translate(0,2px)", background: "rgb(20 0 30/.8)", color: t.visible ? "#b8ffc8" : "#e2c6ff", fontSize: 10, padding: "1px 3px", maxWidth: 220, whiteSpace: "normal" }}>
-        #{t.id.slice(-4)} {t.state}{t.faceDown ? " · down" : " · up"}{t.cardId ? ` · ${t.cardId}` : ""}{t.visible ? "" : " · hidden"} — {debug?.reasons[t.id] || "…"}</span>; })}
+      {debug?.detections.map((d, i) => { const p = top(d.quad), bad = !d.use.startsWith("track"); return <span key={`d${i}`} className={`${s.zgdbg} ${s.zgraw}`} data-bad={bad} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }} title={`${d.kind === "face-down" ? "back" : "front"} ${d.confidence.toFixed(2)} · ${d.zone} · ${d.use}`}>
+        {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2).replace(/^0/, "")} {d.zone}</span>; })}
+      {live.map(t => <TrackLabel key={t.id} t={t} reason={debug?.reasons[t.id]} />)}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
         {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}</> : null}
         {camera ? <>{view ? <br /> : null}{camera}</> : null}</span>
       <FieldProfilePanel />
     </div>
   </>;
+}
+
+const STATE_SHORT: Record<FieldTrack["state"], string> = { candidate: "cand", identified: "id", prompt: "ask", dismissed: "off" };
+/** One short line above the track box: `#c-74 M3 · id · up`. The reason is in the tooltip and shows when the label is clicked open. */
+function TrackLabel({ t, reason }: { t: FieldTrack; reason?: string }) {
+  const [open, setOpen] = useState(false);
+  const p = top(t.card.quad), line = `#${t.id.slice(-4)} ${t.zone} · ${STATE_SHORT[t.state]} · ${t.faceDown ? "down" : "up"}${t.under ? " · under" : t.visible === false ? " · hid" : ""}`;
+  return <span className={s.zgdbg} data-hidden={t.visible === false} data-open={open} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }} title={`${line}${t.cardId ? ` · card ${t.cardId}` : ""}${reason ? ` — ${reason}` : ""}`}
+    onClick={() => setOpen(v => !v)}>{line}{open ? `${t.cardId ? ` · card ${t.cardId}` : ""} — ${reason || "…"}` : ""}</span>;
 }
 
 const ms = (v: number | undefined) => v === undefined || !Number.isFinite(v) ? "–" : String(Math.round(v));

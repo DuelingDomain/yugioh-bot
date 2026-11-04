@@ -124,6 +124,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [flagSeat, setFlagSeat] = useState(0);
   const info = useCardInfo([...twinCodes, ...deckCodes, subject?.cardId || undefined]);
   const nameOfCard = (id: number | undefined) => info(id)?.name;
+  /** The public name of a twin card by seat and ref, for log lines (summon materials). */
+  const refNameOf = (seat: number, ref: string) => { const c = state.seats[seat]?.twin.find(item => item.ref === ref); return c && (c.faceUp || c.publicIdentity || ["material", "graveyard", "banished"].includes(c.zone)) ? c.name ?? info(cardCode(c))?.name : undefined; };
 
   // ---- toasts, banner, peek ----
   // One notification slot per seat panel, beside that player's own feed or field.
@@ -185,7 +187,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const firstSeq = useRef(room.lastSeq);
   const entries = useMemo<LogEntry[]>(() => {
     const described = [...room.events].sort((a, b) => b.seq - a.seq).flatMap(event => {
-      const line = describeEvent(event, name, nameOfCard); return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: event.seq > firstSeq.current, at: event.at }] : [];
+      const line = describeEvent(event, name, nameOfCard, refNameOf); return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: event.seq > firstSeq.current, at: event.at }] : [];
     });
     return [...described, ...voiceLog.map(entry => ({ ...entry, at: Number(entry.id.split(":")[1]) }))].sort((a, b) => b.at - a.at).map(({ at: _at, ...entry }) => entry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,7 +279,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const newestUndo = ownUndo[0];
   const canUndo = !!newestUndo && (room.status === "active" || room.status === "ended");
   const cardLabel = (seat: number, ref: string) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; };
-  const entryText = (entry: RemoteUndoEntry) => { const event = room.events.find(item => item.id === entry.actionId); return undoLabel(describeEvent(event ?? { id: entry.actionId, seq: 0, actorSeat: entry.actorSeat, action: entry.action, messages: [] } as unknown as RemoteEvent, name, nameOfCard)?.text ?? "last action"); };
+  const entryText = (entry: RemoteUndoEntry) => { const event = room.events.find(item => item.id === entry.actionId); return undoLabel(describeEvent(event ?? { id: entry.actionId, seq: 0, actorSeat: entry.actorSeat, action: entry.action, messages: [] } as unknown as RemoteEvent, name, nameOfCard, refNameOf)?.text ?? "last action"); };
   // Short label for the field Undo button ("Dark Magician → M3"). The dock keeps the longer log line.
   const entryShort = (entry: RemoteUndoEntry) => undoLabel(shortUndoLabel(entry, cardLabel, name) ?? entryText(entry));
   const undoText = newestUndo ? entryText(newestUndo) : "last action";
@@ -863,6 +865,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
     undo: cardUndo,
+    ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
+      const material = state.seats[subject.seat]?.twin.find(c => c.ref === ref); if (!material) return [];
+      const owner = live && (solo || subject.seat === mySeat);
+      return [{ ref, cardId: cardCode(material), name: cardName(material, info(cardCode(material))),
+        ...(owner ? { onDetach: () => void act({ type: "twin.detach", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, materialRef: ref, zone: "graveyard" }) } : {}) }];
+    }) } : {}),
     ...(subject && subjectCard && (subjectCard.faceUp || subjectCard.publicIdentity) && cardCode(subjectCard) ? (() => {
       const twins = state.seats[subject.seat]?.twin ?? [];
       const reason = fieldZoneCheck(info(cardCode(subjectCard)), subjectCard.zone, subjectCard.slot, { faceDown: !subjectCard.faceUp, equipSource: equipSourceOnField(twins, c => info(cardCode(c))) });
@@ -1070,7 +1078,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
-      onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
+      onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()}
+      {...(live && (solo || pile.seat === mySeat) ? {
+        onOrder: (zone, cardRefs) => void act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),
+        onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
+        onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
+      } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
