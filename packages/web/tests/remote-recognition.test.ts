@@ -400,6 +400,17 @@ it('departures leave field zones once with a named atomic move and retain physic
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
+  // Review r1: Rank-Up (an Xyz with materials under the new Xyz) is a summon; its materials are not counted alone.
+  // A vanished card counts only while it is still out of view in the hand; Link takes the newest, up to its rating.
+  const {fieldSummonMaterials}=await import('../src/lib/remote/field-summons');
+  const m=(ref:string,zone:string,extra={})=>({ref,cardId:1,zone,faceUp:true,position:'attack',...extra}) as any;
+  const xyz=[m('x','monster',{slot:3,materials:['p','q']}),m('p','material',{materialOf:'x'}),m('q','material',{materialOf:'x'})];
+  expect(fieldSummonMaterials({kind:'xyz',covered:['x','p','q'],vanished:[],firstSeen:0,twins:xyz,removed:()=>true})).toEqual(['x']);
+  const left=[m('a','hand',{departedFrom:{zone:'monster',at:1}}),m('b','hand',{departedFrom:{zone:'monster',at:2}}),m('c','hand')];
+  const vanished=[{ref:'a',at:1000},{ref:'b',at:2000},{ref:'c',at:2500}];
+  expect(fieldSummonMaterials({kind:'link',rating:1,covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true})).toEqual(['b']);
+  expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:ref=>ref!=='a'})).toBeUndefined();
+  expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true})).toEqual(['a','b']);
 });
 it('a corrected public physical ref replaces the watcher identity in every exported snapshot',async()=>{
   const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
