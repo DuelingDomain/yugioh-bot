@@ -54,6 +54,8 @@ import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from 
 import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
+import { handAdd, handCount, handCountOf, knownHandOf, openSearch, type HandCandidate, type KnownHandCard } from "./reveal-model";
+import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
@@ -838,6 +840,57 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     void identify({ cardId: guess.cardId, name: guess.name || info(guess.cardId)?.name || `Card ${guess.cardId}`, via: "voice", feedback: guess.source === "ai" ? "ai" : "voice" }, "voice");
   };
 
+  // ---- added to hand ----
+  const [dismissedSearch, setDismissedSearch] = useState<ReadonlySet<string>>(new Set());
+  /** Cards this person added by hand (chip, menu): they get no "Seen" toast. */
+  const manualAdds = useRef(new Set<number>());
+  const addToHand = useCallback((seat: number, card: HandCandidate, source: "deck" | "unknown", by?: string, originId?: string) => {
+    manualAdds.current.add(card.cardId); setTimeout(() => manualAdds.current.delete(card.cardId), 6000);
+    if (originId) setDismissedSearch(old => new Set([...old, originId]));
+    void act(handAdd(seat, card, source, by));
+  }, [act]);
+  /** "Other..." and the card menu: the card search, then hand.add. */
+  const searchForHand = useCallback((seat: number, originId?: string, by?: string) => {
+    const at: PopAt = popAt;
+    ctx.current = { seat, x: .5, y: .5, at, id: ++readCounter.current };
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card to add to your hand.", reader: "none", at, intent: "hand", originId, by });
+    layers.open("tray");
+  }, [layers, name, popAt]);
+  const openKnown = (seat: number, card: KnownHandCard) => {
+    setSubject({ cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
+    layers.open("insp");
+  };
+  const handOf = (seat: number): HandProps | undefined => {
+    const own = live && (solo || seat === mySeat);
+    const search = own ? openSearch(state, seat, dismissedSearch) : undefined;
+    return {
+      cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => openKnown(seat, card),
+      ...(own ? { onCount: (count: number) => void act(handCount(solo ? seat : mySeat, seat, count)) } : {}),
+      ...(search ? { search: {
+        by: search.by, candidates: search.candidates, onPick: card => addToHand(seat, card, "deck", search.by, search.id),
+        onOther: () => searchForHand(seat, search.id, search.by), onDismiss: () => setDismissedSearch(old => new Set([...old, search.id])),
+      } } : {}),
+    };
+  };
+  // A card that shows up in a hand without a tap here (a held card read by the camera) gets a short note with Undo. Other seats get a plain note.
+  const handSeen = useRef<Map<number, Set<string>> | null>(null);
+  useEffect(() => {
+    const now = new Map(state.seats.map(item => [item.seat, new Set(knownHandOf(state, item.seat).map(card => card.id))] as const));
+    const before = handSeen.current; handSeen.current = now;
+    if (!before) return;
+    for (const [seat, ids] of now) {
+      const old = before.get(seat) ?? new Set<string>();
+      for (const card of knownHandOf(state, seat)) {
+        if (old.has(card.id) || !ids.has(card.id)) continue;
+        if (seat === mySeat || solo) {
+          if (manualAdds.current.has(card.cardId)) continue;
+          toast(<span data-testid="hand-seen">Seen: {card.name} {"\u2192"} added to hand {"\u00b7 "}<button type="button" onClick={() => void doUndo()}>Undo</button></span>, 6000);
+        } else toast(`${name(seat)} added ${card.name} to hand`, 4200);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.seats, state.effectTracking]);
+
   // ---- card actions ----
   const subjectCard = subject?.ref ? findCard(subject.seat, subject.ref) : undefined;
   const subjectDetails = subject ? { ...subject, revealed: !!subjectCard?.publicIdentity && subjectCard.faceUp === false } : null;
@@ -862,6 +915,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
+    ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard && (subjectCard.faceUp || subjectCard.publicIdentity) && cardCode(subjectCard) ? (() => {
       const twins = state.seats[subject.seat]?.twin ?? [];
@@ -1037,6 +1091,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
+            hand={handOf(seat)}
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
@@ -1073,7 +1128,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
-      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
+      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
       if(!origin) return null;

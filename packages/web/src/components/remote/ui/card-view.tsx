@@ -55,6 +55,8 @@ export type CardActions = {
   canAttack: boolean; attackHint: string; onAttack: () => void;
   onActivate?: () => void; onReveal?: () => void;
   onWrong?: () => void; onPin?: () => void;
+  /** Opens the card search; the chosen card goes to the hand (hand.add). */
+  onAddToHand?: () => void;
   /** Opens the deck warning layer. Set only when this card's seat has a live warning. */
   onFlag?: (button: HTMLElement) => void;
   /** Twin edits for a card that is on a field the person may change. */
@@ -73,6 +75,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
     {a.zoneCheck ? <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {a.zoneCheck} The card stays here; move it if the zone is wrong.</p> : null}
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
     {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}
+    {a.onAddToHand ? <button type="button" className={s.btn} onClick={a.onAddToHand} data-testid="add-to-hand"><Icon name="hand" />Add card to hand{"\u2026"}</button> : null}
     {a.onReveal ? <button type="button" className={s.btn} onClick={a.onReveal}>Reveal card</button> : null}
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
     {a.onFlag ? <button type="button" className={`${s.btn} ${s.q}`} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
