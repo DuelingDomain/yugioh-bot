@@ -963,6 +963,15 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.getByTestId("deck-list-toggle").click();
     await expect(page.getByTestId("deck-list-text")).toBeVisible();
     await shot(page, "created-room-1920");
+    if (SHOTS) {
+      for (const [w, h] of [[1440, 900], [1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await shot(page, `lobby-deck-list-${w}x${h}`); }
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      const deck = page.getByTestId("deck-0"); const choices = await deck.locator("option").count();
+      if (choices > 1) {
+        await deck.selectOption({ index: 1 }); await expect(page.getByTestId("deck-list-on-0")).toBeVisible();
+        for (const [w, h] of [[1920, 1080], [1440, 900], [1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await shot(page, `lobby-deck-on-${w}x${h}`); }
+      }
+    }
     // The new table is listed on the Duels page. It is yours and solo, so it is still being set up, not open to join.
     await page.goto("/duels");
     const panel = page.getByTestId("remote-tables-panel");
