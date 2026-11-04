@@ -15,7 +15,7 @@ import { validateOptions } from './options';
 import { embedImages, type TensorCtor } from './embed';
 import type { ModelSession } from './runtime';
 import { cropRGBA, rotate180, type RGBAImage } from './pixels';
-import { glareMask, darkShare, precleanCrop, GLARE_ALWAYS_TRY, SHADOW_ALWAYS_TRY, type PrecleanStats } from './preclean';
+import { glareMask, darkShare, precleanCrop, GLARE_ALWAYS_TRY, type PrecleanStats } from './preclean';
 import { clipToConvex, polygonArea, type Quad } from './geometry';
 import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
@@ -94,8 +94,9 @@ export class RecognitionPipeline {
     if(opts.preclean===false)return {...raw,preclean:{on:false,used:'raw'}};
     const glare=probe.glare??0,shadow=probe.shadow??0;
     raw.timingsMs.precleanGlare=glare*100;raw.timingsMs.precleanShadow=shadow*100;raw.timingsMs.precleanUsed=0;
-    // A shadow over the card also always tries the lifted crop, like glare.
-    if(raw.tier==='sure' && glare<GLARE_ALWAYS_TRY && shadow<SHADOW_ALWAYS_TRY || raw.quality.faceDown && raw.tier==='sure' || !raw.quality.cornersFound)
+    // A sure raw read is kept even under a shadow; a read that is not sure tries the
+    // pre-cleaned crop, which now also lifts shadowed parts (shadow % is for the debug line).
+    if(raw.tier==='sure' && glare<GLARE_ALWAYS_TRY || raw.quality.faceDown && raw.tier==='sure' || !raw.quality.cornersFound)
       return {...raw,preclean:{on:true,glare,shadow,used:'raw'}};
     const stats:{value?:PrecleanStats}={};
     // Reuse the raw pass outline so the clean pass costs only warp + embed + search.
@@ -212,7 +213,7 @@ export class RecognitionPipeline {
       const mask = warpQuadMasked(frame, found ? corners as Quad : fallback, this.profile.card.warpWidth, this.profile.card.warpHeight);
       if (!mask) {frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:(selected?.kind??card?.kind)==='face-down',eligible:false});continue;}
       let warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
-      if(probe && probe.glare===undefined){probe.glare=glareMask(warped).share;probe.shadow=darkShare(warped,4,6);}
+      if(probe && probe.glare===undefined){probe.glare=glareMask(warped).share;probe.shadow=darkShare(warped,4,6,{dim:false,factor:.5});}
       if(precleanStats) { const cleaned=precleanCrop(warped);warped=cleaned.image;precleanStats.value??=cleaned.stats; }
       const partial = Boolean(selected?.partial) || Boolean(roi && card && card.pts.some(([x,y])=>x<=roiX+2 || y<=roiY+2 || x>=roiX+roi.width-2 || y>=roiY+roi.height-2)) || found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
       const fullArt = detectFullArtLayout(warped, this.profile);

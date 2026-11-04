@@ -12,18 +12,16 @@ export interface PrecleanStats {
   ms: number;
 }
 
-/** Shadow share above which a read also tries the pre-cleaned (shadow-lifted) crop. */
-export const SHADOW_ALWAYS_TRY = 0.15;
 
 /**
  * Dark region evidence on a coarse luminance grid: the share of cells darker than
  * 60% of the bright (75th percentile) cell, or 1 when the whole image is dim
  * (a shadow from above over the whole board). Cheap: every 4th pixel.
  */
-export function darkShare(img: RGBAImage, gx = 16, gy = 12): number {
+export function darkShare(img: RGBAImage, gx = 16, gy = 12, opts: { dim?: boolean; factor?: number } = {}): number {
   const cells = luminanceGrid(img, gx, gy), sorted = Array.from(cells).sort((a, b) => a - b), ref = sorted[Math.floor(sorted.length * .75)];
-  if (ref < 55) return 1;
-  let dark = 0; for (const v of cells) if (v < ref * .6) dark++;
+  if (opts.dim !== false && ref < 55) return 1;
+  let dark = 0; for (const v of cells) if (v < ref * (opts.factor ?? .6)) dark++;
   return dark / cells.length;
 }
 function luminanceGrid(img: RGBAImage, gx: number, gy: number) {
