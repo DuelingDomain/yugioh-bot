@@ -400,6 +400,28 @@ it('departures leave field zones once with a named atomic move and retain physic
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
+  // Review r1: Rank-Up (an Xyz with materials under the new Xyz) is a summon; its materials are not counted alone.
+  // A vanished card counts only while it is still out of view in the hand; Link takes the newest, up to its rating.
+  const {fieldSummonMaterials}=await import('../src/lib/remote/field-summons');
+  const m=(ref:string,zone:string,extra={})=>({ref,cardId:1,zone,faceUp:true,position:'attack',...extra}) as any;
+  const xyz=[m('x','monster',{slot:3,materials:['p','q']}),m('p','material',{materialOf:'x'}),m('q','material',{materialOf:'x'})];
+  expect(fieldSummonMaterials({kind:'xyz',covered:['x','p','q'],vanished:[],firstSeen:0,twins:xyz,removed:()=>true,now:0})).toEqual(['x']);
+  const left=[m('a','hand',{departedFrom:{zone:'monster',at:1}}),m('b','hand',{departedFrom:{zone:'monster',at:2}}),m('c','hand')];
+  const vanished=[{ref:'a',at:1000},{ref:'b',at:2000},{ref:'c',at:2500}];
+  expect(fieldSummonMaterials({kind:'link',rating:1,covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true,now:0})).toEqual(['b']);
+  expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:ref=>ref!=='a',now:0})).toBeUndefined();
+  expect(fieldSummonMaterials({kind:'synchro',covered:[],vanished,firstSeen:3000,twins:left,removed:()=>true,now:0})).toEqual(['a','b']);
+  // Review r2 N3: Q on P, the 5 s default sent P to the hand, then the Xyz came: P (just left, 30 s) and Q are its materials.
+  const held=[m('p','hand',{departedFrom:{zone:'monster',slot:3,at:10_000,auto:true}}),m('q','monster',{slot:3})];
+  expect(fieldSummonMaterials({kind:'xyz',covered:['p','q'],vanished:[],firstSeen:0,twins:held,removed:()=>false,now:25_000})).toEqual(['p','q']);
+  expect(fieldSummonMaterials({kind:'xyz',covered:['p','q'],vanished:[],firstSeen:0,twins:held,removed:()=>false,now:45_000})).toBeUndefined();
+  // Review r2 N2: the stack default runs only if the camera still sees the same stack when the 5 s hold ends.
+  const {heldStackStillStacked}=await import('../src/lib/remote/field-summons');
+  const below=m('p','monster',{slot:3}),stack={mover:{visible:true,removed:false,zone:'M3'},zone:'M3',under:['p'],below,location:{zone:'monster',slot:3}};
+  expect(heldStackStillStacked(stack)).toBe(true);
+  expect(heldStackStillStacked({...stack,mover:{...stack.mover,zone:'M4'}})).toBe(false);
+  expect(heldStackStillStacked({...stack,under:[]})).toBe(false);
+  expect(heldStackStillStacked({...stack,mover:{...stack.mover,under:'xyz'}})).toBe(false);
 });
 it('a corrected public physical ref replaces the watcher identity in every exported snapshot',async()=>{
   const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');

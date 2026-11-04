@@ -1470,9 +1470,21 @@ describe("tolerant voice attack resolution", () => {
     expect(twin(undone, "x1")).toBeUndefined();
     expect(twin(undone, "m1")).toMatchObject({ zone: "monster", slot: 3 });
     expect(twin(undone, "m2")?.zone).toBe("hand");
-    // A card in the hand that did not just leave a Monster Zone is never a material.
-    expect(() => act(act(b.state, { type: "twin.place", zone: "hand", card: { ref: "h1", cardId: 13 } }),
-      { type: "twin.place", zone: "monster", card: { ref: "x9", slot: 2, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["h1"] } })).toThrow(/material/i);
+    // A card in the hand that did not just leave a Monster Zone is never a material: the camera placement keeps its read and skips it.
+    const handOnly = act(act(b.state, { type: "twin.place", zone: "hand", card: { ref: "h1", cardId: 13 } }),
+      { type: "twin.place", zone: "monster", card: { ref: "x9", slot: 2, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["h1"] } });
+    expect(twin(handOnly, "x9")?.materials).toBeUndefined();
+    expect(twin(handOnly, "h1")?.zone).toBe("hand");
+    expect(() => act(handOnly, { type: "twin.attach", cardRef: "x9", kind: "xyz", materialRefs: ["h1"] })).toThrow(/material/i);
+    // The camera loses the Xyz for a moment (default: to the hand): its materials wait 30 s; it comes back with them.
+    const at0 = xyz.updatedAt;
+    const lifted = act(xyz, { type: "twin.move", cardRef: "x1", zone: "hand", source: "auto", at: at0 + 1000 });
+    expect(twin(lifted, "m1")).toMatchObject({ zone: "material", materialOf: "x1" });
+    const back = act(lifted, { type: "twin.move", cardRef: "x1", zone: "monster", slot: 3, source: "auto", at: at0 + 2000 });
+    expect(twin(back, "x1")?.materials).toEqual(["m1", "m2"]);
+    expect(twin(act(lifted, { type: "lp.change", seat: 0, delta: -100, reason: "test", at: at0 + 40_000 }), "m1")?.zone).toBe("graveyard");
+    // A player's own move to the hand (a bounce) sends the materials to the GY at once.
+    expect(twin(act(xyz, { type: "twin.move", cardRef: "x1", zone: "hand", at: at0 + 1000 }), "m1")?.zone).toBe("graveyard");
     // Rank-up: the new Xyz goes on top of the old one and takes its materials. Detach sends one to the GY.
     const rankUp = act(xyz, { type: "twin.place", zone: "extra-monster", card: { ref: "x2", slot: 1, cardId: 22 }, summon: { kind: "xyz", materialRefs: ["x1"] } });
     expect(twin(rankUp, "x2")?.materials).toEqual(["m1", "m2", "x1"]);

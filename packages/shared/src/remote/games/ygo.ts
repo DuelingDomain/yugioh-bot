@@ -26,11 +26,12 @@ const MONSTER_ZONES = new Set(["monster", "extra-monster"]);
 const FIELD_ZONES = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 /** A material that the summon may take: on the field, or sent to the hand by the camera moments ago. */
 const SUMMON_DEPARTURE_MS = 30_000;
+const validMaterial = (card: TwinCard | undefined, top: TwinCard, at: number): card is TwinCard => !!card && card !== top &&
+  (MONSTER_ZONES.has(card.zone) || card.zone === "hand" && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone) &&
+    card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS);
 function takeMaterial(seat: RemoteSeatState, top: TwinCard, ref: string, at: number): TwinCard {
   const card = seat.twin.find(c => c.ref === ref);
-  remoteAssert(card && card !== top, "Unknown material card", 409);
-  remoteAssert(MONSTER_ZONES.has(card.zone) || card.zone === "hand" && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone) &&
-    card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS, "A material must be a monster on the field or one that just left it", 409);
+  remoteAssert(validMaterial(card, top, at), "A material must be a monster on the field or one that just left it", 409);
   for (const key of ["slot", "departedFrom", "trapZone", "equippedTo", "publicIdentity"] as const) delete card[key];
   if (cardKnown(card)) card.faceUp = true;
   card.position = "attack";
@@ -38,9 +39,12 @@ function takeMaterial(seat: RemoteSeatState, top: TwinCard, ref: string, at: num
 }
 const cardKnown = (card: TwinCard) => !!(card.cardId || card.passcode || card.name);
 /** Xyz: the materials go under the card (an Xyz material brings its own: rank-up). Others: the materials go to the GY. */
-function applySummon(seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number) {
+function applySummon(seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number, strict: boolean) {
   if (kind === "xyz") remoteAssert(MONSTER_ZONES.has(top.zone) && top.faceUp, "Xyz materials need a face-up Xyz Monster on the field", 409);
-  for (const ref of refs) {
+  // A camera placement keeps a good read: a material that changed since the read (moved to the GY …) is skipped, not fatal.
+  const usable = refs.filter(ref => validMaterial(seat.twin.find(c => c.ref === ref), top, at));
+  if (strict) remoteAssert(usable.length === refs.length, "A material must be a monster on the field or one that just left it", 409);
+  for (const ref of usable) {
     const card = takeMaterial(seat, top, ref, at);
     if (kind !== "xyz") {
       delete card.materialOf; seat.twin.splice(seat.twin.indexOf(card), 1); seat.twin.push(card); card.zone = "graveyard"; continue;
@@ -52,12 +56,14 @@ function applySummon(seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteS
   }
 }
 /** Trap Monster zones and Equip links last only while the cards are on the field. */
-function clearZoneLinks(state: RemoteState) {
+function clearZoneLinks(state: RemoteState, at: number) {
   // Xyz materials stay only under a face-up Xyz Monster on the field; else they go to the GY (bottom first).
+  // A camera lift to the hand (the default for a card out of view) holds them for 30 s: the Xyz may come back.
   for (const seat of state.seats) {
     for (const card of seat.twin) if (card.zone !== "material") delete card.materialOf;
     for (const card of [...seat.twin]) if (card.materials) {
-      const keep = MONSTER_ZONES.has(card.zone) && card.faceUp;
+      const lifted = card.zone === "hand" && !!card.departedFrom?.auto && MONSTER_ZONES.has(card.departedFrom.zone) && card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
+      const keep = MONSTER_ZONES.has(card.zone) && card.faceUp || lifted;
       const live = card.materials.map(ref => seat.twin.find(c => c.ref === ref)).filter((m): m is TwinCard => !!m && m.zone === "material" && m.materialOf === card.ref);
       if (!keep) for (const m of live) { delete m.materialOf; seat.twin.splice(seat.twin.indexOf(m), 1); seat.twin.push(m); m.zone = "graveyard"; }
       if (keep && live.length) card.materials = live.map(m => m.ref); else delete card.materials;
@@ -204,7 +210,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
       else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
-      if (action.summon) applySummon(s, card, action.summon.kind, action.summon.materialRefs, at);
+      if (action.summon) applySummon(s, card, action.summon.kind, action.summon.materialRefs, at, false);
       deckAction = { ...action, card };
       break;
     }
@@ -221,7 +227,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
-          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}) };
+          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };
         else if (action.zone !== "hand") delete card.departedFrom;
         // A Trap Monster still occupies the Spell & Trap Zone it was activated in.
         if (action.trapMonster && card.zone === "spell-trap" && remotePhysicalSlot(card.zone, card.slot) !== undefined && MONSTER_ZONES.has(action.zone)) card.trapZone = card.slot;
@@ -255,7 +261,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.attach": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
-      applySummon(s, card, action.kind, action.materialRefs, at);
+      applySummon(s, card, action.kind, action.materialRefs, at, true);
       break;
     }
     case "twin.detach": {
@@ -300,7 +306,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
   else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
   // After merges and eliminations, so no hold or link points to a card that is gone.
-  clearZoneLinks(next);
+  clearZoneLinks(next, at);
   rememberRemoteAction(state, next, action);
   return next;
 }

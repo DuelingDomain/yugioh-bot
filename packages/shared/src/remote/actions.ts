@@ -105,7 +105,7 @@ export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** A pile held for inspection is not part of the hand until confirmed. */
   inspectionFrom?: 'graveyard' | 'banished';
-  zone: string; departedFrom?: { zone: string; slot?: number; at?: number }; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
