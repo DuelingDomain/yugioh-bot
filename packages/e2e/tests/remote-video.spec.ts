@@ -10,6 +10,24 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
       await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
       // Test the real RTP stall, without adding production-only test controls.
       await context.addInitScript(() => {
+        const reset = { hold: false };
+        Object.assign(window, { cameraReset: reset });
+        const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async constraints => {
+          const stream = await capture(constraints);
+          for (const track of stream.getVideoTracks()) {
+            const capabilities = track.getCapabilities.bind(track), settings = track.getSettings.bind(track), apply = track.applyConstraints.bind(track);
+            const controls = { exposureMode: 'continuous', exposureTime: 120 };
+            track.getCapabilities = () => ({ ...capabilities(), exposureMode: ['continuous', 'manual'], exposureTime: { min: 10, max: 1000 } });
+            track.getSettings = () => ({ ...settings(), ...controls });
+            track.applyConstraints = async value => {
+              if (reset.hold && value?.advanced?.some(control => Object.values(control).includes('continuous'))) return new Promise<void>(() => {});
+              for (const control of value?.advanced ?? []) Object.assign(controls, control);
+              await apply(value);
+            };
+          }
+          return stream;
+        };
         // Keep the LiveKit signal sockets so the test can cut them: Chrome's offline mode does not close an open socket.
         const sockets: WebSocket[] = []; const NativeSocket = window.WebSocket;
         Object.assign(window, { signalSockets: sockets });
@@ -41,6 +59,9 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     const size = await video(a, 0).evaluate(node => ({ width: (node as HTMLVideoElement).videoWidth, height: (node as HTMLVideoElement).videoHeight }));
     expect(size.width).toBeGreaterThan(0); expect(size.width).toBeLessThanOrEqual(1920); expect(size.height).toBeLessThanOrEqual(1080);
     await expect(health(b, 0)).toContainText("Good");
+    const beforeCancelledLeave = await frames(b, 0);
+    await a.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
+    await expect.poll(() => video(b, 0).evaluateAll(nodes => nodes.length ? (nodes[0] as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames : 0), { timeout: 5_000 }).toBeGreaterThan(beforeCancelledLeave + 15);
     // The top health chip opens the same list.
     await b.getByTestId("health-chip").click();
     await expect(b.getByTestId("health-popover")).toContainText("E2E Alice");
@@ -80,10 +101,17 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     const afterJoin = await frames(a, 1);
     await expect.poll(() => frames(a, 1), { timeout: 30_000 }).toBeGreaterThan(afterJoin + 5);
 
+    // A stalled UVC reset must not delay LiveKit's leave message on tab close.
+    await expect(video(b, 0)).toBeVisible();
+    await a.evaluate(() => { (window as unknown as { cameraReset: { hold: boolean } }).cameraReset.hold = true; });
+    const leaving = Date.now();
+    await a.close();
+    await expect(video(b, 0)).toHaveCount(0, { timeout: 2_000 });
+    console.info(`Remote camera leave observed in ${Date.now() - leaving} ms`);
     await b.getByRole("button", { name: "Mute microphone" }).click();
     // The camera control is always in the row under the feed.
     await b.getByRole("button", { name: "Camera off" }).click();
-    await expect(video(a, 1)).toHaveCount(0);
+    await expect(video(b, 1)).toHaveCount(0);
     expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);
   } finally { await Promise.allSettled([alice.close(), bob.close()]); }
 });

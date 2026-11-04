@@ -109,8 +109,14 @@ export async function optimizeRecognitionCapture(track: MediaStreamTrack): Promi
   });
 }
 const locks = new WeakMap<MediaStreamTrack, CameraLock>();
+const automaticTracks = new WeakSet<MediaStreamTrack>();
 /** Owners call this before stopping, unpublishing or replacing their local webcam. */
 export function releaseCameraLock(track: MediaStreamTrack): Promise<void> { return locks.get(track)?.release() ?? Promise.resolve(); }
+/** Recovery keeps reads available without locking a capture that failed preparation. */
+export async function keepCameraAuto(track: MediaStreamTrack): Promise<void> {
+  automaticTracks.add(track);
+  await locks.get(track)?.setEnabled(false, false);
+}
 
 /** Only construct for an owner's local webcam. Never pass a received or phone track. */
 export class CameraLock {
@@ -123,23 +129,18 @@ export class CameraLock {
   private lateWrites = 0;
   private readonly key: string | undefined;
   private readonly lastKey: string;
-  private readonly dirtyKey: string;
   constructor(private track: MediaStreamTrack, userKey: string, private changed: (state: CameraLockSnapshot) => void,
     private measure?: () => CameraLight | null, private stopMeasurement?: () => void) {
     const device = settings(track).deviceId;
     this.key = device ? `dd-camera-lock:v1:${userKey}:device:${encodeURIComponent(device)}` : undefined;
     this.lastKey = `dd-camera-lock:last:v1:${userKey}`;
-    this.dirtyKey = `dd-camera-lock:dirty:${encodeURIComponent(device || track.label || 'default')}`;
   }
   getSnapshot = () => this.snapshot;
   private live = () => !this.closed && this.track.readyState === 'live';
-  private active = (generation: number) => this.live() && generation === this.generation && !document.hidden;
+  private active = (generation: number) => this.live() && generation === this.generation;
   private patch(value: Partial<CameraLockSnapshot>) {
     if (this.closed) return;
     this.snapshot = { ...this.snapshot, ...value }; this.changed(this.snapshot);
-  }
-  private dirty(on: boolean) {
-    try { if (on) localStorage.setItem(this.dirtyKey, '1'); else localStorage.removeItem(this.dirtyKey); } catch { /* Memory-only fallback. */ }
   }
   private apply(values: object[], generation?: number) {
     return cameraWork(this.track, async () => {
@@ -150,7 +151,7 @@ export class CameraLock {
       catch (error) {
         if (error instanceof CameraTimeout) {
           // A timeout cannot cancel a driver write. Block new locks and undo it again when it completes.
-          this.lateWrites++; this.dirty(true);
+          this.lateWrites++;
           const compensate = async () => {
             let restored = false;
             try {
@@ -161,7 +162,7 @@ export class CameraLock {
               }
             }
             catch { this.restoreFailed(); }
-            finally { this.lateWrites--; if (restored && !this.lateWrites) this.dirty(false); }
+            finally { this.lateWrites--; }
             if (restored && this.live()) this.patch({ busy: false, locked: false, note: 'A camera setting was delayed. The camera stays on auto. Try Re-lock.' });
           };
           void write.then(compensate, compensate);
@@ -171,11 +172,18 @@ export class CameraLock {
     });
   }
   private cancel() { ++this.generation; clearTimeout(this.timer); this.wake?.(); this.wake = undefined; this.stopMeasurement?.(); }
-  private delay(ms: number) { return new Promise<void>(resolve => { this.wake = resolve; this.timer = setTimeout(() => { this.wake = undefined; resolve(); }, ms); }); }
+  private delay(ms: number) {
+    return new Promise<void>(resolve => {
+      const finish = () => { document.removeEventListener('visibilitychange', visible); this.wake = undefined; resolve(); };
+      const visible = () => { if (!document.hidden) finish(); };
+      this.wake = finish;
+      // Pause measurements while hidden. Keep the current camera controls and lock.
+      this.timer = setTimeout(() => { if (document.hidden) document.addEventListener('visibilitychange', visible); else finish(); }, ms);
+    });
+  }
   private ended = () => { this.cancel(); this.patch({ supported: false, locked: false, busy: false, note: 'Camera stopped.' }); };
   private hide = () => { this.cancel(); void bounded(this.restore(), 500).then(() => this.patch({ busy: false })).catch(() => this.restoreFailed()); };
-  private show = () => { if (this.live() && !document.hidden && this.snapshot.enabled) this.settle(); };
-  private visibility = () => { if (document.hidden) this.hide(); else this.show(); };
+  private show = () => { if (this.live() && this.snapshot.enabled && !this.snapshot.locked && !this.snapshot.busy) this.settle(); };
   start() {
     if (!this.live()) return;
     locks.set(this.track, this);
@@ -189,8 +197,8 @@ export class CameraLock {
       }
     } catch { /* Memory-only fallback. */ }
     this.track.addEventListener?.('ended', this.ended);
-    window.addEventListener('pagehide', this.hide); window.addEventListener('beforeunload', this.hide);
-    window.addEventListener('pageshow', this.show); document.addEventListener('visibilitychange', this.visibility);
+    window.addEventListener('pagehide', this.hide); window.addEventListener('pageshow', this.show);
+    if (automaticTracks.has(this.track)) enabled = false;
     this.patch({ enabled, supported: !!this.track.applyConstraints && controls(this.track).length > 0 });
     // Always start in auto, including a dirty manual value left by a previous tab or UVC open.
     if (enabled) this.settle(); else void this.restore().catch(() => this.restoreFailed());
@@ -236,8 +244,6 @@ export class CameraLock {
       this.patch({ supported: candidates.length > 0 });
       if (!candidates.length) { this.patch({ busy: false, note: '' }); return; }
       if (!before || before.sharpness < 1) continue;
-      // Mark before writing: page unload can interrupt the constraint promise.
-      this.dirty(true);
       try {
         await this.apply(candidates.map(({ mode, value, target, current }) => ({ [mode]: target, ...(current === undefined ? {} : { [value]: current }) })), generation);
         await this.delay(1000);
@@ -319,13 +325,14 @@ export class CameraLock {
       const after = settings(this.track);
       if (values.some(value => Object.keys(value).some(mode => after[mode as Mode] !== 'continuous'))) throw new Error('Camera did not restore auto');
     }
-    if (!this.lateWrites) this.dirty(false); this.patch({ locked: false });
+    this.patch({ locked: false });
   }
   private restoreFailed() { this.patch({ busy: false, locked: controls(this.track).some(control => settings(this.track)[control.mode] === control.target), note: 'The camera did not return to auto. Stop the camera and try again.' }); }
-  async setEnabled(enabled: boolean): Promise<void> {
+  async setEnabled(enabled: boolean, remember = true): Promise<void> {
     this.cancel();
     this.patch({ enabled, busy: true, note: '', debug: undefined });
-    try {
+    if (enabled) automaticTracks.delete(this.track);
+    if (remember) try {
       if (this.key) localStorage.setItem(this.key, enabled ? '1' : '0');
       if (this.track.label) localStorage.setItem(this.lastKey, JSON.stringify({ label: this.track.label, enabled }));
     } catch { /* Memory-only fallback. */ }
@@ -338,10 +345,9 @@ export class CameraLock {
     if (this.releasing) return this.releasing;
     this.cancel();
     this.track.removeEventListener?.('ended', this.ended);
-    window.removeEventListener('pagehide', this.hide); window.removeEventListener('beforeunload', this.hide);
-    window.removeEventListener('pageshow', this.show); document.removeEventListener('visibilitychange', this.visibility);
+    window.removeEventListener('pagehide', this.hide); window.removeEventListener('pageshow', this.show);
     this.closed = true;
-    this.releasing = bounded(this.restore(), 500).catch(() => { /* Keep the dirty marker for the next open. */ }).finally(() => { if (locks.get(this.track) === this) locks.delete(this.track); });
+    this.releasing = bounded(this.restore(), 500).catch(() => { /* The next capture starts in auto again. */ }).finally(() => { if (locks.get(this.track) === this) locks.delete(this.track); });
     return this.releasing;
   }
   dispose() { void this.release(); }
