@@ -1,110 +1,142 @@
-# Added to hand: shared and UI contract
+# Added to hand: shared, vision, and UI contract
 
-Branch: `feat/remote-reveal`. UI branch: `feat/remote-reveal-ui`.
+Core branch: `feat/remote-reveal`. UI branch: `feat/remote-reveal-ui`.
 
-## State and room rule
+## Scope and state
 
 Import shared types and helpers from `@yugidraft/shared/remote`.
-Each `state.seats[seat].knownHand` is a public array:
+Each seat has public hand knowledge:
 
 ```ts
 type RemoteKnownHandCard = {
   id: string; // action idempotency key; one entry per physical copy
   cardId: number;
-  source: 'deck' | 'gy' | 'banish' | 'extra' | 'unknown';
-  by?: { cardId: number; name: string };
+  source: 'deck' | 'gy' | 'banish' | 'extra' | 'field' | 'unknown';
+  by?: {cardId: number; name: string};
   at: number;
   revealed: true;
-  hideAfterTurn?: boolean;
 };
+// state.seats[seat].knownHand ?? []
 ```
 
-Old snapshots can omit the array. Read it as `seat.knownHand ?? []`.
-The private `handCount` and `deckCount` fields are optional. The owner receives
-them. Other seats do not. The first hand action initializes missing counts from
-the registered deck and the room's starting hand size. No deck list is inferred
-when no list is registered.
+This list is NOT the whole hand. It holds cards added by effects and cards
+returned from the field to the hand. A field card that vanishes to the default
+hand destination gets `source: 'field'`. Draws, opening hands, cards seen in an
+ordinary hand fan, and a pile picked up for inspection do not populate the list.
+An explicit `hand.reveal` can show one card already in hand. No other hand card
+is inferred from that reveal.
+
+All seats can read `knownHand`. Private `handCount` and `deckCount` are optional.
+Only the owner receives them. A movement initializes missing counts from the
+starting hand size and registered deck. No deck size is inferred without a list.
 
 `room.revealedHand` and `state.revealedHand` are `'until-played' | 'one-turn'`.
-The default is `'until-played'`. Table create and lobby format requests accept
-`revealedHand`. The rule is stored in state JSON and in system events.
-There is no database migration.
+Default: `'until-played'`. Table create and lobby format requests accept this
+rule. The rule is stored in state JSON and system events; no migration is needed.
+Only `'one-turn'` clears the list at the end of the adding seat's turn. An entry
+added on another seat's turn stays until its owner's turn ends. There is no
+per-entry turn override. The rule persists across match games.
 
-## Actions
+## Actions and undo
 
-Use the normal `POST /api/remote/:slug/actions` envelope with `baseSeq`,
-`actorSeat`, and a fresh `idempotencyKey`. The server supplies `at`.
-The actor owns the affected hand. Do not send a `seat` field.
+Use `POST /api/remote/:slug/actions` with `baseSeq`, `actorSeat`, and a fresh
+`idempotencyKey`. The server supplies `at`. The actor owns the hand; omit `seat`.
 
 ```ts
-{ type: 'hand.add', cardId, source: 'deck', by?: { cardId, name }, hideAfterTurn?: boolean }
-{ type: 'hand.reveal', cardId, hideAfterTurn?: boolean }
-{ type: 'hand.forget', id }
+{type: 'hand.add', cardId, source, by?: {cardId, name}}
+{type: 'hand.reveal', cardId}
+{type: 'hand.forget', id}
 ```
 
-`hand.add` increments the private hand count. Deck additions decrement the
-private deck count. GY/banish/extra additions move one matching twin to the hand.
-GY and banish use the same exit code as `pile.lift`. A missing source card is an
-error. `unknown` does not change a source count or infer a pile.
+`hand.add` increments the private hand count. Deck additions decrement the deck
+count. GY, banish, and Extra additions move one matching twin to hand. GY/banish
+use the same exit function as `pile.lift`. Field additions move the field twin.
+A missing pile/field source is an error. `unknown` does not infer a source pile.
 
-`hand.reveal` adds public knowledge. It does not change counts or move a card.
-Repeated reveals of an already known card do not create more copies.
-`hand.add` can add separate copies of the same card. `hand.forget` hides one
-entry without moving the physical card or changing counts.
+`hand.reveal` changes public knowledge only. It does not move a card or change
+counts. Repeated reveals of a known card do not add copies. `hand.add` can add
+separate physical copies. `hand.forget` removes one entry without changing counts.
 
-The optional `hideAfterTurn` overrides the room default for that entry.
-At the end of the owner's turn, entries with this flag clear. Entries added
-during another player's turn stay until the owner's next turn ends.
-The default entries stay visible until they leave the hand.
-
-A `twin.place` that takes a matching card from hand consumes one known entry.
-A move or removal from hand also consumes one. A field-to-field move or a direct
-pile-to-field move does not consume an unrelated known copy. Returning to Deck
-increments its count. Undo restores knowledge, counts, and pile order.
+A `twin.place` from hand consumes one matching known entry by `cardId`.
+Discarding or returning that hand card to Deck also consumes one. A field move
+or a direct pile-to-field move keeps an unrelated known hand copy. Undo restores
+knowledge, counts, physical cards, and pile order through the current undo system.
 
 The public log uses catalog names, for example:
 `incursion_3 added Treasures of the Kings to hand (Man with the Mark's effect)`.
-Hiding an entry does not erase earlier public log events.
+Forgetting a card does not remove an earlier public log line.
 
-## Search suggestions
+## Search suggestions and voice
 
 ```ts
 searchCandidates(state, seat, recentCardId, knowledge?) // RemoteSearchCandidate[]
-// { cardId, name, source, by: { cardId, name }, reason }
+// {cardId, name, source: 'deck', by: {cardId, name}, reason}
 ```
 
-The helper is pure. Its three-argument form reads the seat's resolved effect
-plans. The optional `RemoteSearchKnowledge` supplies catalog cards, engine type
-and level facts, and the existing related-cards map for local UI callers.
-The helper filters candidates through the seat's registered Main/Extra Deck
-or public GY/banish pile for the matching source. It never uses another seat's
-private deck. The related map supplies candidates; printed search clauses or
-resolved effect plans must also support them. A related card alone is not proof
-of a search effect. Complex clauses remain suggestions, not rule enforcement.
+This helper is pure. Three arguments reuse server-resolved hand search origins
+from `effect.activated`. For a field card that has not been activated, pass
+`RemoteSearchKnowledge` (normalized catalog cards, effect tags, related map), or
+use the read-only endpoint below. Only the selected seat's deck list filters
+results. A related link ranks a supported search; it is not proof of an effect.
+Printed clauses support quoted names, archetypes, simple types, and levels.
+Engine facts supply card types and levels. Complex clauses remain suggestions.
 
-`GET /api/remote/:slug/search?seat=0&recentCardId=123` returns `{ candidates }`.
-The server reads engine/catalog facts and the optional prepared
-`data/vision/related-cards.json`. This endpoint has no writes or event updates.
-Only the owner (or the solo host for a bot seat) can query a seat's private list.
+`GET /api/remote/:slug/search?seat=0&recentCardId=123` returns `{candidates}`.
+The service reads the engine/catalog and optional `data/vision/related-cards.json`.
+It does not write state, events, or activity. Only the seat owner (or a solo host
+for a bot seat) can query its private list. Do not broadcast the candidate list.
 
-Voice grammar can use the returned list through
-`parseRemoteHandCommand({ text, actorSeat, candidates })`.
-`add Temple of the Kings to hand` and `search Treasures` return a `hand.add`
-proposal only when one candidate matches. No action is executed by the parser.
+`parseRemoteHandCommand({text, actorSeat, candidates})` returns a proposal.
+`add Temple of the Kings to hand` and `search Treasures` work when one candidate
+matches. Ambiguous names return `null`. The parser does not execute actions.
+The normal shared command parser also accepts these forms after an activation.
 
-## Camera hook
+## Held-card event: replaces the three-second capture
 
-Exported `RemoteHandVisionEvent` uses `{ cardId, mode: 'add' | 'reveal' }`.
-`remoteHandActionFromVision(event, actorSeat)` returns an action proposal.
-Add mode uses `source: 'unknown'`; reveal mode does not move the card.
-The UI owns the Reveal area and scan debounce. Reuse the same action key for a
-retry of one scan. Use reveal mode for a card that is already in the hand.
+Import from `@yugidraft/vision`:
 
-## Work and checks
+```ts
+interface HeldCardTrack {
+  id: string; state: 'held'; card: DetectedQuad; at: number; cardId?: string;
+}
+interface HeldCardEvent extends HeldCardTrack {
+  type: 'held'; cardId: string; result: RecognitionResult; source: 'auto';
+}
+// FieldWatcherOptions.onHeldCard?: (event: HeldCardEvent) => void
+// FieldSnapshot.held?: HeldCardTrack[]
+// Also exported: createHeldCardReader(options), for other camera owners.
+```
 
-1. Extend one existing shared remote test with reducer, privacy, service replay,
-   helper, voice, and camera assertions. Add no test file.
-2. Add hand schemas and state. Reuse pile exits. Track hand departures and turn expiry.
-3. Add room settings, public log messages, and read-only search data resolution.
-4. Build and typecheck shared. Typecheck web. Run the one shared test file.
-5. Push WIP commits. Report the commit IDs and this path.
+The owner watcher detects an outline outside the field cells, or larger than a
+flat cell after mat rectification, with skin touching the edge or next to it.
+The raised-card check is a conservative size heuristic, not a depth sensor.
+The separate held reader gets the next free recognition slot before field reads.
+It has no stillness timer and no three-second hold. It emits on the first sure
+front read, once per continuous held-card episode. Unsure reads can retry.
+A held outline never enters the field-placement path. A short lost-outline
+window keeps detector misses from producing duplicate events; it does not delay
+the first read. Frames stay local and are released after recognition.
+
+The web owner callback converts the event to a hand action. It uses a recent
+search origin for `source: 'deck'`, a field departure for `source: 'field'`, and
+`'unknown'` otherwise. An already known or already returned card uses reveal mode
+to avoid adding it twice. The event ID is the HTTP idempotency key on retries.
+
+```ts
+type RemoteHandVisionEvent = {
+  cardId: number;
+  mode: 'add' | 'reveal';
+  source?: RemoteKnownHandCard['source'];
+  by?: {cardId: number; name: string};
+};
+remoteHandActionFromVision(event, actorSeat); // RemoteActionProposal
+```
+
+The UI worker can use `onHeldCard` and remove its old capture timer. Do not run
+both capture paths. Camera callbacks apply only to the owner of the feed.
+
+## Completion checks
+
+Extend one existing shared remote reducer test; add no test file. Cover hand
+scope, exits, privacy, undo, replay, search/voice, and the held reader. Typecheck
+shared, web, and vision with Node 22. Use WIP commits and push the core branch.
