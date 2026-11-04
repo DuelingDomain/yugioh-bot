@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import type { RemoteState } from "@yugidraft/shared/remote";
+import type { RemoteEvent, RemoteState } from "@yugidraft/shared/remote";
 import { safeAnimate } from "@/components/duel/safe-animate";
 import { cardInfo } from "./catalog";
 import s from "./remote-ui.module.css";
@@ -58,11 +58,12 @@ function tintOfCard(cardId: number | undefined, fallback: string): string {
 }
 
 /**
- * `seq` is the table's newest event number; `lastType` is the action type of that event. Effects play only when exactly one
+ * `seq` is the table's newest event number; `last` is the action of that event. Effects play only when exactly one
  * new event arrived since the last render: not on first load, not after a reconnect that brings many events, and not for an
  * Undo (the server marks it as an `undo` event, so every seat sees the same).
  */
-export function RemoteFx({ state, webcamOnly, seq, lastType }: { state: RemoteState; webcamOnly: boolean; seq: number; lastType?: string }) {
+export function RemoteFx({ state, webcamOnly, seq, last }: { state: RemoteState; webcamOnly: boolean; seq: number; last?: RemoteEvent["action"] }) {
+  const lastType = last?.type;
   const layer = useRef<HTMLDivElement>(null);
   const prev = useRef<Snap | null>(null);
   const rects = useRef(new Map<string, Box>());
@@ -147,12 +148,15 @@ export function RemoteFx({ state, webcamOnly, seq, lastType }: { state: RemoteSt
           else if (to && used < MAX_PER_STATE) { used += 1; glow(to, tint, 1.4); ring(to, tint); }
         }
 
+        const materialMove = (last?.type === "twin.place" && !!last.summon) || last?.type === "twin.attach";
         for (const [ref, now] of next.cards) {
           if (used >= MAX_PER_STATE) break;
           const old = before.cards.get(ref);
           if (old && ON_FIELD.has(old.zone) && now.zone === "graveyard") {
+            // A summon material is not destroyed. Only a battle destroy shatters; any other send to the Graveyard is a soft flash.
+            if (materialMove) continue;
             const box = rects.current.get(ref);
-            if (box) { used += 1; shatter(box); }
+            if (box) { used += 1; if (lastType === "attack.resolve") shatter(box); else glow(box, LOSS, .6); }
           } else if (IN_MONSTER.has(now.zone) && (!old || !IN_MONSTER.has(old.zone)) && now.faceUp) {
             const box = boxOf(cardEl(ref));
             if (box) { used += 1; const tint = tintOfCard(now.cardId, GOLD); glow(box, tint, 1.2); ring(box, tint); ring(box, tint, 140); }
@@ -162,7 +166,15 @@ export function RemoteFx({ state, webcamOnly, seq, lastType }: { state: RemoteSt
           }
         }
 
-        for (const id of next.contexts) {
+        // The activation FX come from the newest activation, so every activation plays one, not only a Set from Deck.
+        let activated = false;
+        if (last?.type === "effect.activated" && used < MAX_PER_STATE) {
+          const source = last.source;
+          const ref = source.cardRef ?? state.seats[last.actorSeat]?.twin.find(card => ON_FIELD.has(card.zone) && source.cardId !== undefined && (card.cardId ?? card.passcode) === source.cardId)?.ref;
+          const box = ref ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
+          if (box) { used += 1; activated = true; glow(box, "155 126 255", 1.3); ring(box, "155 126 255"); }
+        }
+        for (const id of activated ? [] : next.contexts) {
           if (used >= MAX_PER_STATE || before.contexts.has(id)) continue;
           const ref = state.effectTracking?.contexts[Number(id)]?.source.cardRef;
           const box = ref ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
@@ -176,7 +188,7 @@ export function RemoteFx({ state, webcamOnly, seq, lastType }: { state: RemoteSt
     document.querySelectorAll<HTMLElement>("[data-zone] [data-ref], [data-zone][data-ref]").forEach(el => {
       const ref = el.getAttribute("data-ref"); const box = boxOf(el); if (ref && box) rects.current.set(ref, box);
     });
-  }, [state, webcamOnly, seq, lastType]);
+  }, [state, webcamOnly, seq, last]);
 
   return <div ref={layer} className={s.fxl} aria-hidden="true" data-testid="remote-fx" />;
 }

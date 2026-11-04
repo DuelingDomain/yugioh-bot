@@ -54,6 +54,7 @@ import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOn
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
+import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
@@ -926,11 +927,22 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       const old = before.get(seat) ?? new Set<string>();
       for (const card of knownHandOf(state, seat)) {
         if (old.has(card.id) || !ids.has(card.id)) continue;
-        toast(card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : card.source === "unknown" ? `${name(seat)} revealed ${card.name} in hand` : `${name(seat)} added ${card.name} to hand`, 4200);
+        const text = card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : card.source === "unknown" ? `${name(seat)} revealed ${card.name} in hand` : `${name(seat)} added ${card.name} to hand`;
+        // A field card that left may still become a summon material. The note waits for that window and skips a card that is gone from the hand.
+        if (card.source !== "field") { toast(text, 4200); continue; }
+        const cardId = card.id;
+        const timer = setTimeout(() => {
+          returnTimers.current.delete(timer);
+          if (knownHandOf(stateNow.current, seat).some(item => item.id === cardId)) toast(text, 4200);
+        }, SUMMON_WINDOW_MS + 200);
+        returnTimers.current.add(timer);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.seats]);
+  const stateNow = useRef(state); stateNow.current = state;
+  const returnTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => { const timers = returnTimers.current; return () => { timers.forEach(clearTimeout); timers.clear(); }; }, []);
 
   // ---- card actions ----
   const subjectCard = subject?.ref ? findCard(subject.seat, subject.ref) : undefined;
@@ -1213,6 +1225,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
     <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
-    <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} lastType={room.events.find(event => event.seq === room.lastSeq)?.action.type} />
+    <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
   </div>;
 }
