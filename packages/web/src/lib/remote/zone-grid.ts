@@ -94,17 +94,18 @@ export function useMissingPiles(seat: number): readonly string[] {
   const value = useSyncExternalStore(listener => { missingListeners.add(listener); return () => { missingListeners.delete(listener); }; }, () => missingPiles, () => missingPiles);
   return value.seat === seat ? value.zones : [];
 }
-/** "Scan field" in the own camera bar: the field watcher re-syncs the board at once. Local only. */
-export interface FieldScanState { seat: number | null; scanning: boolean; scan?: () => void }
-let fieldScan: FieldScanState = { seat: null, scanning: false };
+/** "Scan field" beside the virtual board: the field watcher re-syncs the board at once. Local only. `ready` is false while the camera is off. */
+export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; ready: boolean; scan?: () => void }
+let fieldScan: FieldScanState = { seat: null, scanning: false, enabled: false, ready: false };
 const scanListeners = new Set<() => void>();
 export function publishFieldScan(next: FieldScanState) {
-  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.scan === next.scan) return;
+  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.ready === next.ready && fieldScan.scan === next.scan) return;
   fieldScan = next; for (const listener of scanListeners) listener();
 }
+/** The scan state of my seat while auto-detect is on; null for any other seat. */
 export function useFieldScan(seat: number): FieldScanState | null {
   const value = useSyncExternalStore(listener => { scanListeners.add(listener); return () => { scanListeners.delete(listener); }; }, () => fieldScan, () => fieldScan);
-  return value.seat === seat && value.scan ? value : null;
+  return value.seat === seat && value.enabled && value.scan ? value : null;
 }
 const listeners = new Set<() => void>();
 export function publishZoneGrid(next: ZoneGridState) { current = next; for (const listener of listeners) listener(); }
