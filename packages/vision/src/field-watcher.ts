@@ -132,6 +132,14 @@ const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
 const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&card.confidence>=.4;
 const deckZone=(zone:FieldZone):zone is 'DECK'|'EXTRA'=>zone==='DECK'||zone==='EXTRA';
+/** Median RGB of a flat [r,g,b,...] list. */
+const medianColour=(pixels:number[])=>[0,1,2].map(c=>{const v=pixels.filter((_,i)=>i%3===c).sort((a,b)=>a-b);return v[Math.floor(v.length/2)];});
+/** Mean channel gap between the median colour inside an outline and of the mat ring around it, from which a weak pile outline is a sleeve, not empty mat. */
+const PILE_SLEEVE_GAP=.08;
+const sleeveOnMat=(inside?:number[],halo?:number[])=>{
+  if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
+  const a=medianColour(inside),b=medianColour(halo);return (Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2]))/3>=PILE_SLEEVE_GAP;
+};
 const publicPile=(zone:string):zone is 'GY'|'BANISHED'=>zone==='GY'||zone==='BANISHED';
 const fieldSlot=(zone:string)=>/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone);
 const fieldZoneName=(zone:string)=>/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone);
@@ -553,7 +561,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // Pile-cell outlines below the pile floor are a debug probe only: record the best score, then drop them.
       const inCell=(c:DetectedQuad,q:DetectedQuad['quad'])=>{const a=boundsOf(c.quad),b=boundsOf(q),w=Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)),h=Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));return w*h/Math.max(1e-9,Math.min(a.w*a.h,b.w*b.h))>=.6;};
       const pileScores=region?undefined:Object.fromEntries(pileQuads.map(p=>[p.zone,detected.filter(c=>inCell(c,p.quad)).reduce<number|null>((best,c)=>Math.max(best??0,c.confidence),null)]));
-      detected=detected.filter(c=>!c.pile||c.confidence>=CARD_DETECTOR.pileMinConfidence);
+      // A weak pile outline must also show a sleeve colour unlike the mat around it: an empty dark
+      // mat cell can decode a low-score outline and the face classifier reads uniform mat as a back.
+      detected=detected.filter(c=>!c.pile||c.confidence>=CARD_DETECTOR.minConfidence||c.confidence>=CARD_DETECTOR.pileMinConfidence&&sleeveOnMat(evidence.appearance?.(c),evidence.halo?.(c)));
       // Scan field runs two full passes back to back: two misses remove a card at once.
       if(!region){lastFullDetectionAt=sample.at;if(scanRequested)scanFollowUp=true;else scanFollowUp=false;scanRequested=false;}
       // "Out of view is gone" for piles: a GY, Banished, Deck or Extra cell with
