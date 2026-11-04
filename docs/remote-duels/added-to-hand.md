@@ -110,6 +110,7 @@ interface HeldCardEvent extends HeldCardTrack {
 The owner watcher detects an outline outside the field cells, or larger than a
 flat cell after mat rectification, with skin touching the edge or next to it.
 The raised-card check is a conservative size heuristic, not a depth sensor.
+A hand fan with more than one held outline does not trigger reads.
 The separate held reader gets the next free recognition slot before field reads.
 It has no stillness timer and no three-second hold. It emits on the first sure
 front read, once per continuous held-card episode. Unsure reads can retry.
@@ -119,7 +120,8 @@ the first read. Frames stay local and are released after recognition.
 
 The web owner callback converts the event to a hand action. It uses a recent
 search origin for `source: 'deck'`, a field departure for `source: 'field'`, and
-`'unknown'` otherwise. An already known or already returned card uses reveal mode
+`'unknown'` otherwise. Without a movement source it reveals the card and leaves
+counts unchanged. An already known or already returned card also uses reveal mode
 to avoid adding it twice. The event ID is the HTTP idempotency key on retries.
 
 ```ts

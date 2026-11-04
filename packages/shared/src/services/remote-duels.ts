@@ -1,3 +1,4 @@
+import type { RemoteRevealedHand } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomUUID } from "node:crypto";
@@ -16,11 +17,11 @@ export const REMOTE_IDLE_WARNING_MS = 8 * 60_000;
 export const REMOTE_IDLE_CLOSE_MS = 10 * 60_000;
 type TableRow = { id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
   created_by: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
-  last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number };
+  last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number; revealed_hand?: RemoteRevealedHand | null };
 type Row = TableRow & { state_json: string };
 // Lists and idle notifications need metadata, never board/undo snapshots or event replay.
 const tableColumns = "id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck"
-  .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of";
+  .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of,json_extract(t.state_json,'$.revealedHand') as revealed_hand";
 type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number; effects_json: string | null; messages_json: string | null };
 type EventMessage = { seat: number; text: string };
 const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempotency_key, seq: e.seq, actorSeat: e.actor_seat, userId: e.user_id, at: e.created_at, action: JSON.parse(e.action_json),
@@ -33,7 +34,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   const deckRules = createRemoteDeckRules(db, options.dataDirectory);
   const transaction = <T>(work: () => T): T => db.transaction(work).immediate();
   function load(slug: string, guildId: string): Row {
-    const row = db.prepare("select *,json_extract(state_json,'$.match.bestOf') as best_of from remote_tables where slug=? and guild_id=?").get(slug, guildId) as Row | undefined;
+    const row = db.prepare("select *,json_extract(state_json,'$.match.bestOf') as best_of,json_extract(state_json,'$.revealedHand') as revealed_hand from remote_tables where slug=? and guild_id=?").get(slug, guildId) as Row | undefined;
     remoteAssert(row, "Remote table not found", 404, "REMOTE_NOT_FOUND"); return row;
   }
   function loadTable(slug: string, guildId: string): TableRow {
@@ -53,7 +54,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   function table(row: TableRow): RemoteTable {
     return { bestOf: row.best_of ?? 1, slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
       createdAt: row.created_at, startedAt: row.started_at, endedAt: row.ended_at, lastEventAt: row.last_event_at,
-      lastSeq: row.last_seq, endReason: row.end_reason, idleWarningAt: row.idle_warning_at, seats: seats(row), format: format(row), showCardsSetFromDeck: !!row.show_cards_set_from_deck };
+      lastSeq: row.last_seq, endReason: row.end_reason, idleWarningAt: row.idle_warning_at, seats: seats(row), format: format(row), showCardsSetFromDeck: !!row.show_cards_set_from_deck, revealedHand: row.revealed_hand ?? "until-played" };
   }
   const format = (row: TableRow): RemoteFormat => row.format_json ? JSON.parse(row.format_json) : normalizeRemoteFormat();
   function applyTableRule(state:RemoteState,row:Row):RemoteState {
@@ -83,11 +84,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state.match = initialRemoteMatch(row.seat_count, action.bestOf ?? 1);
         if(action.format) state = applyRemoteFormat(state, action.format);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? false;
+        state.revealedHand = action.revealedHand ?? "until-played";
       }
       else if (action.type === "table.configured") {
         state = applyRemoteFormat(state, action.format); state.deckChecks.registrations = action.registrations;
         if (action.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, action.bestOf);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
+        state.revealedHand = action.revealedHand ?? state.revealedHand ?? "until-played";
       }
       else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; delete state.undoHistory; }
       else if (action.type === "seat.left") delete state.deckChecks.registrations[action.seat];
@@ -132,11 +135,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
+    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(game.seatsAllowed.includes(input.seatCount) && input.guildId, "Invalid table settings");
         remoteAssert(input.solo === undefined || typeof input.solo === "boolean", "Invalid solo setting");
+        remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
         const displayName = name(input.displayName);
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
@@ -144,11 +148,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules);
         const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
+        initial.revealedHand = input.revealedHand ?? "until-played";
         db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck) values(?,?,?,?,'lobby',?,?,?,?,?,?,?)")
           .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck));
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
-        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck }, now, input.userId, 0);
+        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
         append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
         if (input.solo) for (let seat = 1; seat < input.seatCount; seat++) {
           db.prepare("insert into remote_bot_seats(table_id,seat,display_name) values(?,?,?)").run(row.id, seat, `Test Bot ${seat}`);
@@ -157,22 +162,24 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         return room(load(slug, input.guildId), input.userId);
       });
     },
-    configure(slug: string, guildId: string, userId: number, input: { format?: unknown; bestOf?: RemoteBestOf; rules?: unknown; showCardsSetFromDeck?: boolean }, now = Date.now()): RemoteRoom {
+    configure(slug: string, guildId: string, userId: number, input: { format?: unknown; bestOf?: RemoteBestOf; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); const viewer = member(row, userId); assertOpen(row, now);
         remoteAssert(row.created_by === userId, "Only the host can choose rules", 403);
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
+        remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
         const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules);
         const state = applyRemoteFormat(readState(row), chosenFormat);
         if (input.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, input.bestOf);
         state.showCardsSetFromDeck = input.showCardsSetFromDeck ?? !!row.show_cards_set_from_deck;
+        state.revealedHand = input.revealedHand ?? state.revealedHand ?? "until-played";
         for (const registration of Object.values(state.deckChecks.registrations))
           if (registration) registration.validation = deckRules.inspect(chosenFormat, registration.deck);
         db.prepare("update remote_tables set format_json=?,state_json=?,show_cards_set_from_deck=? where id=?").run(JSON.stringify(chosenFormat), JSON.stringify(state), Number(state.showCardsSetFromDeck), row.id);
         db.prepare("update remote_seats set ready=0 where table_id=?").run(row.id);
         syncDecks(row, state);
-        append(row, { type: "table.configured", format: chosenFormat, bestOf: state.match.bestOf, registrations: state.deckChecks.registrations, showCardsSetFromDeck: state.showCardsSetFromDeck }, now, userId, viewer.seat);
+        append(row, { type: "table.configured", format: chosenFormat, bestOf: state.match.bestOf, registrations: state.deckChecks.registrations, showCardsSetFromDeck: state.showCardsSetFromDeck, revealedHand: state.revealedHand }, now, userId, viewer.seat);
         return room(load(slug, guildId), userId);
       });
     },
@@ -199,6 +206,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     },
     get(slug: string, guildId: string, userId: number, afterSeq?: number): RemoteRoom {
       return db.transaction(() => room(load(slug, guildId), userId, afterSeq))();
+    },
+    searchCandidates(slug: string, guildId: string, userId: number, seat: number, recentCardId: number) {
+      const row = load(slug, guildId); member(row, userId);
+      remoteAssert(privateSeats(row, userId).has(seat), 'Only the seat owner can query its deck', 403);
+      remoteAssert(Number.isSafeInteger(recentCardId) && recentCardId > 0 && recentCardId <= 0xffffffff, 'Invalid source card');
+      return deckRules.search(readState(row), seat, recentCardId);
     },
     list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {
       const rows = db.prepare(`select ${tableColumns} from remote_tables t where t.guild_id=? and ${scope === "open"
@@ -286,7 +299,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1};
         if (command.type === "side.ready" && row.solo && command.actorSeat === s.seat) effects.soloBotSeats = seats(row).filter(seat => seat.bot).map(seat => seat.seat);
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
@@ -304,7 +317,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
           command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
           command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
-          command.type === "effect.choose" ? [{cardId:command.cardId}] : [];
+          command.type === "effect.choose" || command.type === "hand.add" || command.type === "hand.reveal" ? [{cardId:command.cardId}, ...(command.type === "hand.add" && command.by ? [{cardId:command.by.cardId}] : [])] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
         const registrations = before.deckChecks.registrations;
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
@@ -341,6 +354,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         if(command.type==="effect.choose" && effects.publicEffectChoice) {
           const origin=state.effectTracking?.origins.find(o=>o.id===command.originId);
           if(origin?.announcedCard) messages.push({seat:origin.seat,text:origin.destination==="set" ? `: Set from Deck by ${origin.source.name}: ${origin.announcedCard.name}` : `: ${origin.announcedCard.name} added to hand by ${origin.source.name}`});
+        }
+        if (command.type === "hand.add" || command.type === "hand.reveal") {
+          const cardName = effects.facts[command.cardId]?.name ?? "Card " + command.cardId;
+          const by = command.type === "hand.add" && command.by;
+          const effectName = by ? effects.facts[by.cardId]?.name ?? by.name : undefined;
+          messages.push({seat:command.actorSeat, text:command.type === "hand.add" ? ` added ${cardName} to hand${effectName ? ` (${effectName}'s effect)` : ''}` : ` revealed ${cardName} in hand`});
         }
         if (command.type === "deck.add") messages.unshift({ seat: command.actorSeat, text: " added " + effects.facts[command.cardId]?.name + " to their decklist" });
         if (command.type === "deck.flag.dismiss") messages.push({ seat: command.actorSeat, text: " dismissed flag " + command.flagId + " as wrong: " + command.reason });

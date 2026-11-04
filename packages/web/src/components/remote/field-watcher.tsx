@@ -2,8 +2,8 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,yugioh,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
-import {recentFieldDeparture,type RemoteRoom,type TwinCard} from '@yugidraft/shared/remote';
+import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
+import {remoteHandActionFromVision,searchCandidates,recentFieldDeparture,type RemoteRoom,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {fieldTwinPosition,fieldDepartureProposal,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
@@ -388,6 +388,25 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(projected.moved)noteRowFix(target.card.ref);
     }finally{setPending(false);}
   }
+  function handleHeld(event:HeldCardEvent) {
+    // Reuse the physical episode ID across HTTP retries. No field placement is possible here.
+    const entry=entries.current.get(event.cardId),cardId=entry?catalogCardId(entry):Number(event.cardId);
+    if(typeof cardId!=='number'||!Number.isSafeInteger(cardId)||cardId<=0)return;
+    const actionId=event.id.slice(0,100);
+    void queue(async act=>{
+      if(!live())return;
+      const state=current.current.room.state,own=state.seats[seat];
+      const snapshot=watch.getSnapshot();
+      const bounce=own.twin.find(c=>cardCode(c)===cardId&&(c.zone==='hand'&&c.departedFrom&&serverNow()-(c.departedFrom.at??0)<10_000||publicField(c.zone)&&snapshot?.tracks.some(t=>(bindings.current.get(t.id)??t.id)===c.ref&&!t.visible&&performance.now()-t.lastSeen<10_000)));
+      const recent=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===seat&&o.destination==='hand'&&
+        serverNow()-(state.undoHistory?.find(e=>e.actionId+':hand'===o.id)?.at??0)<=120_000&&
+        searchCandidates(state,seat,o.source.cardId).some(c=>c.cardId===cardId));
+      const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand';
+      const proposal=remoteHandActionFromVision({cardId,mode:already||!bounce&&!recent?'reveal':'add',source:bounce?'field':recent?'deck':'unknown',...(recent?{by:{cardId:recent.source.cardId,name:recent.source.name}}:{})},seat);
+      const updated=await act(proposal,actionId);
+      if(updated){setNotice(`${entry?.name??'Card'} ${proposal.type==='hand.add'?'added to hand':'revealed in hand'} · auto`);setUndoId(updated.state.undo?.actionId??'');}
+    });
+  }
   function handle(event:FieldEvent) {
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);
     markFieldTiming(event.timing,'watcher',{type:event.type});
@@ -452,7 +471,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
   const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
-    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   const updateCalibration=useCallback((grid:FieldCalibration,placed?:boolean)=>{
     watch.setCalibration(grid,placed);
     // Keep an unanswered identity prompt, but require fresh visibility at the

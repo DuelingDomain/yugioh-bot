@@ -24,6 +24,9 @@ const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.opt
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
 export const remoteActionSchema = z.discriminatedUnion("type", [
   ...remoteMatchActionSchemas,
+  z.strictObject({ ...meta, type: z.literal("hand.add"), cardId, source: z.enum(["deck", "gy", "banish", "extra", "field", "unknown"]), by: z.strictObject({cardId, name: z.string().trim().min(1).max(200)}).optional() }),
+  z.strictObject({ ...meta, type: z.literal("hand.reveal"), cardId }),
+  z.strictObject({ ...meta, type: z.literal("hand.forget"), id }),
   z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource }),
   z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
   z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),

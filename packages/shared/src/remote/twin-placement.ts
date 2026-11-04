@@ -70,6 +70,8 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     if ((!context?.replay || context.pileArrivalGuard !== undefined) && action.source === "auto" && pileZone(action.zone)) return {noop:true};
     return {ref:exact.ref,card:exact};
   }
+  const hand = matches.find(t => t.zone === "hand" && (action.source !== "auto" || !t.departedFrom));
+  if ((!context?.replay || context.handKnowledge === 1) && hand && remoteFieldZone(action.zone)) return {ref:hand.ref,card:hand};
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];

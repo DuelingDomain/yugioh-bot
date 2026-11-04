@@ -69,6 +69,10 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
     observe(action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
+  if (action.type === 'hand.add') for (const instance of checks.instances.filter(i=>i.seat===action.actorSeat)) {
+    const twin=next.seats[action.actorSeat].twin.find(t=>instance.refs.includes(t.ref));
+    if(twin && twin.zone === 'hand') {instance.zone='hand';delete instance.slot;instance.public=false;instance.anchored=false;}
+  }
   const movedSeat = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" || action.type === "pile.lift" ? action.seat : -1;
   for (const cardRef of action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [action.cardRef] : action.type === "pile.lift" ? action.cardRefs : []) {
     const instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));
