@@ -2,25 +2,44 @@
 
 Branch: `feat/remote-voice`. Base: `f19ca5d202ef00110d1955494e69c3c748ee15d9`.
 
-The same 93 transcript cases scored **42/93 (45.2%) before** and **93/93 (100%) after**. All 21 chatter cases now give no action and zero suggestions. This measures transcript parsing. It does not measure microphone or speech-model accuracy.
+The initial work at `9496cfb11` used 93 transcript cases: **42/93 (45.2%) before** and **93/93 (100%) after**. The follow-up changes “Um battle phase” to an accepted command and adds 11 cases. The updated corpus scores **95/104 at 9496cfb11** and **104/104 after this change**. All 23 conversation cases give no action and zero suggestions. These checks measure transcript parsing, not microphone or speech-model accuracy.
 
-The phase parser uses Soundex and token edit distance. It keeps full-command boundaries, normalizes phase sound-alikes and number words, and uses turn state to choose between close matches. “Next phase” skips an unavailable Battle Phase. Backward phase commands stay in the same turn. The voice filter checks sentence words outside known card names. Suggestions use current table and deck names. The voice dock shows heard text and the result, including when a confirmation is open.
+The phase parser uses Soundex and token edit distance. It keeps full-command boundaries, normalizes phase sound-alikes and number words, and uses turn state to choose between close matches. “Next phase” skips an unavailable Battle Phase. Backward phase commands stay in the same turn. Before the command check, the voice grammar removes leading `um`, `uh`, `okay`, `so`, `alright`, and `and`, including commas and repeated fillers. It keeps known card names and the `and`/`end` sound-alike in “and phase” and “and my turn”. Bare “standby” means Standby Phase. The filter still rejects interior `um` and `uh` outside known card names. The voice filter checks sentence words outside known card names. Suggestions use current table and deck names. The voice dock shows heard text and the result, including when a confirmation is open.
 
 Evidence: the owner screenshot shows the full chatter sentence below and three wrong suggestions. Recent STT Docker logs contained connection and health lines, with no transcript text. Saved benchmark outputs in `services/stt/benchmarks/{whisper,parakeet,browser-whisper-tiny}.json` contain “Moving to stand by phase”, “In turn”, “Intern”, “And my turn”, “ash blossom enjoy a spring”, “effect failure”, “part of prosperity”, and “Castiro Fenrir”. Other spelling variants below are deliberate regression cases, not claimed live failures. “Intern” stays ignored because it is not a close phase command.
 
-STT: the local service at port 4020 accepts `hotwords`. The installed faster-whisper API confirms support. The client sends phase names, game verbs, then card names in recent-first order. The client and decoder each cap the complete hint at 600 UTF-8 bytes. A 594-byte sample used 174 Whisper tokens. The adapter smoke check confirmed the bounded hint reaches `transcribe`. A live WebSocket silence check accepted the new client payload and returned a final response.
+STT: the local service at port 4020 accepts `hotwords`. The client sends phase names, game verbs, then card names in recent-first order. The client caps the hint at 600 UTF-8 bytes. The server cap is in source but is not in the live image. The earlier adapter check confirmed the bounded hint reaches Whisper `transcribe`; a 594-byte sample used 174 Whisper tokens. The earlier live WebSocket silence check accepted the new client payload and returned a final response.
 
-The running primary model is Parakeet, with optional Whisper verification. Parakeet does not use decoder hotwords; Whisper uses them when verification runs. The server cap needs the updated STT service image. No service was rebuilt, started, or stopped. This work made no edits to the main checkout or the local-main clone.
+Live service evidence from this follow-up:
+
+- Container `stt-stt-1` (`274122cc1c20`) publishes `127.0.0.1:4020`. Its image is `stt-stt`, ID `sha256:944fa0b5c8bef318dea46110ea70ad6141adf30c402f9bd5a1299cab5882bf81`. The process is `python -m uvicorn stt.app:app ... --port 4020`; Docker reports PID 5536 and start time `2026-11-03T14:25:28.926345251Z`.
+- `/health` reports `model=parakeet`, `partialModel=parakeet`, and `verifyModel=whisper`. Container environment confirms `STT_MODEL=parakeet`, `STT_PARTIAL_MODEL=parakeet`, `STT_VERIFY=whisper`, and both verification thresholds at `0.95`.
+- Docker Compose labels point to `.worktrees/remote-stt/services/stt/docker-compose.yml`. That file and this branch's Compose file default to Parakeet; Whisper verification defaults to `none`, but the running container overrides it. No `.env` files exist in either worktree root, `services/stt`, or `packages/web`.
+- Installed packages include sherpa-onnx `1.12.29`, faster-whisper `1.2.1`, RapidFuzz `3.14.3`, and Metaphone `0.6`. NeMo is not installed. Parakeet uses the sherpa-onnx ONNX transducer with greedy decoding, so NeMo context biasing is not available in this image. This adapter does not pass decoder hotwords to Parakeet.
+
+The correction path works without decoder hotwords. Phase sound-alikes already pass through the bounded Soundex/edit-distance grammar after STT, as the table checks show. The running server also uses `CardMatcher.match(text, hotwords)` after decoding. It favors supplied catalog card names and combines lexical similarity with Double Metaphone. A targeted check inside the running container returned these canonical names with the supplied vocabulary:
+
+| Raw card text | Supplied card name | Match score |
+| --- | --- | --- |
+| effect failure | Effect Veiler | 0.88 |
+| part of prosperity | Pot of Prosperity | 0.9202 |
+| Castiro Fenrir | Kashtira Fenrir | 0.8361 |
+| ash blossom enjoy a spring | Ash Blossom & Joyous Spring | 0.853 |
+
+These checks use saved transcript text, not new audio. Card matches are returned in `cardMatches` and `normalizedText`; the web grammar still reads raw `text`, and the card picker uses `cardMatches`. The existing phase grammar supplies the required command corrections, so no second correction layer or decoder change is needed.
+
+A comparison of every `/app/stt/*.py` file and `/app/requirements.txt` against this worktree found one source difference: `services/stt/stt/models.py`, already committed in `9496cfb11`. A rebuild from this worktree would add `decoder_hotwords()` and use it for Whisper and benchmark-only Zipformer decoder hints. It keeps input order, removes case-insensitive duplicates and invalid names, and limits the full hint, including server staples and separators, to 600 UTF-8 bytes. Requirements match the running image. It would not change Parakeet decoding, card matching, model selection, or model weights. The web grammar change is outside the STT image.
+
+Risk: later card hints or server staples can fall outside the budget, which can reduce Whisper verification accuracy for those cards. A rebuild alone does not replace the running container. Replacing it later can interrupt active speech requests while the models load. No service was rebuilt, started, stopped, or replaced. The Docker bot remains stopped. This work made no edits to the main checkout or the local-main clone and did not use the shared stash.
 
 Checks passed with Node 22.23.3:
 
-- Shared TypeScript build.
 - Web typecheck: `npm run typecheck --workspace=@yugioh-discord-bot/web`.
 - One existing grammar test: `vitest run --config packages/web/vitest.config.ts packages/web/tests/remote-recognition.test.ts -t 'parses activation with a named source'` (1 passed, 101 skipped).
 - The same test checks card-name protection, real-card suggestions, recent-card order, the STT start payload, and rendered voice text with no chatter suggestions. No test files were added.
-- STT adapter, installed API, live socket smoke checks, and read-only code review.
+- Live STT process, environment, Compose files, installed packages, source comparison, and targeted card-matcher check. No new audio decode or model load was needed.
 
-Table key: `quiet` means no action and zero suggestions. `none; suggestions=3` means the old UI offered three suggestions. `lp:0:-1000` means seat 0 loses 1000 LP. Each row uses turn 2, the listed current phase, and legacy/inferred Battle-entry history. Opening-turn Battle skips and explicit Battle-entry history have separate assertions in the same test.
+Table key: `quiet` means no action and zero suggestions. `none; suggestions=3` means the old UI offered three suggestions. `Before` uses `f19ca5d20`; `not measured` marks new follow-up rows without a result from that base. `After` is the current change. `lp:0:-1000` means seat 0 loses 1000 LP. Each row uses turn 2, the listed current phase, and legacy/inferred Battle-entry history. Opening-turn Battle skips and explicit Battle-entry history have separate assertions in the same test.
 
 | Phrase | Current phase | Expected | Before | After |
 | --- | --- | --- | --- | --- |
@@ -102,7 +121,18 @@ Table key: `quiet` means no action and zero suggestions. `none; suggestions=3` m
 | Like I said we should check the main phase rules after this game | main1 | quiet | none; suggestions=3 | quiet |
 | Do you think I should set this in trap zone one or keep it | main1 | quiet | none; suggestions=3 | quiet |
 | I was talking about the battle phase and the monster zone two | main1 | quiet | none; suggestions=3 | quiet |
-| Um battle phase | main1 | quiet | none; suggestions=3 | quiet |
+| Um battle phase | main1 | phase:battle | none; suggestions=3 | phase:battle |
+| uh standby | draw | phase:standby | not measured | phase:standby |
+| okay main phase two | battle | phase:main2 | not measured | phase:main2 |
+| so, end phase | main2 | phase:end | not measured | phase:end |
+| alright, draw phase | end | phase:draw | not measured | phase:draw |
+| and, battle phase | main1 | phase:battle | not measured | phase:battle |
+| Um, uh, okay, so, alright, and, battle phase | main1 | phase:battle | not measured | phase:battle |
+| um, and phase | main2 | phase:end | not measured | phase:end |
+| okay, and my turn | main2 | turn | not measured | turn |
+| okay, The main phase is next | main1 | quiet | not measured | quiet |
+| so, main phase rules | main1 | quiet | not measured | quiet |
+| battle um phase | main1 | quiet | not measured | quiet |
 | Thanks for the game | main1 | quiet | none; suggestions=3 | quiet |
 | The main phase is next | main1 | quiet | none; suggestions=3 | quiet |
 | don't end turn | main1 | quiet | none; suggestions=3 | quiet |
