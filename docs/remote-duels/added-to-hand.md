@@ -35,8 +35,10 @@ Their identities are absent from public state, event payloads, log messages,
 and undo snapshots. Search origins do not get an announced identity for these
 adds. An explicit owner `hand.reveal` can publish a private entry; it sets
 `publicIdentity:true`. A second reveal is then a no-op. Both counts
-are optional until initialized. Only the owner receives `deckCount`. A movement
-initializes missing counts from the starting hand size and registered deck.
+are optional until initialized. New tables initialize counts on `table.started`
+from the starting hand size and registered deck; the event records `handCounts:1`
+so historical replays keep their original initialization. Only the owner receives
+`deckCount`. A movement also initializes missing counts for older tables.
 Draw Phase entry adds the format's `drawPerTurn` to the turn seat. Standard
 opening turn has no draw. Domain FFA uses `firstTurnDraw` (default on). The
 rule normalizer accepts the table's seat count. Counts start before the first
@@ -99,6 +101,9 @@ A `twin.place` from hand consumes one matching known entry by `cardId`.
 A different eligible search candidate does not consume the searched copy.
 Extra Deck summons, catalog Extra Deck monsters, and tokens do not decrease
 the hand count. Direct Deck or pile summons use their physical `fromRef`.
+Deleting an unidentified face-up camera placeholder cancels its implicit play
+and refunds the hand count. Deleting a Set or an identified field card does not.
+New service events persist `handCountCorrections:1` for this replay behavior.
 An anonymous Set decreases the count, but keeps possible known identities
 private. When it turns face-up with a matching known hand twin, both the
 entry and that hand twin are consumed. The count does not decrease again.
@@ -140,10 +145,16 @@ the selected card. `by` identifies the effect card. Saved origins keep the pile
 source in `searchSource`; old origins without that field use `deck`.
 Pass the candidate's `source` unchanged to `hand.add`. A GY or banish add uses
 the existing pile exit, moves one matching card, and leaves the Deck count unchanged.
-The selected seat's deck list filters only `deck` results. GY and banish results
+The selected seat's deck list filters only `deck` results. Without a list, Deck
+search origins use the catalog, and visible copies do not imply Deck exhaustion.
+An explicitly empty registered list still filters out all Deck results. GY and banish results
 must match a card in that seat's current pile, including a card lifted for
 inspection. A related link ranks a supported search; it is not proof of an effect.
 Printed clauses support quoted names, archetypes, simple types, and levels.
+Named-card alternatives and Spell/Trap or monster clauses that `mention` that
+name are separate alternatives. A mention matches the target's quoted card text,
+not its catalog archetype. Printed alternatives can complete an indexed reading
+that only retained the named card (for example, The Man with the Mark, `97522863`).
 Engine facts supply card types and levels. Complex clauses remain suggestions.
 
 `GET /api/remote/:slug/search?seat=0&recentCardId=123` returns `{candidates}`.
@@ -246,7 +257,8 @@ type RemoteHandSuggestionEvent = {
 `hand.suggest` is not a server action. The strict schema rejects it. Do not
 broadcast, persist, or POST this event. Confirmation must retain the actual
 source: `deck`, `gy`, `banish`, `extra`, `field`, or `unknown`.
-`searchCandidates` returns `deck`, `gy`, or `banish` from the matching plan;
+`hand.add.by` contains only `cardId` and `name`; do not copy an effect source's
+`cardRef` into this strict object. `searchCandidates` returns `deck`, `gy`, or `banish` from the matching plan;
 the voice parser and held-card decision preserve that source.
 The existing `remoteHandActionFromVision` helper remains available
 for explicit owner choices; the automatic camera path uses the decision helper.

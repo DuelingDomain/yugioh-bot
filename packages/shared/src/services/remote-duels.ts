@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
+import { initializeRemoteHandCounts } from "../remote/hand.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -92,6 +93,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
         state.revealedHand = action.revealedHand ?? state.revealedHand ?? "until-played";
       }
+      else if (action.type === "table.started" && action.handCounts===1) initializeRemoteHandCounts(state);
       else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; delete state.undoHistory; }
       else if (action.type === "seat.left") delete state.deckChecks.registrations[action.seat];
     }
@@ -270,8 +272,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const all = seats(row);
         remoteAssert(all.length === row.seat_count && all.every(s => s.ready), "All seats must be filled and ready", 409);
         for (const seat of all) assertDeckReady(row, seat);
-        db.prepare("update remote_tables set status='active',started_at=? where id=?").run(now, row.id);
-        append(row, { type: "table.started" }, now, userId, member(row, userId).seat);
+        const state=readState(row);initializeRemoteHandCounts(state);
+        db.prepare("update remote_tables set status='active',started_at=?,state_json=? where id=?").run(now, JSON.stringify(state), row.id);
+        append(row, { type: "table.started", handCounts:1 }, now, userId, member(row, userId).seat);
         return room(load(slug, guildId), userId);
       });
     },
@@ -299,7 +302,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1,handReview:1};
+        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1,handReview:1,handCountCorrections:1};
         if(command.type==='hand.add')effects.privateHandIdentity=command.source==='deck'&&before.showCardsSetFromDeck===false||command.source==='field'&&
           !!before.seats[command.actorSeat].twin.find(c=>(c.cardId??c.passcode)===command.cardId&&['monster','extra-monster','spell-trap','field','pendulum'].includes(c.zone)&&!c.faceUp);
         if(command.type==='deck.count')effects.privateHandIdentity=true;
@@ -316,7 +319,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         if(command.type==="effect.activated") {
           const twin=command.source.cardRef ? before.seats[command.actorSeat].twin.find(c=>c.ref===command.source.cardRef) : undefined;
           remoteAssert(!command.source.cardRef || twin,"Unknown source card",409);
-          effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main ?? [],before.seats[command.actorSeat].twin);
+          effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main,before.seats[command.actorSeat].twin);
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
           command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
