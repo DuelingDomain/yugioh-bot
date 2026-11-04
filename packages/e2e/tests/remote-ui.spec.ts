@@ -601,6 +601,8 @@ test.describe("remote lobby camera step", () => {
     await expect(dialog.getByRole("button", { name: /grid corner/ })).toHaveCount(0);
     await dialog.getByTestId("field-move").focus();
     for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
+    for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `calibration-dialog-${w}`); }
+    if (SHOTS) await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole("button", { name: "Save calibration" }).click();
     // The large live check opens after the save. "Looks good" closes it, and the lobby shows Calibrated.
     const view = page.getByTestId("lobby-zones-view");
@@ -614,6 +616,8 @@ test.describe("remote lobby camera step", () => {
     await expect.poll(gridWidth).toBeLessThan(wide - 50);
     expect(Math.abs((await cellWidth("M3")) - (await cellWidth("M4")))).toBeLessThan(2);
     await shot(page, "lobby-zones-edited");
+    for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `lobby-zones-view-${w}`); }
+    if (SHOTS) await page.setViewportSize({ width: 1440, height: 900 });
     await view.getByTestId("field-undo").click();
     await expect.poll(async () => Math.abs((await gridWidth()) - wide)).toBeLessThan(2);
     expect(Math.abs((await cellWidth("M3")) - m3Wide)).toBeLessThan(2);
