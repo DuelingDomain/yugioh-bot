@@ -103,7 +103,7 @@ export interface FieldWatcherOptions {
   analyze?:(frame:FieldFrame)=>FieldAnalysis; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
 interface PendingRead { crop?:RGBAImage; at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
-interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number }
+interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
@@ -1057,7 +1057,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // Hysteresis: only clearly different embeddings and three strong,
             // clean pixel observations can reopen an answered/dismissed track.
             const incomparable=t.identityEmbedding&&similarity===undefined;
-            if(saved.strongSamples<3||incomparable||(similarity!==undefined&&similarity>.68)||sample.at<(t.resolvedAt??-Infinity)+5000){t.read=pending;continue;}
+            if(saved.strongSamples<3||sample.at<(t.resolvedAt??-Infinity)+5000){t.read=pending;continue;}
+            // Unsure band (.68-.84, or no embedding to compare): the same read never changes, so holding it
+            // keeps the card a candidate for ever (a locked or new exposure). Read the card again, at most twice;
+            // then the same name keeps the card with its new look, and another name asks the player.
+            if(incomparable||(similarity!==undefined&&similarity>.68)){
+              saved.rereads=(saved.rereads??0)+1;
+              if(saved.rereads<=2){t.needsRead=true;t.best=undefined;note(t,`identity check unsure (${similarity?.toFixed(2)??'no embedding'}); reading again`);continue;}
+              if(winner&&winner===saved.cardId){t.identityEmbedding=result?.identityEmbedding??t.identityEmbedding;t.latestEmbedding=t.identityEmbedding;restoreIdentity(t,pixels);note(t,'identity check: same name after fresh reads; new look kept');continue;}
+              t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.state='prompt';t.view.visible=true;
+              emit('prompt',t,{result,reason:'changed',latencyMs:metrics.latencyMs});continue;
+            }
             t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.visible=true;
             if(winner&&!['DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
             if(result&&result.tier!=='low match'){t.view.state='dismissed';continue;}

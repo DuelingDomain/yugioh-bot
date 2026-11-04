@@ -228,6 +228,16 @@ test('still skin-coloured print on a still front (locked camera colour) is not a
   assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
 
+test('an unsure identity check (.68-.84) reads again and keeps the same card, never a candidate for ever',async()=>{
+  // A new exposure changes the look of a placed card; its new embedding sits in the unsure band.
+  const r=fieldRig('not sure');r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();
+  const placed=r.events.find(e=>e.type==='placed')!,reads=r.reads;
+  r.appearance=Array.from({length:12},(_,i)=>i%2?.9:.05);r.embedding=[.75,Math.sqrt(1-.75*.75)];
+  for(let i=0;i<40;i++)await r.tick(200);
+  const track=r.watcher.getSnapshot().tracks.find(t=>t.id===placed.track.id)!;
+  assert.equal(track.state,'identified');assert.equal(track.cardId,'A');assert.ok(r.reads>reads+1,'fresh reads, not the held one');r.watcher.dispose();
+});
+
 test('clear-mat evidence requires uniform surrounding pixels and rejects a stationary hand inside the old quad',async()=>{
   const {clearFieldBackground}=await import('./field-motion');
   assert.equal(typeof clearFieldBackground,'function');
