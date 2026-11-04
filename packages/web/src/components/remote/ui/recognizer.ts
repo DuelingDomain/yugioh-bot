@@ -38,7 +38,7 @@ type VisionRecognizer = {
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
-  detectCards(frame: ImageBitmap, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">): Promise<ReadCard[]>;
+  detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   recordFeedback(result: RawResult, chosenCardId: string, source: FeedbackSource): Promise<unknown>;
   dispose(): void;
@@ -305,7 +305,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
 
 export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
 /** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
-export async function detectCards(frame: ImageBitmap, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">): Promise<Detection> {
+export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions): Promise<Detection> {
   const reader = await loadRecognizer();
   // A split reader's outline worker has its own queue (shared with the field watcher's passes).
   const queue = <T,>(job: () => Promise<T>) => reader ? enqueueScene(reader, job) : enqueue(job);
@@ -364,7 +364,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
       get detectorBackend() { return reader.detectorBackend; },
       get detectorTimingsMs() { return reader.detectorTimingsMs; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
-      detectCards: (frame: ImageBitmap | ImageData, opts?:Pick<import("@yugidraft/vision").RecognizeOptions,"region">) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
+      detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
     buffer: { sample: (options?:{maxAgeMs?:number}) => ownBuffer ? ownBuffer.sample(options) : Promise.reject(new Error("Waiting for the own camera buffer")) },
