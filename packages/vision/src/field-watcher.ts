@@ -100,10 +100,10 @@ export interface FieldWatcherOptions {
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
-  analyze?:(frame:FieldFrame)=>FieldAnalysis; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
+  analyze?:((frame:FieldFrame)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
 interface PendingRead { crop?:RGBAImage; at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
-interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number }
+interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
@@ -126,7 +126,7 @@ const SHADOW_SHARE=.05,SHADOW_SETTLE_MS=500;
 /** A candidate with no outline for this long, or an outline larger than ~2 zones, expires. */
 const CANDIDATE_EXPIRE_MS=1500,MAX_ZONE_AREAS=2.5;
 /** Blur gate: a frame below this share of the recent sharpness baseline is blurred; removals hold until BLUR_SETTLE_MS after. */
-const BLUR_RATIO=.55,BLUR_SETTLE_MS=500;
+const BLUR_RATIO=.55,BLUR_SETTLE_MS=500,BLUR_RELEARN_MS=3000;
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
@@ -165,7 +165,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // Shadow (a player leaning over the mat, a light from above): removals hold while it moves.
   let shadowShare=0,shadowMovedAt=-Infinity,shadowHold=false,scanFollowUp=false;
   // Blur (autofocus hunting, motion blur): a blurred frame is never "no outline" evidence.
-  let sharpBase=0,sharpNow=0,blurredAt=-Infinity,blurHold=false;
+  let sharpBase=0,sharpNow=0,blurredAt=-Infinity,blurHold=false,blurSince:number|undefined,blurRef=0;
   /** Any removal (field card, twin, pile) waits: a moving shadow or a blurred camera. */
   const removalHold=()=>shadowHold||blurHold;
   // Field twins with no live track: zone misses in full scans, and refs found missing.
@@ -426,9 +426,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       shadowHold=shadowShare>=SHADOW_SHARE&&sample.at-shadowMovedAt<SHADOW_SETTLE_MS;
       if(evidence.frameSharpness!==undefined){
         sharpNow=evidence.frameSharpness;const blurred=sharpBase>0&&sharpNow<sharpBase*BLUR_RATIO;
-        if(blurred)blurredAt=sample.at;
+        if(blurred){
+          blurredAt=sample.at;
+          // A darker exposure (camera lock, anti-glare) lowers sharpness for good, and the baseline never
+          // follows blurred frames. Stable "blurred" frames for BLUR_RELEARN_MS are the new normal: learn them.
+          if(blurSince===undefined||Math.abs(sharpNow-blurRef)>blurRef*.3){blurSince=sample.at;blurRef=sharpNow;}
+          else if(sample.at-blurSince>=BLUR_RELEARN_MS){sharpBase=sharpNow;blurSince=undefined;blurredAt=-Infinity;}
+        }
         // The baseline follows sharper frames fast and softer (but not blurred) frames slowly.
-        else sharpBase=sharpBase<=0?sharpNow:sharpNow>sharpBase?sharpBase*.7+sharpNow*.3:sharpBase*.97+sharpNow*.03;
+        else {blurSince=undefined;sharpBase=sharpBase<=0?sharpNow:sharpNow>sharpBase?sharpBase*.7+sharpNow*.3:sharpBase*.97+sharpNow*.03;}
       }
       blurHold=sample.at-blurredAt<BLUR_SETTLE_MS;
       // A full-frame detector pass at least every ~300 ms (slower only on a
@@ -1057,7 +1063,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // Hysteresis: only clearly different embeddings and three strong,
             // clean pixel observations can reopen an answered/dismissed track.
             const incomparable=t.identityEmbedding&&similarity===undefined;
-            if(saved.strongSamples<3||incomparable||(similarity!==undefined&&similarity>.68)||sample.at<(t.resolvedAt??-Infinity)+5000){t.read=pending;continue;}
+            if(saved.strongSamples<3||sample.at<(t.resolvedAt??-Infinity)+5000){t.read=pending;continue;}
+            // Unsure band (.68-.84, or no embedding to compare): the same read never changes, so holding it
+            // keeps the card a candidate for ever (a locked or new exposure). Read the card again, at most twice;
+            // then the same name keeps the card with its new look, and another name asks the player.
+            if(incomparable||(similarity!==undefined&&similarity>.68)){
+              saved.rereads=(saved.rereads??0)+1;
+              if(saved.rereads<=2){t.needsRead=true;t.best=undefined;note(t,`identity check unsure (${similarity?.toFixed(2)??'no embedding'}); reading again`);continue;}
+              if(winner&&winner===saved.cardId){t.identityEmbedding=result?.identityEmbedding??t.identityEmbedding;t.latestEmbedding=t.identityEmbedding;restoreIdentity(t,pixels);note(t,'identity check: same name after fresh reads; new look kept');continue;}
+              t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.state='prompt';t.view.visible=true;
+              emit('prompt',t,{result,reason:'changed',latencyMs:metrics.latencyMs});continue;
+            }
             t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.visible=true;
             if(winner&&!['DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
             if(result&&result.tier!=='low match'){t.view.state='dismissed';continue;}
@@ -1245,6 +1261,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     /** Shared blur measure: last whole-frame sharpness, and whether removals hold for blur now. */
     frameSharpness(){return {value:sharpNow,baseline:sharpBase,ratio:sharpBase>0?sharpNow/sharpBase:1};},
     isBlurred(){return blurHold;},
+    /** The camera lock, anti-glare or exposure changed: learn the sharpness and shadow baselines again from the next frames. */
+    resetBaselines(){sharpBase=0;sharpNow=0;blurredAt=-Infinity;blurHold=false;blurSince=undefined;shadowMovedAt=-Infinity;shadowHold=false;shadowShare=0;analyze.reset?.();notify();},
     dispose(){stop();disposed=true;for(const t of tracks){t.best=undefined;t.face=undefined;}pruneFrames();listeners.clear();updates.clear();},
     subscribe(listener:(event:FieldEvent)=>void){listeners.add(listener);return()=>{listeners.delete(listener);};},
     subscribeState(listener:()=>void){updates.add(listener);return()=>{updates.delete(listener);};},

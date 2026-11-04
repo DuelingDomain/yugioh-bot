@@ -13,8 +13,10 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
 /** Only motion/sharpness are downsampled; inference and retained best frames stay native. */
 export function createFieldAnalyzer() {
   let previous:RGBAImage|undefined,nativeCanvas:OffscreenCanvas|undefined;
-  const shadows=createShadowBaseline();
-  return (frame:FieldFrame):FieldAnalysis=>{
+  let shadows=createShadowBaseline();
+  /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
+  const reset=()=>{shadows=createShadowBaseline();previous=undefined;};
+  return Object.assign((frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=frame;
     else {
@@ -136,7 +138,7 @@ export function createFieldAnalyzer() {
       },
     };
     return analysis;
-  };
+  },{reset});
 }
 
 /** Laplacian variance of the grey frame (every 2nd pixel): drops when the camera is blurred (focus hunting, motion blur). */
