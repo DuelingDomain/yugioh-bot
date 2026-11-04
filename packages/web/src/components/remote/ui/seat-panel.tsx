@@ -128,9 +128,10 @@ export function SeatPanel(p: SeatPanelProps) {
             <li key={cell!.card!.ref}><button type="button" onClick={() => p.onInspect(cell!.card!)}>{`${ZN[key]}: ${cardName(cell!.card!, p.info(cardCode(cell!.card!)))}`}</button></li>)}
         </ul> : null}
         <div className={s.fboard}>
-        {scan ? <button type="button" className={s.scanbtn} disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" onClick={() => scan.scan?.()} data-testid="field-scan"
+        {scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
           title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
-          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span><kbd>S</kbd></button> : null}
+          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
+          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null}
         <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />

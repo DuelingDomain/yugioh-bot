@@ -50,7 +50,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useZoneGrid,currentZoneGrid,setFieldDeveloper} from '@/lib/remote/zone-grid';
+import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -806,6 +806,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
       if ((event.key === "v" || event.key === "V") && L.ptt && !event.repeat) { setHeld(true); return; }
       if (R.current.layer) return;
+      // S scans the field like the button beside the board. A confirm prompt or a modal dialog keeps the key (open popups set the layer above).
+      if ((event.key === "s" || event.key === "S") && !event.repeat && !event.shiftKey && !event.defaultPrevented && !document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) { if (runFieldScan()) event.preventDefault(); return; }
       // W switches between Both and Webcam only (the focused element keeps Enter and Space).
       if ((event.key === "w" || event.key === "W") && !event.repeat) { event.preventDefault(); L.toggleView(); return; }
       // Enter confirms the chip only when nothing else took the key: a focused field cell, feed or button handles Enter itself.
