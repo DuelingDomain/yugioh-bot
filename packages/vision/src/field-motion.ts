@@ -3,7 +3,9 @@ import { sharpness } from './quality';
 import type { DetectedQuad, FractionalBox } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { motionRegion?:FractionalBox; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+/** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
+export interface FieldShadow { share:number; changed:number }
+export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -11,6 +13,7 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
 /** Only motion/sharpness are downsampled; inference and retained best frames stay native. */
 export function createFieldAnalyzer() {
   let previous:RGBAImage|undefined,nativeCanvas:OffscreenCanvas|undefined;
+  const shadows=createShadowBaseline();
   return (frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=frame;
@@ -44,7 +47,7 @@ export function createFieldAnalyzer() {
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     const occlusions=new WeakMap<DetectedQuad,number>();
     const analysis:FieldAnalysis={
-      motionRegion,
+      motionRegion,shadow:shadows(image),frameSharpness:frameSharpness(image),
       crop(card) {
         // Detector corners are portrait ordered even for a card in Defense Position.
         const source=nativeImage();
@@ -134,6 +137,71 @@ export function createFieldAnalyzer() {
     };
     return analysis;
   };
+}
+
+/** Laplacian variance of the grey frame (every 2nd pixel): drops when the camera is blurred (focus hunting, motion blur). */
+export function frameSharpness(image:RGBAImage):number {
+  const {width:w,height:h,data:d}=image,grey=(x:number,y:number)=>{const i=(y*w+x)*4;return d[i]*.299+d[i+1]*.587+d[i+2]*.114;};
+  let sum=0,sq=0,n=0;
+  for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){const v=4*grey(x,y)-grey(x-2,y)-grey(x+2,y)-grey(x,y-2)-grey(x,y+2);sum+=v;sq+=v*v;n++;}
+  return n?sq/n-(sum/n)**2:0;
+}
+const SHADOW_GX=32,SHADOW_GY=24;
+/**
+ * Shadow = a cell that is at least 20% darker than its recent background but keeps
+ * the same chromaticity (a lifted card or a hand changes the colour too). The
+ * background follows brighter or equal light fast and darker light slowly (~15 s),
+ * so a shadow from above that covers the whole board still counts as a shadow.
+ */
+export function createShadowBaseline() {
+  let base:Float32Array|undefined,flags:Uint8Array|undefined,size='';
+  return (image:RGBAImage):FieldShadow=>{
+    const cells=SHADOW_GX*SHADOW_GY,sum=new Float32Array(cells*4),key=`${image.width}x${image.height}`;
+    for(let y=0;y<image.height;y+=2)for(let x=0;x<image.width;x+=2){
+      const i=(y*image.width+x)*4,c=(Math.min(SHADOW_GY-1,Math.floor(y*SHADOW_GY/image.height))*SHADOW_GX+Math.min(SHADOW_GX-1,Math.floor(x*SHADOW_GX/image.width)))*4;
+      sum[c]+=image.data[i];sum[c+1]+=image.data[i+1];sum[c+2]+=image.data[i+2];sum[c+3]++;
+    }
+    if(!base||size!==key){base=new Float32Array(cells*3);flags=new Uint8Array(cells);size=key;for(let c=0;c<cells;c++)for(let k=0;k<3;k++)base[c*3+k]=sum[c*4+k]/Math.max(1,sum[c*4+3]);return {share:0,changed:0};}
+    let dark=0,changed=0;
+    for(let c=0;c<cells;c++){
+      const n=Math.max(1,sum[c*4+3]),r=sum[c*4]/n,g=sum[c*4+1]/n,b=sum[c*4+2]/n,l=r+g+b,br=base[c*3],bg=base[c*3+1],bb=base[c*3+2],bl=br+bg+bb;
+      const chroma=l>15&&bl>15?Math.abs(r/l-br/bl)+Math.abs(g/l-bg/bl):1;
+      const shadow=bl>30&&l<bl*.8&&l>bl*.15&&chroma<=.05?1:0;
+      if(shadow)dark++;if(shadow!==flags![c])changed++;flags![c]=shadow;
+      const rate=l>=bl*.92?.25:.01;
+      base[c*3]+=(r-br)*rate;base[c*3+1]+=(g-bg)*rate;base[c*3+2]+=(b-bb)*rate;
+    }
+    return {share:dark/cells,changed:changed/cells};
+  };
+}
+
+/**
+ * Illumination-invariant match of two8x12 RGB patches: a light gain per tile
+ * (4x4 tiles, shared by the three channels) is fitted from a to b, so a soft shadow
+ * over the card (30-70% darker, soft edge) still matches while a clear mat
+ * (no texture) or another card does not. Also tries the 180° turn.
+ */
+export function sameShadedFieldAppearance(a?:number[],b?:number[]):boolean {
+  if(!a?.length||a.length!==b?.length||a.length%3)return false;
+  const n=a.length/3,w=n===96?8:Math.round(Math.sqrt(n)),h=Math.max(1,Math.round(n/w));
+  // Texture floor (all channels): a flat patch has no structure to keep (a plain sleeve, the mat).
+  const mean=[0,1,2].map(k=>a.reduce((sum,v,i)=>sum+(i%3===k?v:0),0)/n);
+  const spread=Math.sqrt(a.reduce((sum,v,i)=>sum+(v-mean[i%3])**2,0)/a.length);
+  if(spread<.04)return false;
+  const fit=(reverse:boolean)=>{
+    const at=(i:number)=>reverse?n-1-i:i,tx=4,ty=4,tile=(i:number)=>Math.min(ty-1,Math.floor(Math.floor(i/w)*ty/h))*tx+Math.min(tx-1,Math.floor((i%w)*tx/w));
+    // Least squares per tile: b_k ~ a_k * gain(tile), one gain for all three channels (a shadow is neutral).
+    const xy=new Float64Array(tx*ty),xx=new Float64Array(tx*ty);
+    for(let i=0;i<n;i++)for(let k=0;k<3;k++){const x=a[at(i)*3+k],t=tile(i);xy[t]+=x*b[i*3+k];xx[t]+=x*x;}
+    const gains=Array.from(xx,(v,t)=>v>1e-9?xy[t]/v:NaN);
+    if(gains.some(g=>!(g>=.2&&g<=1.3)))return Infinity;
+    // Neighbouring tiles under one soft shadow cannot differ wildly.
+    const sorted=[...gains].sort((p,q)=>p-q);if(sorted[0]<sorted.at(-1)!*.25)return Infinity;
+    let error=0;for(let i=0;i<n;i++)for(let k=0;k<3;k++)error+=(b[i*3+k]-a[at(i)*3+k]*gains[tile(i)])**2;
+    // Residual relative to the remaining light and the card's own texture.
+    const g2=(gains.reduce((s,v)=>s+v,0)/gains.length)**2;return error/(3*n)/Math.max(.04,g2)/Math.max(1e-6,spread*spread);
+  };
+  return Math.min(fit(false),fit(true))<.12;
 }
 
 /** Cheap pixel evidence for reconnecting a temporarily hidden card, never an identity decision. */
