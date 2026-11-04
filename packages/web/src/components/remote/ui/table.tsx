@@ -55,7 +55,7 @@ import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from 
 import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import { useCardMenu } from "./card-menu";
-import { handAdd, handCount, handCountOf, knownHandOf, openSearch, type HandCandidate, type KnownHandCard } from "./reveal-model";
+import { handAdd, handCount, handCountOf, knownHandOf, openSearch, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -845,18 +845,22 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [dismissedSearch, setDismissedSearch] = useState<ReadonlySet<string>>(new Set());
   /** Cards this person added by hand (chip, menu): they get no "Seen" toast. */
   const manualAdds = useRef(new Set<number>());
-  const addToHand = useCallback((seat: number, card: HandCandidate, source: "deck" | "unknown", by?: string, originId?: string) => {
+  const addToHand = useCallback((seat: number, card: HandCandidate, source: "deck" | "unknown", by?: HandBy, originId?: string) => {
     manualAdds.current.add(card.cardId); setTimeout(() => manualAdds.current.delete(card.cardId), 6000);
     if (originId) setDismissedSearch(old => new Set([...old, originId]));
     void act(handAdd(seat, card, source, by));
   }, [act]);
   /** "Other..." and the card menu: the card search, then hand.add. */
-  const searchForHand = useCallback((seat: number, originId?: string, by?: string) => {
+  const searchForHand = useCallback((seat: number, originId?: string, by?: HandBy) => {
     const at: PopAt = popAt;
     ctx.current = { seat, x: .5, y: .5, at, id: ++readCounter.current };
     setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card to add to your hand.", reader: "none", at, intent: "hand", originId, by });
     layers.open("tray");
   }, [layers, name, popAt]);
+  // The contract sends card ids only: load the names, then draw again.
+  const [, setNames] = useState(0);
+  const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
+  useEffect(() => { if (knownIds) void loadCards(knownIds.split(",").map(Number)).then(() => setNames(n => n + 1)); }, [knownIds]);
   const openKnown = (seat: number, card: KnownHandCard) => {
     setSubject({ cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     layers.open("insp");

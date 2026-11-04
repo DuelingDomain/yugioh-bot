@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cardArt } from "./catalog";
 import { Icon } from "./icons";
-import { sourceText, type HandCandidate, type KnownHandCard } from "./reveal-model";
+import { sourceText, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
 import s from "./remote-ui.module.css";
 
 const FRESH_MS = 2600;
@@ -14,7 +14,7 @@ export type HandProps = {
   onCount?: (count: number) => void;
   onInspect: (card: KnownHandCard) => void;
   /** Own seat only: the open search (one-tap chip). */
-  search?: { by: string; candidates: HandCandidate[]; onPick: (card: HandCandidate) => void; onOther: () => void; onDismiss: () => void };
+  search?: { by: HandBy; candidates: HandCandidate[]; onPick: (card: HandCandidate) => void; onOther: () => void; onDismiss: () => void };
   /** Webcam only: the strip is an overlay at the bottom of the feed. */
   overlay?: boolean;
 };
@@ -44,7 +44,7 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) search.onDismiss(); };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, [search]);
-  return <div className={s.hchip} role="group" aria-label={`Add to hand, from ${search.by}`} data-testid="hand-chip">
+  return <div className={s.hchip} role="group" aria-label={`Add to hand, from ${search.by.name}`} data-testid="hand-chip">
     <span className={s.hchipl}>Add to hand</span>
     {shown.map(card => <button type="button" key={card.cardId} className={s.hchipb} onClick={() => search.onPick(card)} data-testid="hand-chip-card">{card.name}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={search.onOther} data-testid="hand-chip-other">Other{"…"}</button>
