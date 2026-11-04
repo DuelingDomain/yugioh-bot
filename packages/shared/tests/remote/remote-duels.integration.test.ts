@@ -2052,10 +2052,27 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(state.seats[0].knownHand).toEqual(beforeInspection);
   // A direct pile origin must not consume an unrelated same-name hand copy.
   reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'direct-pile',cardId:69299029}});
+  const directPileRef=state.seats[0].twin.find(c=>c.zone==='graveyard'&&c.cardId===69299029)!.ref;
   reduce({type:'hand.add',cardId:69299029,source:'unknown'});
   const knownCopies=state.seats[0].knownHand?.length;
-  reduce({type:'twin.place',seat:0,zone:'field',fromRef:'direct-pile',card:{ref:'direct-field',cardId:69299029}});
+  reduce({type:'twin.place',seat:0,zone:'field',fromRef:directPileRef,card:{ref:'direct-field',cardId:69299029}});
   expect(state.seats[0].knownHand).toHaveLength(knownCopies!);
+
+  // A discard reuses the physical hand ref; automatic field re-reads keep the field owner.
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  const discardRef=state.seats[0].twin[0].ref;
+  reduce({type:'twin.place',seat:0,zone:'graveyard',card:{ref:'discard-copy',cardId:69299029}});
+  expect(state.seats[0].twin).toMatchObject([{ref:discardRef,zone:'graveyard'}]);expect(state.seats[0].knownHand).toEqual([]);
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'field',card:{ref:'field-owner',cardId:69299029}});
+  reduce({type:'hand.add',cardId:69299029,source:'unknown'});
+  reduce({type:'twin.place',seat:0,zone:'field',source:'auto',card:{ref:'new-camera-ref',cardId:69299029}});
+  expect(state.seats[0].twin.find(c=>c.ref==='field-owner')?.zone).toBe('field');expect(state.seats[0].knownHand).toHaveLength(1);
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'field-owner',cardId:69299029,slot:2}});
+  expect(state.seats[0].twin.find(c=>c.ref==='field-owner')).toMatchObject({zone:'monster',slot:2});expect(state.seats[0].knownHand).toHaveLength(1);
+  const historical=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone:'monster',anotherCopy:true,card:{ref:'historic-new-copy',cardId:69299029},idempotencyKey:'historic-copy',at:++serial}),{replay:true,twinPlacementGuard:5});
+  expect(historical.seats[0].twin.find(c=>c.ref==='historic-new-copy')).toBeDefined();expect(historical.seats[0].twin.filter(c=>c.zone==='hand')).toHaveLength(1);
 
   // Held reads have no hold timer, emit only a sure front, and never enter field tracks.
   const visionPath=new URL('../../../vision/src/field-watcher.ts',import.meta.url).pathname;
@@ -2079,6 +2096,22 @@ it('reveals identity and position in one undoable action, then hides a public Se
   scan=heldReader.observe([heldCard,fan],frame,evidence,520,undefined,undefined,false);expect(scan.read).toBeUndefined();
   heldReader.reset();
   scan=heldReader.observe([heldCard],frame,{...evidence,touched:()=>0},530,undefined,undefined,false);expect(scan.cards).toEqual([]);
+  // A new face at the same spot gets a read. A slow sure read keeps its episode alive.
+  let heldNow=100,heldIdentity='29762407';
+  const episodeEvents:Record<string,unknown>[]=[];
+  const episodes=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
+    recognizer:{recognize:async()=>({...sure,candidates:[{cardId:heldIdentity,score:.99}]})},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
+  scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;
+  heldNow=200;heldIdentity='69299029';
+  const newFace={...evidence,appearance:()=>[.8,.1,.9]};
+  scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
+  expect(episodeEvents.map(e=>e.cardId)).toEqual(['29762407','69299029']);
+  let completeRead!:(value:unknown)=>void;
+  const slowResult=new Promise(resolve=>{completeRead=resolve;});heldNow=300;
+  const slow=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
+    recognizer:{recognize:()=>slowResult},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
+  scan=slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await Promise.resolve();heldNow=2300;completeRead(sure);await scan.read;
+  scan=slow.observe([heldCard],frame,evidence,2301,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(slow.snapshot()).toHaveLength(1);slow.reset();
   const watcher=vision.createFieldWatcher({profile:{cardBack:{cardId:'back'}},now:()=>10,hidden:()=>false,
     buffer:{sample:async()=>({frame,at:10})},clone:async()=>frame,analyze:()=>evidence,
     recognizer:{detectCards:async()=>[heldCard],recognize:async()=>sure},onHeldCard:(event:Record<string,unknown>)=>heldEvents.push(event)});
@@ -2105,9 +2138,34 @@ it('reveals identity and position in one undoable action, then hides a public Se
   session.act({type:'effect.activated',source:{cardId:900001}});
   expect(shared.searchCandidates(session.room.state,0,900001).map(c=>c.cardId).sort()).toEqual([29762407,69299029]);
   session.act({type:'hand.add',cardId:69299029,source:'deck',by});
+  expect(session.room.state.effectTracking?.origins.find(o=>o.source.cardId===900001)?.announcedCard).toMatchObject({cardId:69299029});
   expect(session.room.state.seats[0]).toMatchObject({handCount:6,deckCount:34});
   expect(session.room.events.at(-1)?.messages).toContain("Sulman added Treasures of the Kings to hand (Man with the Mark's effect)");
   expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
   session.act({type:'turn.end'});expect(session.room.state.seats[0].knownHand).toEqual([]);
   expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  session.act({type:'twin.place',seat:0,zone:'field',card:{ref:'return-to-deck',cardId:69299029}});
+  const deckReturnRef=session.room.state.seats[0].twin.find(c=>c.zone==='field')!.ref;
+  session.act({type:'twin.move',seat:0,cardRef:deckReturnRef,zone:'deck'});
+  expect(session.room.state.seats[0].deckCount).toBe(35);
+  expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  // Existing picker path: an unnamed hand twin, then public camera identity.
+  const picker=deckSession('normal');picker.select(picker.save([69299029,29762407,...Array.from({length:38},(_,i)=>i+1)]).id);picker.start();
+  picker.act({type:'effect.activated',source:{cardId:900001}});
+  const handOrigin=picker.room.state.effectTracking!.origins.find(o=>o.destination==='hand')!;
+  picker.act({type:'twin.place',seat:0,zone:'hand',card:{ref:handOrigin.ref,faceUp:false}});
+  picker.act({type:'card.identified',seat:0,cardRef:handOrigin.ref,cardId:29762407,zone:'hand',source:'auto'});
+  expect(picker.room.state.seats[0]).toMatchObject({handCount:6,deckCount:34,knownHand:[expect.objectContaining({cardId:29762407,source:'deck'})]});
+  picker.act({type:'hand.forget',id:picker.room.state.seats[0].knownHand![0].id});
+  picker.act({type:'card.identified',seat:0,cardRef:handOrigin.ref,cardId:29762407,zone:'hand',source:'auto'});
+  expect(picker.room.state.seats[0].knownHand).toEqual([]);
+  expect(picker.service.replay(picker.room.slug,'g',picker.users[0])).toEqual(picker.room.state);
+  // A private choice becomes one public entry on explicit reveal; announcement cannot duplicate it.
+  const privatePick=originSession();privatePick.act({type:'effect.activated',source:{cardId:73628505}});
+  const privateOrigin=originOf(privatePick);privatePick.act({type:'effect.choose',originId:privateOrigin.id,cardId:47355498});
+  expect(privatePick.room.state.seats[0].knownHand).toEqual([]);
+  privatePick.act({type:'hand.reveal',cardId:47355498});privatePick.act({type:'effect.announce',originId:privateOrigin.id});
+  expect(privatePick.room.state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:47355498,source:'deck'})]);
+  expect(privatePick.room.state.seats[0].handCount).toBe(6);
+
 });

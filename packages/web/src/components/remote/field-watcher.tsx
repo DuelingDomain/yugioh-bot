@@ -405,7 +405,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const recent=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===seat&&o.destination==='hand'&&
         serverNow()-(state.undoHistory?.find(e=>e.actionId+':hand'===o.id)?.at??0)<=120_000&&
         searchCandidates(state,seat,o.source.cardId).some(c=>c.cardId===cardId));
-      const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand';
+      const already=own.knownHand?.some(c=>c.cardId===cardId)||bounce?.zone==='hand'||!!recent&&own.twin.some(c=>c.ref===recent.ref&&c.zone==='hand');
       const proposal=remoteHandActionFromVision({cardId,mode:already||!bounce&&!recent?'reveal':'add',source:bounce?'field':recent?'deck':'unknown',...(recent?{by:{cardId:recent.source.cardId,name:recent.source.name}}:{})},seat);
       const updated=await act(proposal,actionId);
       if(updated){setNotice(`${entry?.name??'Card'} ${proposal.type==='hand.add'?'added to hand':'revealed in hand'} · auto`);setUndoId(updated.state.undo?.actionId??'');}

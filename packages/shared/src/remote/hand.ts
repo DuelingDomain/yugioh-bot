@@ -31,13 +31,23 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
     s.knownHand = s.knownHand!.filter(c => c.id !== action.id); return;
   }
   if (action.type === 'hand.reveal') {
-    if (!s.knownHand?.some(c => c.cardId === action.cardId)) remember(state, seat, action.cardId, 'unknown', action.idempotencyKey);
+    const origins=(state.effectTracking?.origins??[]).filter(origin=>origin.seat===seat&&origin.destination==='hand'&&
+      s.twin.some(t=>t.ref===origin.ref&&t.zone==='hand'&&(codeOf(t)===action.cardId||origin.chosenCardId===action.cardId||!codeOf(t)&&origin.pool?.some(c=>c.cardId===action.cardId))));
+    const origin=origins.length===1?origins[0]:undefined;
+    if (!s.knownHand?.some(c => c.cardId === action.cardId)) remember(state, seat, action.cardId, origin?'deck':'unknown', action.idempotencyKey, origin?.source);
+    if(origin) {
+      const twin=s.twin.find(t=>t.ref===origin.ref)!;
+      twin.cardId=action.cardId;
+      origin.chosenCardId=action.cardId;
+      origin.announcedCard={cardId:action.cardId,name:origin.pool?.find(c=>c.cardId===action.cardId)?.name??twin.name??'Card '+action.cardId};
+      origin.revealedCardId=action.cardId;origin.handRecorded=true;
+    }
     return;
   }
-  const zone = {gy: 'graveyard', banish: 'banished', extra: 'extra'}[action.source as 'gy' | 'banish' | 'extra'];
+  const zone = {deck: 'deck', gy: 'graveyard', banish: 'banished', extra: 'extra'}[action.source as 'deck' | 'gy' | 'banish' | 'extra'];
   const card = zone ? [...s.twin].reverse().find(c => c.zone === zone && codeOf(c) === action.cardId) :
     action.source === 'field' ? s.twin.find(c => remoteFieldZone(c.zone) && codeOf(c) === action.cardId) : undefined;
-  remoteAssert(!zone && action.source !== 'field' || card, 'Card is no longer in the source pile or field', 409);
+  remoteAssert(action.source === 'deck' || !zone && action.source !== 'field' || card, 'Card is no longer in the source pile or field', 409);
   remoteAssert(card || s.twin.length < 100, 'Field is full', 409);
   // A field source retains its departure so later field reads can reconnect it.
   if (action.source === 'field') {
@@ -63,14 +73,6 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
         counts(next, s.seat).handCount!++;
         if (action.type !== 'hand.add' && previous && remoteFieldZone(previous.zone) && codeOf(card))
           remember(next, s.seat, codeOf(card)!, 'field', action.idempotencyKey);
-        // A resolved search uses the same public knowledge contract as hand.add.
-        if (action.type === 'effect.choose' && !previous && codeOf(card)) {
-          const origin = next.effectTracking?.origins.find(o => o.id === action.originId && o.destination === 'hand');
-          if (origin) {
-            if (origin.announcedCard || origin.revealedCardId) remember(next, s.seat, codeOf(card)!, 'deck', origin.id, origin.source);
-            if (s.deckCount !== undefined) s.deckCount = Math.max(0, s.deckCount - 1);
-          }
-        }
       }
     }
     for (const card of old.twin) if (card.zone === 'hand') {
@@ -78,13 +80,13 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
       if (!moved || moved.zone !== 'hand') {
         forgetCopy(next, s.seat, codeOf(card));
         counts(next, s.seat).handCount = Math.max(0, s.handCount! - 1);
-        if (moved?.zone === 'deck' && s.deckCount !== undefined) s.deckCount++;
       }
     }
-    if (action.type === 'effect.announce' && action.actorSeat === s.seat) {
-      const origin = next.effectTracking?.origins.find(o => o.id === action.originId && o.destination === 'hand');
-      if (origin?.announcedCard && !s.knownHand?.some(c => c.id === origin.id))
-        remember(next, s.seat, origin.announcedCard.cardId, 'deck', origin.id, origin.source);
+    // Count direct returns to Deck as well as known hand departures.
+    if (s.deckCount !== undefined) for (const card of s.twin) {
+      const previous=old.twin.find(c=>c.ref===card.ref);
+      if(card.zone==='deck'&&previous?.zone!=='deck')s.deckCount++;
+      else if(previous?.zone==='deck'&&card.zone!=='deck'&&action.type!=='hand.add')s.deckCount=Math.max(0,s.deckCount-1);
     }
     // A new field twin defaults to a play from hand. Pile and field origins were handled above.
     if (action.type === 'twin.place' && action.seat === s.seat && (remoteFieldZone(action.zone) || ['graveyard','banished'].includes(action.zone) && s.knownHand?.some(c=>c.cardId===(action.card.cardId??action.card.passcode))) &&
@@ -93,6 +95,34 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
       counts(next, s.seat).handCount = Math.max(0, s.handCount! - 1);
     }
     if (s.eliminated) s.knownHand = [];
+  }
+  // A held-card/voice addition completes the same pending search as the picker.
+  if (action.type === 'hand.add' && action.source === 'deck' && action.by) {
+    const origin=[...(next.effectTracking?.origins??[])].reverse().find(o=>o.seat===action.actorSeat&&o.destination==='hand'&&o.source.cardId===action.by!.cardId&&!o.handCounted);
+    const twin=next.seats[action.actorSeat].twin.find(c=>c.zone==='hand'&&codeOf(c)===action.cardId&&
+      !before.seats[action.actorSeat].twin.some(old=>old.ref===c.ref&&old.zone==='hand'));
+    if(origin&&twin) {
+      origin.ref=twin.ref;origin.chosenCardId=action.cardId;
+      origin.announcedCard={cardId:action.cardId,name:context?.facts?.[action.cardId]?.name??origin.pool?.find(c=>c.cardId===action.cardId)?.name??'Card '+action.cardId};
+      origin.revealedCardId=action.cardId;origin.handCounted=true;origin.handRecorded=true;
+    }
+  }
+  for (const origin of next.effectTracking?.origins ?? []) {
+    if (origin.destination !== 'hand') continue;
+    const twin = next.seats[origin.seat].twin.find(c => c.ref === origin.ref && c.zone === 'hand');
+    const affected = (action.type === 'effect.choose' || action.type === 'effect.announce') && action.originId === origin.id ||
+      action.type === 'twin.place' && action.card.ref === origin.ref ||
+      action.type === 'card.identified' && action.cardRef === origin.ref ||
+      action.type === 'cards.identified' && action.cards.some(c => c.cardRef === origin.ref);
+    if (!twin || !affected) continue;
+    if (!origin.handCounted) {
+      const s=counts(next,origin.seat);origin.handCounted=true;
+      if(s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-1);
+    }
+    if (!origin.handRecorded && codeOf(twin) && (origin.announcedCard || origin.revealedCardId)) {
+      remember(next, origin.seat, codeOf(twin)!, 'deck', action.idempotencyKey, origin.source);
+      origin.handRecorded=true;
+    }
   }
   if (next.turn !== before.turn && next.revealedHand === 'one-turn') next.seats[before.turnSeat].knownHand = [];
 }

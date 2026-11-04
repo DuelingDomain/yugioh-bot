@@ -15,8 +15,8 @@ export interface HeldCardTrack {
 export interface HeldCardEvent extends HeldCardTrack {type:'held'; cardId:string; result:RecognitionResult; source:'auto'}
 
 /** A separate path so removal/shadow fixes can change the field tracker independently. */
-export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognizer'|'profile'|'getPriors'|'clone'|'onHeldCard'>) {
-  const clone=options.clone??cloneFieldFrame, tracks:{view:HeldCardTrack; look?:number[]; seen:number; tried:number; pending:boolean; emitted:boolean}[]=[];
+export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognizer'|'profile'|'getPriors'|'clone'|'onHeldCard'|'now'>) {
+  const clone=options.clone??cloneFieldFrame, tracks:{view:HeldCardTrack; look?:number[]; seen:number; tried:number; pending:boolean; emitted:boolean; visible:boolean}[]=[];
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   let serial=0, epoch=0;
   const skin=(rgb:number[])=>{const [r,g,b]=rgb.map(v=>v*255),cb=128-.168736*r-.331264*g+.5*b,cr=128+.5*r-.418688*g-.081312*b;return r>40&&r>g&&r>b&&cb>=77&&cb<=127&&cr>=133&&cr<=173;};
@@ -36,24 +36,28 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
       for(const card of held){
         const look=evidence.appearance?.(artBox(card));
         let track=tracks.filter(t=>!used.has(t)&&at-t.seen<1500).sort((a,b)=>distance(a.view.card,card)-distance(b.view.card,card))
-          .find(t=>distance(t.view.card,card)<.18||sameRotatedFieldAppearance(t.look,look));
-        if(!track){track={view:{id:`held-${session}-${++serial}`,state:'held',card:structuredClone(card),at},seen:at,tried:-Infinity,pending:false,emitted:false};tracks.push(track);}
+          .find(t=>(!t.look?.length||!look?.length||sameRotatedFieldAppearance(t.look,look))&&(distance(t.view.card,card)<.18||sameRotatedFieldAppearance(t.look,look)));
+        if(!track){track={view:{id:`held-${session}-${++serial}`,state:'held',card:structuredClone(card),at},seen:at,tried:-Infinity,pending:false,emitted:false,visible:true};tracks.push(track);}
         track.view.card=structuredClone(card);track.seen=at;track.look=look;used.add(track);
       }
+      for(const track of tracks)track.visible=used.has(track);
       for(let i=tracks.length-1;i>=0;i--)if(at-tracks[i].seen>1500&&!tracks[i].pending)tracks.splice(i,1);
       const track=held.length===1 ? [...used].find(t=>!t.emitted&&!t.pending&&at-t.tried>=250&&t.view.card.kind==='face-up') : undefined;
       let read:Promise<void>|undefined;
       if(!busy&&track){
         track.pending=true;track.tried=at;
-        const generation=epoch,card=structuredClone(track.view.card);
+        const generation=epoch,card=structuredClone(track.view.card),readStart=performance.now();
         read=(async()=>{
           const input=await clone(frame);
           try {
             if(generation!==epoch)return;
             const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,priors:options.getPriors?.(),maxFrames:1,k:5,preferUpright:true,includeIdentityEmbedding:true});
             const cardId=result.candidates[0]?.cardId;
-            if(generation!==epoch||track.emitted||result.tier!=='sure'||!cardId||cardId===options.profile.cardBack.cardId||result.quality.faceDown||result.quality.fallback||result.quality.partial)return;
+            if(generation!==epoch||!track.visible||track.emitted||result.tier!=='sure'||!cardId||cardId===options.profile.cardBack.cardId||result.quality.faceDown||result.quality.fallback||result.quality.partial)return;
+            const repeated=tracks.some(t=>t!==track&&t.emitted&&t.view.cardId===cardId&&at-t.seen<1500&&distance(t.view.card,card)<.18);
+            track.seen=options.now?.()??at+Math.max(0,performance.now()-readStart);
             track.emitted=true;track.view.cardId=cardId;
+            if(repeated)return;
             options.onHeldCard?.({...track.view,card,type:'held',cardId,result,source:'auto',at:performance.timeOrigin+at});
           } finally {closeFieldFrame(input);}
         })().finally(()=>{track.pending=false;});
