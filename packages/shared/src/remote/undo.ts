@@ -167,7 +167,7 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
     ygoBattleAllowed(restored) && !restored.seats[restored.attack.attackerSeat].eliminated && !restored.seats[restored.attack.targetSeat].eliminated),
     "Resolve or undo the later attack before undoing this action", 409, "UNDO_CONFLICT");
   for (const origin of restored.effectTracking?.origins ?? []) if (origin.pool)
-    origin.candidates = availableEffectCandidates({...restored,updatedAt:state.updatedAt,undo:null}, origin.pool, origin.seat, origin.minimumCopies);
+    origin.candidates = availableEffectCandidates({...restored,updatedAt:state.updatedAt,undo:null}, origin.pool, origin.seat, origin.minimumCopies, origin.searchSource);
   // A later move of another card may have occupied the slot this undo would restore.
   for (const seat of restored.seats) for (const card of seat.twin) {
     const slot = remotePhysicalSlot(card.zone, card.slot);

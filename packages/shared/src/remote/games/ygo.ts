@@ -293,7 +293,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   next = applyLiveDeckChecks(next, deckAction, context);
   applyRemoteHand(next, state, action, context);
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
-    origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies);
+    origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);

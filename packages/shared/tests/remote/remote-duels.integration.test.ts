@@ -80,9 +80,13 @@ writeFileSync(join(deckData, "strings.conf"), "");
   }
   add(25311006, "Triple Tactics Talent", 2);
   add(900001, "Man with the Mark", 33);
+  add(900002, "GY Recovery", 2);
+  add(900003, "Banish Recovery", 2);
   add(69299029, "Treasures of the Kings", 524290);
   add(29762407, "Temple of the Kings", 131074);
   catalog.prepare("update texts set desc=? where id=900001").run('Add 1 "Treasures of the Kings" or "Temple of the Kings" from your Deck to your hand.');
+  catalog.prepare("update texts set desc=? where id=900002").run('Add 1 Spell from your GY to your hand.');
+  catalog.prepare("update texts set desc=? where id=900003").run('Add 1 Spell from your banishment to your hand.');
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
@@ -2215,6 +2219,12 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const legacyRepeat=structuredClone(state);
   legacyRepeat.effectTracking={contexts:{},notes:[],origins:[{id:'legacy-counted',seat:0,ref:'old-search',destination:'hand',source:by,handCounted:true,announceRecommended:true,derivedFrom:'text',pool:[{cardId:69299029,copyKey:69299029,name:'Treasures',copies:1}]}]};
   expect(()=>ygoModule.reduce(legacyRepeat,remoteActionSchema.parse({type:'hand.add',actorSeat:0,source:'deck',cardId:69299029,by,idempotencyKey:'legacy-repeat',at:++serial}),{replay:true,handKnowledge:1})).not.toThrow();
+  for(const [source,zone] of [['gy','graveyard'],['banish','banished']] as const) {
+    const legacyRecovery=structuredClone(legacyRepeat);
+    legacyRecovery.seats[0].twin.push({ref:'legacy-recovery',cardId:69299029,zone,faceUp:true,position:'attack'});
+    expect(()=>ygoModule.reduce(legacyRecovery,remoteActionSchema.parse({type:'hand.add',actorSeat:0,source,cardId:69299029,by,idempotencyKey:'legacy-recovery',at:++serial}),
+      {replay:true,handKnowledge:1,handReview:1})).not.toThrow();
+  }
   const proposalsPath=new URL('../../../web/src/lib/remote/field-proposals.ts',import.meta.url).pathname;
   const fieldProposals=await import(proposalsPath);
   const departureCard={ref:'departure-race',zone:'monster',slot:1,cardId:42,faceUp:true,position:'attack' as const};
@@ -2261,6 +2271,80 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(shared.remoteHandReadDecision(state,0,localRead)?.type).toBe('hand.suggest');
   state.effectTracking.origins[0].handCounted=false;
   expect(shared.remoteHandReadDecision(state,0,{...localRead,at:61000})?.type).toBe('hand.suggest');
+
+  // Search plans retain the physical source through suggestions, voice, camera, and the pile exit.
+  const {CardTags,fillDefaults}=await import('../../src/cards/effects/tags.js');
+  const recoveryCard={id:900002,name:'Recovery',kind:'spell' as const,typeLine:'',subtypes:[],
+    text:'Add 1 Spell from your GY to your hand.',formats:[],views:0,url:''};
+  const recoveredCard={...recoveryCard,id:69299029,name:'Treasures of the Kings',text:''};
+  for(const [source,zone,indexedZone] of [['gy','graveyard','gy'],['banish','banished','banished']] as const) {
+    const card={...recoveryCard,text:`Add 1 Spell from your ${source==='gy'?'GY':'banishment'} to your hand.`};
+    const tags=CardTags.parse(fillDefaults({summary:'Recover a Spell',effects:[{timing:'ignition',actions:[{verb:'add_to_hand',player:'you',from:[indexedZone],what:{kinds:['spell']}}]}]}));
+    const plan=shared.deriveRemoteEffectPlans(card,tags).find(p=>p.destination==='hand');
+    expect(plan).toMatchObject({source,derivedFrom:'effect-index'});
+    expect(shared.deriveRemoteEffectPlans(card).find(p=>p.destination==='hand')).toMatchObject({source});
+    state=ygoModule.initialState({seatCount:2});
+    state.seats[0].handCount=5;state.seats[0].deckCount=35;
+    state.seats[0].twin=[{ref:'recovery-copy',zone,cardId:69299029,faceUp:true,position:'attack'}];
+    const pool=[{cardId:69299029,copyKey:69299029,name:'Treasures of the Kings',copies:1}];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.activated',actorSeat:0,source:{cardId:card.id},idempotencyKey:`recover-${source}`,at:++serial}),
+      {effect:{source:{cardId:card.id,name:card.name},plans:[{...plan!,pool}]}});
+    const candidates=shared.searchCandidates(state,0,card.id);
+    expect(candidates).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(shared.searchCandidates(state,0,card.id,{cards:[card,recoveredCard],tags:{[card.id]:tags}})).toMatchObject(candidates.map(({cardId,name,source,by})=>({cardId,name,source,by})));
+    expect(ygoModule.parseCommand({text:'search Treasures',actorSeat:0,state})).toMatchObject({type:'hand.add',source});
+    const decision=shared.remoteHandReadDecision(state,0,localRead);
+    expect(decision).toMatchObject({type:'hand.add',source,by:{cardId:card.id}});
+    const pending=structuredClone(state);
+    reduce(decision!);
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35,knownHand:[{cardId:69299029,source}]});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'recovery-copy',zone:'hand'})]);
+    expect(state.effectTracking!.origins[0].handCounted).toBe(true);
+    expect(shared.searchCandidates(state,0,card.id)).toEqual([]);
+    expect(()=>reduce(decision!)).toThrow(/already counted/);
+    reduce({type:'undo',targetActionId:state.undo!.actionId});
+    expect(state.seats[0]).toEqual(pending.seats[0]);
+    expect(shared.searchCandidates(state,0,card.id)).toEqual(candidates);
+    const originId=state.effectTracking!.origins[0].id;
+    reduce({type:'effect.choose',originId,cardId:69299029});
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35});
+    expect(state.seats[0].twin).toEqual([expect.objectContaining({ref:'recovery-copy',zone:'hand'})]);
+    expect(state.seats[0].knownHand?.[0].source).toBe(source);
+    reduce({type:'undo',targetActionId:state.undo!.actionId});
+    expect(state.seats[0]).toEqual(pending.seats[0]);
+    // An inspected pile card keeps its source until the owner confirms the add.
+    reduce({type:'pile.lift',seat:0,zone,cardRefs:['recovery-copy']});
+    expect(shared.searchCandidates(state,0,card.id)).toEqual(candidates);
+    reduce(decision!);
+    expect(state.seats[0]).toMatchObject({handCount:6,deckCount:35});
+    expect(state.seats[0].twin).toHaveLength(1);
+    expect(state.seats[0].twin[0].inspectionFrom).toBeUndefined();
+    expect(state.effectTracking!.origins[0].handCounted).toBe(true);
+  }
+  const targetRecovery={...recoveryCard,text:'Target 1 Spell in your GY; add that target to your hand.'};
+  expect(shared.deriveRemoteEffectPlans(targetRecovery)[0]).toMatchObject({source:'gy',filters:[{kinds:['spell']}]});
+  expect(shared.deriveRemoteEffectPlans({...targetRecovery,text:'Target 1 of your banished monsters; add it to your hand.'})[0]).toMatchObject({source:'banish',filters:[{kinds:['monster']}]});
+  const multiTags=CardTags.parse(fillDefaults({summary:'Recover from either pile',effects:[{timing:'ignition',actions:[
+    {verb:'add_to_hand',player:'you',from:['gy','banished'],what:{kinds:['spell']}},
+  ]}]}));
+  state=ygoModule.initialState({seatCount:2});
+  state.seats[0].twin=[{ref:'gy-choice',zone:'graveyard',cardId:69299029,faceUp:true,position:'attack'},
+    {ref:'banish-choice',zone:'banished',cardId:69299029,faceUp:true,position:'attack'}];
+  const multiPlans=shared.deriveRemoteEffectPlans({...recoveryCard,text:''},multiTags).map(plan=>({...plan,pool:[{cardId:69299029,copyKey:69299029,name:'Treasures of the Kings',copies:1}]}));
+  multiPlans.unshift({...multiPlans[0],source:'deck'});
+  state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.activated',actorSeat:0,source:{cardId:recoveryCard.id},idempotencyKey:'ambiguous-recovery',at:++serial}),
+    {showCardsSetFromDeck:true,effect:{source:{cardId:recoveryCard.id,name:recoveryCard.name},plans:multiPlans}});
+  const multiCandidates=shared.searchCandidates(state,0,recoveryCard.id);
+  expect(multiCandidates.map(c=>c.source)).toEqual(['banish','deck','gy']);
+  expect(shared.parseRemoteHandCommand({text:'search Treasures',actorSeat:0,candidates:multiCandidates})).toBeNull();
+  expect(shared.remoteHandReadDecision(state,0,localRead)?.type).toBe('hand.suggest');
+  for(const source of ['deck','gy'] as const) {
+    const originId=state.effectTracking!.origins.find(o=>o.searchSource===source)!.id;
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:'effect.choose',actorSeat:0,originId,cardId:69299029,idempotencyKey:`multi-choice-${source}`,at:++serial}),{showCardsSetFromDeck:true});
+  }
+  expect(state.seats[0].twin.filter(c=>c.zone==='graveyard')).toEqual([]);
+  expect(state.seats[0].twin.filter(c=>c.zone==='hand')).toHaveLength(2);
+  expect(state.seats[0].knownHand?.map(c=>c.source)).toEqual(['deck','gy']);
 
   // Held reads require 200 ms of stillness, emit only a sure front, and never enter field tracks.
   const visionPath=new URL('../../../vision/src/field-watcher.ts',import.meta.url).pathname;
@@ -2391,6 +2475,29 @@ it('reveals identity and position in one undoable action, then hides a public Se
   session.act({type:'twin.move',seat:0,cardRef:deckReturnRef,zone:'deck'});
   expect(session.room.state.seats[0].deckCount).toBe(35);
   expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  for(const [source,zone,sourceCardId] of [['gy','graveyard',900002],['banish','banished',900003]] as const) {
+    const recovery=deckSession('normal');recovery.select(recovery.save().id);recovery.start();
+    // The recovered card is outside the registered Deck. Only the current pile determines availability.
+    recovery.act({type:'twin.place',seat:0,zone,card:{ref:'service-recovery',cardId:69299029}});
+    const recoverySearch=()=>recovery.service.searchCandidates(recovery.room.slug,'g',recovery.users[0],0,sourceCardId);
+    const recoverySeq=recovery.room.lastSeq;
+    expect(recoverySearch()).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(recovery.service.get(recovery.room.slug,'g',recovery.users[0]).lastSeq).toBe(recoverySeq);
+    recovery.act({type:'effect.activated',source:{cardId:sourceCardId}});
+    expect(shared.searchCandidates(recovery.room.state,0,sourceCardId)).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    const beforeRecovery=structuredClone(recovery.room.state);
+    const proposal=shared.parseRemoteHandCommand({text:'search Treasures',actorSeat:0,candidates:recoverySearch()});
+    expect(proposal).toMatchObject({type:'hand.add',source});
+    recovery.act(proposal!);
+    expect(recovery.room.state.seats[0]).toMatchObject({handCount:6,deckCount:35,knownHand:[{cardId:69299029,source}]});
+    expect(recovery.room.state.seats[0].twin).toEqual([expect.objectContaining({ref:'service-recovery',zone:'hand'})]);
+    expect(recoverySearch()).toEqual([]);
+    expect(recovery.service.replay(recovery.room.slug,'g',recovery.users[0])).toEqual(recovery.room.state);
+    recovery.act({type:'undo',targetActionId:recovery.room.state.undo!.actionId});
+    expect(recovery.room.state.seats[0]).toEqual(beforeRecovery.seats[0]);
+    expect(recoverySearch()).toEqual([expect.objectContaining({cardId:69299029,source})]);
+    expect(recovery.service.replay(recovery.room.slug,'g',recovery.users[0])).toEqual(recovery.room.state);
+  }
   // Session ownership, public snapshots, retries and replay use the same strict actions.
   const countsSession=deckSession('normal',false);
   countsSession.select(countsSession.save().id);

@@ -119,8 +119,8 @@ The first Deck measurement establishes a baseline when no count is known.
 Phase draws and declared Deck movements already update that baseline; do not
 report the same physical draw twice as separate actions.
 
-A Deck add with `by` must match an unresolved origin's candidate and chosen
-identity, if set. A second add for a counted origin returns 409. Current
+A search add with `by` must match an unresolved origin's source, candidate,
+and chosen identity, if set. A second add for a counted origin returns 409. Current
 service events persist `handReview:1`; historical events retain their original
 phase-draw semantics on replay.
 
@@ -128,28 +128,35 @@ phase-draw semantics on replay.
 
 ```ts
 searchCandidates(state, seat, recentCardId, knowledge?) // RemoteSearchCandidate[]
-// {cardId, name, source: 'deck', by: {cardId, name}, reason}
+// {cardId, name, source: 'deck' | 'gy' | 'banish', by: {cardId, name}, reason}
+// RemoteEffectPlan.source: 'deck' | 'gy' | 'banish'
 ```
 
 This helper is pure. Three arguments reuse server-resolved hand search origins
 from `effect.activated`. For a field card that has not been activated, pass
 `RemoteSearchKnowledge` (normalized catalog cards, effect tags, related map), or
-use the read-only endpoint below. Only the selected seat's deck list filters
-results. A related link ranks a supported search; it is not proof of an effect.
+use the read-only endpoint below. A plan's `source` is the physical origin of
+the selected card. `by` identifies the effect card. Saved origins keep the pile
+source in `searchSource`; old origins without that field use `deck`.
+Pass the candidate's `source` unchanged to `hand.add`. A GY or banish add uses
+the existing pile exit, moves one matching card, and leaves the Deck count unchanged.
+The selected seat's deck list filters only `deck` results. GY and banish results
+must match a card in that seat's current pile, including a card lifted for
+inspection. A related link ranks a supported search; it is not proof of an effect.
 Printed clauses support quoted names, archetypes, simple types, and levels.
 Engine facts supply card types and levels. Complex clauses remain suggestions.
 
 `GET /api/remote/:slug/search?seat=0&recentCardId=123` returns `{candidates}`.
 The service reads the engine/catalog and optional `data/vision/related-cards.json`.
 Catalog inputs are cached for 60 s, up to 16 entries per database connection.
-Keys include the catalog path, source, and exact deck list. Current state and
-the owner's list still filter each result. It does not write state, events,
+Keys include the catalog path, effect card, exact deck list, and pile identities.
+Current state and the owner's list still filter each result. It does not write state, events,
 or activity. Only the seat owner (or a solo host
 for a bot seat) can query its private list. Do not broadcast the candidate list.
 
 `parseRemoteHandCommand({text, actorSeat, candidates})` returns a proposal.
 `add Temple of the Kings to hand` and `search Treasures` work when one candidate
-matches. Ambiguous names return `null`. The parser does not execute actions.
+matches. Ambiguous names or sources return `null`. The parser does not execute actions.
 The normal shared command parser also accepts these forms after an activation.
 
 ## Held-card event: replaces the three-second capture
@@ -200,7 +207,7 @@ read cancels the add. It calls:
 
 ```ts
 remoteHandReadDecision(state, actorSeat, {cardId, id, at}, fieldReadPending);
-// A matching unresolved search, at most 60 s old: hand.add source:'deck'.
+// A matching unresolved search, at most 60 s old: hand.add with the candidate's source.
 // An already known/returned card or field play: undefined.
 // No search context: RemoteHandSuggestionEvent (local only).
 ```
@@ -213,6 +220,12 @@ hand return. A field reappearance or pile arrival in that window cancels it.
 Before the write, the ref, zone, and slot must still match the original field
 card. A delayed removal cannot take a card out of a pile.
 The queue stays free during both waits so field and pile reads can complete.
+
+The camera must not send `hand.add` without movement context. It can add a card
+automatically only for a matching pending search, or for a face-up field card
+that left the field and reached no pile or other field zone within about 2 s.
+Otherwise, show the local `Add X to hand?` chip. Do not write state or reveal
+the card until the owner makes an explicit choice.
 
 The UI receives a local browser event:
 
@@ -232,9 +245,10 @@ type RemoteHandSuggestionEvent = {
 
 `hand.suggest` is not a server action. The strict schema rejects it. Do not
 broadcast, persist, or POST this event. Confirmation must retain the actual
-source: `deck`, `gy`, `banish`, `extra`, `field`, or `unknown`. Current
-`searchCandidates` supports Deck plans only; a GY or banish plan must use its
-own source. The existing `remoteHandActionFromVision` helper remains available
+source: `deck`, `gy`, `banish`, `extra`, `field`, or `unknown`.
+`searchCandidates` returns `deck`, `gy`, or `banish` from the matching plan;
+the voice parser and held-card decision preserve that source.
+The existing `remoteHandActionFromVision` helper remains available
 for explicit owner choices; the automatic camera path uses the decision helper.
 
 The event ID is the HTTP idempotency key on retries. Camera callbacks apply

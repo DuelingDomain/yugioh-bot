@@ -62,7 +62,7 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
     const origins=(state.effectTracking?.origins??[]).filter(origin=>origin.seat===seat&&origin.destination==='hand'&&
       s.twin.some(t=>t.ref===origin.ref&&t.zone==='hand'&&(codeOf(t)===action.cardId||origin.chosenCardId===action.cardId||!codeOf(t)&&origin.pool?.some(c=>c.cardId===action.cardId))));
     const origin=origins.length===1?origins[0]:undefined;
-    if (!s.knownHand?.some(c => c.cardId === action.cardId)) remember(state, seat, action.cardId, origin?'deck':'unknown', action.idempotencyKey, origin?.source);
+    if (!s.knownHand?.some(c => c.cardId === action.cardId)) remember(state, seat, action.cardId, origin?origin.searchSource??'deck':'unknown', action.idempotencyKey, origin?.source);
     if(reviewed&&state.showCardsSetFromDeck===false)s.knownHand!.find(c=>c.cardId===action.cardId)!.publicIdentity=true;
     if(origin) {
       const twin=s.twin.find(t=>t.ref===origin.ref)!;
@@ -73,10 +73,12 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
     }
     return true;
   }
-  if(reviewed&&action.source==='deck'&&action.by) {
+  if(reviewed&&['deck','gy','banish'].includes(action.source)&&action.by) {
     const origins=state.effectTracking?.origins.filter(o=>o.seat===seat&&o.destination==='hand'&&o.source.cardId===action.by!.cardId)??[];
-    remoteAssert(!origins.length||origins.some(o=>!o.handCounted&&(o.chosenCardId===undefined||o.chosenCardId===action.cardId)&&
-      (o.pool??o.candidates??[]).some(c=>c.cardId===action.cardId)), 'Search was already counted or does not match this card',409);
+    // Historical non-Deck adds were not linked to search origins.
+    if(action.source==='deck'||origins.some(o=>o.searchSource!==undefined))
+      remoteAssert(!origins.length||origins.some(o=>(o.searchSource??'deck')===action.source&&!o.handCounted&&(o.chosenCardId===undefined||o.chosenCardId===action.cardId)&&
+        (o.pool??o.candidates??[]).some(c=>c.cardId===action.cardId)), 'Search was already counted or does not match this card',409);
   }
   const zone = {deck: 'deck', gy: 'graveyard', banish: 'banished', extra: 'extra'}[action.source as 'deck' | 'gy' | 'banish' | 'extra'];
   const card = zone ? [...s.twin].reverse().find(c => (c.zone === zone || c.zone==='hand'&&c.inspectionFrom===zone) && codeOf(c) === action.cardId) :
@@ -157,14 +159,14 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
     if (s.eliminated) s.knownHand = [];
   }
   // A held-card/voice addition completes the same pending search as the picker.
-  if (action.type === 'hand.add' && action.source === 'deck' && action.by) {
+  if (action.type === 'hand.add' && (action.source==='deck'||reviewed&&['gy','banish'].includes(action.source)) && action.by) {
     const origin=[...(next.effectTracking?.origins??[])].reverse().find(o=>o.seat===action.actorSeat&&o.destination==='hand'&&o.source.cardId===action.by!.cardId&&!o.handCounted&&
-      (!reviewed||(o.chosenCardId===undefined||o.chosenCardId===action.cardId)&&(o.pool??o.candidates??[]).some(c=>c.cardId===action.cardId)));
+      (!reviewed||(o.searchSource??'deck')===action.source&&(o.chosenCardId===undefined||o.chosenCardId===action.cardId)&&(o.pool??o.candidates??[]).some(c=>c.cardId===action.cardId)));
     const twin=next.seats[action.actorSeat].twin.find(c=>c.zone==='hand'&&codeOf(c)===action.cardId&&
-      !before.seats[action.actorSeat].twin.some(old=>old.ref===c.ref&&old.zone==='hand'));
+      !before.seats[action.actorSeat].twin.some(old=>old.ref===c.ref&&old.zone==='hand'&&!old.inspectionFrom));
     if(origin&&twin) {
       origin.ref=twin.ref;origin.chosenCardId=action.cardId;
-      if(!reviewed||next.showCardsSetFromDeck!==false){
+      if(!reviewed||action.source!=='deck'||next.showCardsSetFromDeck!==false){
         origin.announcedCard={cardId:action.cardId,name:context?.facts?.[action.cardId]?.name??origin.pool?.find(c=>c.cardId===action.cardId)?.name??'Card '+action.cardId};
         origin.revealedCardId=action.cardId;
       }
@@ -181,10 +183,10 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
     if (!twin || !affected) continue;
     if (!origin.handCounted) {
       const s=counts(next,origin.seat,reviewed);origin.handCounted=true;
-      if(s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-1);
+      if((origin.searchSource??'deck')==='deck'&&s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-1);
     }
     if (!origin.handRecorded && codeOf(twin) && (origin.announcedCard || origin.revealedCardId)) {
-      remember(next, origin.seat, codeOf(twin)!, 'deck', action.idempotencyKey, origin.source);
+      remember(next, origin.seat, codeOf(twin)!, origin.searchSource??'deck', action.idempotencyKey, origin.source);
       origin.handRecorded=true;
     }
   }
@@ -207,9 +209,11 @@ export const REMOTE_HAND_SUGGESTION_EVENT='remote:hand-suggestion';
 export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},fieldReadPending=false):RemoteActionProposal|RemoteHandSuggestionEvent|undefined {
   const own=state.seats[actorSeat];
   if(!own||own.knownHand?.some(c=>c.cardId===read.cardId)||own.twin.some(c=>codeOf(c)===read.cardId&&(remoteFieldZone(c.zone)||c.zone==='hand'&&c.departedFrom)))return;
-  const origin=[...(state.effectTracking?.origins??[])].reverse().find(o=>o.seat===actorSeat&&o.destination==='hand'&&!o.handCounted&&
+  const origins=[...(state.effectTracking?.origins??[])].reverse().filter(o=>o.seat===actorSeat&&o.destination==='hand'&&!o.handCounted&&
     o.at!==undefined&&read.at>=o.at&&read.at-o.at<=60_000&&(o.chosenCardId===undefined||o.chosenCardId===read.cardId)&&
-    searchCandidates(state,actorSeat,o.source.cardId).some(c=>c.cardId===read.cardId));
-  if(origin&&!fieldReadPending)return {type:'hand.add',actorSeat,cardId:read.cardId,source:'deck',by:origin.source};
+    searchCandidates(state,actorSeat,o.source.cardId).some(c=>c.cardId===read.cardId&&c.source===(o.searchSource??'deck')));
+  const origin=origins[0];
+  if(origin&&!fieldReadPending&&new Set(origins.map(o=>o.searchSource??'deck')).size===1)
+    return {type:'hand.add',actorSeat,cardId:read.cardId,source:origin.searchSource??'deck',by:origin.source};
   return {type:'hand.suggest',actorSeat,...read};
 }
