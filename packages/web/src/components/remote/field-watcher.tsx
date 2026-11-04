@@ -18,7 +18,7 @@ import {useVideoHub} from './ui/video-hub';
 import {cardCode,sameObservedCard,deckIdsOf,seenCardIds,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
-import {nextFieldGhosts,setFieldGhosts,type GhostMemo} from '@/lib/remote/field-ghosts';
+import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib/remote/field-ghosts';
 import {isTypingTarget} from '@/lib/typing-target';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
@@ -456,8 +456,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.setCalibration,watch.getTrack]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded;tracks.current=watch.snapshot.tracks;
   // Show a still outline on the board at once (local only). The saved "Reading" card takes its place with the same look.
-  const ghostMemo=useRef(new Map<string,GhostMemo>());
-  useEffect(()=>{setFieldGhosts(String(seat),watch.enabled&&!watch.calibrationNeeded?nextFieldGhosts(watch.snapshot.tracks,ghostMemo.current,Date.now()).ghosts:[]);},[watch.snapshot.tracks,watch.enabled,watch.calibrationNeeded,seat]);
+  const ghostState=useRef(newGhostState());
+  useEffect(()=>{
+    const key=String(seat);
+    setFieldGhosts(key,watch.enabled&&!watch.calibrationNeeded?nextFieldGhosts(watch.snapshot.tracks,ghostState.current,Date.now(),key,id=>placeholders.current.has(id)||bindings.current.has(id)):[]);
+  },[watch.snapshot.tracks,watch.enabled,watch.calibrationNeeded,seat]);
+  // A card that leaves the board (removed, Undo) must not flash a ghost while its track is still on the mat.
+  const ghostTwinsPrev=useRef<TwinCard[]>([]);
+  const ownTwin=room.state.seats[seat].twin;
+  useEffect(()=>{for(const card of ghostTwinsPrev.current)if(!ownTwin.some(c=>c.ref===card.ref))blockGhostCell(String(seat),card.zone,card.slot);ghostTwinsPrev.current=ownTwin;},[ownTwin,seat]);
   useEffect(()=>()=>setFieldGhosts(String(seat),[]),[seat]);
   useEffect(()=>{
     const abandoned=[...placeholders.current.keys()].filter(id=>{const track=watch.getTrack(id);return !track||track.state==='dismissed'||track.removed;});

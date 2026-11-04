@@ -106,12 +106,21 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   const ghostRefs = new Set(ghostCards.map(card => card.ref));
   const view = ghostCards.length ? cellsFor([...twin, ...ghostCards], !!extraZones) : cells;
   const fieldRef = useRef<HTMLDivElement>(null);
-  const where = new Map(twin.map(card => [card.ref, { zone: card.zone, faceUp: card.faceUp }] as const));
-  useFieldMotion(fieldRef, where);
-  // Cells that showed a ghost last time and now hold the real card: the card fades in over the ghost's place.
-  const ghostCells = useRef<ReadonlySet<string>>(new Set());
-  const revealed = new Set([...ghostCells.current].filter(key => cells[key as ZoneKey]?.card));
-  useEffect(() => { ghostCells.current = new Set((Object.keys(view) as ZoneKey[]).filter(key => !cells[key].card && view[key].card && !isPile(key))); });
+  const dropped = useRef<{ ref: string; at: number } | null>(null);
+  useFieldMotion(fieldRef, twin, dropped);
+  // Cells that showed a ghost or the "Reading" card last time: the card that replaces it takes over without a drop-in,
+  // and a read card fades in over the reading look.
+  const shown = useRef<{ ghost: ReadonlySet<string>; reading: ReadonlySet<string> }>({ ghost: new Set(), reading: new Set() });
+  const reading = (card: TwinCard | undefined) => !!card && card.faceUp && !cardCode(card) && card.ref.startsWith("fw-");
+  const swapped = new Set([...shown.current.ghost].filter(key => cells[key as ZoneKey]?.card));
+  const revealed = new Set([...shown.current.reading].filter(key => cells[key as ZoneKey]?.card && !reading(cells[key as ZoneKey].card)));
+  useEffect(() => {
+    const keys = Object.keys(view) as ZoneKey[];
+    shown.current = {
+      ghost: new Set(keys.filter(key => !cells[key].card && view[key].card && !isPile(key))),
+      reading: new Set(keys.filter(key => !isPile(key) && (reading(cells[key].card) || (!cells[key].card && view[key].card?.faceUp)))),
+    };
+  });
   const backs=useFieldBacks(seat),missingPiles=useMissingPiles(seat);
   const landed = useLanded(twin);
   const [dragging, setDragging] = useState<{ ref: string; x: number; y: number; over: ZoneKey | null; verdict: Verdict["kind"] | null } | null>(null);
@@ -125,7 +134,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
     const start = { x: event.clientX, y: event.clientY }; const id = event.pointerId; let started = false;
     const hit = (x: number, y: number): ZoneKey | null => {
       const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-zone][data-seat]");
-      return el && Number(el.dataset.seat) === seat ? (el.dataset.zone as ZoneKey) : null;
+      return el && Number(el.dataset.seat) === seat && !el.dataset.ghost ? (el.dataset.zone as ZoneKey) : null;
     };
     const onMove = (e: PointerEvent) => {
       if (e.pointerId !== id) return;
@@ -140,7 +149,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
       swallow.current = true; setTimeout(() => { swallow.current = false; }, 60);
       setDragging(null);
       const over = cancelled ? null : hit(e.clientX, e.clientY);
-      if (over) dnd.drop(card, over, dnd.judge(card, over));
+      if (over) { dropped.current = { ref: card.ref, at: Date.now() }; dnd.drop(card, over, dnd.judge(card, over)); }
     };
     const up = (e: PointerEvent) => finish(e, false); const cancel = (e: PointerEvent) => finish(e, true);
     // A long press opens the card menu. It wins over a drag that starts after the pause.
@@ -156,7 +165,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   }
   function dropCarried(key: ZoneKey) {
     const card = carried; setCarry(null);
-    if (card && dnd) dnd.drop(card, key, dnd.judge(card, key));
+    if (card && dnd) { dropped.current = { ref: card.ref, at: Date.now() }; dnd.drop(card, key, dnd.judge(card, key)); }
   }
   function move(event: KeyboardEvent<HTMLDivElement>, key: ZoneKey) {
     let next: ZoneKey | null = null;
@@ -183,9 +192,9 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
     }
     const card = cells[key].card;
     if (carried && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCarry(null); return; }
-    if (carried && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); dropCarried(key); return; }
+    if (carried && !event.currentTarget.dataset.ghost && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); dropCarried(key); return; }
     if ((event.key === "m" || event.key === "M") && !event.ctrlKey && !event.metaKey && !event.altKey && card && dnd?.can(card) && !isPile(key)) { event.preventDefault(); setCarry(card.ref); return; }
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(key, card, event.currentTarget); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (event.currentTarget.dataset.ghost) return; activate(key, card, event.currentTarget); }
     else if ((event.key === "a" || event.key === "A") && !event.ctrlKey && !event.metaKey && card) { event.preventDefault(); onAttack(key, card); }
     else if ((event.key === "i" || event.key === "I") && card) { event.preventDefault(); onInspect(card); }
   }
@@ -217,7 +226,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const dropClass = dragging?.over === key && dragging.verdict ? VERDICT_CLASS[dragging.verdict] : carriedHere && dnd ? VERDICT_CLASS[dnd.judge(carried!, key).kind] : "";
         const stacked=pile&&(cell.count>=2||((key==='deck'||key==='ex')&&((deckListSizes?.[key==='deck'?'deck':'extra']??0)>=2||deckRegistered)));
         const classes = [s.zc, stacked?s.pileStack:'', dropClass, card && dnd?.can(card) && !isPile(key) ? s.drg : "", card && (dragging?.ref === card.ref || carry === card.ref) ? s.dragSrc : "", emzCell ? s.ez : "", taken ? s.taken : "", card && !down ? s.clk : "", defense ? s.def : "", card && card.ref === selectedRef ? s.sel : "", card && card.ref === targetRef ? s.tgt : "",
-          picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef ? s.scanin : "", card && landed.has(card.ref) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : ""].filter(Boolean).join(" ");
+          picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
         if (ghost) desc = ghost.faceUp ? "reading a card" : "a face-down card";
         let inner: React.ReactNode = ghost ? <GhostCard faceUp={ghost.faceUp} /> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
@@ -247,7 +256,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         if (card?.equippedTo) desc += `. Equipped to ${target ? nameOf(target) : "a monster"}`;
         if (equipped.length) desc += `. Equipped with ${equipped.map(nameOf).join(", ")}`;
         return <div key={key} className={classes} style={offMat?{opacity:.35}:undefined} data-off-mat={offMat?'on':undefined} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-ref={card && !pile ? card.ref : undefined} data-up={card?.faceUp ? "1" : "0"} data-def={defense ? "1" : "0"} data-ghost={ghost ? "on" : undefined} data-row={emzCell ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
-          title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
+          title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (ghost) return; if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
           {inner}
           {zoneCheck ? <span className={`${z.check} ${down ? z.checkHigh : ""}`} data-testid="zone-check" title={`${zoneCheck} Click the card for details.`}><span aria-hidden="true" className={z.checkIcon}>?</span><span className={z.checkText}>Check zone?</span></span> : null}
           {card?.equippedTo ? <span className={z.link} data-testid="equip-link" title={`Equipped to ${target ? nameOf(target) : "a monster"}`}>Equip → {target ? nameOf(target) : "monster"}</span>

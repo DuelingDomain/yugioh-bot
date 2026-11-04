@@ -161,7 +161,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
                   choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
-                {mine && editable ? <LobbyDeckList disabled={busy} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}
+                {mine && editable ? <LobbyDeckList disabled={busy} mode={current.id === "normal" ? "standard" : (current.id as "domain" | "genesys" | "genesys-domain")} seated={!!seat.deck} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}
                 {seat.deck ? <p className={r.listOn} data-testid={`deck-list-on-${seat.seat}`}>Deck list: on · {seat.deck.deck.main.length + seat.deck.deck.extra.length} cards</p> : null}
                 {seat.deck?.validation.issues.length ? <ul className={r.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>
                   : seat.deck ? <p className={r.valid}><CheckCircle2 size={14} strokeWidth={1.7} aria-hidden />Valid for this table.</p> : null}

@@ -69,7 +69,8 @@ export function useRemoteRoom(slug: string) {
     try {
       await remoteApi(`/${slug}/${path}`, body);
       if (path === "leave") router.push("/duels/remote"); else await mutate();
-    } catch (e) { setError((e as Error).message); void mutate(); } finally { setBusy(false); }
+      return true;
+    } catch (e) { setError((e as Error).message); void mutate(); return false; } finally { setBusy(false); }
   }, [slug, router, mutate]);
 
   /** Lobby-only host setting; the server validates permissions and clears Ready marks. */
