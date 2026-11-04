@@ -21,7 +21,8 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
    When the top leaves or moves off, `under` clears and the normal rules apply (seen again = visible; not seen in 2
    scans = removed). An identified track whose look matches an outline wins that outline over a closer track whose
    look does not match (the top card keeps its own ref). A new outline over a confirmed card that reads as that card,
-   or does not read sure (glare, shadow, a turn), merges back into it: no new ref, no `placed`. Any battle position.
+   or reads not sure but has the same look (other light, a turn), merges back into it: no new ref, no `placed`. A new
+   look with an unsure read is a new card (best match). Any battle position.
 2. **Summon window (glue, 5 s).** The glue keeps, per seat: covered monsters (face-up, M/EMZ) and *vanished* monsters
    (face-up M/EMZ removed events). Vanished cards still go to the hand at once (rule 4); a summon re-routes them.
 3. **Xyz Summon.** An Xyz Monster (catalog type) placed in M/EMZ, with 2+ materials (covered under it, or vanished up
@@ -37,13 +38,17 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
    card counts only while it is still out of view in the hand. After placement, attach only while below the minimum
    (Xyz: only a card over the Xyz box). Invalid materials in a camera `twin.place` are skipped, not fatal.
 5. **Default.** Outside a summon, a vanished card goes to the hand as today. A card moved on top of another card
-   waits 5 s for a summon; then the card under it goes to the hand (toast with Undo) and the top card moves.
+   waits 5 s for a summon. Then, only if the camera still sees the same stack (nothing on top, the top not moved
+   back), the card under it goes to the hand ("Name → hand (covered)") and the top card moves. One Undo reverts both;
+   the camera then leaves that stack alone. An Xyz put on the stack later (30 s) still takes the card from the hand.
+   An Xyz material put in the GY / banished pile is detached there (no second copy).
 6. **GY/banished pile (a log, not a picture).** The camera only confirms the top and adds new tops.
    - Pile lift (`pile.lift`, toast with Undo) only after >= 2 s of sharp frames (blur gate from `feat/remote-detect-fix`
      only), no hand, no outline, and a spot that no longer looks like the pile.
    - A top that looks the same = no change. A lower card seen on top = the cards above it left (existing rule).
    - A top that cannot be read: unsure reads get a best match (as on the field); a low match pushes an unnamed card.
-   - A new pile card needs entry evidence (a hand over the pile up to 10 s before, camera running > 2 s); a re-read
+   - A new pile card needs entry evidence (camera running > 2 s, and a hand over the pile from 10 s before, or a sure
+     read that differs from the current top); a re-read
      after a restart binds to the current top. An unread "Unknown" top is a log entry too (never renamed by the next).
    - Pile viewer: newer/older (`pile.order`), "Name it" (`card.identified`), "Remove from pile" (`twin.remove`).
      For 3 s after a reorder the camera does not take cards out of that pile.

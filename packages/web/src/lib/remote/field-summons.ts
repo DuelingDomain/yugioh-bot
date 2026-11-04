@@ -6,6 +6,8 @@ export type FieldVanish = { ref: string; at: number };
 /** Summon window: materials that went under the card or left the field up to 5 s before its first outline (or after its placement). */
 export const SUMMON_WINDOW_MS = 5000;
 const MONSTER_ZONES = new Set(['monster', 'extra-monster']);
+/** Same as the server: a monster the camera moved off the field this long ago can still be a material. */
+export const SUMMON_DEPARTURE_MS = 30_000;
 
 /** Xyz / Synchro / Link / Fusion from the catalog type line, else undefined. Link rating is `level` for Link Monsters. */
 export function fieldSummonKind(facts: FieldZoneFacts | undefined): { kind: RemoteSummonKind; rating?: number } | undefined {
@@ -29,13 +31,16 @@ export const fieldSummonMinimum = (kind: RemoteSummonKind) => kind === 'link' ? 
  *   a pile), newest first, only as many as needed (Link: up to its rating; others: up to the minimum).
  * Undefined = no summon (the default rules apply).
  */
-export function fieldSummonMaterials({ kind, rating, covered, vanished, firstSeen, twins, removed }: {
+export function fieldSummonMaterials({ kind, rating, covered, vanished, firstSeen, twins, removed, now }: {
   kind: RemoteSummonKind; rating?: number; covered: readonly string[]; vanished: readonly FieldVanish[]; firstSeen: number; twins: readonly TwinCard[];
   /** True while the camera still has this card out of view. */ removed: (ref: string) => boolean;
+  /** Server time: a covered card that the default sent to the hand (held stack) still counts for 30 s. */ now: number;
 }): string[] | undefined {
   const find = (ref: string) => twins.find(c => c.ref === ref);
   const holder = (ref: string) => { const card = find(ref); return card?.zone === 'material' && card.materialOf ? card.materialOf : ref; };
-  const onField = (card: TwinCard | undefined) => !!card && card.faceUp && MONSTER_ZONES.has(card.zone);
+  const justLeft = (card: TwinCard) => card.zone === 'hand' && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone) &&
+    card.departedFrom.at !== undefined && now - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
+  const onField = (card: TwinCard | undefined) => !!card && (card.faceUp && MONSTER_ZONES.has(card.zone) || justLeft(card));
   const under = [...new Set(covered.map(holder))].filter(ref => onField(find(ref)));
   // A rank-up needs the Xyz under it, not 2 cards; the carried materials move with it on the server.
   const rankUp = kind === 'xyz' && under.some(ref => !!find(ref)?.materials?.length);
@@ -54,4 +59,16 @@ export function fieldSummonMaterials({ kind, rating, covered, vanished, firstSee
 export function fieldSummonNotice(kind: RemoteSummonKind, name: string, materials: readonly string[]): string {
   const label = kind === 'xyz' ? 'Xyz Summon' : `${kind[0].toUpperCase()}${kind.slice(1)} Summon`;
   return kind === 'xyz' ? `${label}: ${name} (${materials.length} material${materials.length === 1 ? '' : 's'})` : `${label}: ${materials.join(' + ')} → ${name} (materials to GY)`;
+}
+
+/**
+ * The 5 s stack hold ended: apply the default only if the camera still sees the same stack. The top card is still in
+ * that zone and seen, nothing new lies on it (no Xyz arrived), the card under it is still under it and still in its slot.
+ */
+export function heldStackStillStacked({ mover, zone, under, below, location }: {
+  mover: { visible?: boolean; removed?: boolean; zone: string; under?: string } | undefined; zone: string; under: readonly string[];
+  below: TwinCard | undefined; location: { zone: string; slot?: number };
+}): boolean {
+  return !!mover && !!mover.visible && !mover.removed && !mover.under && mover.zone === zone && !!below && under.includes(below.ref) &&
+    below.zone === location.zone && below.slot === location.slot;
 }
