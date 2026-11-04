@@ -978,11 +978,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // Follow physical lifts. Pile history needs touch or top-change evidence;
           // an unchanged top remains a separate copy from a new field outline.
           const known=options.getKnownCards?.();
-          // A new outline on top of a confirmed card that reads as that card, or does not read sure (glare, shadow, a turn to
-          // the other battle position), is that card: it takes the outline back. No new ref, no "placed".
+          // A new outline on top of a confirmed card that reads as that card (glare, shadow, a turn to the other battle
+          // position) is that card: it takes the outline back. No new ref, no "placed".
           const lies=(o:InternalTrack)=>{const a=boundsOf(o.view.card.quad),b=boundsOf(c.quad),cx=a.x+a.w/2,cy=a.y+a.h/2;return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;};
           const beneath=t.newOutline&&!t.binding?tracks.find(o=>o!==t&&bound(o)&&!o.view.removed&&!o.view.visible&&fieldSlot(o.view.zone)&&(o.under===t.view.id||!matched.has(o)&&lies(o))):undefined;
-          if(beneath&&(winner===beneath.view.cardId||result?.tier!=='sure')){
+          // Merge only on the same identity, or on a read that is not sure while the look is the same card in other light
+          // or turned. A different look with an unsure read is a new card on top (best match / prompt, as on the field).
+          const sameLook=!!beneath&&(sameRotatedFieldAppearance(beneath.identityAppearance,pixels)||sameShadedFieldAppearance(beneath.identityAppearance,pixels));
+          if(beneath&&(winner===beneath.view.cardId||result?.tier!=='sure'&&sameLook)){
             beneath.under=undefined;delete beneath.view.under;beneath.identityAppearance=pixels;beneath.appearance=pixels;beneath.lookUpright=upright(c);
             beneath.view.card=c;beneath.view.visible=true;beneath.view.lastSeen=sample.at;beneath.missed=false;beneath.fullMisses=0;resetAbsence(beneath);
             t.best=undefined;tracks.splice(tracks.indexOf(t),1);note(beneath,'the same card again (light or a turn)');continue;
