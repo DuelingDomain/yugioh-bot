@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CAMERA_LOCK_INITIAL, CameraLock, measureCameraLight, type CameraPoint } from './camera-lock';
+import { CAMERA_LOCK_INITIAL, CameraLock, cameraFrameCounter, measureCameraLight, type CameraPoint } from './camera-lock';
 
 type LightSource = { corners?: () => readonly CameraPoint[] | undefined; video?: () => HTMLVideoElement | null };
 
@@ -14,7 +14,11 @@ export function useCameraLock(track: MediaStreamTrack | undefined, userKey: stri
     setSnapshot(CAMERA_LOCK_INITIAL);
     if (!track) return;
     let ownVideo: HTMLVideoElement | undefined;
-    const stopMeasurement = () => { if (ownVideo) { ownVideo.pause(); ownVideo.srcObject = null; } };
+    let frames: { video: HTMLVideoElement; counter: ReturnType<typeof cameraFrameCounter> } | undefined;
+    const stopMeasurement = () => {
+      frames?.counter.stop(); frames = undefined;
+      if (ownVideo) { ownVideo.pause(); ownVideo.srcObject = null; }
+    };
     const canvas = document.createElement('canvas'), context = canvas.getContext('2d', { willReadFrequently: true });
     const lock = new CameraLock(track, userKey, setSnapshot, () => {
       if (document.hidden || !context) return null;
@@ -28,10 +32,12 @@ export function useCameraLock(track: MediaStreamTrack | undefined, userKey: stri
         video = ownVideo;
       }
       if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+      if (frames?.video !== video) { frames?.counter.stop(); frames = { video, counter: cameraFrameCounter(video) }; }
       canvas.width = 320; canvas.height = Math.max(1, Math.round(320 * video.videoHeight / video.videoWidth));
       context.imageSmoothingEnabled = false;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      return measureCameraLight(context.getImageData(0, 0, canvas.width, canvas.height), latest.current?.corners?.());
+      const light = measureCameraLight(context.getImageData(0, 0, canvas.width, canvas.height), latest.current?.corners?.());
+      return light ? { ...light, frameTime: frames.counter.read() } : null;
     }, stopMeasurement);
     controller.current = lock; lock.start();
     return () => { lock.dispose(); if (controller.current === lock) controller.current = null; stopMeasurement(); };

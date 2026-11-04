@@ -16,7 +16,7 @@ export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraL
       </button>
       {lock.supported ? <button type="button" className={s.button} disabled={!lock.available || !lock.enabled || lock.busy} onClick={() => void lock.relock()}>Re-lock</button> : null}
     </div>
-    <p id={hint} className={s.note} role="status">{!lock.available ? 'Camera lock works only with a webcam on this computer.' : lock.busy ? lock.note : !lock.supported ? 'Not supported by this browser or camera' : lock.note || (lock.enabled ? '' : 'Camera lock is off.')}</p>
+    <p id={hint} className={s.note} role="status">{!lock.available ? 'Camera lock works only with a webcam on this computer.' : lock.note || (!lock.supported ? 'Not supported by this browser or camera' : lock.enabled ? '' : 'Camera lock is off.')}</p>
   </div>;
 }
 

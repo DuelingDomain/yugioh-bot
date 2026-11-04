@@ -24,6 +24,7 @@ vi.mock("livekit-client", () => ({
     getDeviceId: async () => "camera-a", isMuted: false, on: () => undefined }),
 }));
 import { RemoteVideo,type RecognizeRawFeed } from "../src/lib/remote/video";
+import { CameraLock, cameraFrameCounter, type CameraLight } from "../src/lib/remote/camera-lock";
 afterEach(() => { media.raw.readyState = "live"; vi.unstubAllGlobals(); vi.clearAllMocks(); });
 async function connected(recognize?:ConstructorParameters<typeof RemoteVideo>[0]["recognize"]) {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ seat: 0, room: "remote-t", url: "ws://local", token: "test" })));
@@ -108,4 +109,108 @@ it('uses the owner cache for ordinary requests and bypasses it only for an expli
   await video.requestRecognition(0,.3,.3);expect(recognize).not.toHaveBeenCalled();
   await new Promise(done=>setTimeout(done,110));await video.requestRecognition(0,.3,.3,true);
   expect(recognize).toHaveBeenCalledOnce();expect(recognize.mock.calls[0][0].request.force).toBe(true);await video.stop();
+});
+
+it('keeps the auto picture when a webcam reports stale exposure or delays its manual frames', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('document', Object.assign(new EventTarget(), { hidden: false }));
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
+  const scenarios = [
+    { name: 'stale minimum', stale: 1, live: 200, locks: true },
+    { name: 'Windows quantization', stale: 1.220703125, live: 156.25, quantum: true, locks: true },
+    { name: 'overbright default', stale: 800, live: 100, locks: true },
+    { name: 'queued auto frames', stale: 1, live: 200, frameDelay: 700, locks: true },
+    { name: 'advancing buffered auto frames', stale: 1, live: 200, frameDelay: 700, queuedAdvancing: true, locks: true },
+    { name: 'no new frames', stale: 1, live: 200, frameDelay: Infinity, locks: false },
+    { name: 'ineffective exposure', stale: 1, live: 200, ineffective: true, locks: false },
+    { name: 'negative driver range', stale: -10, live: 200, negative: true, locks: false },
+    { name: 'rejected manual write', stale: 1, live: 200, reject: true, locks: false },
+    { name: 'late manual write', stale: 1, live: 200, writeDelay: 700, locks: false },
+    { name: 'unverified glare rollback', stale: 100, live: 100, glare: true, locks: true },
+  ];
+  try {
+    for (const scenario of scenarios) {
+      let mode = 'continuous', exposure = scenario.stale, manualAt = Infinity, glare = false, darkRollback = false;
+      let presentFrame = () => {}, lastFrameAt = -Infinity;
+      const video = {
+        // Chrome's playback clock keeps advancing even when camera pixels stop arriving.
+        get currentTime() { return Date.now() / 1000; },
+        requestVideoFrameCallback(callback: VideoFrameRequestCallback) { presentFrame = () => callback(Date.now(), {} as VideoFrameCallbackMetadata); return 1; },
+        cancelVideoFrameCallback() { presentFrame = () => {}; },
+      } as HTMLVideoElement;
+      const frames = cameraFrameCounter(video);
+      const writes: { at: number; exposure: number }[] = [];
+      const range = scenario.negative ? { min: -13, max: -1, step: 1 }
+        : scenario.quantum ? { min: 1.220703125, max: 1250, step: 2 } : { min: 1, max: 10000, step: 1 };
+      const track = {
+        readyState: 'live', label: scenario.name, addEventListener() {}, removeEventListener() {},
+        getConstraints: () => ({ width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { exact: 30 } }),
+        getCapabilities: () => ({ exposureMode: ['continuous', 'manual'], exposureTime: range }),
+        getSettings: () => ({ exposureMode: mode, exposureTime: mode === 'continuous' ? scenario.stale : exposure }),
+        async applyConstraints(constraints: MediaTrackConstraints) {
+          expect(constraints.width).toEqual({ exact: 1920 });
+          for (const value of constraints.advanced ?? []) {
+            const control = value as { exposureMode?: string; exposureTime?: number };
+            if (control.exposureMode === 'continuous') { mode = 'continuous'; darkRollback = false; }
+            if (control.exposureMode === 'manual') {
+              if (scenario.reject) throw new Error('Driver rejected manual exposure');
+              if (scenario.writeDelay) await new Promise(done => setTimeout(done, scenario.writeDelay));
+              if (mode !== 'manual') manualAt = Date.now();
+              mode = 'manual';
+              if (control.exposureTime !== undefined) {
+                writes.push({ at: Date.now(), exposure: control.exposureTime });
+                exposure = scenario.quantum ? 10000 * 2 ** Math.trunc(Math.log2(control.exposureTime / 10000)) : control.exposureTime;
+                if (glare && exposure < scenario.live) darkRollback = true;
+              }
+            }
+          }
+        },
+      } as unknown as MediaStreamTrack;
+      const measure = (): CameraLight & { frameTime: number } => {
+        const queued = mode === 'manual' && Date.now() - manualAt < (scenario.frameDelay ?? 0);
+        if (Date.now() !== lastFrameAt && (!queued || scenario.queuedAdvancing)) { lastFrameAt = Date.now(); presentFrame(); }
+        const mean = mode === 'continuous' || queued ? 100 : darkRollback || scenario.ineffective ? 8 : Math.min(255, 100 * exposure / scenario.live);
+        return { mean, clipped: glare ? .15 : 0, sharpness: 100 * (mean / 100) ** 2, colour: [1/3, 1/3, 1/3],
+          frameTime: frames.read() };
+      };
+      const lock = new CameraLock(track, scenario.name, () => undefined, measure);
+      try {
+        lock.start();
+        // Stop at the first completed lock/fallback, before the glare monitoring window ends.
+        for (let elapsed = 0; elapsed < 8000 && lock.getSnapshot().busy; elapsed += 50) await vi.advanceTimersByTimeAsync(50);
+        expect(lock.getSnapshot().busy, scenario.name).toBe(false);
+        expect(lock.getSnapshot().locked, scenario.name).toBe(scenario.locks);
+        if (scenario.locks) {
+          expect(measure().mean / 100, scenario.name).toBeGreaterThanOrEqual(.75);
+          expect(measure().mean / 100, scenario.name).toBeLessThanOrEqual(1.33);
+          expect(mode, scenario.name).toBe('manual');
+        } else {
+          expect(mode, scenario.name).toBe('continuous');
+          expect(measure().mean, scenario.name).toBe(100);
+          expect(lock.getSnapshot().note, scenario.name).toBe('Camera lock not supported — auto kept');
+          if (writes.length && !scenario.writeDelay) expect(Date.now() - writes[0].at, scenario.name).toBeLessThanOrEqual(1600);
+        }
+        if (scenario.negative) expect(writes, scenario.name).toHaveLength(0);
+        if (scenario.writeDelay) {
+          await vi.advanceTimersByTimeAsync(1000);
+          expect(mode, scenario.name).toBe('continuous');
+          expect(lock.getSnapshot().note, scenario.name).toBe('Camera lock not supported — auto kept');
+        }
+        if (scenario.glare) {
+          glare = true;
+          await vi.advanceTimersByTimeAsync(3500);
+          expect(mode).toBe('continuous');
+          expect(measure().mean).toBe(100);
+          expect(lock.getSnapshot().locked).toBe(false);
+          expect(writes.length).toBeLessThanOrEqual(5);
+        }
+        if (scenario.frameDelay === 700) expect(Date.now() - writes[0].at).toBeGreaterThanOrEqual(700);
+      } finally {
+        await lock.release(); await vi.runOnlyPendingTimersAsync();
+        frames.stop();
+        expect(mode, `${scenario.name}: release/late write`).toBe('continuous');
+      }
+    }
+  } finally { vi.useRealTimers(); }
 });

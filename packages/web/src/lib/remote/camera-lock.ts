@@ -13,7 +13,23 @@ const CONTROLS: { mode: Mode; value: Value }[] = [
 export type CameraLockSnapshot = { supported: boolean; enabled: boolean; locked: boolean; busy: boolean; note: string; debug?: string };
 export const CAMERA_LOCK_INITIAL: CameraLockSnapshot = { supported: false, enabled: true, locked: false, busy: false, note: '' };
 export type CameraPoint = { x: number; y: number };
-export type CameraLight = { clipped: number; mean: number; sharpness: number; colour: number[] };
+export type CameraLight = { clipped: number; mean: number; sharpness: number; colour: number[]; frameTime?: number };
+
+/** Playback currentTime can advance without new camera pixels; count delivered frames instead. */
+export function cameraFrameCounter(video: HTMLVideoElement) {
+  let frame = 0, request: number | undefined, active = true;
+  const callbacks = typeof video.requestVideoFrameCallback === 'function';
+  const presented = () => {
+    if (!active) return;
+    frame++;
+    request = video.requestVideoFrameCallback(presented);
+  };
+  if (callbacks) request = video.requestVideoFrameCallback(presented);
+  return {
+    read: () => callbacks ? frame : video.getVideoPlaybackQuality?.().totalVideoFrames ?? 0,
+    stop() { active = false; if (request !== undefined) video.cancelVideoFrameCallback(request); },
+  };
+}
 
 /** Measure the convex mat quad (or centre 70%): luminance, clipping, colour and Laplacian variance. */
 export function measureCameraLight({ data, width, height }: Pick<ImageData, 'data' | 'width' | 'height'>, corners?: readonly CameraPoint[]): CameraLight | null {
@@ -50,12 +66,25 @@ function capabilities(track: MediaStreamTrack): CameraCapabilities {
 function settings(track: MediaStreamTrack): CameraSettings {
   try { return track.getSettings?.() ?? {}; } catch { return {}; }
 }
+function exposureRange(track: MediaStreamTrack): Range | undefined {
+  const range = capabilities(track).exposureTime;
+  // Web exposureTime is in 100 µs, even on Windows (Chrome converts log2 seconds).
+  // A nonpositive/invalid range has unknown semantics: keep auto rather than guessing units.
+  return range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min > 0 && range.max > range.min ? range : undefined;
+}
+function exposureTarget(range: Range, desired: number) {
+  const step = range.step && Number.isFinite(range.step) && range.step > 0 ? range.step : 1;
+  return Number(Math.max(range.min, Math.min(range.max, range.min + Math.round((desired - range.min) / step) * step)).toPrecision(12));
+}
+function sameFrame(a: CameraLight, b: CameraLight) { return a.frameTime !== undefined && a.frameTime === b.frameTime; }
+function sameLight(a: CameraLight, b: CameraLight) { return Math.abs(a.mean - b.mean) / Math.max(1, a.mean) < .03; }
 function controls(track: MediaStreamTrack): Control[] {
   const caps = capabilities(track), current = settings(track);
   return CONTROLS.flatMap<Control>(({ mode, value }) => {
     const modes = caps[mode], range = caps[value], number = current[value];
     // Only freeze controls that can also return to auto.
     if (!modes?.includes('continuous')) return [];
+    if (mode === 'exposureMode' && !exposureRange(track)) return [];
     if (modes.includes('manual') && range && Number.isFinite(number) && number! >= range.min && number! <= range.max)
       return [{ mode, value, target: 'manual', current: number }];
     if (mode === 'focusMode' && modes.includes('single-shot')) return [{ mode, value, target: 'single-shot' }];
@@ -142,12 +171,12 @@ export class CameraLock {
     if (this.closed) return;
     this.snapshot = { ...this.snapshot, ...value }; this.changed(this.snapshot);
   }
-  private apply(values: object[], generation?: number) {
+  private apply(values: object[], generation?: number, timeout = 500) {
     return cameraWork(this.track, async () => {
       if (this.track.readyState !== 'live' || (generation !== undefined && !this.active(generation))) return;
       if (generation !== undefined && (this.lateWrites || pendingCapture.has(this.track))) throw new CameraTimeout('A previous camera setting is still pending');
       const write = this.track.applyConstraints({ ...this.track.getConstraints(), advanced: values as MediaTrackConstraintSet[] });
-      try { await bounded(write, 500); }
+      try { await bounded(write, timeout); }
       catch (error) {
         if (error instanceof CameraTimeout) {
           // A timeout cannot cancel a driver write. Block new locks and undo it again when it completes.
@@ -163,7 +192,7 @@ export class CameraLock {
             }
             catch { this.restoreFailed(); }
             finally { this.lateWrites--; }
-            if (restored && this.live()) this.patch({ busy: false, locked: false, note: 'A camera setting was delayed. The camera stays on auto. Try Re-lock.' });
+            if (restored && this.live()) this.patch({ busy: false, locked: false, note: 'Camera lock not supported — auto kept' });
           };
           void write.then(compensate, compensate);
         }
@@ -172,13 +201,13 @@ export class CameraLock {
     });
   }
   private cancel() { ++this.generation; clearTimeout(this.timer); this.wake?.(); this.wake = undefined; this.stopMeasurement?.(); }
-  private delay(ms: number) {
+  private delay(ms: number, pauseWhenHidden = true) {
     return new Promise<void>(resolve => {
       const finish = () => { document.removeEventListener('visibilitychange', visible); this.wake = undefined; resolve(); };
       const visible = () => { if (!document.hidden) finish(); };
       this.wake = finish;
       // Pause measurements while hidden. Keep the current camera controls and lock.
-      this.timer = setTimeout(() => { if (document.hidden) document.addEventListener('visibilitychange', visible); else finish(); }, ms);
+      this.timer = setTimeout(() => { if (pauseWhenHidden && document.hidden) document.addEventListener('visibilitychange', visible); else finish(); }, ms);
     });
   }
   private ended = () => { this.cancel(); this.patch({ supported: false, locked: false, busy: false, note: 'Camera stopped.' }); };
@@ -206,7 +235,7 @@ export class CameraLock {
   private sample() {
     try {
       const light = this.measure?.();
-      return light && [light.mean, light.clipped, light.sharpness, ...light.colour].every(Number.isFinite) ? light : null;
+      return light && [light.mean, light.clipped, light.sharpness, ...light.colour, light.frameTime ?? 0].every(Number.isFinite) ? light : null;
     } catch { return null; }
   }
   private async stable(generation: number) {
@@ -216,93 +245,122 @@ export class CameraLock {
       await this.delay(500);
       if (!this.active(generation)) return null;
       const light = this.sample();
-      if (light && previous && light.mean >= 50 && light.mean <= 220 && Math.abs(light.mean - previous.mean) / Math.max(1, previous.mean) < .03) return light;
+      if (light && previous && !sameFrame(previous, light) && light.mean >= 50 && light.mean <= 220 && sameLight(previous, light)) return light;
       previous = light;
     }
     return null;
   }
-  private acceptable(before: CameraLight, after: CameraLight, allowGlare = false, glareAdjusted = false) {
+  /** Ignore queued/paused frames; require two fresh, settled samples after every write. */
+  private async settled(generation: number, deadline: number) {
+    const first = this.sample();
+    let previous: CameraLight | null = null;
+    while (this.active(generation) && Date.now() < deadline) {
+      // Unlike auto settling, manual validation must time out even in a hidden tab.
+      await this.delay(Math.min(150, deadline - Date.now()), false);
+      if (!this.active(generation)) return null;
+      const light = this.sample();
+      if (!light || (first && sameFrame(first, light)) || (previous && sameFrame(previous, light))) continue;
+      if (previous && sameLight(previous, light)) return light;
+      previous = light;
+    }
+    return null;
+  }
+  private async matchBrightness(generation: number, before: CameraLight, deadline: number) {
+    while (this.active(generation) && Date.now() < deadline) {
+      const light = await this.settled(generation, deadline);
+      if (!light || !this.active(generation)) return null;
+      this.patch({ debug: `camera: auto mean ${Math.round(before.mean)}, manual mean ${Math.round(light.mean)}; exposure ${settings(this.track).exposureTime ?? '–'}` });
+      const ratio = light.mean / before.mean;
+      if (ratio >= .75 && ratio <= 1.33) {
+        // A video can advance through buffered auto frames before manual exposure reaches it.
+        // Observe at least the first 750 ms of the 1.5 s budget before accepting a lock.
+        if (Date.now() >= deadline - 750) return light;
+        continue;
+      }
+      const current = settings(this.track), exposure = current.exposureTime, range = exposureRange(this.track);
+      if (current.exposureMode !== 'manual' || !range || !Number.isFinite(exposure) || exposure! < range.min || exposure! > range.max) return null;
+      // getSettings() in continuous mode is a cached/default value, not a live AE reading.
+      // Use pixels as feedback and the browser's advertised range/step, never a Windows unit conversion.
+      const target = exposureTarget(range, exposure! * before.mean / Math.max(1, light.mean));
+      if (target === exposure || (target - exposure!) * (before.mean - light.mean) <= 0 || Date.now() >= deadline) return null;
+      await this.apply([{ exposureMode: 'manual', exposureTime: target }], generation, Math.min(500, deadline - Date.now()));
+    }
+    return null;
+  }
+  private acceptable(before: CameraLight, after: CameraLight) {
     // A darker exposure reduces Laplacian variance quadratically even when focus stays fixed.
-    const sharpness = after.sharpness * (glareAdjusted ? (before.mean / Math.max(1, after.mean)) ** 2 : 1);
-    return after.mean >= 50 && after.mean <= 220 && Math.abs(after.mean - before.mean) / Math.max(1, before.mean) <= (glareAdjusted ? .25 : .2)
-      && (allowGlare || after.clipped <= .03) && sharpness >= Math.max(1, before.sharpness * .7)
+    const sharpness = after.sharpness * (before.mean / Math.max(1, after.mean)) ** 2;
+    return after.mean >= 50 && after.mean <= 220 && after.mean / before.mean >= .75 && after.mean / before.mean <= 1.33
+      && sharpness >= Math.max(1, before.sharpness * .7)
       && after.colour.every((value, i) => Math.abs(value - before.colour[i]) <= .06);
   }
   private settle() {
     if (!this.live()) return;
     this.cancel(); const generation = this.generation;
     this.patch({ busy: true, locked: false, note: 'Checking the picture…', debug: undefined });
-    void this.lock(generation).catch(() => { if (this.active(generation)) this.restoreFailed(); }).finally(() => { if (generation === this.generation) this.stopMeasurement?.(); });
+    void this.lock(generation).catch(async () => {
+      if (this.active(generation)) try { await this.autoKept(generation); } catch { this.restoreFailed(); }
+    }).finally(() => { if (generation === this.generation) this.stopMeasurement?.(); });
   }
   private async lock(generation: number) {
-    for (let attempt = 0; attempt < 3 && this.active(generation); attempt++) {
-      await this.restore();
-      if (!this.active(generation)) return;
-      const before = await this.stable(generation);
-      if (!this.active(generation)) return;
-      const candidates = controls(this.track);
-      this.patch({ supported: candidates.length > 0 });
-      if (!candidates.length) { this.patch({ busy: false, note: '' }); return; }
-      if (!before || before.sharpness < 1) continue;
-      try {
-        await this.apply(candidates.map(({ mode, value, target, current }) => ({ [mode]: target, ...(current === undefined ? {} : { [value]: current }) })), generation);
-        await this.delay(1000);
-        if (!this.active(generation)) return;
-        const after = this.sample(), current = settings(this.track);
-        const applied = candidates.filter(control => current[control.mode] === control.target);
-        if (after && this.acceptable(before, after, true) && applied.length) {
-          if (after.clipped > .03) {
-            await this.watchGlare(generation, before);
-            if (!this.active(generation)) return;
-            const checked = this.sample();
-            if (!checked || !this.acceptable(before, checked, false, true) || settings(this.track).exposureMode !== current.exposureMode) continue;
-          }
-          const locked = candidates.filter(control => settings(this.track)[control.mode] === control.target);
-          this.patch({ locked: locked.length > 0, busy: false, note: `Locked: ${locked.map(control => control.mode.replace('Mode', '')).join(', ')}.` });
-          if (after.clipped <= .03) await this.watchGlare(generation, before);
-          return;
-        }
-      } catch { /* Return every partially accepted control to auto before retrying. */ }
-    }
+    await this.restore();
+    if (!this.active(generation)) return;
+    const before = await this.stable(generation);
+    if (!this.active(generation)) return;
+    const candidates = controls(this.track);
+    this.patch({ supported: candidates.length > 0 });
+    if (!candidates.length || !before || before.sharpness < 1) { await this.autoKept(generation); return; }
+    const deadline = Date.now() + 1500;
+    await this.apply(candidates.map(({ mode, value, target, current }) => ({ [mode]: target, ...(current === undefined ? {} : { [value]: current }) })), generation);
+    const after = await this.matchBrightness(generation, before, deadline);
+    if (!this.active(generation)) return;
+    const current = settings(this.track), applied = candidates.filter(control => current[control.mode] === control.target);
+    if (!after || !this.acceptable(before, after) || !applied.length) { await this.autoKept(generation); return; }
+    this.patch({ locked: true, busy: false, note: `Locked: ${applied.map(control => control.mode.replace('Mode', '')).join(', ')}.` });
+    await this.watchGlare(generation, before);
+  }
+  private async autoKept(generation: number) {
     if (!this.active(generation)) return;
     await this.restore();
-    if (this.active(generation)) this.patch({ busy: false, locked: false, note: 'Camera lock could not keep a clear picture. The camera stays on auto. Try Re-lock.' });
+    if (this.active(generation)) this.patch({ busy: false, locked: false, note: 'Camera lock not supported — auto kept' });
   }
   private async watchGlare(generation: number, before: CameraLight) {
-    const first = { exposure: settings(this.track).exposureTime, light: before }, floor = Math.max(80, .75 * before.mean);
+    const first = { exposure: settings(this.track).exposureTime, light: before }, floor = Math.max(50, .75 * before.mean);
     const deadline = Date.now() + 10000;
-    const report = (light: CameraLight, reason = '') => this.patch({ debug: `camera: exposure ${first.exposure ?? '–'}→${settings(this.track).exposureTime ?? '–'} (100 µs), glare ${Math.round(first.light.clipped * 100)}%→${Math.round(light.clipped * 100)}%, mean ${Math.round(light.mean)}${reason ? `; ${reason}` : ''}` });
-    let light = this.sample();
+    const report = (light: CameraLight, reason = '') => this.patch({ debug: `camera: exposure ${first.exposure ?? '–'}→${settings(this.track).exposureTime ?? '–'} (100 µs), glare ${Math.round(first.light.clipped * 100)}%→${Math.round(light.clipped * 100)}%, mean auto ${Math.round(before.mean)}→${Math.round(light.mean)}${reason ? `; ${reason}` : ''}` });
+    let light = await this.settled(generation, Date.now() + 1000);
     let steps = 0;
-    while (light && this.active(generation)) {
+    while (this.active(generation)) {
+      // Catch a delayed manual transition too: an earlier sample may still have been an auto frame.
+      if (!light || !this.acceptable(before, light)) { await this.autoKept(generation); return; }
       report(light);
       if (steps >= 3 || Date.now() >= deadline) return;
       if (light.clipped <= .03) {
-        await this.delay(1000); if (!this.active(generation)) return;
-        light = this.sample(); continue;
+        await this.delay(500, false); if (!this.active(generation)) return;
+        light = await this.settled(generation, Date.now() + 1000); continue;
       }
-      const current = settings(this.track), exposure = current.exposureTime, range = capabilities(this.track).exposureTime;
+      const current = settings(this.track), exposure = current.exposureTime, range = exposureRange(this.track);
       if (current.exposureMode !== 'manual' || !Number.isFinite(exposure) || !range) return;
-      const quantum = range.step && range.step > 0 ? range.step : 1;
-      const target = Number(Math.max(range.min, range.min + Math.floor((exposure! * .77 - range.min) / quantum) * quantum).toPrecision(12));
+      const target = exposureTarget(range, exposure! * .77);
       if (target >= exposure! || target <= 0 || light.mean * target / exposure! < floor) return;
       steps++;
       let failed = false;
       try { await this.apply([{ exposureMode: 'manual', exposureTime: target }], generation); } catch { failed = true; }
-      await this.delay(1000);
+      const next = await this.settled(generation, Date.now() + 1000);
       if (!this.active(generation)) return;
-      const next = this.sample(), actual = settings(this.track);
-      if (failed || !next || next.mean < floor || next.clipped > light.clipped * .75 || actual.exposureMode !== 'manual' || actual.exposureTime !== target) {
+      const actual = settings(this.track);
+      if (failed || !next || next.mean < floor || !this.acceptable(before, next) || next.clipped > light.clipped * .75 || actual.exposureMode !== 'manual') {
         if (actual.exposureMode !== 'manual') {
-          await this.restore(); if (this.active(generation)) this.patch({ locked: false, note: 'The camera returned to auto during glare control.' });
+          await this.autoKept(generation);
         } else {
           try {
             await this.apply([{ exposureMode: 'manual', exposureTime: exposure }], generation);
+            const restoredLight = await this.settled(generation, Date.now() + 750);
             if (!this.active(generation)) return;
             const restored = settings(this.track);
-            if (restored.exposureMode !== 'manual' || restored.exposureTime !== exposure) throw new Error('Glare rollback was ignored');
+            if (restored.exposureMode !== 'manual' || !restoredLight || restoredLight.mean < floor || !this.acceptable(before, restoredLight)) throw new Error('Glare rollback did not restore the picture');
           } catch {
-            await this.restore(); if (this.active(generation)) this.patch({ locked: false, note: 'Glare control failed. The camera stays on auto.' });
+            await this.autoKept(generation);
           }
         }
         if (!this.active(generation)) return;
