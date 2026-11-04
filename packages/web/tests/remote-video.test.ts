@@ -42,6 +42,7 @@ it("ignores a camera switch that completes after Stop", async () => {
   media.restart.mockImplementation(() => new Promise<void>(done => { finish = done; }));
   const video = await connected();
   const switching = video.selectCamera("camera-b");
+  await vi.waitFor(() => expect(media.restart).toHaveBeenCalled());
   await video.stop(); finish();
   await expect(switching).resolves.toBeUndefined();
   expect(video.rawLocalTrack).toBeUndefined();

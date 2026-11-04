@@ -599,6 +599,19 @@ test.describe("remote lobby camera step", () => {
     await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && !el.paused)).toBe(true);
     const lock = page.getByTestId('camera-lock'), toggle = lock.getByRole('button', { name: 'Camera lock', exact: true });
     await expect(lock).toContainText('Locked:', { timeout: 30_000 });
+    // A tab switch and a cancelled leave must keep the current lock.
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('manual');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('beforeunload'));
+    });
+    await expect(lock).toContainText('Locked:');
+    await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('manual');
     await page.evaluate(() => { (window as any).__camlock.glare = true; });
     await expect.poll(() => page.evaluate(() => (window as any).__camlock.requests.some((value: number) => value < 120))).toBe(true);
     await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureTime)).toBe(120);
@@ -639,6 +652,7 @@ test.describe("remote lobby camera step", () => {
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
         const more = await page.getByTestId('camera-more').boundingBox(); expect(more!.width).toBeGreaterThan(40);
+        expect(await page.getByTestId('camera-more').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }

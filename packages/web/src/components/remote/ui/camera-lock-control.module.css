@@ -10,4 +10,4 @@
 .menu:not(:popover-open){display:none}
 .menu .button{width:auto;height:auto;white-space:normal;padding:6px 9px}
 
-button.more{width:auto;min-width:48px;padding-inline:9px;justify-content:center}
+button.more.more{width:auto;min-width:48px;padding-inline:9px;justify-content:center}
