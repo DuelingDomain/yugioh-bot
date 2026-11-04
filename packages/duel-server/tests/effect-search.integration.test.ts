@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
+import { formatStaples, importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { createCardInsightService } from "@yugidraft/shared/services";
 import { emptyCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
@@ -955,18 +955,33 @@ it.each(["staples", "format staples", "best staples", "hand traps"])("finds meas
 });
 
 it("uses the selected format and preserves real card names and search filters", () => {
-  const domain = search("staples", undefined, { format: "domain" });
-  expect(domain.effectHits?.[0]?.name).toBe("Graceful Charity");
-  expect(domain.effectHits?.every(card => /of Domain decks$/.test(card.reason))).toBe(true);
-  const genesys = search("staples", undefined, { format: "genesys" });
-  // The expanded measured Genesys cohort ranks Skull Meister first (30%).
-  expect(genesys.effectHits?.[0]).toMatchObject({ name: "Skull Meister", reason: "Played in 30% of Genesys decks" });
-  expect(genesys.effectHits?.every(card => /of Genesys decks$/.test(card.reason))).toBe(true);
+  // Weekly refreshes may change the leaders and percentages in every format.
+  for (const [format, label] of [["normal", "TCG"], ["domain", "Domain"], ["genesys", "Genesys"]] as const) {
+    const usage = formatStaples(format);
+    const hits = search("staples", undefined, { format }).effectHits ?? [];
+    expect(hits.length, format).toBeGreaterThan(0);
+    const shares = hits.map(card => {
+      const measured = usage.cards.get(card.canonicalPasscode ?? card.code);
+      expect(measured, `${format}: ${card.name}`).toBeDefined();
+      expect(card.name).toBe(cards.get(card.code)?.name);
+      expect(card.score).toBe(measured!.playShare);
+      expect(card.reason).toBe(`Played in ${Math.round(measured!.playShare * 100)}% of ${label} decks`);
+      return measured!.playShare;
+    });
+    expect(shares).toEqual([...shares].sort((a, b) => b - a));
+
+    const pool = hits.slice(0, 2).map(card => card.code);
+    const filtered = search("staples", pool, { format });
+    expect(filtered.effectTotal).toBe(pool.length);
+    expect(filtered.effectHits?.map(card => card.code)).toEqual(pool);
+    const spells = search("staples", pool, { format, kind: "spell" });
+    const expectedSpells = hits.slice(0, 2).filter(card => (card.type & 2) !== 0).map(card => card.code);
+    expect(spells.effectTotal).toBe(expectedSpells.length);
+    expect(spells.effectHits?.map(card => card.code)).toEqual(expectedSpells);
+  }
   expect(search("Morphtronic Staplen").cards[0]?.name).toBe("Morphtronic Staplen");
   expect(search("Morphtronic Staplen").reading).toBeNull();
   expect(search("staples", []).effectHits).toEqual([]);
-  expect(search("staples", [code("Ash Blossom & Joyous Spring"), code("Infinite Impermanence")]).effectTotal).toBe(2);
-  expect(search("staples", undefined, { kind: "spell" }).effectHits?.every(card => (card.type & 2) !== 0)).toBe(true);
   expect(search("staples", undefined, { exact: true }).reading).toBeNull();
   expect(search("staples", undefined, { scope: "name" }).reading).toBeNull();
 });
