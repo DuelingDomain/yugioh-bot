@@ -152,12 +152,163 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
 });
 
 it("parses activation with a named source and activation after identifying a card", async()=>{
-  const {interpret}=await import("../src/components/remote/ui/grammar");
+  const {interpret,suggestCommands,trySaying}=await import("../src/components/remote/ui/grammar");
   const {ygoModule}=await import("@yugidraft/shared/remote");
   const state=ygoModule.initialState({seatCount:2}); state.identified={seat:0,cardId:70825459,name:"Trap Tracks",source:"voice",addErrors:[]};
   const ctx={state,players:[{seat:0,displayName:"Alice"}],me:0,trayOpen:false};
   expect(interpret("I activate Trap Tracks",ctx)).toMatchObject({kind:"effect",proposal:{type:"effect.activated",source:{name:"Trap Tracks"}}});
   expect(interpret("activate",ctx)).toMatchObject({kind:"effect",proposal:{source:{cardId:70825459}}});
+  // Fixed transcript corpus. Also used for the before/after report.
+  const phrases: [string, string, string][] = [
+    ["standby phase", "draw", "phase:standby"],
+    ["stand by phase", "draw", "phase:standby"],
+    ["stamby phase", "draw", "phase:standby"],
+    ["stand bye phase", "draw", "phase:standby"],
+    ["sandby phase", "draw", "phase:standby"],
+    ["standby face", "draw", "phase:standby"],
+    ["standby faze", "draw", "phase:standby"],
+    ["standby fase", "draw", "phase:standby"],
+    ["Moving to stand by phase.", "draw", "phase:standby"],
+    ["Moving to Standby Phase", "draw", "phase:standby"],
+    ["main phase two", "battle", "phase:main2"],
+    ["main 2", "battle", "phase:main2"],
+    ["mane phase", "standby", "phase:main1"],
+    ["main face", "standby", "phase:main1"],
+    ["main phase to", "battle", "phase:main2"],
+    ["main phase too", "battle", "phase:main2"],
+    ["main phase one", "standby", "phase:main1"],
+    ["main phase won", "standby", "phase:main1"],
+    ["main 1 phase", "standby", "phase:main1"],
+    ["second main phase", "battle", "phase:main2"],
+    ["main phase", "standby", "phase:main1"],
+    ["main phase", "battle", "phase:main2"],
+    ["battle phase", "main1", "phase:battle"],
+    ["battle face", "main1", "phase:battle"],
+    ["bottle phase", "main1", "phase:battle"],
+    ["Go to battle fays", "main1", "phase:battle"],
+    ["battel phase", "main1", "phase:battle"],
+    ["go to battle", "main1", "phase:battle"],
+    ["enter battle", "main1", "phase:battle"],
+    ["battle step", "main1", "phase:battle"],
+    ["end phase", "main2", "phase:end"],
+    ["and phase", "main2", "phase:end"],
+    ["in phase", "main2", "phase:end"],
+    ["end face", "main2", "phase:end"],
+    ["end fase", "main2", "phase:end"],
+    ["draw phase", "end", "phase:draw"],
+    ["drop phase", "end", "phase:draw"],
+    ["draw face", "end", "phase:draw"],
+    ["drow phase", "end", "phase:draw"],
+    ["Please, go to the main phase!", "standby", "phase:main1"],
+    ["set phase to main two", "battle", "phase:main2"],
+    ["phase battle", "main1", "phase:battle"],
+    ["end turn", "main2", "turn"],
+    ["pass", "main2", "turn"],
+    ["pass my turn", "main2", "turn"],
+    ["next phase", "draw", "phase:standby"],
+    ["next phase", "standby", "phase:main1"],
+    ["next phase", "main1", "phase:battle"],
+    ["next phase", "battle", "phase:main2"],
+    ["next phase", "main2", "phase:end"],
+    ["next phase", "end", "turn"],
+    ["go back a phase", "main2", "phase:battle"],
+    ["back to main phase one", "main2", "phase:main1"],
+    ["undo", "main2", "undo"],
+    ["chain", "main1", "wake"],
+    ["set", "main1", "move"],
+    ["graveyard", "main1", "move"],
+    ["GY", "main1", "move"],
+    ["banish Dark Magician", "main1", "move"],
+    ["I activate Trap Tracks", "main1", "effect"],
+    ["LP minus 1000", "main1", "lp:0:-1000"],
+    ["life points plus 1000", "main1", "lp:0:1000"],
+    ["my life points minus one thousand", "main1", "lp:0:-1000"],
+    ["and my turn", "main2", "turn"],
+    ["in turn", "main2", "turn"],
+    ["Intern", "main2", "none"],
+    ["bottle fase", "main1", "phase:battle"],
+    ["stndby phase", "draw", "phase:standby"],
+    ["mian phase", "standby", "phase:main1"],
+    ["main fase", "battle", "phase:main2"],
+    ["draw faze", "end", "phase:draw"],
+    ["Um and now like I've placed uh Treasure of the Kings in the monster in the spell tr um in the field zone, and...", "main1", "quiet"],
+    ["Um I put this in the monster zone two and now I think we can continue", "main1", "quiet"],
+    ["I activate this because I think it can help with the battle phase later", "main1", "quiet"],
+    ["And now I've placed Treasures of the Kings in the field zone", "main1", "quiet"],
+    ["Like I said we should check the main phase rules after this game", "main1", "quiet"],
+    ["Do you think I should set this in trap zone one or keep it", "main1", "quiet"],
+    ["I was talking about the battle phase and the monster zone two", "main1", "quiet"],
+    ["Um battle phase", "main1", "quiet"],
+    ["Thanks for the game", "main1", "quiet"],
+    ["The main phase is next", "main1", "quiet"],
+    ["don't end turn", "main1", "quiet"],
+    ["next phase later", "main1", "quiet"],
+    ["Main phase rules are confusing", "main1", "quiet"],
+    ["I activate this card every time my opponent starts talking about the next battle phase", "main1", "quiet"],
+    ["We discussed monster zone two", "main1", "quiet"],
+    ["I activate See You Later!", "main1", "effect"],
+    ["I activate Trap Tracks when you summon a monster", "main1", "quiet"],
+    ["I activate this card all the time during our games", "main1", "quiet"],
+    ["I activate Trap Tracks and talk about the next battle phase", "main1", "quiet"],
+    ["Main phase rules", "main1", "quiet"],
+    ["main deck", "main1", "quiet"],
+    ["I put like Trap Tracks in field zone", "main1", "quiet"],
+  ];
+  const label = (intent: ReturnType<typeof interpret>) => intent.kind === "phase" ? `phase:${intent.phase}` : intent.kind === "lp" ? `lp:${intent.seat}:${intent.delta}` : intent.kind;
+  const rows = phrases.map(([text, phase, expected]) => {
+    const context={...ctx,state:{...state,turn:2,phase,battleEntered:undefined}};
+    const intent=interpret(text,context);
+    const actual=expected === "quiet" ? (intent.kind === "none" && suggestCommands(text,context).length === 0 ? "quiet" : `${label(intent)}; suggestions=${suggestCommands(text,context).length}`) : label(intent);
+    return {text,phase,expected,actual,pass:actual===expected};
+  });
+  expect(rows.filter(row=>!row.pass)).toEqual([]);
+  for (const text of ["main deck", "battle damage", "don't end turn", "the main phase is next", "battle phase or end phase", "main phase three", "phase", "end phase dragon", "draw face down", "activate Battle Fader", "summon", "normal summon", "tribute", "special summon", "link", "xyz", "synchro", "fusion", "attach", "detach", "negate", "sandwich phase", "next phase later"]) {
+    expect(interpret(text,ctx).kind,text).not.toBe("phase");
+    expect(interpret(text,ctx).kind,text).not.toBe("turn");
+  }
+  expect(interpret("next phase",{...ctx,state:{...state,phase:"main1"}})).toEqual({kind:"phase",phase:"main2"});
+  expect(interpret("main phase",{...ctx,state:{...state,phase:"main1",battleEntered:true}})).toEqual({kind:"phase",phase:"main2"});
+  expect(interpret("next phase",{...ctx,state:{...state,seatCount:4,startedSeats:[0],phase:"main1"}})).toEqual({kind:"phase",phase:"main2"});
+  expect(interpret("stamby phase",{...ctx,trayOpen:true})).toEqual({kind:"phase",phase:"standby"});
+  expect(interpret("back to end phase",ctx).kind).toBe("none");
+  const real={...ctx,cardNames:["Treasures of the Kings","Trap Tracks"]};
+  const suggestions=suggestCommands("set in field",real);
+  expect(suggestions.length).toBeGreaterThan(0);
+  expect(suggestions.join(" ")).not.toMatch(/Dark Magician|Blue.Eyes|Imran/);
+  expect(trySaying(ctx.players,0,real.cardNames).join(" ")).toContain("Treasures of the Kings");
+  expect(trySaying(ctx.players,0).join(" ")).not.toMatch(/Dark Magician|Blue.Eyes|Imran/);
+  expect(interpret("See You Later!",{...ctx,trayOpen:true}).kind).toBe("name");
+  expect(interpret("I activate There Can Be Only One",ctx).kind).toBe("effect");
+  expect(interpret("You're Finished!",{...ctx,trayOpen:true,cardNames:["You're Finished!"]}).kind).toBe("name");
+  const {voiceCardNames}=await import("../src/components/remote/ui/model");
+  const voiceRoom={state:{...state,seats:[{...state.seats[0],twin:[{ref:"new",name:"New board card"},{ref:"old",cardId:2}]}],undoHistory:[{cards:["0:old"]},{cards:["0:new"]}]},seats:[{seat:0,deck:{deck:{main:[3],extra:[],side:[]}}}]} as any;
+  expect(voiceCardNames(voiceRoom,id=>({name:id===2?"Old board card":"Deck card"}))).toEqual(["Trap Tracks","New board card","Old board card","Deck card"]);
+  const {speechHotwords,SttClient}=await import("../src/components/remote/ui/stt-client");
+  const hints=speechHotwords(["Recent Card", "Recent Card", "Older Card", ...Array.from({length:100},(_,i)=>`Deck card number ${i}`)]);
+  expect(hints).toContain("standby phase"); expect(hints).toContain("XYZ summon");
+  expect(hints.filter(word=>word==="Recent Card")).toHaveLength(1);
+  expect(hints.indexOf("Recent Card")).toBeLessThan(hints.indexOf("Older Card"));
+  expect(hints.join(", ").length).toBeLessThanOrEqual(600);
+  expect(speechHotwords(["bad\nname", "", "a".repeat(121)])).not.toContain("bad\nname");
+  const sent:string[]=[];
+  vi.stubGlobal("WebSocket",class {
+    onmessage:((event:{data:string})=>void)|null=null;
+    constructor(){queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:"ready"})}));}
+    send(data:string){sent.push(data);}
+    close(){}
+  });
+  const client=new SttClient({});
+  expect(await client.start(["New board card"])).toBeTruthy();
+  expect(JSON.parse(sent[0])).toMatchObject({type:"start",hotwords:speechHotwords(["New board card"])});
+  client.close();
+  const {createElement}=await import("react");
+  const {renderToStaticMarkup}=await import("react-dom/server");
+  const {VoxSection}=await import("../src/components/remote/ui/dock");
+  const dock={transcript:{text:phrases.find(row=>row[2]==="quiet")![0],live:false,result:"Not understood",ignored:true},samples:[],proposal:null,onConfirm:()=>{},onCancel:()=>{},onSample:()=>{}};
+  const chatterDock=renderToStaticMarkup(createElement(VoxSection,dock));
+  expect(chatterDock).not.toContain("Did you mean"); expect(chatterDock).not.toContain("voice-suggestions");
+  const proposalDock=renderToStaticMarkup(createElement(VoxSection,{...dock,transcript:{text:"LP minus 1000",live:false,result:"Needs a confirm",ignored:false},proposal:{id:1,title:"Alice −1000 LP",sub:"8000 to 7000",confirmLabel:"Apply"}}));
+  expect(proposalDock).toContain("LP minus 1000"); expect(proposalDock).toContain("Alice −1000 LP");
 });
 
 it("new automatic placement records identity atomically with the twin for one Undo", async () => {

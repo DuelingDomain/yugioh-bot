@@ -6,6 +6,20 @@ from .download import download, download_vad
 
 RATE = 16000
 
+def decoder_hotwords(words):
+    """Keep client order and bound the complete decoder hint, including server staples."""
+    result, seen, size = [], set(), 0
+    for value in words:
+        word = value.strip()
+        key = word.casefold()
+        cost = len(word.encode('utf-8')) + (2 if result else 0)
+        if not word or len(word) > 120 or '\n' in value or '\r' in value or key in seen or size + cost > 600:
+            continue
+        result.append(word)
+        seen.add(key)
+        size += cost
+    return result
+
 class Recognizer:
     def __init__(self, name='parakeet', threads=4):
         path = download(name)
@@ -42,7 +56,7 @@ class Recognizer:
         if self.name != 'zipformer':
             return None
         from .matcher import clean
-        encoded = '/'.join(clean(w).upper() for w in hotwords)
+        encoded = '/'.join(clean(w).upper() for w in decoder_hotwords(hotwords))
         return self.model.create_stream(encoded) if encoded else self.model.create_stream()
 
     def feed(self, stream, samples):
@@ -65,7 +79,7 @@ class Recognizer:
         if self.name == 'whisper':
             segments, _ = self.model.transcribe(
                 samples, language='en', beam_size=5, condition_on_previous_text=False,
-                vad_filter=False, hotwords=', '.join(hotwords) or None,
+                vad_filter=False, hotwords=', '.join(decoder_hotwords(hotwords)) or None,
                 temperature=0, without_timestamps=True)
             return ' '.join(s.text.strip() for s in segments).strip()
         if self.name == 'zipformer':

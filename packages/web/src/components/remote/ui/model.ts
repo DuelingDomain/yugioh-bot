@@ -143,6 +143,26 @@ export function seenCardIds(room: RemoteRoom): number[] {
   return ids;
 }
 
+/** Current identification, recently used twins, other visible cards, then decklists. */
+export function voiceCardNames(room: RemoteRoom, lookup: (id: number) => { name: string } | undefined): string[] {
+  const names: string[] = [];
+  const add = (card: { name?: string; cardId?: number; passcode?: number } | null) => {
+    const code = card && cardCode(card);
+    const name = card?.name ?? (code ? lookup(code)?.name : undefined);
+    if (name) names.push(name);
+  };
+  add(room.state.identified);
+  const twins = room.state.seats.flatMap(seat => seat.twin.map(card => ({ seat: seat.seat, card })));
+  const byRef = new Map(twins.map(({ seat, card }) => [`${seat}:${card.ref}`, card]));
+  for (const entry of [...(room.state.undoHistory ?? [])].reverse()) {
+    if (entry.undone) continue;
+    for (const ref of entry.cards) add(byRef.get(ref) ?? null);
+  }
+  for (const { card } of twins.reverse()) add(card);
+  for (const seat of room.seats) for (const id of deckIdsOf(room, seat.seat)) add({ cardId: id });
+  return [...new Set(names)];
+}
+
 /** Battle result using the public ATK/DEF of both monsters. Returns null when a number is missing. */
 export type Battle = {
   title: string; sub: string; result: string;

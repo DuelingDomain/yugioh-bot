@@ -25,6 +25,8 @@ export type GrammarContext = {
   /** The seat that speaks. */
   me: number;
   trayOpen: boolean;
+  /** Actual card names from the table and registered decks, most recent first. */
+  cardNames?: readonly string[];
 };
 
 const UNITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -48,6 +50,26 @@ export function spokenNumber(input: string): number {
 }
 
 const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+function contextCardNames(ctx: GrammarContext): string[] {
+  return [...(ctx.cardNames ?? []), ...ctx.state.seats.flatMap(seat => seat.twin.flatMap(card => card.name ? [card.name] : [])),
+    ...(ctx.state.identified?.name ? [ctx.state.identified.name] : [])];
+}
+
+/** Check sentence scaffolding outside known card names. Card names can contain ordinary words. */
+function commandUtterance(raw: string, ctx: GrammarContext): boolean {
+  let text = ` ${norm(raw)} `;
+  for (const name of contextCardNames(ctx).map(norm).filter(Boolean).sort((a, b) => b.length - a.length)) {
+    text = text.replace(` ${name} `, " card ");
+  }
+  text = text.trim();
+  const count = text.split(" ").length;
+  if (!text || count > 24 || /\b(?:um|uh|erm|hmm|like|i ve|we ve|and now|you know|i think|i was|because|and then|every|always|usually|sometimes|often|all the time|my opponent|is|are|was|were|should|would|could|we can|when|whenever|while|if|unless|until|after|before)\b/.test(text)) return false;
+  if (/^(?:like |do you |did you |can i |could you |don t |do not |let me |we |you |he |she |they |i (?:placed|have|had|will) )/.test(text)
+    || /\b(?:phase|turn|undo(?: that)?) later$/.test(text)) return false;
+  if (/^(?:i )?activate (?:(?:this|that) )?card .+/.test(text)) return false;
+  return count <= 12 || /^(?:i )?(?:activate|summon|normal summon|special summon|set|tribute|chain|banish|send|move|attach|detach|negate)\b/.test(text);
+}
 
 const SLOT = "(1|2|3|4|5|one|won|two|too|three|four|for|five)";
 const SLOT_VALUE: Record<string, number> = { "1": 1, one: 1, won: 1, "2": 2, two: 2, too: 2, "3": 3, three: 3, "4": 4, four: 4, for: 4, "5": 5, five: 5 };
@@ -102,7 +124,7 @@ function findSeat(text: string, ctx: GrammarContext): number | undefined {
 /** Turns one finished transcript into a single intent. `tolerant` numbers and names are resolved here. */
 export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   const text = norm(raw);
-  if (!text) return { kind: "none" };
+  if (!commandUtterance(raw, ctx)) return { kind: "none" };
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(raw, ctx.state);
   if (phase) return phase;
@@ -126,7 +148,8 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
     const resolution = ygoModule.resolveAttack(ctx.state, input, ctx.me);
     if (resolution.status !== "none") return { kind: "attack", text, resolution };
   }
-  const lp = /^(?:(.+?)\s+)?(minus|loses|lose|lost|takes|take|pays|pay|plus|gains|gain|gets|heals|heal)\s+(.+)$/.exec(text);
+  const lpText = text.replace(/\b(?:lp|life points)\b/g, " ").replace(/\s+/g, " ").trim();
+  const lp = /^(?:(.+?)\s+)?(minus|loses|lose|lost|takes|take|pays|pay|plus|gains|gain|gets|heals|heal)\s+(.+)$/.exec(lpText);
   if (lp) {
     const amount = spokenNumber(lp[3]);
     const seat = lp[1] ? findSeat(lp[1], ctx) : ctx.me;
@@ -137,22 +160,30 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   return { kind: "none" };
 }
 
-/** Example lines for the "Try saying" chips, built from the real players at the table. */
-export function trySaying(players: { seat: number; displayName: string }[], me: number): string[] {
+/** Example lines use only the actual players and cards supplied by the table. */
+export function trySaying(players: { seat: number; displayName: string }[], me: number, cardNames: readonly string[] = []): string[] {
   const others = players.filter(player => player.seat !== me);
-  const first = others[0]?.displayName.split(" ")[0] ?? "Imran";
+  const first = others[0]?.displayName.split(" ")[0] ?? "me";
   const second = others[1]?.displayName.split(" ")[0] ?? first;
-  return ["main phase", "battle phase", "go back a phase", `${first} minus five hundred`, "Blue-Eyes attacks Dark Magician", `direct attack on ${second}`, "end turn", "undo", "chain",
-    "monster zone two", "set in trap zone one", "Dark Magician to spell zone three", "extra monster zone left", "graveyard", "defense position"];
+  const cards = [...new Set(cardNames.filter(name => name.trim()))];
+  return ["main phase", "battle phase", "go back a phase", `${first} minus five hundred`, `direct attack on ${second}`, "end turn", "undo", "chain",
+    "monster zone two", "set in trap zone one", "field zone", ...cards.slice(0, 3).map(name => `${name} to monster zone two`),
+    "extra monster zone left", "graveyard", "defense position"];
 }
 
 /** Suggestions are labels for explicit user picks, never a fallback execution path. */
 export function suggestCommands(raw: string, ctx: GrammarContext): string[] {
-  if (!raw.trim() || interpret(raw, ctx).kind !== "none") return [];
+  if (!commandUtterance(raw, ctx) || interpret(raw, ctx).kind !== "none") return [];
   const words = new Set(norm(raw).split(" "));
+  const cardNames = contextCardNames(ctx);
+  const text = norm(raw);
+  if (/^(?:draw|standby|stand|main|mane|battle|bottle|end|and|in)\b/.test(text)
+    && !/^[a-z]+(?: (?:by|bye))?(?: (?:phase|face|faze|fase|phas|phaze|fays|[12]|one|two|too|to|won)){0,2}$/.test(text)) return [];
+  const commandStart = /^(?:(?:i |my )?(?:activate|summon|normal|special|set|tribute|chain|banish|graveyard|gy|link|xyz|synchro|fusion|attach|detach|negate|lp|life|draw|standby|stand|main|mane|battle|bottle|end|pass|go|enter|next|move|send|put|place|undo|phase|monster|spell|trap|field|extra|defense|attack|direct|respond|pay|take|gain|minus|plus))\b/.test(text);
+  if (!commandStart && !cardNames.some(name => text.startsWith(norm(name)))) return [];
   const samples = [...new Set(["draw phase", "standby phase", "main phase", "main phase one", "main phase two",
-    "battle phase", "end phase", "go back a phase", "end turn", "undo", ...trySaying(ctx.players, ctx.me)])];
+    "battle phase", "end phase", "go back a phase", "end turn", "undo", ...trySaying(ctx.players, ctx.me, cardNames)])];
   return samples.filter(text => interpret(text, ctx).kind !== "none")
     .map((text, index) => ({ text, index, score: norm(text).split(" ").filter(word => words.has(word)).length }))
-    .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3).map(item => item.text);
+    .filter(item => item.score > 0).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3).map(item => item.text);
 }
