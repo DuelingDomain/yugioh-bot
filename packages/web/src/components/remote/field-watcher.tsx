@@ -23,7 +23,8 @@ import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
-import {fieldSummonKind,fieldSummonMaterials,fieldSummonNotice,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
+import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
+import {distinctFieldQuads} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
@@ -77,8 +78,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
-  const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[]}>());
-  useEffect(()=>{vanishes.current=[];summons.current.clear();},[room.slug,seat]);
+  const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[];trackId:string}>());
+  // Stacks the glue holds back (a card moved on top of another card): the summon window decides, then the default applies.
+  const heldStacks=useRef(new Set<string>()),watchStartedAt=useRef(performance.now());
+  useEffect(()=>{vanishes.current=[];summons.current.clear();heldStacks.current.clear();watchStartedAt.current=performance.now();},[room.slug,seat,source]);
+  /** A new pile card needs entry evidence: a hand over that pile shortly before it showed, after the camera ran 2 s (not a restart re-read). */
+  const pileEntry=(track:Pick<FieldTrack,'zone'|'firstSeen'>)=>{const touched=watch.getSnapshot?.()?.pileTouchedAt?.[track.zone as 'GY'|'BANISHED']??-Infinity;return track.firstSeen-watchStartedAt.current>2000&&touched>=track.firstSeen-PILE_EXIT_MS&&touched<=track.firstSeen+1000;};
   /** Twin refs of the cards under this track (the whole stack), bottom first. */
   const stackUnder=(trackId:string)=>{const out:string[]=[],all=watch.getTracks();let level=[trackId];for(let n=0;n<10&&level.length;n++){level=all.filter(t=>t.under&&level.includes(t.under)&&!t.removed).map(t=>t.id);out.unshift(...level.map(id=>bindings.current.get(id)??id));}return [...new Set(out)];};
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
@@ -332,9 +337,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     existing=freshBinding.existing??pileExit(track,entry,twins);
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
+    // A pile card the camera re-reads after a restart (or with no hand over the pile) is the current top, not a new card.
+    if(['GY','BANISHED'].includes(track.zone)&&!existing&&!pileEntry(track)){
+      const top=twins.filter(c=>c.zone===location.zone).at(-1);
+      if(top){bindings.current.set(event.track.id,top.ref);watch.confirm(event.track.id,top.faceUp&&cardCode(top)===code?track.cardId:undefined,top.ref,false);}
+      return;
+    }
     // Extra Deck summon: the monsters under this card or that left the field in the window are its materials.
     const summonType=!existing&&!track.faceDown&&code?fieldSummonKind(cardInfo(code)):undefined;
-    const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,firstSeen:track.firstSeen,twins}):undefined;
+    const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,firstSeen:track.firstSeen,twins,removed:ref=>watch.isRemoved(ref)}):undefined;
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
     if(stale&&!summon?.materialRefs.includes(stale.ref)){
@@ -373,7 +384,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(!canonical)throw new Error('Camera placement was not returned in its slot');
           if(canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
           bindings.current.set(event.track.id,canonical.ref);
-          if(summonType)summons.current.set(canonical.ref,{kind:summonType.kind,name:entry?.name??'Card',rating:summonType.rating,at:performance.now(),count:summon?.materialRefs.length??0,pending:[]});
+          if(summonType)summons.current.set(canonical.ref,{kind:summonType.kind,name:entry?.name??'Card',rating:summonType.rating,at:performance.now(),count:summon?.materialRefs.length??0,pending:[],trackId:event.track.id});
           if(summon){const used=new Set(summon.materialRefs);vanishes.current=vanishes.current.filter(v=>!used.has(v.ref));}
         }
       }
@@ -424,7 +435,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(['GY','BANISHED'].includes(event.track.zone))void queue(async act=>{
           const twins=current.current.room.state.seats[seat].twin,ref=bindings.current.get(event.track.id)??event.track.id;
           if(!live()||twins.some(c=>c.ref===ref))return;
-          const zone=event.track.zone==='GY'?'graveyard':'banished',updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack'}});
+          const zone=event.track.zone==='GY'?'graveyard':'banished';
+          if(!pileEntry(event.track)){const top=twins.filter(c=>c.zone===zone).at(-1);if(top)bindings.current.set(event.track.id,top.ref);return;}
+          const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack'}});
           if(updated){bindings.current.set(event.track.id,ref);setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);setUndoId(updated.state.undo?.actionId??'');}
         },event);
         offer(event);
@@ -445,11 +458,26 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const ref=bindings.current.get(event.track.id)??event.track.id;
       // The camera sees this card again: an earlier Undo no longer keeps it.
       if(event.type==='moved')undoKept.current.delete(ref);
+      // Back on the field: it is no longer a vanished material candidate.
+      if(event.type==='moved')vanishes.current=vanishes.current.filter(v=>v.ref!==ref);
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!live()||!card)return;
+      // An Xyz material belongs to its Xyz: the camera seeing it (the Xyz lifted for a moment) changes nothing.
+      if(card.zone==='material')return;
+      if(event.type==='covered'){
+        // A monster slid under an Xyz placed moments ago: it becomes a material.
+        const topRef=event.coverRef?bindings.current.get(event.coverRef)??event.coverRef:undefined,s=topRef?summons.current.get(topRef):undefined;
+        const twins=current.current.room.state.seats[seat].twin,top=twins.find(c=>c.ref===topRef);
+        if(!s||!top||s.kind!=='xyz'||performance.now()-s.at>SUMMON_WINDOW_MS||!['monster','extra-monster'].includes(top.zone)||!card.faceUp||!['monster','extra-monster'].includes(card.zone))return;
+        const attached=await act({type:'twin.attach',actorSeat:seat,seat,cardRef:top.ref,kind:'xyz',materialRefs:[card.ref]});
+        if(attached){s.count++;setNotice(`${fieldSummonNotice('xyz',s.name,[card.ref])} · auto`);setUndoId(attached.state.undo?.actionId??'');}
+        return;
+      }
       if(event.type==='removed') {
         if(!watch.isRemoved(event.track.id)&&!watch.isRemoved(card.ref))return;
         if(undoKept.current.has(card.ref))return;
+        // The owner just fixed the pile order: the camera top rule must not take cards out of the pile.
+        if(['graveyard','banished'].includes(card.zone)&&current.current.room.events.some(e=>e.action.type==='pile.order'&&serverNow()-e.at<3000))return;
         const monster=card.faceUp&&['monster','extra-monster'].includes(card.zone);
         const proposal=fieldDepartureProposal(card,seat,event.destination==='DECK'?'deck':event.destination==='EXTRA'?'extra':undefined);if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
@@ -459,10 +487,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // Summon window: a monster that leaves the field (default: to the hand) can be a material of a summon just before or after it.
         if(updated&&monster&&proposal.zone==='hand'){
           const at=event.track.lastSeen;vanishes.current=[...vanishes.current.filter(v=>v.ref!==card.ref&&Math.abs(v.at-at)<=2*SUMMON_WINDOW_MS),{ref:card.ref,at}].slice(-10);
-          const nowAt=performance.now(),recent=[...summons.current].filter(([,s])=>nowAt-s.at<=SUMMON_WINDOW_MS&&(s.kind!=='link'||!s.rating||s.count+s.pending.length<s.rating)).sort((a,b)=>b[1].at-a[1].at)[0];
+          // After the summon: only while it still has fewer materials than the minimum, and for an Xyz only a card that lay
+          // over the Xyz's spot. A summon that was undone (its card is gone) is forgotten.
+          const nowAt=performance.now(),twinsNow=current.current.room.state.seats[seat].twin;
+          for(const [topRef] of summons.current)if(!twinsNow.some(c=>c.ref===topRef&&['monster','extra-monster'].includes(c.zone)))summons.current.delete(topRef);
+          const recent=[...summons.current].filter(([,s])=>{
+            if(nowAt-s.at>SUMMON_WINDOW_MS||s.count+s.pending.length>=fieldSummonMinimum(s.kind))return false;
+            const box=watch.getTrack(s.trackId)?.card.quad;return s.kind!=='xyz'||!!box&&!distinctFieldQuads(box,event.track.card.quad);
+          }).sort((a,b)=>b[1].at-a[1].at)[0];
           if(recent){
             const [topRef,s]=recent;s.pending.push(card.ref);
-            if(s.count+s.pending.length>=(s.kind==='link'?1:2)){
+            if(s.count+s.pending.length>=fieldSummonMinimum(s.kind)){
               const refs=[...s.pending];s.pending=[];
               const attached=await act({type:'twin.attach',actorSeat:seat,seat,cardRef:topRef,kind:s.kind,materialRefs:refs});
               if(attached){s.count+=refs.length;vanishes.current=vanishes.current.filter(v=>!refs.includes(v.ref));setDeparture(null);setNotice(`${fieldSummonNotice(s.kind,s.name,refs.map(ref=>attached.state.seats[seat].twin.find(c=>c.ref===ref)?.name??'Card'))} · auto`);setUndoId(attached.state.undo?.actionId??'');}
@@ -482,7 +517,23 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const location=fieldZoneLocation(projected.zone);
         if(keepsManual(card.ref,location,observed.position))return;
         const under=stackUnder(event.track.id);
-        if(current.current.room.state.seats[seat].twin.some(c=>c.ref!==card.ref&&under.includes(c.ref)&&c.zone===location.zone&&c.slot===location.slot)){setNotice('Card placed on top of another card · waiting for the summon');return;}
+        const stacked=current.current.room.state.seats[seat].twin.find(c=>c.ref!==card.ref&&under.includes(c.ref)&&c.zone===location.zone&&c.slot===location.slot);
+        if(stacked){
+          // Wait for a summon (it takes both cards). With no summon in the window, the default: the card under it leaves
+          // (to the hand, with Undo) and this card moves to the zone.
+          if(!heldStacks.current.has(card.ref)){
+            heldStacks.current.add(card.ref);setNotice('Card placed on top of another card · waiting for a summon');
+            setTimeout(()=>{void queue(async next=>{
+              heldStacks.current.delete(card.ref);
+              const twins=current.current.room.state.seats[seat].twin,mover=twins.find(c=>c.ref===card.ref),below=twins.find(c=>c.ref===stacked.ref);
+              if(!live()||!mover||!publicField(mover.zone)||!below||below.zone!==location.zone||below.slot!==location.slot)return;
+              const departure=fieldDepartureProposal(below,seat);if(!departure||!await next(departure))return;
+              const moved=await next({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:mover.ref,...location,position:fieldTwinPosition({...observed!,zone:projected.zone!})});
+              if(moved){setNotice(`Card under ${mover.name??'the card'} went to the hand · Undo`);setUndoId(moved.state.undo?.actionId??'');}
+            },event);},SUMMON_WINDOW_MS);
+          }
+          return;
+        }
         if(card.zone!==location.zone||card.slot!==location.slot||card.position!==fieldTwinPosition({...observed,zone:projected.zone})){
           const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition({...observed,zone:projected.zone})});
           if(!updated)return;

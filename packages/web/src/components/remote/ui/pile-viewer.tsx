@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { cardArt, searchCards, type CardInfo } from "./catalog";
 import { DragGhost, VERDICT_CLASS, type FieldDrag } from "./holo-field";
@@ -26,8 +26,8 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
   info: (id: number | undefined) => CardInfo | undefined; drag?: FieldDrag;
   /** Opens the card popup (text, stats and the move buttons) beside the tile. */
   onOpenCard: (card: TwinCard, anchor: Rect) => void; onClose: () => void;
-  /** Owner only. Sets the whole pile order, oldest first (one `pile.order`). */
-  onOrder?: (zone: PileZone, refsOldestFirst: string[]) => void;
+  /** Owner only. Sets the whole pile order, oldest first (one `pile.order`). The promise settles when the write is done. */
+  onOrder?: (zone: PileZone, refsOldestFirst: string[]) => void | Promise<unknown>;
   /** Owner only. Names an unnamed face-up card (`card.identified` with its ref), and removes a card (`twin.remove`). */
   onName?: (card: TwinCard, cardId: number, name: string) => void; onRemove?: (card: TwinCard) => void;
 }) {
@@ -37,12 +37,16 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
   const [active, setActive] = useState(0);
   const [hot, setHot] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ ref: string; x: number; y: number; verdict: Verdict["kind"] | null } | null>(null);
+  const [ordering, setOrdering] = useState(false);
+  const narrow = useNarrow();
   const swallow = useRef(false);
   const stop = useRef<(() => void) | null>(null);
   useEffect(() => () => stop.current?.(), []);
   const at = Math.min(active, Math.max(0, cards.length - 1));
   const previewCard = cards.find(card => card.ref === hot) ?? cards[at];
   const shown = (card: TwinCard) => card.faceUp || mine;
+  /** An unnamed face-up card the owner can name or remove. */
+  const nameable = !!onName && !!previewCard && previewCard.faceUp && !cardCode(previewCard) && !previewCard.name;
   const previewCode = previewCard && shown(previewCard) ? cardCode(previewCard) : undefined;
 
   /** Pointer drag (mouse and pen). A press that moves less than 6 px stays a click. */
@@ -81,9 +85,10 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
 
   /** Swaps a tile with its newer (-1) or older (+1) neighbour. The viewer lists newest first; the action wants oldest first. */
   function shift(index: number, by: -1 | 1) {
-    const next = [...cards]; const to = index + by; if (!onOrder || to < 0 || to >= next.length) return;
+    const next = [...cards]; const to = index + by; if (!onOrder || ordering || to < 0 || to >= next.length) return;
     [next[index], next[to]] = [next[to], next[index]];
-    onOrder(zone, next.map(card => card.ref).reverse());
+    setOrdering(true);
+    void Promise.resolve(onOrder(zone, next.map(card => card.ref).reverse())).finally(() => setOrdering(false));
   }
 
   /** Arrow keys move focus over the tiles, Home and End jump to the newest and the oldest. */
@@ -126,8 +131,8 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
                 <span className={s.pileName}>{title}</span>
               </button>
               {onOrder && cards.length > 1 ? <span className={s.pileOrd}>
-                <button type="button" disabled={index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
-                <button type="button" disabled={index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
+                <button type="button" disabled={ordering || index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
+                <button type="button" disabled={ordering || index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
               </span> : null}
             </li>;
           })}
@@ -137,15 +142,27 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
             <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} />
             {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} />
               : <h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2>}
-            {onName && previewCard.faceUp && !previewCode && !previewCard.name ? <NameIt key={previewCard.ref} onName={(id, nm) => onName(previewCard, id, nm)} onRemove={onRemove ? () => onRemove(previewCard) : undefined} /> : null}
+            {!narrow && nameable ? <NameIt key={previewCard.ref} onName={(id, nm) => onName!(previewCard, id, nm)} onRemove={onRemove ? () => onRemove(previewCard) : undefined} /> : null}
           </> : null}
         </aside>
       </div>
+      {narrow && nameable ? <div className={s.pileNameBar} data-testid="pile-name-bar">
+        <p className={s.dmeta}>Selected: card {at + 1} of {cards.length}</p>
+        <NameIt key={previewCard!.ref} onName={(id, nm) => onName!(previewCard!, id, nm)} onRemove={onRemove ? () => onRemove(previewCard!) : undefined} />
+      </div> : null}
       <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{onOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? ", drag a card to the field or hand to bring it back" : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
     </div>
     {dnd ? <div className={s.pileHand} data-hand-drop data-testid="pile-hand-drop" aria-hidden="true"><Icon name="hand" />Drop here: to hand</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}
   </div>;
+}
+
+const NARROW = "(max-width:1100px)";
+/** True while the preview panel is hidden by CSS (same breakpoint as `.pilePrev`). */
+function useNarrow() {
+  return useSyncExternalStore(
+    notify => { const mq = window.matchMedia(NARROW); mq.addEventListener("change", notify); return () => mq.removeEventListener("change", notify); },
+    () => window.matchMedia(NARROW).matches, () => false);
 }
 
 /** Owner only: an unnamed face-up card in a pile. Search the catalog to name it, or remove it. */

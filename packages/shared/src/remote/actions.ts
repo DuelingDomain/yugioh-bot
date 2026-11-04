@@ -91,7 +91,7 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
-  zone: string; departedFrom?: { zone: string; slot?: number; at?: number }; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */

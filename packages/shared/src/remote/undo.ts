@@ -56,7 +56,10 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
     case "twin.place": add(action.seat, action.card.ref); break;
     case "twin.move": case "twin.flip": case "twin.remove": case "card.identified": add(action.seat, action.cardRef); break;
     case "cards.identified": for (const card of action.cards) add(action.seat, card.cardRef); break;
-    case "pile.lift": case "pile.order": for (const ref of action.cardRefs) add(action.seat, ref); break;
+    case "pile.lift": for (const ref of action.cardRefs) add(action.seat, ref); break;
+    // Only the cards whose place changed: a reorder must not block Undo of earlier pile actions.
+    case "pile.order": { const old = before.seats[action.seat]?.twin.filter(c => c.zone === action.zone).map(c => c.ref) ?? [];
+      action.cardRefs.forEach((ref, i) => { if (old[i] !== ref) add(action.seat, ref); }); break; }
     case "effect.activated": add(action.actorSeat, action.source.cardRef); break;
     case "effect.choose": case "effect.announce": {
       const origin = before.effectTracking?.origins.find(o => o.id === action.originId);

@@ -73,7 +73,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const gallery=options.gallery??createFieldIdentityGallery();
   const tracks:InternalTrack[]=[],listeners=new Set<(event:FieldEvent)=>void>(),updates=new Set<()=>void>(),retained=new Set<FieldFrame>();
   // Deck stacks are observations, never physical field tracks or identity reads.
-  const pilePresence=new Map<FieldZone,{misses:number;present:boolean;firstMiss?:number;look?:number[];sharp?:number}>();
+  const pilePresence=new Map<FieldZone,{misses:number;present:boolean;firstMiss?:number;look?:number[]}>();
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean;appearance?:number[]}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
@@ -491,12 +491,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const box:DetectedQuad={quad:[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}].map(p=>fieldMatPoint(p,calibration!)),kind:'face-up',confidence:1,partial:false};
         const zone=cell.zone as FieldZone,seen=detected.some(d=>mapFieldZone(d,calibration,detected,options.format).zone===zone);
         const hand=!seen&&(evidence.occluded?.(box)||(evidence.touched?.(box)??0)>.02||evidence.motion(box)>.06);
-        const state=pilePresence.get(zone)??{misses:0,present:true},sharp=evidence.sharpness(box),look=evidence.appearance?.(box);
-        // The pile is a log: only a sharp frame of a clearly changed, empty spot for 2 s means it was picked up.
+        const state=pilePresence.get(zone)??{misses:0,present:true},look=evidence.appearance?.(box);
+        // The pile is a log: only sharp frames (the frame blur gate) of a changed, empty spot for 2 s mean it was picked up.
         // A blurred frame or a spot that still looks like the pile is no evidence and restarts the window.
-        const blurred=sharp<Math.max(8,(state.sharp??0)*.5),same=!!state.look?.length&&sameFieldAppearance(state.look,look);
-        if(seen){state.misses=0;state.firstMiss=undefined;state.present=true;if(!blurred){state.look=look;state.sharp=state.sharp===undefined?sharp:state.sharp*.8+sharp*.2;}}
-        else if(hand||blurred||same||blurHold){state.misses=0;state.firstMiss=undefined;}
+        const same=!!state.look?.length&&sameFieldAppearance(state.look,look);
+        if(seen){state.misses=0;state.firstMiss=undefined;state.present=true;if(!blurHold)state.look=look;}
+        else if(hand||same||blurHold){state.misses=0;state.firstMiss=undefined;}
         else{state.firstMiss??=sample.at;if(++state.misses>=3&&sample.at-state.firstMiss>=PILE_LIFT_MS)state.present=false;}
         pilePresence.set(zone,state);
       }
@@ -558,11 +558,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       };
       // A settled face-up card never takes an outline that looks like another card: that card lies on top of it
       // (Xyz on its materials, a monster over a Field Spell). A card already under another needs its own look back.
-      // A turned card (other battle position) stays the same card, as before.
+      // Any battle position: an Xyz in Defense on Attack materials is a new card too. A new outline that then reads as the
+      // card under it (a turn, glare), or does not read sure, merges back into that card (see the read result below).
       const upright=(q:DetectedQuad)=>{const b=boundsOf(q.quad);return b.h>=b.w;};
-      // A GY/banished top is a log entry: a new look on the pile is a new card pushed on top, never a rename (even before the glue confirms the old top).
-      const lookBlocked=(t:InternalTrack,c:DetectedQuad)=>(fieldSlot(t.view.zone)&&bound(t)||publicPile(t.view.zone)&&t.view.state==='identified')&&!t.view.faceDown&&!!t.identityAppearance?.length&&c.kind==='face-up'&&(t.lookUpright??upright(t.announced??t.view.card))===upright(c)&&
-        (t.under!==undefined||evidence.motion(c)<=.025&&c.confidence>=.7&&!c.partial)&&!sameRotatedFieldAppearance(t.identityAppearance,appearance(c));
+      // A GY/banished top is a log entry: a new look on the pile is a new card pushed on top, never a rename (even before the glue
+      // confirms the old top, and also for an unread "Unknown" top in prompt state).
+      // A blurred frame or a shadow on the card is light, not a new card.
+      const lookBlocked=(t:InternalTrack,c:DetectedQuad)=>(fieldSlot(t.view.zone)&&bound(t)||publicPile(t.view.zone)&&(t.view.state==='identified'||t.view.state==='prompt'))&&!t.view.faceDown&&!!t.identityAppearance?.length&&c.kind==='face-up'&&
+        (t.under!==undefined||evidence.motion(c)<=.025&&c.confidence>=.7&&!c.partial&&!removalHold()&&!shadedKeeps(t,evidence))&&!sameRotatedFieldAppearance(t.identityAppearance,appearance(c));
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
@@ -591,7 +594,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       // Covered pile history remains in the authoritative twin list, not live
       // detector capacity. Only the freshly observed top keeps a live outline.
-      for(const t of tracks)if((bound(t)||t.view.state==='identified'&&!!t.identityAppearance?.length)&&['GY','BANISHED'].includes(t.view.zone)&&!matched.has(t)&&
+      for(const t of tracks)if((bound(t)||(t.view.state==='identified'||t.view.state==='prompt')&&!!t.identityAppearance?.length)&&['GY','BANISHED'].includes(t.view.zone)&&!matched.has(t)&&
         cards.some(c=>mapFieldZone(c,calibration,[],options.format).zone===t.view.zone&&quadIou(c,t.view.card)>.35)){
         t.view.visible=false;t.view.removed=true;t.pose=undefined;t.read=undefined;t.needsRead=false;t.best=undefined;note(t,'covered by a newer pile top');
       }
@@ -713,7 +716,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;if(!t.view.removed&&detectorRan)note(t,'no detector outline this scan');
           // Under: no outline of its own, and the outline of another live card lies over its spot. Kept, hidden, never sent to the hand.
           if(!t.view.removed&&fieldSlot(t.view.zone)&&(t.view.state==='identified'||t.placeholder)){
-            const box=boundsOf(t.view.card.quad),top=[...matched].find(([o,oc])=>o!==t&&!o.view.removed&&o.under!==t.view.id&&fieldSlot(o.view.zone)&&overlapFraction(box,boundsOf(oc.quad))>=.15)?.[0];
+            // The top lies ON the mat in the same zone: settled (identified, or still for 300 ms), about the same size (not a card
+            // held up in the air), it covers >= 40% of this card and its centre. A neighbour or a hovering card is not a top.
+            const box=boundsOf(t.view.card.quad),area=box.w*box.h,cx=box.x+box.w/2,cy=box.y+box.h/2;
+            const top=[...matched].find(([o,oc])=>{
+              if(o===t||o.view.removed||o.under===t.view.id||o.view.zone!==t.view.zone||!area)return false;
+              const b=boundsOf(oc.quad),ratio=b.w*b.h/area,inter=Math.max(0,Math.min(box.x+box.w,b.x+b.w)-Math.max(box.x,b.x))*Math.max(0,Math.min(box.y+box.h,b.y+b.h)-Math.max(box.y,b.y));
+              const settled=o.view.state==='identified'||sample.at-o.stableSince>=300&&evidence.motion(oc)<=.025;
+              return settled&&ratio>.6&&ratio<1.7&&inter/area>=.4&&cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;
+            })?.[0];
             if(top){
               if(t.under!==top.view.id){t.under=top.view.id;t.view.under=top.view.id;note(t,`under ${top.view.id.slice(-4)}`);emit('covered',t,{coverRef:top.view.id});}
               t.fullMisses=0;t.fullMissAt=undefined;resetAbsence(t);continue;
@@ -875,7 +886,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const changed=!t.prompted&&!bound(t)&&(changedKind||changedLook)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
         if(changed){t.moveAt=undefined;t.identityCheck??={state:t.view.state,cardId:t.view.cardId,result:t.lastResult,reason:t.promptOnly,strongSamples:0};invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
         // A card under this one (its stale outline) is not a fanned spread.
-        if(cards.some(other=>other!==c&&quadIou(c,other)>0&&!tracks.some(o=>o!==t&&(o.under||lookBlocked(o,c))&&quadIou(o.view.card,other)>.9))&&t.view.state==='candidate')t.promptOnly??='spread';
+        if(t.view.state==='candidate'&&!t.promptOnly&&cards.some(other=>other!==c&&quadIou(c,other)>0&&!tracks.some(o=>o!==t&&(o.under||lookBlocked(o,c))&&quadIou(o.view.card,other)>.9)))t.promptOnly='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
         if(sizes.length&&size.w*size.h>sizes[Math.floor(sizes.length/2)]*1.8)t.promptOnly??='uncertain';
         const confident=c.confidence>=.7||backOutline(c)&&cardAspect(c)||boundOutline||frontOutline(c)||c.confidence>=.4&&['GY','BANISHED'].includes(t.view.zone)&&(t.view.state==='candidate'||bound(t)&&sameRotatedFieldAppearance(t.identityAppearance,pixels));
@@ -967,6 +978,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // Follow physical lifts. Pile history needs touch or top-change evidence;
           // an unchanged top remains a separate copy from a new field outline.
           const known=options.getKnownCards?.();
+          // A new outline on top of a confirmed card that reads as that card, or does not read sure (glare, shadow, a turn to
+          // the other battle position), is that card: it takes the outline back. No new ref, no "placed".
+          const lies=(o:InternalTrack)=>{const a=boundsOf(o.view.card.quad),b=boundsOf(c.quad),cx=a.x+a.w/2,cy=a.y+a.h/2;return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h;};
+          const beneath=t.newOutline&&!t.binding?tracks.find(o=>o!==t&&bound(o)&&!o.view.removed&&!o.view.visible&&fieldSlot(o.view.zone)&&(o.under===t.view.id||!matched.has(o)&&lies(o))):undefined;
+          if(beneath&&(winner===beneath.view.cardId||result?.tier!=='sure')){
+            beneath.under=undefined;delete beneath.view.under;beneath.identityAppearance=pixels;beneath.appearance=pixels;beneath.lookUpright=upright(c);
+            beneath.view.card=c;beneath.view.visible=true;beneath.view.lastSeen=sample.at;beneath.missed=false;beneath.fullMisses=0;resetAbsence(beneath);
+            t.best=undefined;tracks.splice(tracks.indexOf(t),1);note(beneath,'the same card again (light or a turn)');continue;
+          }
           if(t.newOutline&&!t.binding&&!t.promptOnly){
             const restored=tracks.find(old=>old!==t&&old.view.removed&&old.restoredAt!==undefined&&sample.at-old.restoredAt<10000&&old.view.cardId!==winner&&known?.some(card=>card.id===old.view.id&&card.zone===t.view.zone&&!card.faceDown));
             if(restored){t.binding={id:restored.view.id,zone:restored.view.zone,cardId:restored.view.cardId};t.promptOnly='reappeared';}

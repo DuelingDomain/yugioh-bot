@@ -118,13 +118,14 @@ function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?
   let appearanceExplicit=false;
   let detectorCost=0;
   let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
+  let tierAt:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number};keep?:unknown[]})=>{detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number};keep?:unknown[]})=>{detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({shadow,frameSharpness,crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set shadow(v:{share:number;changed:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -165,8 +166,8 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   const reads=r.reads;
   r.appearance=Array.from({length:12},(_,i)=>i%2);r.embedding=[0,1];r.identity='B';
   r.outlines=[card(.31,.3,.25,.15)];for(let i=0;i<30;i++)await r.tick(200);
-  if(process.env.DBG)console.log('DBG9',JSON.stringify(r.events.map(e=>[e.type,e.track.id,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.map(t=>[t.id,t.state,t.cardId,t.under,t.removed])),JSON.stringify(r.watcher.getSnapshot().debug?.reasons));
-  assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads,reads,'bound identity is changed only by an explicit correction');
+  // A turn with a look that does not match: one identity check read; a read that is not sure keeps the confirmed card.
+  assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.ok(r.reads<=reads+1,'bound identity is changed only by an explicit correction');assert.equal(r.events.filter(e=>e.type==='placed').length,1);
   assert.equal(r.watcher.getSnapshot().tracks[0].id,'owner-ref');assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'A');r.watcher.dispose();
   const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
   const q=fieldRig('low match');for(let i=0;i<8;i++)await q.tick();const prompt=q.events.find(e=>e.type==='prompt')!;
@@ -417,11 +418,11 @@ test('busy tracking refreshes known geometry from pixels without inference and i
   r.busy=false;await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
   r.busy=true;r.appearance=Array(12).fill(.8);await r.tick(750);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false,'stationary replacements are invalidated');
   const oldRef=r.watcher.getSnapshot().tracks[0].id;r.busy=false;await r.tick();
-  assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef)?.visible,false,'the detector cannot restore the old identity onto replacement pixels');
   for(let i=0;i<6;i++)await r.tick();
   // Owner 2026-11-03: different pixels on the same spot are a new card on top. The acknowledged ref keeps its identity, hidden under it.
-  const old=r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef);assert.equal(old?.cardId,'A','an acknowledged ref is not reread onto replacement pixels');assert.equal(old?.visible,false);
-  assert.ok(old?.under&&r.watcher.getSnapshot().tracks.some(t=>t.id===old.under),'the old card lies under the new outline');r.watcher.dispose();
+  // The new outline reads as the same card A (light change): it merges back. The acknowledged ref keeps its identity, no new ref.
+  const old=r.watcher.getSnapshot().tracks.find(t=>t.id===oldRef);assert.equal(old?.cardId,'A','an acknowledged ref is not renamed by replacement pixels');assert.equal(old?.under,undefined);
+  assert.equal(r.watcher.getSnapshot().tracks.filter(t=>!t.removed).length,1,'no second card');assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
 });
 
 test('pixel refreshes between slow detector samples preserve same-ref movement settlement',async()=>{
@@ -880,11 +881,37 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  setKnown(kn.map(k=>k.id===ids.Q?{...k,zone:'M3'}:k));
  looks={M3:lookX};names={M3:'X'};r.motion=.2;await r.tick(100);r.motion=0;
  for(let i=0;i<30&&!placedIn('M3','X',from);i++)await r.tick(100);
- const xyz=placedIn('M3','X',from);if(!xyz&&process.env.DBG)console.log('DEBUG',JSON.stringify(r.events.slice(from).map(e=>[e.type,e.track.id.slice(-4),e.track.zone,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.filter(t=>!t.removed).map(t=>[t.id.slice(-4),t.zone,t.state,t.cardId,t.under?.slice(-4),t.visible])),JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(xyz&&![ids.P,ids.Q].includes(xyz.track.id),'the Xyz is a new card on top');
+ const xyz=placedIn('M3','X',from);assert.ok(xyz&&![ids.P,ids.Q].includes(xyz.track.id),'the Xyz is a new card on top');
  for(let i=0;i<5;i++)await r.tick(100);
  assert.equal(trackOf(ids.Q)?.under,xyz!.track.id,'Q is under the Xyz');assert.equal(trackOf(ids.P)?.removed,false);
  assert.ok(r.events.some(e=>e.type==='covered'&&e.track.id===ids.Q&&e.coverRef===xyz!.track.id),'the glue is told Q went under the Xyz');
  assert.equal(r.events.slice(from).some(e=>e.type==='removed'&&[ids.P,ids.Q].includes(e.track.id)),false,'no material goes to the hand');
+ // Review r1 H5: glare on the confirmed Xyz is light, not a new card. The new outline reads as X and merges back.
+ r.watcher.confirm(xyz!.track.id,'X');setKnown([...kn,{id:xyz!.track.id,zone:'M3',cardId:'X'}]);for(let i=0;i<5;i++)await r.tick(100);
+ from=r.events.length;looks={M3:lookX.map((v,i)=>i%24<8?Math.min(1,v+.35):v)};for(let i=0;i<20;i++)await r.tick(100);
+ assert.equal(r.events.slice(from).some(e=>e.type==='placed'||e.type==='removed'),false,'glare makes no new card and removes nothing');
+ assert.equal(trackOf(xyz!.track.id)?.under,undefined,'the Xyz keeps its outline');
+ // Review r1 BLOCKER (watcher part): Rank-Up. X2 goes on top of X; X (with P and Q) goes under X2, nothing leaves.
+ const lookX2=look(53);looks={M3:lookX2};names={M3:'X2'};r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<30&&!placedIn('M3','X2',from);i++)await r.tick(100);for(let i=0;i<5;i++)await r.tick(100);
+ const rankUp=placedIn('M3','X2',from);assert.ok(rankUp&&rankUp.track.id!==xyz!.track.id,'the Rank-Up Xyz is a new card on top');
+ assert.equal(trackOf(xyz!.track.id)?.under,rankUp!.track.id,'the old Xyz is under the new one');
+ assert.equal(r.events.slice(from).some(e=>e.type==='removed'&&[ids.P,ids.Q,xyz!.track.id].includes(e.track.id)),false,'no material leaves');
+ r.watcher.confirm(rankUp!.track.id,'X2');setKnown([...kn,{id:rankUp!.track.id,zone:'M3',cardId:'X2'}]);looks={M3:lookX2};names={M3:'X2'};
+ // Review r1 H6: an Xyz in Defense Position on a monster in Attack Position is still a new card on top.
+ for(let i=0;i<10;i++)await r.tick(100);
+ const m2a=card(.26,.35,.1,.15),m2d=card(.235,.375,.15,.1),lookR=look(59),lookY=look(61);from=r.events.length;
+ looks={M3:lookX2,M2:lookR};names={M3:'X2',M2:'R'};r.outlines=[deckOutline,{...gy},onP,m2a];
+ for(let i=0;i<30&&!placedIn('M2','R',from);i++)await r.tick(100);ids.R=placedIn('M2','R',from)!.track.id;r.watcher.confirm(ids.R,'R');setKnown([...kn,{id:ids.R,zone:'M2',cardId:'R'}]);for(let i=0;i<10;i++)await r.tick(100);
+ looks={M3:lookX2,M2:lookY};names={M3:'X2',M2:'Y'};r.motion=.2;r.outlines=[deckOutline,{...gy},onP,m2d];await r.tick(100);r.motion=0;
+ for(let i=0;i<30&&!placedIn('M2','Y',from);i++)await r.tick(100);for(let i=0;i<5;i++)await r.tick(100);
+ const defXyz=placedIn('M2','Y',from);assert.ok(defXyz&&defXyz.track.id!==ids.R&&defXyz.track.position==='defense','the Defense Position Xyz is placed as a new card');
+ assert.equal(trackOf(ids.R)?.under,defXyz!.track.id,'the Attack Position monster is under it');assert.equal(trackOf(ids.R)?.cardId,'R');
+ for(let i=0;i<10;i++)await r.tick(100);r.outlines=[deckOutline,{...gy},onP];looks={M3:lookX2};names={M3:'X2'};
+ // The player takes the M2 stack away: both leave the field.
+ for(let i=0;i<40&&!(trackOf(ids.R)?.removed&&trackOf(defXyz!.track.id)?.removed);i++)await r.tick(100);
+ assert.ok(trackOf(ids.R)?.removed&&trackOf(defXyz!.track.id)?.removed,'a lifted stack leaves the field');
+ setKnown(kn.filter(k=>k.id!==ids.R));
  // Temple of the Kings (K) in the Field Zone, partly covered by a new monster N in M1. K stays on the field.
  for(let i=0;i<10;i++)await r.tick(100);
  const fieldCard=card(.04,.35,.1,.15),cover=card(.115,.35,.1,.15);
@@ -893,10 +920,9 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  ids.K=placedIn('FIELD','K',from)!.track.id;r.watcher.confirm(ids.K,'K');setKnown([...kn,{id:ids.K,zone:'FIELD',cardId:'K'}]);for(let i=0;i<15;i++)await r.tick(100);
  looks={M3:lookX,FIELD:lookK,M1:lookN};names={M3:'X',FIELD:'K',M1:'N'};r.outlines=[deckOutline,{...gy},onP,cover];
  for(let i=0;i<30&&!placedIn('M1','N',from);i++)await r.tick(100);for(let i=0;i<10;i++)await r.tick(100);
-if(process.env.DBG)console.log('DEBUG2',JSON.stringify(r.events.slice(from).map(e=>[e.type,e.track.id.slice(-4),e.track.zone,e.track.cardId,e.reason])),JSON.stringify(r.watcher.getSnapshot().tracks.filter(t=>!t.removed).map(t=>[t.id.slice(-4),t.zone,t.state,t.cardId,t.under?.slice(-4),t.visible])),JSON.stringify(Object.fromEntries(Object.entries(r.watcher.getSnapshot().debug?.reasons??{}).filter(([k])=>!/removed|pile/.test(r.watcher.getSnapshot().debug!.reasons[k])))),JSON.stringify(r.watcher.getSnapshot().debug?.detections.map(d=>[d.zone,d.use])));
  assert.ok(placedIn('M1','N',from),'the covering monster is placed in M1');
  assert.equal(r.events.slice(from).some(e=>e.track.id===ids.K&&(e.type==='removed'||e.type==='moved')),false,'Temple stays in the Field Zone');
- assert.equal(trackOf(ids.K)?.under,placedIn('M1','N',from)!.track.id,'Temple is under the new monster');
+ assert.equal(trackOf(ids.K)?.under,undefined,'a neighbour in M1 is not a card on top: Temple keeps its own zone');assert.equal(trackOf(ids.K)?.removed,false);
  // GY log: Apophis -> Temple -> Man with the Mark, a hand over the pile each time. Count 3, in order.
  r.outlines=[deckOutline,onP,cover];r.appearanceAt=c=>looks[zoneOf(c)]??mat;
  for(let i=0;i<30&&!r.watcher.getSnapshot().missingPiles?.includes('GY');i++)await r.tick(100);
@@ -914,10 +940,23 @@ if(process.env.DBG)console.log('DEBUG2',JSON.stringify(r.events.slice(from).map(
  for(let i=0;i<15;i++)await r.tick(100);
  assert.equal(r.events.slice(passFrom).some(e=>(e.type==='placed'||e.type==='moved'||e.type==='removed')&&(e.track.zone==='GY'||pile.includes(e.track.id))),false,'a hand over the pile changes nothing');
  await land('MWM',47);
- assert.deepEqual(kn.filter(k=>k.zone==='GY').map(k=>k.cardId),['APO','TMP','MWM']);assert.equal(new Set(pile).size,3,'three cards, three refs');
+ // Review r1 H9: an unreadable top (prompt, glue pushes "Unknown card") does not take the next card's identity.
+ {const before=r.events.length;r.tierAt=c=>zoneOf(c)==='GY'?'low match':'sure';r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);
+  looks={...looks,GY:look(67)};names={...names,GY:'UNK'};await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+  for(let i=0;i<30&&!r.events.slice(before).some(e=>e.type==='prompt'&&e.track.zone==='GY');i++)await r.tick(100);
+  const unknown=r.events.slice(before).find(e=>e.type==='prompt'&&e.track.zone==='GY');assert.ok(unknown,'an unreadable GY top asks for its name');
+  setKnown([...kn,{id:unknown!.track.id,zone:'GY'}]);r.tierAt=undefined;for(let i=0;i<5;i++)await r.tick(100);
+  const next=r.events.length;r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);
+  looks={...looks,GY:look(71)};names={...names,GY:'NXT'};await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+  for(let i=0;i<30&&!placedIn('GY','NXT',next);i++)await r.tick(100);
+  const pushed=placedIn('GY','NXT',next);assert.ok(pushed&&pushed.track.id!==unknown!.track.id,'the next card is a new entry, not the Unknown one renamed');
+  setKnown([...kn,{id:pushed!.track.id,zone:'GY',cardId:'NXT'}]);for(let i=0;i<5;i++)await r.tick(100);
+  assert.equal(kn.filter(k=>k.zone==='GY').length,5,'GY count: 3 + Unknown + 1');}
+ assert.deepEqual(kn.filter(k=>k.zone==='GY').map(k=>k.cardId),['APO','TMP','MWM',undefined,'NXT'],'order: Apophis, Temple, Man with the Mark, Unknown, next');assert.equal(new Set(pile).size,3,'three cards, three refs');
  // One second of heavy blur, then a hand passes: the GY still has 3 cards, nothing goes to the hand.
- const blurFrom=r.events.length;r.detail=1;r.outlines=[deckOutline,onP,cover];for(let i=0;i<10;i++)await r.tick(100);
- r.detail=20;r.outlines=[deckOutline,onP,cover,{...gy}];r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
+ r.frameSharpness=100;for(let i=0;i<5;i++)await r.tick(100);
+ const blurFrom=r.events.length,sharpLooks=looks;r.frameSharpness=10;r.detail=1;looks=Object.fromEntries(Object.entries(looks).map(([z,v])=>[z,v.map(()=>.45)]));r.outlines=[deckOutline,onP];for(let i=0;i<10;i++)await r.tick(100);
+ looks=sharpLooks;r.frameSharpness=100;r.detail=20;r.outlines=[deckOutline,onP,cover,{...gy}];r.touchedAt=c=>zoneOf(c)==='GY'?.1:0;r.motionAt=c=>zoneOf(c)==='GY'?.2:0;await r.tick(100);await r.tick(100);r.touchedAt=undefined;r.motionAt=undefined;
  for(let i=0;i<15;i++)await r.tick(100);
  assert.equal(r.watcher.getSnapshot().missingPiles?.includes('GY'),false,'a blurred pile is never picked up');
  assert.equal(r.events.slice(blurFrom).some(e=>e.type==='removed'||e.type==='placed'&&e.track.zone==='GY'),false,'nothing leaves and nothing is added');
