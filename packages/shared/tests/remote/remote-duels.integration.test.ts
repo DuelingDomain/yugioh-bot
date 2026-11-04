@@ -9,6 +9,7 @@ import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction } from "../../src/remote/index.js";
+import { remoteUndoLabel } from "../../src/remote/undo.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -1439,6 +1440,41 @@ describe("tolerant voice attack resolution", () => {
     // A Pendulum Zone 1 is S1: a Trap Monster that holds S1 blocks it too.
     const pend = act(act(b.state, { type: "twin.place", zone: "spell-trap", card: { ref: "trap1", slot: 1, cardId: 77 } }), { type: "twin.move", cardRef: "trap1", zone: "monster", slot: 2, trapMonster: true });
     expect(() => act(pend, { type: "twin.place", zone: "pendulum", card: { ref: "scale", slot: 1, cardId: 3 } })).toThrow(/occupied/i);
+    // Xyz Summon: two monsters (one already stacked in M3, one sent to the hand by the camera) go under the Xyz in M3.
+    const twin = (state: typeof b.state, ref: string) => state.seats[0].twin.find(c => c.ref === ref);
+    const mats = act(act(act(b.state, { type: "twin.place", zone: "monster", card: { ref: "m1", slot: 3, cardId: 11 } }),
+      { type: "twin.place", zone: "monster", card: { ref: "m2", slot: 4, cardId: 12 } }), { type: "twin.move", cardRef: "m2", zone: "hand" });
+    const xyz = act(mats, { type: "twin.place", zone: "monster", card: { ref: "x1", slot: 3, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["m1", "m2"] } });
+    expect(twin(xyz, "x1")).toMatchObject({ zone: "monster", slot: 3, materials: ["m1", "m2"] });
+    expect(twin(xyz, "m1")).toMatchObject({ zone: "material", materialOf: "x1" });
+    expect(twin(xyz, "m1")?.slot).toBeUndefined();
+    expect(twin(xyz, "m2")).toMatchObject({ zone: "material", materialOf: "x1" });
+    expect(remoteUndoLabel(xyz.undoHistory!.find(e => e.actionId === xyz.undo!.actionId)!.action, xyz)).toBe("Xyz Summon: Card (2 materials)");
+    // One Undo puts both materials back.
+    const undone = undo(xyz, xyz.undo!.actionId);
+    expect(twin(undone, "x1")).toBeUndefined();
+    expect(twin(undone, "m1")).toMatchObject({ zone: "monster", slot: 3 });
+    expect(twin(undone, "m2")?.zone).toBe("hand");
+    // A card in the hand that did not just leave a Monster Zone is never a material.
+    expect(() => act(act(b.state, { type: "twin.place", zone: "hand", card: { ref: "h1", cardId: 13 } }),
+      { type: "twin.place", zone: "monster", card: { ref: "x9", slot: 2, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["h1"] } })).toThrow(/material/i);
+    // Rank-up: the new Xyz goes on top of the old one and takes its materials. Detach sends one to the GY.
+    const rankUp = act(xyz, { type: "twin.place", zone: "extra-monster", card: { ref: "x2", slot: 1, cardId: 22 }, summon: { kind: "xyz", materialRefs: ["x1"] } });
+    expect(twin(rankUp, "x2")?.materials).toEqual(["m1", "m2", "x1"]);
+    expect(twin(rankUp, "x1")).toMatchObject({ zone: "material", materialOf: "x2" });
+    expect(twin(rankUp, "x1")?.materials).toBeUndefined();
+    const detached = act(rankUp, { type: "twin.detach", cardRef: "x2", materialRef: "m1" });
+    expect(twin(detached, "x2")?.materials).toEqual(["m2", "x1"]);
+    expect(detached.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["m1"]);
+    // The Xyz leaves the field: it and its materials go to the GY, in order.
+    const left = act(detached, { type: "twin.move", cardRef: "x2", zone: "graveyard" });
+    expect(left.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["m1", "x2", "m2", "x1"]);
+    expect(left.seats[0].twin.some(c => c.zone === "material" || c.materialOf || c.materials)).toBe(false);
+    // Synchro Summon on a card already on the field: its materials go to the GY in one action.
+    const synchro = act(act(mats, { type: "twin.place", zone: "extra-monster", card: { ref: "s1", slot: 2, cardId: 31 } }),
+      { type: "twin.attach", cardRef: "s1", kind: "synchro", materialRefs: ["m1", "m2"] });
+    expect(synchro.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["m1", "m2"]);
+    expect(twin(synchro, "s1")?.materials).toBeUndefined();
     // Board re-sync: its log note is not an undo step. The player's Undo restores the re-sync move.
     const synced = ygoModule.reduce(act(summoned, { type: "twin.move", cardRef: "apophis", zone: "monster", slot: 4 }), remoteActionSchema.parse({ type: "log.note", actorSeat: 0, text: "Board re-synced (1 change)", idempotencyKey: "resync-note" }));
     const newest = [...synced.undoHistory!].sort((x, y) => y.order - x.order)[0];

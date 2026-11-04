@@ -225,6 +225,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   return next;
 }
 
+const summonName = (kind: string) => `${kind === "xyz" ? "Xyz" : kind[0].toUpperCase() + kind.slice(1)} Summon`;
 /** Public log labels use identities only when the physical card was public. */
 export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition): string {
   const ref = action.type === "twin.place" ? action.card.ref : "cardRef" in action ? action.cardRef : undefined;
@@ -234,7 +235,9 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
   const zone = (z: string, slot?: number) => ({monster:"M", "spell-trap":"S", pendulum:"P", "extra-monster":"EMZ"}[z] ?? z) + (slot ?? "");
   switch (action.type) {
     case "twin.move": return `${name} → ${zone(action.zone, action.slot)}`;
-    case "twin.place": return `${name} placed → ${zone(action.zone, action.card.slot)}`;
+    case "twin.place": return action.summon ? `${summonName(action.summon.kind)}: ${name} (${action.summon.materialRefs.length} material${action.summon.materialRefs.length === 1 ? "" : "s"})` : `${name} placed → ${zone(action.zone, action.card.slot)}`;
+    case "twin.attach": return `${summonName(action.kind)}: ${name} (${action.materialRefs.length} material${action.materialRefs.length === 1 ? "" : "s"})`;
+    case "twin.detach": return `${name}: material detached`;
     case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
