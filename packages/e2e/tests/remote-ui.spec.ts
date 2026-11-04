@@ -1252,6 +1252,7 @@ for (const showCardsSetFromDeck of [true,false]) test(`two browsers honor Deck p
     await expect(otherSet).toHaveAttribute("aria-label",/Torrential Tribute/);
     await act({type:"effect.activated",source:{cardId:73628505}});
     // The one-tap add-to-hand chip shows on the owner side only.
+    await page.keyboard.press("Escape"); // the chip waits while the Set picker is open
     await expect(page.getByTestId("hand-chip")).toBeVisible(); await expect(observer.getByTestId("hand-chip")).toHaveCount(0);
     await page.getByRole("button",{name:"Choose searched card · from Terraforming"}).click();
     await page.getByRole("button",{name:/Necrovalley ×1/}).click();
