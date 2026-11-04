@@ -26,9 +26,11 @@ ordinary hand fan, and a pile picked up for inspection do not populate the list.
 An explicit `hand.reveal` can show one card already in hand. No other hand card
 is inferred from that reveal.
 
-All seats can read `knownHand`. Private `handCount` and `deckCount` are optional.
-Only the owner receives them. A movement initializes missing counts from the
-starting hand size and registered deck. No deck size is inferred without a list.
+All seats can read `knownHand` and the public `handCount` number. Both counts
+are optional until initialized. Only the owner receives `deckCount`. A movement
+initializes missing counts from the starting hand size and registered deck.
+An owner correction can also set `handCount`. No deck size is inferred without
+a list. Public snapshots, replay, and undo snapshots preserve `handCount`.
 
 `room.revealedHand` and `state.revealedHand` are `'until-played' | 'one-turn'`.
 Default: `'until-played'`. Table create and lobby format requests accept this
@@ -46,9 +48,23 @@ Use `POST /api/remote/:slug/actions` with `baseSeq`, `actorSeat`, and a fresh
 {type: 'hand.add', cardId, source, by?: {cardId, name}}
 {type: 'hand.reveal', cardId}
 {type: 'hand.forget', id}
+{type: 'hand.count', delta: 1} // or delta: -1
+{type: 'hand.count', value: 5}
 ```
 
-`hand.add` increments the private hand count. Deck additions decrement the deck
+All four actions are in the strict `remoteActionSchema` and the exported
+`RemoteAction` and `RemoteActionProposal` types. The UI needs no cast. The schema
+rejects a `seat` field and unknown fields, including `hideAfterTurn`. The session
+must own `actorSeat`; a solo host can also act for an owned bot seat.
+
+`hand.count` accepts exactly one of `delta` or `value`. Both are integers.
+`value` must be 0–999999; `delta` must be -999999–999999. A delta uses the current
+count, or the room's starting hand size if no count exists. A result outside
+0–999999 is an error. The action changes only the acting seat's public hand count.
+It does not change known cards, physical twins, or the private deck count.
+The normal owner checks, idempotency, undo, and replay apply.
+
+`hand.add` increments the public hand count. Deck additions decrement the deck
 count. GY, banish, and Extra additions move one matching twin to hand. GY/banish
 use the same exit function as `pile.lift`. Field additions move the field twin.
 A missing pile/field source is an error. `unknown` does not infer a source pile.
@@ -140,5 +156,6 @@ both capture paths. Camera callbacks apply only to the owner of the feed.
 ## Completion checks
 
 Extend one existing shared remote reducer test; add no test file. Cover hand
-scope, exits, privacy, undo, replay, search/voice, and the held reader. Typecheck
+scope, exits, public counts, owner-only count changes, strict schemas, deck
+privacy, undo, replay, search/voice, and the held reader. Typecheck
 shared, web, and vision with Node 22. Use WIP commits and push the core branch.

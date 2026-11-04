@@ -241,6 +241,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "hand.add": return "Added card to hand";
     case "hand.reveal": return "Revealed card in hand";
     case "hand.forget": return "Forgot known hand card";
+    case "hand.count": return "Changed hand count";
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
     case "phase.set": return action.phase;

@@ -8,7 +8,7 @@ import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/accou
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -1959,6 +1959,7 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
 
 it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
   let state=ygoModule.initialState({seatCount:2});let serial=0;
   const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`atomic-${++serial}`,at:serial}));
   reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'set',slot:2,faceUp:false,position:'defense'}});
@@ -1977,7 +1978,39 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(()=>reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:true,cardId:46986414})).toThrow(/public card zone/);
   expect(remoteActionSchema.safeParse({type:'twin.flip',actorSeat:0,seat:0,idempotencyKey:'bad',cardRef:'set',faceUp:false,cardId:46986414}).success).toBe(false);
 
-  // Shared hand contract: public knowledge, private counts, physical exits and Undo.
+  // Strict hand actions are available to the UI without casts or a target seat.
+  const handProposals = [
+    {type:'hand.add',actorSeat:0,cardId:69299029,source:'field'},
+    {type:'hand.reveal',actorSeat:0,cardId:69299029},
+    {type:'hand.forget',actorSeat:0,id:'known-copy'},
+    {type:'hand.count',actorSeat:0,delta:1},
+    {type:'hand.count',actorSeat:0,value:0},
+  ] satisfies RemoteActionProposal[];
+  for (const proposal of handProposals) {
+    const input = {...proposal,idempotencyKey:'hand-schema'};
+    expect(remoteActionSchema.safeParse(input).success).toBe(true);
+    expect(remoteActionSchema.safeParse({...input,seat:1}).success).toBe(false);
+    expect(remoteActionSchema.safeParse({...input,hideAfterTurn:true}).success).toBe(false);
+  }
+  for (const payload of [{},{delta:1,value:5},{delta:1.5},{value:1.5},{value:-1},{value:1000000},{delta:1000000},{delta:-1000000},{value:'5'},{value:null},{delta:Infinity}])
+    expect(remoteActionSchema.safeParse({type:'hand.count',actorSeat:0,idempotencyKey:'invalid-count',...payload}).success).toBe(false);
+  state=ygoModule.initialState({seatCount:4});
+  state.deckChecks.format.settings.startingHand=7;
+  reduce({type:'hand.count',delta:1});expect(state.seats[0].handCount).toBe(8);
+  expect(state.seats[0].deckCount).toBeUndefined();
+  const counted=structuredClone(state),countId=state.undo!.actionId;
+  expect(sharedUndoLabel(state.undoHistory!.at(-1)!.action)).toBe('Changed hand count');
+  for (const viewer of [new Set<number>(),new Set([0]),new Set([1]),new Set([2]),new Set([3])])
+    expect(projectRemoteState(state,viewer).seats[0].handCount).toBe(8);
+  reduce({type:'undo',targetActionId:countId});expect(state.seats[0].handCount).toBeUndefined();
+  state=counted;reduce({type:'hand.count',delta:-2});expect(state.seats[0].handCount).toBe(6);
+  expect(projectRemoteState(state,new Set([1])).undo?.before.seats[0].handCount).toBe(8);
+  reduce({type:'hand.count',value:0});expect(state.seats[0].handCount).toBe(0);
+  expect(()=>reduce({type:'hand.count',delta:-1})).toThrow(/hand count/i);
+  reduce({type:'hand.count',value:999999});expect(()=>reduce({type:'hand.count',delta:1})).toThrow(/hand count/i);
+  reduce({type:'hand.count',value:5});reduce({type:'hand.count',delta:0});expect(state.seats[0].handCount).toBe(5);
+
+  // Shared hand contract: public knowledge and hand counts, private deck counts, exits and Undo.
   const shared=await import('../../src/remote/index.js');
   state=ygoModule.initialState({seatCount:2});
   const by={cardId:900001,name:'Man with the Mark'};
@@ -1987,10 +2020,13 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(state.seats[0].handCount).toBe(6);
   const opponent=projectRemoteState(state,new Set([1]));
   expect(opponent.seats[0].knownHand).toEqual(state.seats[0].knownHand);
-  expect(opponent.seats[0].handCount).toBeUndefined();
+  expect(opponent.seats[0].handCount).toBe(6);
   expect(opponent.undo?.before.seats[0].handCount).toBeUndefined();
   reduce({type:'undo',targetActionId:addedId});expect(state.seats[0].knownHand??[]).toEqual([]);
   state=added;
+  reduce({type:'hand.count',value:9});
+  expect(state.seats[0]).toEqual({...added.seats[0],handCount:9});
+  reduce({type:'undo',targetActionId:state.undo!.actionId});expect(state.seats).toEqual(added.seats);
   reduce({type:'hand.reveal',cardId:69299029});expect(state.seats[0].knownHand).toHaveLength(1);expect(state.seats[0].handCount).toBe(6);
   reduce({type:'twin.place',seat:0,zone:'field',card:{ref:'played-search',cardId:69299029}});
   expect(state.seats[0].knownHand).toEqual([]);expect(state.seats[0].handCount).toBe(5);
@@ -2057,6 +2093,15 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const knownCopies=state.seats[0].knownHand?.length;
   reduce({type:'twin.place',seat:0,zone:'field',fromRef:directPileRef,card:{ref:'direct-field',cardId:69299029}});
   expect(state.seats[0].knownHand).toHaveLength(knownCopies!);
+
+  state=ygoModule.initialState({seatCount:2});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'explicit-bounce',cardId:900001,slot:3}});
+  const beforeFieldAdd=structuredClone(state);
+  reduce({type:'hand.add',cardId:900001,source:'field'});
+  expect(state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:900001,source:'field',revealed:true})]);
+  expect(state.seats[0].twin).toMatchObject([{ref:'explicit-bounce',zone:'hand',departedFrom:{zone:'monster',slot:3}}]);
+  expect(projectRemoteState(state,new Set([1])).seats[0].knownHand).toEqual(state.seats[0].knownHand);
+  reduce({type:'undo',targetActionId:state.undo!.actionId});expect(state.seats).toEqual(beforeFieldAdd.seats);
 
   // A discard reuses the physical hand ref; automatic field re-reads keep the field owner.
   state=ygoModule.initialState({seatCount:2});
@@ -2149,6 +2194,39 @@ it('reveals identity and position in one undoable action, then hides a public Se
   session.act({type:'twin.move',seat:0,cardRef:deckReturnRef,zone:'deck'});
   expect(session.room.state.seats[0].deckCount).toBe(35);
   expect(session.service.replay(session.room.slug,'g',session.users[0])).toEqual(session.room.state);
+  // Session ownership, public snapshots, retries and replay use the same strict actions.
+  const countsSession=deckSession('normal',false);
+  countsSession.select(countsSession.save().id);
+  countsSession.service.join(countsSession.room.slug,'g',countsSession.users[1],'Bob',1,2002);
+  const countDeck=countsSession.save(undefined,[],countsSession.users[1]);
+  countsSession.service.selectDeck(countsSession.room.slug,'g',countsSession.users[1],{savedDeckId:countDeck.id},2003);
+  countsSession.service.ready(countsSession.room.slug,'g',countsSession.users[1],true,2004);
+  countsSession.start();countsSession.act({type:'hand.add',cardId:69299029,source:'deck'});
+  const countRoom=countsSession.room, countService=countsSession.service, countUsers=countsSession.users;
+  const countInput={baseSeq:countRoom.lastSeq,action:{type:'hand.count',actorSeat:0,delta:1,idempotencyKey:'public-count'} satisfies RemoteAction};
+  expect(()=>countService.act(countRoom.slug,'g',countUsers[1],countInput,2200)).toThrow(/actor seat/i);
+  expect(()=>countService.act(countRoom.slug,'g',countUsers[0],{...countInput,action:{...countInput.action,actorSeat:1}},2200)).toThrow(/actor seat/i);
+  expect(countService.get(countRoom.slug,'g',countUsers[0]).lastSeq).toBe(countInput.baseSeq);
+  const publicCount=countService.act(countRoom.slug,'g',countUsers[0],countInput,2201);
+  expect(publicCount.state.seats[0]).toEqual({...countRoom.state.seats[0],handCount:7});
+  const retriedCount=countService.act(countRoom.slug,'g',countUsers[0],countInput,2202);
+  expect(retriedCount.lastSeq).toBe(publicCount.lastSeq);expect(retriedCount.state.seats[0].handCount).toBe(7);
+  const otherCount=countService.act(countRoom.slug,'g',countUsers[1],{baseSeq:publicCount.lastSeq,action:{type:'hand.count',actorSeat:1,value:3,idempotencyKey:'other-count'}},2203);
+  expect(otherCount.state.seats.map(s=>s.handCount)).toEqual([7,3]);
+  expect(otherCount.state.seats[0].deckCount).toBeUndefined();
+  expect(otherCount.state.undo?.before.seats[0].deckCount).toBeUndefined();
+  const countBroadcast=countService.snapshot(countRoom.slug,'g');
+  expect(countBroadcast.state.seats.map(s=>s.handCount)).toEqual([7,3]);
+  expect(countBroadcast.state.seats.every(s=>s.deckCount===undefined)).toBe(true);
+  expect(countBroadcast.events.find(e=>e.id==='public-count')?.action).toMatchObject(countInput.action);
+  for (const viewer of countUsers.slice(0,2))
+    expect(countService.replay(countRoom.slug,'g',viewer)).toEqual(countService.get(countRoom.slug,'g',viewer).state);
+  const countUndo=countService.act(countRoom.slug,'g',countUsers[0],{baseSeq:otherCount.lastSeq,action:{type:'undo',actorSeat:0,targetActionId:'public-count',idempotencyKey:'undo-count'}},2204);
+  expect(countUndo.state.seats.map(s=>s.handCount)).toEqual([6,3]);
+  expect(countUndo.state.seats[0]).toEqual(countRoom.state.seats[0]);
+  for (const viewer of countUsers.slice(0,2))
+    expect(countService.replay(countRoom.slug,'g',viewer)).toEqual(countService.get(countRoom.slug,'g',viewer).state);
+
   // Existing picker path: an unnamed hand twin, then public camera identity.
   const picker=deckSession('normal');picker.select(picker.save([69299029,29762407,...Array.from({length:38},(_,i)=>i+1)]).id);picker.start();
   picker.act({type:'effect.activated',source:{cardId:900001}});

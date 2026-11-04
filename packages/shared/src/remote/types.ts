@@ -11,7 +11,14 @@ export type RemoteKnownHandCard = {
   id: string; cardId: number; source: 'deck' | 'gy' | 'banish' | 'extra' | 'field' | 'unknown';
   by?: {cardId: number; name: string}; at: number; revealed: true;
 };
-export type RemoteSeatState = { knownHand?: RemoteKnownHandCard[]; handCount?: number; deckCount?: number; seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
+export type RemoteSeatState = {
+  knownHand?: RemoteKnownHandCard[];
+  /** Public count. Absent until a movement or an owner correction sets it. */
+  handCount?: number;
+  /** Private count; only the owner receives it. */
+  deckCount?: number;
+  seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[];
+};
 export type RemoteTwinConfirmation = {
   seat:number;cardRef:string;existingRefs:string[];message:string;anotherCopyAllowed:boolean;
   options?:{ref?:string;label:string}[];placement?:Extract<RemoteAction,{type:"twin.place"}>;

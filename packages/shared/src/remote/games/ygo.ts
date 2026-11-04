@@ -96,7 +96,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     next.phase = phase;
   };
   switch (action.type) {
-    case "hand.add": case "hand.reveal": case "hand.forget": reduceRemoteHandAction(next, action); break;
+    case "hand.add": case "hand.reveal": case "hand.forget": case "hand.count": reduceRemoteHandAction(next, action); break;
     case "phase.set": setPhase(action.phase); break;
     case "phase.advance": {
       const index = phases.findIndex(p => p.id === state.phase);

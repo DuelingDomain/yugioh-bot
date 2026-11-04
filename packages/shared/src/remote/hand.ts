@@ -24,8 +24,13 @@ function forgetCopy(state: RemoteState, seat: number, code?: number) {
   const index = known?.findIndex(c => c.cardId === code) ?? -1;
   if (index >= 0) known!.splice(index, 1);
 }
-export function reduceRemoteHandAction(state: RemoteState, action: Extract<RemoteAction, {type: 'hand.add' | 'hand.reveal' | 'hand.forget'}>): void {
+export function reduceRemoteHandAction(state: RemoteState, action: Extract<RemoteAction, {type: 'hand.add' | 'hand.reveal' | 'hand.forget' | 'hand.count'}>): void {
   const seat = action.actorSeat, s = state.seats[seat];
+  if (action.type === 'hand.count') {
+    const value = action.value ?? (s.handCount ?? state.deckChecks.format.settings.startingHand) + action.delta!;
+    remoteAssert(value >= 0 && value <= 999999, 'Hand count is outside the supported range', 409);
+    s.handCount = value; return;
+  }
   if (action.type === 'hand.forget') {
     remoteAssert(s.knownHand?.some(c => c.id === action.id), 'Unknown known hand card', 409);
     s.knownHand = s.knownHand!.filter(c => c.id !== action.id); return;
