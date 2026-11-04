@@ -826,6 +826,27 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  // "Scan field" forces a full detector pass on the next sample; the snapshot gives its time.
  r.watcher.scanNow();await r.tick(10);assert.ok(r.watcher.getSnapshot().debug?.full,'Scan field runs a full pass');
  assert.equal(r.watcher.getSnapshot().lastFullAt,r.at,'the snapshot tells when the last full pass ran');
+ // Owner on :3000: Temple of the Kings goes on the GY on top of Apophis while a hand
+ // is near. The new top reads and goes on the pile once; the old top stays.
+ const temple=Array.from({length:288},(_,i)=>((Math.floor(i/3)*37+(i%3)*5)%229)/255),gyIds=()=>r.events.filter(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='GY'&&e.track.cardId==='T');
+ r.identityAt=c=>zones.fieldCenter(c).x>.8?'T':'G';r.decklist=['A','B','C','D','G','T'];
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?temple:zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4||inS4(c)?belle:mat;
+ r.motionAt=c=>zones.fieldCenter(c).x>.8?.2:0;r.touchedAt=c=>zones.fieldCenter(c).x>.8?.08:0;await r.tick(100);await r.tick(100);r.motionAt=undefined;
+ const templeFrom=r.at;for(let i=0;i<4;i++)await r.tick(100);r.touchedAt=undefined;
+ for(let i=0;i<30&&!gyIds().length;i++)await r.tick(100);
+ assert.equal(gyIds().length,1,'Temple of the Kings goes on the GY');assert.ok(r.at-templeFrom<=2500,`on the GY after ${r.at-templeFrom} ms`);
+ assert.ok(!['gy-x','gy-y'].includes(gyIds()[0].track.id),'a new ref, the old top stays under it');
+ for(let i=0;i<20;i++)await r.tick(100);assert.equal(gyIds().length,1,'pushed once');
+ // Owner on :3000: the camera (re)starts on a laid-out board. Three cards show at
+ // once, each in its own zone: a board, not a fanned hand. All are read; none
+ // stays "dismissed" behind the deck-spread guard.
+ const m1=card(.12,.35,.1,.15),m5=card(.68,.35,.1,.15),s5=card(.68,.72,.1,.15),boardIds:Record<string,string>={M1:'D',M5:'T',S5:'C'};
+ r.identityAt=c=>{const z=zones.mapFieldZone(c,cal,[],'normal').zone;return boardIds[z]??(zones.fieldCenter(c).x>.8?'T':'G');};
+ r.appearanceAt=c=>{const z=zones.mapFieldZone(c,cal,[],'normal').zone;return z==='M1'?dragon:z==='M5'?temple:z==='S5'?imperm:zones.fieldCenter(c).x>.8?temple:zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4||inS4(c)?belle:mat;};
+ const boardFrom=r.at;r.outlines=[deckOutline,{...gy},s2,s4,m1,m5,s5];
+ const onBoard=()=>['M1','M5','S5'].filter(z=>r.events.some(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone===z&&e.track.cardId===boardIds[z]));
+ for(let i=0;i<30&&onBoard().length<3;i++)await r.tick(100);
+ assert.deepEqual(onBoard(),['M1','M5','S5'],'every card of a laid-out board is read');assert.ok(r.at-boardFrom<=3000,`board read after ${r.at-boardFrom} ms`);
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
