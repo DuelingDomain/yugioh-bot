@@ -2202,6 +2202,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   state=ygoModule.reduce(state,remoteActionSchema.parse({type:'turn.end',actorSeat:1,idempotencyKey:'review-draw',at:++serial}));
   expect(state.seats.map(s=>s.handCount)).toEqual([6,6]);
   expect(ygoModule.parseCommand({text:'draw',actorSeat:0,state})).toEqual({type:'hand.draw',actorSeat:0,count:1});
+  reduce({type:'hand.draw',count:1});expect(state.seats[0].handCount).toBe(6);
   reduce({type:'hand.draw',count:2});expect(state.seats[0].handCount).toBe(8);
   reduce({type:'deck.count',value:30});
   reduce({type:'deck.count',delta:-2});expect(state.seats[0].handCount).toBe(10);

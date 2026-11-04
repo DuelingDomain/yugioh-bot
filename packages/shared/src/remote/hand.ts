@@ -10,10 +10,21 @@ export function moveRemoteCardToHand(card: TwinCard): void {
   card.zone = 'hand'; card.faceUp = false;
 }
 const codeOf = (card: TwinCard) => card.cardId ?? card.passcode;
+function openingDrawOf(state: RemoteState, seat: number, reviewed: boolean) {
+  const settings=state.deckChecks.format.settings;
+  return reviewed&&state.turn===1&&seat===state.turnSeat&&state.seatCount>2&&state.deckChecks.format.mode==='domain'&&settings.firstTurnDraw!==false ? settings.drawPerTurn : 0;
+}
+/** Cards of this turn's automatic draw that no voice or manual draw has used yet. */
+function unusedTurnDraw(state: RemoteState, seat: number, reviewed: boolean) {
+  if (!reviewed||seat!==state.turnSeat||state.phase!=='draw') return 0;
+  const drawn=state.turnDraw;
+  if (drawn&&drawn.turn===state.turn&&drawn.seat===seat) return drawn.used ? 0 : state.deckChecks.format.settings.drawPerTurn;
+  return drawn ? 0 : openingDrawOf(state,seat,reviewed);
+}
 function counts(state: RemoteState, seat: number, reviewed=true) {
   const s = state.seats[seat];
   const settings=state.deckChecks.format.settings;
-  const openingDraw=reviewed&&state.turn===1&&seat===state.turnSeat&&state.seatCount>2&&state.deckChecks.format.mode==='domain'&&settings.firstTurnDraw!==false ? settings.drawPerTurn : 0;
+  const openingDraw=openingDrawOf(state,seat,reviewed);
   s.handCount ??= settings.startingHand+openingDraw;
   const main = state.deckChecks.registrations[seat]?.deck.main;
   if (main) s.deckCount ??= Math.max(0, main.length - settings.startingHand-openingDraw);
@@ -31,9 +42,13 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
   const seat = action.actorSeat, s = state.seats[seat],reviewed=!context?.replay||context.handReview===1;
   if(action.type==='hand.draw') {
     counts(state,seat,reviewed);
-    remoteAssert(s.handCount!+action.count<=999999,'Hand count is outside the supported range',409);
-    s.handCount!+=action.count;
-    if(s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-action.count);
+    // The turn change or the opening hand already counted this turn's draw. The first "draw" in the Draw Phase is that draw.
+    const credit=unusedTurnDraw(state,seat,reviewed);
+    if(credit)state.turnDraw={turn:state.turn,seat,used:true};
+    const count=Math.max(0,action.count-credit);
+    remoteAssert(s.handCount!+count<=999999,'Hand count is outside the supported range',409);
+    s.handCount!+=count;
+    if(s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-count);
     return true;
   }
   if(action.type==='deck.count') {
@@ -111,6 +126,7 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
       const prior=counts(opening,s.seat);
       s.handCount??=prior.handCount;s.deckCount??=prior.deckCount;
     }
+    next.turnDraw={turn:next.turn,seat:next.turnSeat};
     const s=counts(next,next.turnSeat),draw=next.deckChecks.format.settings.drawPerTurn;
     s.handCount!+=draw;if(s.deckCount!==undefined)s.deckCount=Math.max(0,s.deckCount-draw);
   }

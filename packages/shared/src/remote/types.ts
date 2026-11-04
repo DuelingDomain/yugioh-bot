@@ -30,6 +30,8 @@ export type RemotePosition = {
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
   battleEntered?: boolean;
+  /** The automatic draw of this turn. A voice "draw" in the Draw Phase uses it once, so a draw is not counted twice. */
+  turnDraw?: { turn: number; seat: number; used?: boolean };
   startedSeats: number[]; seats: RemoteSeatState[]; ended: boolean; winnerSeat: number | null;
   attack: { id: string; attackerSeat: number; attackerCardRef?: string; targetSeat: number; targetCardRef?: string; direct?: boolean } | null;
   identified: { seat: number; cardRef?: string; private?: boolean; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
