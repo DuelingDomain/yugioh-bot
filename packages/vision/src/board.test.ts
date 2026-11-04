@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as board from './board';
 import { RecognitionPipeline } from './pipeline';
 import { yugioh } from './games/yugioh';
+import { boundsOf } from './geometry';
 import type { DetectedQuad, LoadedIndex } from './types';
 import type { ModelSession } from './runtime';
 import type { TensorCtor } from './embed';
@@ -116,14 +117,14 @@ const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
   let detectorCost=0;
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined;
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number}})=>{detects++;at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number};keep?:unknown[]})=>{detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
-    analyze:()=>({crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
+    analyze:()=>({shadow,frameSharpness,crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set shadow(v:{share:number;changed:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -847,6 +848,82 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const onBoard=()=>['M1','M5','S5'].filter(z=>r.events.some(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone===z&&e.track.cardId===boardIds[z]));
  for(let i=0;i<30&&onBoard().length<3;i++)await r.tick(100);
  assert.deepEqual(onBoard(),['M1','M5','S5'],'every card of a laid-out board is read');assert.ok(r.at-boardFrom<=3000,`board read after ${r.at-boardFrom} ms`);
+ // Owner on :3000: "my shadow leans forward, it covers the card a bit, and in certain
+ // cases the card disappears". Soft shadow blobs (30-70% darker, soft edge) move over
+ // a known card while the detector loses it; then a shadow from above covers the whole
+ // board. The card is never removed. A card really lifted under a shadow still leaves
+ // within 1.5 s after the shadow settles.
+ {
+  const s=fieldRig();t.after(()=>s.watcher.dispose());const scal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]);s.watcher.setCalibration(scal);
+  const art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),floor=Array(288).fill(.2),spot=card(.4,.35,.1,.15);
+  // Soft blob on the 8x12 patch: darkening `dark` inside radius r around (cx,cy), logistic edge.
+  const shade=(patch:number[],dark:number,cx:number,cy:number,radius:number)=>patch.map((v,i)=>{const p=Math.floor(i/3),d=Math.hypot((p%8)/7-cx,Math.floor(p/8)/11-cy);return v*(1-dark/(1+Math.exp((d-radius)/.12)));});
+  s.outlines=[spot];s.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?art:floor;s.frameSharpness=100;
+  for(let i=0;i<8;i++)await s.tick();const sid=s.events.find(e=>e.type==='placed')!.track.id;s.watcher.confirm(sid,'A');s.known=[{id:sid,zone:'M3',cardId:'A'}];
+  assert.ok(s.keeps.length>=1,'the detector is asked to keep the known card at a lower score');
+  const removed=()=>s.events.filter(e=>e.type==='removed'&&e.track.id===sid).length;
+  for(const dark of [.3,.5,.7]){
+   // The shadow sweeps over the card (the detector loses it), then rests on it for 3 s.
+   s.outlines=[];
+   for(let k=0;k<10;k++){const cx=-.5+k*.2;s.shadow={share:.3,changed:.05};s.motionAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?.03:0;s.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?shade(art,dark,cx,.5,.6):shade(floor,dark,.5,.5,2);await s.tick(100);}
+   s.motionAt=undefined;s.shadow={share:.3,changed:0};
+   for(let k=0;k<30;k++)await s.tick(100);
+   assert.equal(removed(),0,`a card under a ${dark*100}% soft shadow stays`);
+   s.shadow={share:0,changed:.3};s.outlines=[spot];s.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?art:floor;for(let k=0;k<5;k++)await s.tick(100);s.shadow=undefined;
+  }
+  // A shadow from above over the whole board: everything 60% darker, the detector sees nothing.
+  s.outlines=[];s.shadow={share:.9,changed:.9};s.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?art.map(v=>v*.4):floor.map(v=>v*.4);await s.tick(100);
+  s.shadow={share:.9,changed:0};for(let k=0;k<30;k++)await s.tick(100);
+  assert.equal(removed(),0,'a shadow from above over the whole board removes nothing');
+  assert.equal(s.watcher.getSnapshot().shadow?.share,.9,'the debug line shows the shadow share');
+  // Lifted under the shadow: the arm (and its shadow) moves, settles, the spot shows dark mat only.
+  s.shadow={share:.9,changed:.05};s.motionAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?.2:0;s.appearanceAt=()=>floor.map(v=>v*.4);
+  for(let k=0;k<3;k++)await s.tick(100);
+  assert.equal(s.watcher.getSnapshot().shadow?.hold,true,'removal holds while the shadow moves');
+  s.motionAt=undefined;s.shadow={share:.9,changed:0};const settled=s.at;
+  for(let k=0;k<30&&!removed();k++)await s.tick(100);
+  assert.equal(removed(),1,'a card lifted under a shadow is removed');assert.ok(s.at-settled<=1500,`removed ${s.at-settled} ms after the shadow settled`);
+ }
+ // Owner: the camera was blurry for a moment and cards were removed. A blurred frame
+ // (sharpness far below its recent baseline) is never "no outline" evidence, for field
+ // cards or piles; removals hold until 0.5 s after it, then re-check.
+ {
+  const b=fieldRig();t.after(()=>b.watcher.dispose());const bcal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]);b.watcher.setCalibration(bcal);
+  const art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),floor=Array(288).fill(.2),spot=card(.4,.35,.1,.15),pile=card(.84,.35,.1,.15);
+  b.outlines=[spot,pile];b.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?art:floor;b.frameSharpness=100;b.known=[{id:'gy-top',zone:'GY',cardId:'B'}];
+  for(let i=0;i<8;i++)await b.tick();const bid=b.events.find(e=>e.type==='placed'&&e.track.zone==='M3')!.track.id;b.watcher.confirm(bid,'A');b.known=[{id:'gy-top',zone:'GY',cardId:'B'},{id:bid,zone:'M3',cardId:'A'}];
+  b.frameSharpness=30;b.outlines=[];b.appearanceAt=()=>Array(288).fill(.45);for(let k=0;k<12;k++)await b.tick(100);
+  assert.equal(b.watcher.isBlurred(),true);assert.ok(b.watcher.frameSharpness().ratio<.5);assert.equal(b.watcher.getSnapshot().blur?.hold,true,'debug: blur · hold');
+  assert.equal(b.events.some(e=>e.type==='removed'),false,'a blurred camera removes no card');assert.equal(b.watcher.getSnapshot().missingPiles?.includes('GY'),false,'nor a pile');
+  b.frameSharpness=100;b.outlines=[spot,pile];b.appearanceAt=c=>zones.fieldCenter(c).x>.4&&zones.fieldCenter(c).x<.5?art:floor;for(let k=0;k<10;k++)await b.tick(100);
+  assert.equal(b.events.some(e=>e.type==='removed'),false);assert.equal(b.watcher.isBlurred(),false);
+ }
+ // Owner: the mat is EMPTY but a face-down card stays in S3 (a twin with no live track;
+ // arms move at the mat edges, so the "empty mat" rule never runs). A stale face-down
+ // candidate with a huge box hangs over M4-M1. The S3 twin is removed within ~1.5 s,
+ // the re-sync list names it, Scan field removes it again after an Undo, and the
+ // candidate expires; a box larger than two zones never starts a card.
+ {
+  const e=fieldRig();t.after(()=>e.watcher.dispose());const ecal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]);e.watcher.setCalibration(ecal);
+  const darkMat=Array(288).fill(.12),back=Array.from({length:288},(_,i)=>.1+(i%5)*.01);
+  e.appearanceAt=()=>darkMat;e.frameSharpness=100;e.known=[{id:'s3-set',zone:'S3',faceDown:true,position:'defense'}];
+  // Arms at both mat edges: localized motion every frame.
+  e.motionRegion={x:.0,y:.1,w:.08,h:.8};e.motionAt=c=>{const b=boundsOf(c.quad);return b.w>.9?.02:zones.fieldCenter(c).x<.1||zones.fieldCenter(c).x>.9?.2:0;};
+  const huge={...card(.12,.3,.6,.45),kind:'face-down' as const,confidence:.6},small={...card(.68,.35,.1,.15),kind:'face-down' as const,confidence:.9};
+  e.outlines=[huge,small];e.appearanceAt=c=>zones.fieldCenter(c).x>.6&&zones.fieldCenter(c).x<.8?back:darkMat;for(let k=0;k<3;k++)await e.tick(100);
+  assert.equal(e.watcher.getSnapshot().tracks.some(t=>boundsOf(t.card.quad).w>.5),false,'a box larger than two zones starts no card');
+  e.outlines=[];e.appearanceAt=()=>darkMat;const emptyFrom=e.at;
+  for(let k=0;k<30&&!e.events.some(x=>x.type==='removed'&&x.track.id==='s3-set');k++)await e.tick(100);
+  const gone=e.events.find(x=>x.type==='removed'&&x.track.id==='s3-set');
+  assert.ok(gone,'the face-down S3 twin with no live track leaves the empty mat');assert.ok(e.at-emptyFrom<=1500,`S3 removed after ${e.at-emptyFrom} ms`);assert.equal(gone.track.faceDown,true);
+  assert.deepEqual(e.watcher.getSnapshot().missingTwins,['s3-set'],'the re-sync gets the missing twin');
+  for(let k=0;k<25;k++)await e.tick(100);
+  assert.equal(e.watcher.getSnapshot().tracks.some(t=>t.state==='candidate'&&!t.removed),false,'the stale candidate expired');
+  // The player Undoes the removal (twin back in S3). After the retries, Scan field removes it again.
+  for(let k=0;k<60;k++)await e.tick(100);const beforeScan=e.events.filter(x=>x.type==='removed'&&x.track.id==='s3-set').length;
+  e.watcher.scanNow();for(let k=0;k<10&&e.events.filter(x=>x.type==='removed'&&x.track.id==='s3-set').length===beforeScan;k++)await e.tick(100);
+  assert.ok(e.events.filter(x=>x.type==='removed'&&x.track.id==='s3-set').length>beforeScan,'Scan field removes it');
+ }
 });
 
 test('unchanged face-down sleeve matching the mat is never removed by the fast absence path',async()=>{
