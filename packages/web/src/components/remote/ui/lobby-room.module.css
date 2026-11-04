@@ -53,10 +53,11 @@
 .alert { margin-bottom: 20px; }
 
 /* The deck list step and the "Deck list: on" label under a seat's deck picker. */
-.deckList { display: grid; gap: 8px; min-width: 0; }
-.deckListHead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; color: var(--duel-ink-2, inherit); }
-.deckListHead b { color: var(--duel-ink, inherit); font-weight: 600; }
-.deckListHead > :last-child { margin-left: auto; }
+.deckList { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px dashed var(--duel-rule-lo); border-radius: 8px; }
+.deckListHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 13px; }
+.deckListText { display: grid; gap: 2px; min-width: 0; }
+.deckListText b { font-weight: 600; }
+.deckListText small { font-size: 12px; opacity: .7; }
 .deckListBody { display: grid; gap: 8px; }
 .deckListActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .listOn { margin: 0; font-size: 13px; color: var(--duel-ok); }
