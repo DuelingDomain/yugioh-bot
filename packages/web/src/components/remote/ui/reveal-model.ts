@@ -7,7 +7,10 @@ export type HandSource = RemoteKnownHandCard["source"];
 export type HandBy = NonNullable<RemoteKnownHandCard["by"]>;
 /** A card of a hand that all players know about: added by an effect, or returned from the field. */
 export type KnownHandCard = { id: string; cardId: number; name: string; source: HandSource; by?: string; at: number };
-export type HandCandidate = { cardId: number; name: string };
+/** `source` is the physical origin the plan gives (Deck, Graveyard or Banished). */
+export type HandCandidate = { cardId: number; name: string; source?: "deck" | "gy" | "banish" };
+/** A camera read with no search behind it: the owner decides (local only, never sent). */
+export type HandSuggestion = { id: string; cardId: number; name: string; actorSeat: number };
 
 /** Short text for where the card came from: "from Deck · by Man with the Mark". */
 export function sourceText(card: Pick<KnownHandCard, "source" | "by">): string {
@@ -31,7 +34,7 @@ export function openSearch(state: RemoteState, seat: number, dismissed: Readonly
   const origin = (state.effectTracking?.origins ?? []).filter(o => o.seat === seat && o.destination === "hand" && !o.chosenCardId && !o.announcedCard && !o.handCounted && !dismissed.has(o.id) && fresh(o.id)).at(-1);
   if (!origin) return undefined;
   const found = searchCandidates(state, seat, origin.source.cardId);
-  const candidates: HandCandidate[] = found.length ? found.map(c => ({ cardId: c.cardId, name: c.name })) : (origin.candidates ?? []).map(c => ({ cardId: c.cardId, name: c.name }));
+  const candidates: HandCandidate[] = found.length ? found.map(c => ({ cardId: c.cardId, name: c.name, source: c.source })) : (origin.candidates ?? []).map(c => ({ cardId: c.cardId, name: c.name, source: origin.searchSource ?? "deck" }));
   return { id: origin.id, by: { cardId: origin.source.cardId, name: origin.source.name }, candidates };
 }
 
@@ -39,4 +42,6 @@ export function openSearch(state: RemoteState, seat: number, dismissed: Readonly
 export const handAdd = (actor: number, card: HandCandidate, source: HandSource, by?: HandBy): RemoteActionProposal =>
   ({ type: "hand.add", actorSeat: actor, cardId: card.cardId, source, ...(by ? { by } : {}) });
 /** The owner changes the hand size by a step (two quick taps add up). */
+/** The owner shows a card of the hand to all players. */
+export const handReveal = (actor: number, cardId: number): RemoteActionProposal => ({ type: "hand.reveal", actorSeat: actor, cardId });
 export const handCount = (actor: number, delta: number): RemoteActionProposal => ({ type: "hand.count", actorSeat: actor, delta });

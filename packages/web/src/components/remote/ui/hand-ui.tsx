@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cardArt } from "./catalog";
 import { Icon } from "./icons";
-import { sourceText, type HandBy, type HandCandidate, type KnownHandCard } from "./reveal-model";
+import { sourceText, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import s from "./remote-ui.module.css";
 
 const FRESH_MS = 2600;
@@ -16,6 +16,8 @@ export type HandProps = {
   onInspect: (card: KnownHandCard) => void;
   /** Own seat only: the open search (one-tap chip). */
   search?: { by: HandBy; candidates: HandCandidate[]; onPick: (card: HandCandidate) => void; onOther: () => void; onDismiss: () => void };
+  /** Own seat only: a camera read without a search (local suggestion). */
+  suggest?: { card: HandSuggestion; onAdd: (source: HandSource) => void; onReveal: () => void; onDismiss: () => void };
   /** Webcam only: the strip is an overlay at the bottom of the feed. */
   overlay?: boolean;
 };
@@ -53,6 +55,22 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
   </div>;
 }
 
+const SUGGEST_SOURCES: { source: HandSource; label: string }[] = [{ source: "deck", label: "Deck" }, { source: "gy", label: "Graveyard" }, { source: "banish", label: "Banished" }, { source: "unknown", label: "Not sure" }];
+
+/** The camera saw a card in the hand and no effect explains it: the owner picks the source, shows it, or dismisses it. Nothing is sent before a choice. */
+export function HandSuggestChip({ suggest }: { suggest: NonNullable<HandProps["suggest"]> }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) suggest.onDismiss(); };
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
+  }, [suggest]);
+  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add ${suggest.card.name} to hand?`} data-testid="hand-suggest">
+    <span className={s.hchipl}>Add {suggest.card.name} to hand?</span>
+    {SUGGEST_SOURCES.map(item => <button type="button" key={item.source} className={s.hchipb} onClick={() => suggest.onAdd(item.source)} data-testid={`hand-suggest-${item.source}`}>{item.label}</button>)}
+    <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={suggest.onReveal} data-testid="hand-suggest-reveal">Reveal</button>
+    <button type="button" className={s.hchipx} onClick={suggest.onDismiss} aria-label="Dismiss suggestion" title="Dismiss (Esc)"><Icon name="x" /></button>
+  </div>;
+}
+
 /** A quick look at a card of the strip: big art, name, where it came from. Hover or keyboard focus opens it; it never takes a click. */
 function HandPreview({ card, box }: { card: KnownHandCard; box: DOMRect }) {
   const host = typeof document === "undefined" ? null : document.querySelector('[data-testid="remote-table"]');
@@ -71,9 +89,9 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
   const { count, onCount } = hand;
   // The webcam overlay stays out of the feed until there is something to show.
-  if (!hand.cards.length && !hand.search && (hand.overlay || count === undefined)) return null;
+  if (!hand.cards.length && !hand.search && !hand.suggest && (hand.overlay || count === undefined)) return null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
-    {hand.search ? <HandChip search={hand.search} /> : null}
+    {hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null}
     <div className={s.hrow}>
       <span className={s.hlab}>Revealed in hand</span>
       <ul className={s.hcards}>
