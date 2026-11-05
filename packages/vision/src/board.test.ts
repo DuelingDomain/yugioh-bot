@@ -296,10 +296,11 @@ test('a large move through a brief hand occlusion keeps the physical id without 
   assert.equal(r.watcher.getSnapshot().tracks.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].id,id);assert.equal(r.reads,1);r.watcher.dispose();
 });
 test('known instances emit moves and recalibration remaps settled cards',async()=>{
-  let at=0,outlines=[card(.3,.3)];const events:field.FieldEvent[]=[];
-  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{throw new Error('known must not reread');}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',card:card(.3,.3),zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
+  // Card-sized for the mat calibrated below: a quad wider than a mat column maps as a card held above the mat.
+  let at=0,outlines=[card(.3,.3,.06,.1)];const events:field.FieldEvent[]=[];
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>outlines,recognize:async()=>{throw new Error('known must not reread');}},buffer:{sample:async()=>({frame:frame as ImageData,at})},getKnownCards:()=>[{id:'known',card:card(.3,.3,.06,.1),zone:'M2',cardId:'A'}],now:()=>at,hidden:()=>false,analyze:()=>({crop:fieldCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array(12).fill(.2)}),clone:async f=>f});
   watcher.subscribe(e=>{if(e.type!=='reading')events.push(e);});for(let i=0;i<6;i++){at+=333;await watcher.tick();}
-  outlines=[card(.4,.3)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}assert.ok(events.some(e=>e.type==='moved'));
+  outlines=[card(.4,.3,.06,.1)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}assert.ok(events.some(e=>e.type==='moved'));
   watcher.setCalibration(zones.createFieldCalibration([{x:.45,y:.1},{x:.95,y:.95}]));for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   assert.equal(watcher.getSnapshot().tracks[0].zone,'FIELD');assert.ok(events.some(e=>e.type==='moved'&&e.track.zone==='FIELD'));watcher.dispose();
 });
@@ -519,7 +520,7 @@ test('a different face revealed after a flip never restores the hidden old ident
  r.identity='B';r.outlines=[card(.3,.3)];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.at(-1)?.type,'placed');assert.equal(r.events.at(-1)?.track.cardId,'B');r.watcher.dispose();
 });
 test('calibrated candidate centres outside the mat are rejected',async()=>{
- for(const corner of [{x:.4,y:.4},{x:.4,y:.2}]){const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
+ for(const corner of [{x:.4,y:.4},{x:.4,y:.2}]){const r=fieldRig();r.outlines=[card(.3,.3,.06,.1)];r.watcher.setCalibration(zones.createFieldCalibration([corner,{x:.95,y:.95}]));for(let i=0;i<10;i++)await r.tick();assert.equal(r.reads,0);assert.equal(r.events.length,0);r.watcher.dispose();}
 });
 
 test('Undo suppression belongs to physical appearance, not every later card in the same column',async()=>{

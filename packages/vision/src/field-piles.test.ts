@@ -15,11 +15,11 @@ test('cached identity settlement preserves deck observations until a real detect
     data.set([...rgb,255],(y*width+x)*4);
   }
   const face={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
-  let at=0,detects=0,reads=0,motion=0,outlines=[deck];
+  let at=0,detects=0,reads=0,motion=0,outlines=[deck],deckLook=Array(12).fill(.2);
   const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame:face as ImageData,at})},
     recognizer:{detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{total:1},backend:'wasm'} as RecognitionResult;}},
-    analyze:()=>({motion:()=>motion,sharpness:()=>20,appearance:()=>Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
+    analyze:()=>({motion:()=>motion,sharpness:()=>20,appearance:c=>c.quad[0].x===deck.quad[0].x?deckLook:Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
   });
   const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
   try {
@@ -35,9 +35,16 @@ test('cached identity settlement preserves deck observations until a real detect
     assert.equal(watcher.getSnapshot().piles?.length,1,'cached field outlines cannot prove deck absence');
     motion=.3;for(let i=0;i<10;i++)await tick();
     assert.equal(watcher.getSnapshot().piles?.length,1,'a one-second hand cover retains the verified deck');motion=0;
+    // Owner: the Deck vanished from the board while an arm passed and the detector gave it no box. Its unchanged
+    // spot keeps it; only a changed spot for five seconds (or Scan field) takes it off.
     outlines=[];
-    for(let i=0;i<35;i++)await tick();
-    assert.equal(watcher.getSnapshot().piles?.length,0,'detector absence clears a deck after its three-second grace period');
+    for(let i=0;i<60;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,1,'no box, but the spot still shows the deck: it stays');
+    deckLook=Array(12).fill(.7);
+    for(let i=0;i<45;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,1,'a changed spot is not yet gone');
+    for(let i=0;i<10;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,0,'a changed spot with no box for five seconds clears the deck');
     assert.equal(watcher.getSnapshot().metrics.errors,0);
   } finally { watcher.dispose(); }
 });

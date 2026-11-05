@@ -286,6 +286,31 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
   if(!best)throw new Error('Could not align M1 and S5. Keep both cards upright from your seat, flat, with equal gaps and the full field in view, or adjust the four corners.');
   return best.calibration;
 }
+/**
+ * How a detector quad lies on the calibrated mat plane (the inverse homography). A card resting ON the mat keeps
+ * its shape there: opposite edges stay parallel and of equal length (an affine property, so it holds whatever the
+ * unknown cell aspect is), and its size in cell units is the same at every position. A card held above the mat is
+ * closer to the camera, so it maps larger; tilted toward the camera, its opposite edges stop being parallel.
+ * `size`: sqrt(area) in default cell units (one cell = 1). `tilt`: worst angle between opposite edges (degrees).
+ * `sides`: worst opposite-edge length ratio (1 = equal). `cellShare`: share of its mat box inside its own cell.
+ */
+export interface MatRestGeometry { size:number; tilt:number; sides:number; cellShare:number; zone:FieldZone }
+export function matRestGeometry(card:Pick<DetectedQuad,'quad'>, calibration:FieldCalibration, format:FieldFormat='normal'):MatRestGeometry|undefined {
+  if(card.quad.length!==4)return;
+  const m=card.quad.map(p=>onMat(p,calibration));
+  if(m.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))return;
+  const w=FIELD_ZONE_PITCH*normalizeZoneSpacing(calibration.zoneSpacing),h=FIELD_ROW,uv=m.map(p=>({x:p.x/w,y:p.y/h}));
+  const edges=uv.map((a,i)=>{const b=uv[(i+1)%4];return {x:b.x-a.x,y:b.y-a.y,length:Math.hypot(b.x-a.x,b.y-a.y)};});
+  if(edges.some(e=>!(e.length>1e-6)))return;
+  let tilt=0,sides=1;
+  for(const [i,j] of [[0,2],[1,3]]){
+    const a=edges[i],b=edges[j],cos=Math.max(-1,Math.min(1,-(a.x*b.x+a.y*b.y)/(a.length*b.length)));
+    tilt=Math.max(tilt,Math.acos(cos)*180/Math.PI);sides=Math.min(sides,Math.min(a.length,b.length)/Math.max(a.length,b.length));
+  }
+  const zone=fieldZoneAt(fieldCenter({quad:m}),calibration,format),cell=zoneLayoutOf(calibration,format).cells.find(c=>c.zone===zone),box=boundsOf(m);
+  const cellShare=cell&&box.w*box.h>0?Math.max(0,Math.min(box.x+box.w,cell.x+cell.w)-Math.max(box.x,cell.x))*Math.max(0,Math.min(box.y+box.h,cell.y+cell.h)-Math.max(box.y,cell.y))/(box.w*box.h):0;
+  return {size:Math.sqrt(polygonArea(uv)),tilt,sides,cellShare,zone};
+}
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
   return {zone:fieldZoneAt(onMat(fieldCenter(card),calibration),calibration,format),calibrated:!!calibration};
 }
