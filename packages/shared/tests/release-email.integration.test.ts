@@ -117,9 +117,11 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
       const r = releases.createDraft({ version: `1.0.${version++}`, title: "More news", major: false, highlights: [], sections: [{ kind: "fixes", items: ["Fixed"] }] });
       releases.publish(r.id, { actorUserId: 1 });
       const p = await outbox.preview(r.id, 1, singleClerk);
-      await expect(outbox.confirm(r.id, 2, p.token)).rejects.toMatchObject({ code: "invalid_preview" });
+      await expect(outbox.confirm(r.id, 2, p.token)).rejects.toMatchObject({ code: "invalid_preview", status: 409 });
       db.prepare("update release_email_previews set expires_at=1 where token_hash=?").run(email.hash(p.token));
-      await expect(outbox.confirm(r.id, 1, p.token)).rejects.toMatchObject({ code: "invalid_preview" });
+      await expect(outbox.confirm(r.id, 1, p.token)).rejects.toMatchObject({ code: "preview_expired", status: 410 });
+      db.prepare("delete from release_email_previews where token_hash=?").run(email.hash(p.token));
+      await expect(outbox.confirm(r.id, 1, p.token)).rejects.toMatchObject({ code: "preview_expired", status: 410 });
       const fresh = await outbox.preview(r.id, 1, singleClerk);
       await outbox.confirm(r.id, 1, fresh.token);
       return r;

@@ -97,8 +97,10 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
       if (!configured()) return emptyState("not_configured");
       const row = db.prepare<[string], PreviewRow>("select * from release_email_previews where token_hash=?").get(hash(token));
       const release = publishedRelease(releaseService.get(releaseId));
-      if (!row || row.release_id !== releaseId || row.owner_user_id !== ownerUserId || row.expires_at <= Date.now()
+      if (!row) throw new ReleaseError("preview_expired", 410);
+      if (row.release_id !== releaseId || row.owner_user_id !== ownerUserId
         || row.release_hash !== hash(JSON.stringify(release))) throw new ReleaseError("invalid_preview", 409);
+      if (row.expires_at <= Date.now()) throw new ReleaseError("preview_expired", 410);
       const audience = decrypt<EmailAudience>(row.payload_encrypted, config);
       if (hash(JSON.stringify(audience.recipients)) !== row.audience_hash) throw new ReleaseError("invalid_preview", 409);
       const id = randomUUID(), now = Date.now();
