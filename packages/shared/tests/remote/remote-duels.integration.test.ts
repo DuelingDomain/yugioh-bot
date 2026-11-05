@@ -1849,11 +1849,62 @@ describe("remote effect origins and hidden information", () => {
     expect(s.room.state.effectTracking!.origins.filter(o=>o.ref==="manual")).toEqual([]);
   });
   it("rejects another seat's private choice and resolves activate after identification",()=>{
-    const s=originSession(); s.act({type:"card.identified",seat:0,cardId:70825459,source:"voice"});
+    const s=originSession();
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"source",cardId:70825459,name:"Trap Tracks",faceUp:true,slot:1}});
+    s.act({type:"card.identified",seat:0,cardRef:"source",cardId:70825459,source:"voice"});
     const command=ygoModule.parseCommand({text:"activate",actorSeat:0,state:s.room.state});
     expect(command).toMatchObject({type:"effect.activated",source:{cardId:70825459}});
     s.act(command!); s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"set",faceUp:false}});
     expect(()=>s.act({type:"effect.choose",actorSeat:1,originId:originOf(s).id,cardId:53582587})).toThrow(/owner|controller/i);
+
+    let state=ygoModule.initialState({seatCount:3});
+    state.seats[1].twin=[
+      {ref:"skilled",cardId:73752131,name:"Skilled Dark Magician",zone:"monster",slot:1,faceUp:true,position:"attack"},
+      {ref:"normal",cardId:46986414,name:"Dark Magician",zone:"monster",slot:2,faceUp:true,position:"attack"},
+      {ref:"trap",cardId:70825459,name:"Trap Tracks",zone:"spell-trap",slot:1,faceUp:false,position:"attack"},
+      {ref:"pile",cardId:89631139,name:"Blue-Eyes White Dragon",zone:"graveyard",faceUp:true,position:"attack"},
+    ];
+    state.seats[0].twin=[{ref:"opponent",name:"Man-Eater Bug",zone:"monster",faceUp:true,position:"attack"}];
+    const lookupCard=(code:number)=>({
+      73752131:{name:"Skilled Dark Magician",type:"Effect Monster"},
+      46986414:{name:"Dark Magician",type:"Normal Monster"},
+      70825459:{name:"Trap Tracks",type:"Trap Card"},
+    }[code]);
+    const parse=(text:string,now=100_000)=>ygoModule.parseCommand({text,actorSeat:1,state,now,lookupCard});
+    const bare=["activate","activate effect","activate the effect","effect","use effect","use the effect","I activate effect","um, okay, effect!"];
+    const named=["activate Skilled Dark Magician","activate effect of Skilled Dark Magician","activate the effect of Skilled Dark Magician",
+      "activate Skilled Dark Magician's effect","Skilled Dark Magician effect","Skilled Dark Magician's effect","Skilled Dark Magician’s effect",
+      "use Skilled Dark Magician effect","use Skilled Dark Magician's effect","I use Skilled Dark Magician’s effect",
+      "activate Skiled Dark Magican","skilled dark magishun effect"];
+    for(const text of [...bare,...named]) expect(parse(text),text).toMatchObject({type:"effect.activated",actorSeat:1,source:{cardId:73752131,cardRef:"skilled"}});
+    for(const text of ["that effect is good","what does the effect do","what does the effect","the effect is good","effect is good",
+      "I think I will activate effect","don't activate effect","activate Skilled Dark Magician and then draw","Skilled Dark Magician effect is good",
+      "can I use Skilled Dark Magician effect","use Skilled Dark Magician effect please","use effect later","effect of Skilled Dark Magician",
+      "activate Man-Eater Bug","activate Blue-Eyes White Dragon","activate some random conversation"])
+      expect(parse(text),text).toBeNull();
+    expect(parse("use Trap Tracks effect")).toMatchObject({source:{cardId:70825459,cardRef:"trap"}});
+    expect(parse("activate Dark Magician")).toMatchObject({source:{cardRef:"normal"}}); // Unique exact name outranks a partial match.
+    state.seats[1].twin.push({...state.seats[1].twin[0],ref:"copy",faceUp:false,slot:3});
+    expect(parse("Skilled Dark Magician effect")).toMatchObject({source:{cardRef:"skilled"}}); // Face-up first.
+    state.seats[1].twin.at(-1)!.faceUp=true;
+    for(const text of ["effect","Skilled Dark Magician effect"]) expect(parse(text),text).toEqual({type:"effect.activated",actorSeat:1,source:{}});
+
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"card.identified",actorSeat:1,seat:1,cardRef:"copy",cardId:73752131,source:"voice",idempotencyKey:"recent",at:90_000}));
+    expect(parse("activate",110_000)).toMatchObject({source:{cardRef:"copy"}});
+    expect(parse("activate",110_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}});
+    // An unrelated state update must not refresh the identification's age.
+    state=ygoModule.reduce(state,{type:"lp.change",actorSeat:1,seat:1,delta:-100,reason:"cost",idempotencyKey:"cost",at:110_001});
+    expect(parse("effect",110_002)).toMatchObject({source:{}});
+    expect(parse("effect",110_002)!.type==="effect.activated" && remoteActionSchema.safeParse({...parse("effect",110_002),idempotencyKey:"pending"}).success).toBe(false);
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"twin.place",actorSeat:1,seat:1,zone:"field",card:{ref:"latest",name:"Chicken Game",cardId:67616300},idempotencyKey:"placed",at:120_000}));
+    expect(parse("use the effect",120_001)).toMatchObject({source:{cardRef:"latest",cardId:67616300}});
+    // A batch identification of two face-up cards is ambiguous even at a recent timestamp.
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"cards.identified",actorSeat:1,seat:1,source:"auto",cards:[
+      {observationId:"a",cardRef:"skilled",cardId:73752131},{observationId:"b",cardRef:"copy",cardId:73752131},
+    ],idempotencyKey:"batch",at:130_000}));
+    expect(parse("effect",130_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}});
+    state.seats[1].twin=[];
+    expect(parse("effect",130_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}}); // Never reuse a stale/off-field identification.
   });
 });
 
