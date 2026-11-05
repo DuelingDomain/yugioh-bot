@@ -17,8 +17,11 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
   const path = join(directory, "test.sqlite");
   let db = openDatabase(path);
   try {
-    db.exec("drop index release_email_deliveries_subject_idx; alter table release_email_deliveries drop column subject_clerk_id; alter table email_budget drop column failures");
+    email.recordEmailConsent(db, "legacy@example.test", { provenance: "public-waitlist-form", textVersion: "alpha-news-v1" });
+    db.exec("drop index release_email_deliveries_subject_idx; alter table release_email_deliveries drop column subject_clerk_id; alter table email_budget drop column failures; alter table email_consents drop column source");
     migrate(db); // Upgrade the original release-storage revision as well as a fresh/repeated migration.
+    expect(db.prepare("select source,provenance from email_consents where recipient_key=?").get(email.recipientKey(db, "legacy@example.test")))
+      .toEqual({ source: "public-waitlist-form", provenance: "public-waitlist-form" });
     db.exec("insert into users(id,username,display_name) values(1,'owner','Owner')");
     const config = email.emailConfig({ RESEND_API_KEY: "fake", MAIL_POSTAL_ADDRESS: "123 Test Street", CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
     const releases = services.createReleaseService(db);
@@ -44,18 +47,25 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
       ] : [], total_count: url.searchParams.get("status") === "pending" ? 3 : 0 });
       throw new Error("Unexpected fake Clerk request");
     } });
-    for (const address of ["member", "invite", "expired", "wait", "suppressed"]) email.recordEmailConsent(db, `${address}@example.test`, { provenance: "fixture", textVersion: "alpha-news-v1" }, config);
+    email.recordEmailConsent(db, "wait@example.test", { provenance: "public-waitlist-form", textVersion: "alpha-news-2026-11-04" }, config);
+    db.prepare("insert into waitlist_signups(email,created_at,source) values(?,'2026-10-01','fixture')").run("historical@example.test");
     const token = email.unsubscribeToken(db, "suppressed@example.test", config);
     expect(email.unsubscribeByToken(db, token)).toBe(true);
     let outbox = email.createReleaseEmailOutbox(db, config);
     const preview = await outbox.preview(release.id, 1, clerk);
-    expect(preview.counts).toMatchObject({ members: 1, invited: 2, waitlist: 1, total: 4 });
-    expect(preview.counts.excluded).toEqual(expect.arrayContaining([{ reason: "suppressed", count: 1 }, { reason: "unknown_consent", count: 1 }]));
+    expect(preview.counts).toMatchObject({ members: 1, invited: 2, waitlist: 3, total: 6 });
+    expect(preview.counts.excluded).toEqual(expect.arrayContaining([{ reason: "suppressed", count: 1 }]));
+    for (const address of ["member", "invite", "expired", "historical", "unknown"]) {
+      expect(db.prepare("select source,provenance,text_version from email_consents where recipient_key=?").get(email.recipientKey(db, `${address}@example.test`)))
+        .toEqual({ source: "owner_basis_2026-11-04", provenance: "owner instruction; alpha news; unsubscribe in every email", text_version: "alpha-news-2026-11-04" });
+    }
+    expect(db.prepare("select provenance from email_consents where recipient_key=?").get(email.recipientKey(db, "wait@example.test"))).toEqual({ provenance: "public-waitlist-form" });
+    expect(db.prepare("select 1 from email_consents where recipient_key=?").get(email.recipientKey(db, "suppressed@example.test"))).toBeUndefined();
     const [first, second] = await Promise.all([outbox.confirm(release.id, 1, preview.token), outbox.confirm(release.id, 1, preview.token)]);
     expect(first).toEqual(second); expect(first.state).toBe("queued");
     expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 1 });
     const deliveries = db.prepare("select * from release_email_deliveries").all();
-    expect(deliveries).toHaveLength(4);
+    expect(deliveries).toHaveLength(6);
     expect(JSON.stringify(deliveries)).not.toContain("@example.test");
     expect(JSON.stringify(deliveries)).not.toContain("ticket/secret");
     const calls: { key: string; body: string }[] = [];
@@ -75,9 +85,9 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     await outbox.drain({ clerk, provider, now: () => now });
     expect(calls[0]).toEqual(calls[1]);
     for (let n = 0; n < 6; n++) { now += 60000; await outbox.drain({ clerk, provider, now: () => now }); }
-    expect(accepted.size).toBe(4);
-    expect(outbox.state(release.id)).toMatchObject({ state: "done", sent: 4, total: 4 });
-    expect(await outbox.confirm(release.id, 1, "repeated-click")).toMatchObject({ state: "done", sent: 4 });
+    expect(accepted.size).toBe(6);
+    expect(outbox.state(release.id)).toMatchObject({ state: "done", sent: 6, total: 6 });
+    expect(await outbox.confirm(release.id, 1, "repeated-click")).toMatchObject({ state: "done", sent: 6 });
     const bodies = [...new Map(calls.map(call => [call.key, JSON.parse(call.body)])).values()];
     expect(bodies.every(body => body.headers["List-Unsubscribe-Post"] === "List-Unsubscribe=One-Click")).toBe(true);
     expect(bodies.every(body => body.text.includes("123 Test Street"))).toBe(true);
@@ -86,6 +96,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     expect(bodies.find(body => body.to[0] === "expired@example.test").text).not.toContain("/expired");
     expect(bodies[0].html).toContain("&lt;safe&gt;");
     expect(clerkRequests.some(path => path.includes("status=pending"))).toBe(true);
+    db.prepare("delete from waitlist_signups where email=?").run("historical@example.test");
 
     // Pagination accepts REST arrays and both envelope spellings, and fails closed on an incomplete/error page.
     const pageOffsets: string[] = [];
@@ -236,7 +247,6 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     now += 3600000; await outbox.drain({ clerk: singleClerk, provider: rateProvider, now: () => now });
 
     // Discovery can take longer than a lease; its own lease renews while stale workers remain fenced.
-    email.recordEmailConsent(db, "slow@example.test", { provenance: "fixture", textVersion: "alpha-news-v1" });
     const slow = draft("2.2.0"); currentReleases.publish(slow.id, { actorUserId: 1 });
     const slowClerk = { ...singleClerk, listAllUsers: async () => {
       now += 61000;
@@ -252,7 +262,6 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
       { id: "secondary", email_address: "secondary@example.test", verification: { status: "verified" } },
     ] };
     const aliasClerk = { ...singleClerk, listAllUsers: async () => [aliasUser] };
-    email.recordEmailConsent(db, "secondary@example.test", { provenance: "fixture", textVersion: "alpha-news-v1" });
     db.exec("insert into users(id,username,display_name,email,clerk_user_id) values(8,'alias','Alias','primary@example.test','user_alias')");
     const aliasRelease = currentReleases.createDraft({ version: "3.0.0", title: "News", major: false, highlights: [], sections: [] });
     currentReleases.publish(aliasRelease.id, { actorUserId: 1 });

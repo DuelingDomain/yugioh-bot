@@ -32,14 +32,12 @@ function subjectKey(db: Database.Database, clerkUserId: string): string {
   const key = db.prepare<[], { secret: string }>("select secret from email_identity_secret where id=1").get()!.secret;
   return createHmac("sha256", key).update("clerk-subject\0").update(clerkUserId).digest("hex");
 }
-/** Preserve only HMAC associations so deletion also suppresses previously mailed verified fallback inboxes. */
+/** Call inside the discovery transaction. Preserve HMAC associations for deletion of verified fallback inboxes. */
 export function rememberEmailSubject(db: Database.Database, clerkUserId: string, email: string): void {
   const key = recipientKey(db, email); if (!key) return;
   const subject = subjectKey(db, clerkUserId);
-  db.transaction(() => {
-    if (db.prepare("select 1 from email_deleted_subjects where subject_key=?").get(subject)) { suppressEmail(db, key, "deleted_account"); return; }
-    db.prepare("insert into email_subject_recipients(subject_key,recipient_key) values(?,?) on conflict do nothing").run(subject, key);
-  }).immediate();
+  if (db.prepare("select 1 from email_deleted_subjects where subject_key=?").get(subject)) { suppressEmail(db, key, "deleted_account"); return; }
+  db.prepare("insert into email_subject_recipients(subject_key,recipient_key) values(?,?) on conflict do nothing").run(subject, key);
 }
 function encryptionKey(config: EmailConfig): Buffer {
   if (!config.encryptionSecret) throw new ReleaseError("email_encryption_not_configured", 503);
@@ -56,11 +54,17 @@ export function decrypt<T>(value: string, config: EmailConfig): T {
   cipher.setAuthTag(buffer.subarray(12, 28));
   return JSON.parse(Buffer.concat([cipher.update(buffer.subarray(28)), cipher.final()]).toString("utf8")) as T;
 }
-export function recordEmailConsent(db: Database.Database, email: string, evidence: { provenance: string; textVersion: string }, _config?: EmailConfig): void {
+export function recordEmailConsent(db: Database.Database, email: string, evidence: { source?: string; provenance: string; textVersion: string }, _config?: EmailConfig): void {
   const key = recipientKey(db, email);
   if (!key || !evidence.provenance.trim() || !evidence.textVersion.trim()) throw new ReleaseError("invalid_consent");
-  db.prepare(`insert into email_consents(recipient_key,scope,provenance,text_version,consented_at)
-    values(?,'alpha-news',?,?,?) on conflict(recipient_key) do nothing`).run(key, evidence.provenance, evidence.textVersion, Date.now());
+  db.prepare(`insert into email_consents(recipient_key,scope,source,provenance,text_version,consented_at)
+    select ?,'alpha-news',?,?,?,? where not exists(select 1 from email_unsubscribes where recipient_key=?)
+    on conflict(recipient_key) do nothing`).run(key, evidence.source ?? evidence.provenance, evidence.provenance, evidence.textVersion, Date.now(), key);
+}
+/** Owner's alpha-news basis applies to existing and future members/invitees and the historical waitlist. */
+export function recordOwnerEmailBasis(db: Database.Database, email: string): void {
+  recordEmailConsent(db, email, { source: "owner_basis_2026-11-04",
+    provenance: "owner instruction; alpha news; unsubscribe in every email", textVersion: "alpha-news-2026-11-04" });
 }
 export function suppressEmail(db: Database.Database, key: string, reason: "unsubscribe" | "hard_bounce" | "complaint" | "deleted_account", now = Date.now()): void {
   db.transaction(() => {

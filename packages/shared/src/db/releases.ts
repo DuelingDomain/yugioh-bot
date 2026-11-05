@@ -53,7 +53,7 @@ export function migrateReleases(db: Database.Database): void {
       );
       create table if not exists email_consents (
         recipient_key text primary key not null, scope text not null check(scope='alpha-news'),
-        provenance text not null, text_version text not null, consented_at integer not null
+        source text not null, provenance text not null, text_version text not null, consented_at integer not null
       );
       create table if not exists email_unsubscribes (
         recipient_key text primary key not null, reason text not null, suppressed_at integer not null
@@ -75,6 +75,11 @@ export function migrateReleases(db: Database.Database): void {
     if (!deliveryColumns.some(column => column.name === "subject_clerk_id")) db.exec("alter table release_email_deliveries add column subject_clerk_id text");
     const budgetColumns = db.pragma("table_info(email_budget)") as { name: string }[];
     if (!budgetColumns.some(column => column.name === "failures")) db.exec("alter table email_budget add column failures integer not null default 0");
+    const consentColumns = db.pragma("table_info(email_consents)") as { name: string }[];
+    if (!consentColumns.some(column => column.name === "source")) {
+      db.exec("alter table email_consents add column source text not null default ''");
+      db.exec("update email_consents set source=provenance");
+    }
     db.exec("create index if not exists release_email_deliveries_subject_idx on release_email_deliveries(subject_clerk_id)");
     db.prepare("insert into email_identity_secret(id,secret) values(1,?) on conflict(id) do nothing").run(randomBytes(32).toString("hex"));
     const sections = [
