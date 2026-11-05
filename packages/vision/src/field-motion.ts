@@ -4,8 +4,8 @@ import type { DetectedQuad, FractionalBox } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
-export interface FieldShadow { share:number; changed:number }
-export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export interface FieldShadow { share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
+export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the ring just outside the card covered by skin connected to the crop edge (a hand or arm beside the card). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -47,7 +47,7 @@ export function createFieldAnalyzer() {
       context.drawImage(frame,0,0);return native=context.getImageData(0,0,frame.width,frame.height);
     };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
-    const occlusions=new WeakMap<DetectedQuad,number>();
+    const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>();
     const analysis:FieldAnalysis={
       motionRegion,shadow:shadows(image),frameSharpness:frameSharpness(image),
       crop(card) {
@@ -105,6 +105,7 @@ export function createFieldAnalyzer() {
         return n?Math.max(sum/n,changed/n*.2):1;
       },
       occluded(card) {return analysis.touched!(card)>.12;},
+      skinNear(card) {if(!nearSkin.has(card))analysis.touched!(card);return nearSkin.get(card)??0;},
       /** Fraction of the card covered by skin connected to the crop edge (a hand). */
       touched(card) {
         const cached=occlusions.get(card);if(cached!==undefined)return cached;
@@ -113,7 +114,7 @@ export function createFieldAnalyzer() {
         const b=crop(card,.3),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
         const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),queue:number[]=[];
-        let total=0,covered=0;
+        let total=0,covered=0,near=0;
         for(let y=0;y<h;y++)for(let x=0;x<w;x++){
           const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
           const r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
@@ -124,11 +125,12 @@ export function createFieldAnalyzer() {
           if(mask[index]&&(x===0||y===0||x===w-1||y===h-1)){mask[index]=2;queue.push(index);}
         }
         for(let head=0;head<queue.length;head++){
-          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];
+          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=inside[index]?0:1;
           for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
             if(next>=0&&mask[next]===1){mask[next]=2;queue.push(next);}
         }
-        const result=total>0?covered/total:0;occlusions.set(card,result);return result;
+        let outside=0;for(let i=0;i<w*h;i++)outside+=inside[i]?0:1;
+        const result=total>0?covered/total:0;occlusions.set(card,result);nearSkin.set(card,outside>0?near/outside:0);return result;
       },
       sharpness(card) {
         const b=crop(card,0),w=b.right-b.left,h=b.bottom-b.top;
@@ -150,7 +152,7 @@ export function frameSharpness(image:RGBAImage):number {
 }
 const SHADOW_GX=32,SHADOW_GY=24;
 /**
- * Shadow = a cell that is at least 20% darker than its recent background but keeps
+ * Shadow = a cell that is 20-65% darker than its recent background but keeps
  * the same chromaticity (a lifted card or a hand changes the colour too). The
  * background follows brighter or equal light fast and darker light slowly (~15 s),
  * so a shadow from above that covers the whole board still counts as a shadow.
@@ -164,16 +166,19 @@ export function createShadowBaseline() {
       sum[c]+=image.data[i];sum[c+1]+=image.data[i+1];sum[c+2]+=image.data[i+2];sum[c+3]++;
     }
     if(!base||size!==key){base=new Float32Array(cells*3);flags=new Uint8Array(cells);size=key;for(let c=0;c<cells;c++)for(let k=0;k<3;k++)base[c*3+k]=sum[c*4+k]/Math.max(1,sum[c*4+3]);return {share:0,changed:0};}
-    let dark=0,changed=0;
+    let dark=0,changed=0;const moved=new Uint8Array(cells);
     for(let c=0;c<cells;c++){
       const n=Math.max(1,sum[c*4+3]),r=sum[c*4]/n,g=sum[c*4+1]/n,b=sum[c*4+2]/n,l=r+g+b,br=base[c*3],bg=base[c*3+1],bb=base[c*3+2],bl=br+bg+bb;
       const chroma=l>15&&bl>15?Math.abs(r/l-br/bl)+Math.abs(g/l-bg/bl):1;
-      const shadow=bl>30&&l<bl*.8&&l>bl*.15&&chroma<=.05?1:0;
-      if(shadow)dark++;if(shadow!==flags![c])changed++;flags![c]=shadow;
+      // Much darker than a shadow (a white card lifted off a dark mat): new content, not light. The
+      // baseline takes it at once; a slow fade would show a moving "shadow" there for many seconds.
+      if(bl>30&&l<=bl*.35){base[c*3]=r;base[c*3+1]=g;base[c*3+2]=b;if(flags![c]){changed++;moved[c]=1;}flags![c]=0;continue;}
+      const shadow=bl>30&&l<bl*.8&&chroma<=.05?1:0;
+      if(shadow)dark++;if(shadow!==flags![c]){changed++;moved[c]=1;}flags![c]=shadow;
       const rate=l>=bl*.92?.25:.01;
       base[c*3]+=(r-br)*rate;base[c*3+1]+=(g-bg)*rate;base[c*3+2]+=(b-bb)*rate;
     }
-    return {share:dark/cells,changed:changed/cells};
+    return {share:dark/cells,changed:changed/cells,moved,gx:SHADOW_GX,gy:SHADOW_GY};
   };
 }
 
