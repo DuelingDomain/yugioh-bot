@@ -117,15 +117,15 @@ const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{
 function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height}) {
   let appearanceExplicit=false;
   let detectorCost=0;
-  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,occludedAt:((card:DetectedQuad)=>boolean)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
+  let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,occludedAt:((card:DetectedQuad)=>boolean)|undefined,skinNearAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
   let tierAt:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
   const reader={detectCards:async(_frame:unknown,opts?:{region?:{x:number;y:number;w:number;h:number};keep?:unknown[]})=>{detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
-    analyze:()=>({shadow,frameSharpness,crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,occluded:c=>occludedAt?.(c)??false,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
+    analyze:()=>({shadow,frameSharpness,crop:c=>cropAt?.(c)??fieldCrop(c),motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,occluded:c=>occludedAt?.(c)??false,skinNear:c=>skinNearAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('field watcher waits for stillness, reads once with deck priors and binds the sharpest frame to its quad', async()=>{
@@ -1119,6 +1119,74 @@ test('owner white back: a calibrated face-up M3 becomes a sideways revealed Set 
  }
 });
 
+
+// Owner S2 (Apophis): a revealed card turned face-down again in its zone is a flip, never a return to the hand.
+// A plain white sleeve leaves the pixel face gate undecided; the low-score detector back decides after 600 ms.
+// Lifted to turn it over (out of view for a moment), the back that comes back to the zone keeps the same ref.
+test('a face-up card turned face-down in its zone flips in place, also after a lift; it never leaves to the hand',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const front=card(.43,.38,.1,.259),art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),sleeve=Array(288).fill(.92),mat=Array(288).fill(.2);
+ r.outlines=[front];r.appearanceAt=()=>art;for(let i=0;i<12;i++)await r.tick(100);
+ const id=r.events.find(e=>e.type==='placed')!.track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M3',cardId:'A',faceDown:false}];r.events.length=0;
+ const undecided=()=>{const w=96,h=140,d=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const e=Math.exp(-(((x-48)/20)**2+((y-70)/28)**2));d.set([150+60*e,150,150-60*e,255],(y*w+x)*4);}return {width:w,height:h,data:d};};
+ r.cropAt=undecided;r.outlines=[{...front,kind:'face-down',confidence:.43}];r.appearanceAt=()=>sleeve;r.motion=.2;await r.tick(33);r.motion=0;
+ for(let i=0;i<20&&!r.events.some(e=>e.type==='flipped');i++)await r.tick(67);
+ const flip=r.events.find(e=>e.type==='flipped');assert.ok(flip,JSON.stringify(r.watcher.getSnapshot().debug?.reasons));
+ assert.equal(flip.track.id,id);assert.equal(flip.track.faceDown,true);assert.equal(r.events.some(e=>e.type==='removed'),false);
+ r.watcher.dispose();
+ // Lifted to turn it over: the spot is clear mat for two full scans (removed), then the back is put down in the zone.
+ const l=fieldRig('sure',20,undefined,{width:160,height:90});
+ l.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ l.outlines=[front];l.appearanceAt=()=>art;for(let i=0;i<12;i++)await l.tick(100);
+ const ref=l.events.find(e=>e.type==='placed')!.track.id;l.watcher.confirm(ref,'A');l.known=[{id:ref,zone:'M3',cardId:'A',faceDown:false}];l.events.length=0;
+ l.outlines=[];l.appearanceAt=()=>mat;for(let i=0;i<12&&!l.events.some(e=>e.type==='removed');i++)await l.tick(333);
+ assert.ok(l.events.some(e=>e.type==='removed'&&e.track.id===ref),'the lift is seen');l.events.length=0;l.known=[{id:ref,zone:'HAND',cardId:'A'}];
+ l.cropAt=undecided;l.outlines=[{...front,kind:'face-down',confidence:.43}];l.appearanceAt=()=>sleeve;for(let i=0;i<20&&!l.events.some(e=>e.type==='flipped');i++)await l.tick(67);
+ const back=l.events.find(e=>e.type==='flipped');assert.ok(back,JSON.stringify(l.watcher.getSnapshot().debug?.reasons));
+ assert.equal(back.track.id,ref,'the same ref, not a new Set');assert.equal(back.track.faceDown,true);assert.equal(l.events.some(e=>e.type==='placed'),false);l.watcher.dispose();
+});
+
+// Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.
+// A hand/arm or a moving shadow holds only the removals of the cards it lies over or beside; a clear spot
+// elsewhere is removed after two empty full scans (~1 s).
+test('a removal hold for a hand, arm or moving shadow is local to the cards it covers or touches',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),mat=Array(288).fill(.2),left=card(.22,.38,.1,.259),mid=card(.43,.38,.1,.259);
+ const near=(c:DetectedQuad)=>zones.fieldCenter(c).x<.33;
+ r.outlines=[left,mid];r.appearanceAt=()=>art;for(let i=0;i<12;i++)await r.tick(100);
+ const placed=r.events.filter(e=>e.type==='placed'),ids=placed.map(e=>e.track.id);assert.equal(placed.length,2);
+ for(const e of placed)r.watcher.confirm(e.track.id,'A');r.known=placed.map(e=>({id:e.track.id,zone:e.track.zone,cardId:'A',faceDown:false}));r.events.length=0;
+ const leftId=placed.find(e=>near(e.track.card))!.track.id,midId=ids.find(id=>id!==leftId)!;
+ // The arm lies beside the left card and its shadow moves there; the middle card is lifted.
+ const moved=new Uint8Array(32*24);for(let y=7;y<17;y++)for(let x=4;x<10;x++)moved[y*32+x]=1;
+ r.skinNearAt=c=>near(c)?.2:0;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
+ for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
+ const gone=r.events.filter(e=>e.type==='removed').map(e=>e.track.id);
+ assert.deepEqual(gone,[midId],JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(r.at-from<=1500,`removed after ${r.at-from} ms`);
+ for(let i=0;i<6;i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
+ assert.equal(r.events.some(e=>e.type==='removed'&&e.track.id===leftId),false,'the card under the arm stays');
+ // The arm leaves: the left card goes too.
+ r.skinNearAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
+ assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===leftId));assert.ok(r.at-after<=1500,`left after ${r.at-after} ms`);r.watcher.dispose();
+});
+
+// Owner S3: a clear white face-down card on the dark mat got no box (the detector scores light sleeves .3-.45,
+// below its .4 floor). In a calibrated field cell a weak back counts when its sleeve differs from the mat.
+test('a low-score white back in an empty field cell is placed as a Set; the same score on plain mat is not',async()=>{
+ for(const look of [.92,.2]){
+  const r=fieldRig('sure',20,undefined,{width:160,height:90});
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+  r.cropAt=()=>{const w=96,h=140,d=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const e=Math.exp(-(((x-48)/20)**2+((y-70)/28)**2));d.set([150+60*e,150,150-60*e,255],(y*w+x)*4);}return {width:w,height:h,data:d};};
+  r.outlines=[{...card(.43,.6,.1,.2),kind:'face-down',confidence:.33,cell:true}];r.appearanceAt=()=>Array(288).fill(look);
+  for(let i=0;i<20;i++)await r.tick(100);
+  const set=r.events.find(e=>e.type==='placed');
+  if(look>.5){assert.ok(set,JSON.stringify(r.watcher.getSnapshot().debug));assert.equal(set.track.faceDown,true);assert.match(set.track.zone,/^S[1-5]$/);}
+  else assert.equal(set,undefined,'a weak outline on plain mat is not a card');
+  r.watcher.dispose();
+ }
+});
 
 test('centre assignment accepts full camera quads that cross calibrated field and side-zone edges',async()=>{
  const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}],{playerSide:'bottom',mirrored:false});

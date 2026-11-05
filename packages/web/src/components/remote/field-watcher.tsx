@@ -27,6 +27,8 @@ import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotic
 import {distinctFieldQuads} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
+/** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
+const DEPARTURE_WAIT_MS=800;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 const sameFieldSlot=(a:TwinCard,b:TwinCard)=>publicField(a.zone)&&a.zone===b.zone&&(a.zone==='field'||(a.slot!==undefined&&a.slot===b.slot));
 const piles=new Set<FieldZone>(['GY','BANISHED','DECK','EXTRA']);
@@ -489,7 +491,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const origin={ref:card.ref,zone:card.zone,slot:card.slot};
       if(departureTimers.current.has(event.track.id))return;
       if(card.faceUp&&['monster','extra-monster'].includes(card.zone))pendingLeft.current.set(event.track.id,{ref:card.ref,at:event.track.lastSeen});
-      departureTimers.current.set(event.track.id,setTimeout(()=>{departureTimers.current.delete(event.track.id);pendingLeft.current.delete(event.track.id);if(live()&&watch.isRemoved(event.track.id))handle(event,origin);},2000));
+      // The watcher already needed two empty full scans; a short wait lets a flip or a summon claim the card first.
+      departureTimers.current.set(event.track.id,setTimeout(()=>{departureTimers.current.delete(event.track.id);pendingLeft.current.delete(event.track.id);if(live()&&watch.isRemoved(event.track.id))handle(event,origin);},DEPARTURE_WAIT_MS));
       return;
     }
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);
