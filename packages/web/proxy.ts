@@ -34,6 +34,8 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   if ((request.method === "GET" && /^\/duels\/remote\/[A-Za-z0-9_-]{1,100}\/cam$/.test(path)) ||
       (request.method === "POST" && /^\/api\/remote\/[A-Za-z0-9_-]{1,100}\/phone\/connect$/.test(path))) return NextResponse.next();
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
+  if ((request.nextUrl.pathname === "/unsubscribe" && ["GET", "POST"].includes(request.method))
+    || (request.nextUrl.pathname === "/api/webhooks/resend" && request.method === "POST")) return NextResponse.next();
   // Clerk calls this signed endpoint without a browser session. Do not initialize
   // session middleware here; the route verifies the signature before any writes.
   if (request.method === "POST" && request.nextUrl.pathname === "/api/webhooks/clerk") return NextResponse.next();

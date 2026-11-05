@@ -13,7 +13,9 @@ export async function initializeServerCardEffects(db: Database.Database, cards: 
     canonicalize: createCanonicalEffectResolver(cards),
   }), { db });
   if (!imported.skipped) console.log(`[duel] Effect tags imported: ${imported.tags} cards, ${imported.profiles} profiles (${imported.version})`);
-  retryStartupDatabase("bridge artifact import", () => importBridgeArtifact(db), { db });
-  retryStartupDatabase("bridge judgement import", () => importBridgeJudgements(db), { db });
+  if (process.env.BRIDGES_ENABLED === "1") {
+    retryStartupDatabase("bridge artifact import", () => importBridgeArtifact(db), { db });
+    retryStartupDatabase("bridge judgement import", () => importBridgeJudgements(db), { db });
+  }
   await initializeCardEffectIndex(db, cards);
 }

@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
+import { createCardInsightService } from "@yugidraft/shared/services";
 import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { emptyCardQuery, inArchetype } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
@@ -20,6 +21,31 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
   afterAll(() => { cards?.close(); db?.close(); });
   const search = (text: string, extra: Partial<ReturnType<typeof emptyCardQuery>> = {}) =>
     queryCards(cards, { ...emptyCardQuery(), text, limit: 120, ...extra }, undefined, undefined, { effects, effectSearchEnabled: true });
+
+  it.each(["Monarch synergy", "synergy with Monarch", "cards that work with Monarch", "synergy with Temple of the Kings and Blue-Eyes"])("ignores stale cached readings for deterministic synergy: %s", text => {
+    db.exec("SAVEPOINT stale_synergy_reading");
+    try {
+      const pool = [52112003, 4929256, 80101899, 62265044];
+      const expected = search(text, { passcodes: pool });
+      expect(expected.reading?.query.supports?.archetypes.length).toBeGreaterThan(0);
+      const stale = effects.readQuery("hand traps that negate")!;
+      db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(text.toLowerCase(), JSON.stringify(stale.query));
+      expect(search(text, { passcodes: pool })).toEqual(expected);
+      expect(search(text, { passcodes: pool, effectOmit: expected.reading!.chips }).reading?.query.supports).toBeUndefined();
+    } finally { db.exec("ROLLBACK TO stale_synergy_reading; RELEASE stale_synergy_reading"); }
+  });
+
+  it("returns the full 15 plus 25 synergy selection for the Describe pane's 30-card request", () => {
+    const service = createCardInsightService(db, { dataDirectory: engineDataDirectory });
+    const pool = [...cards.all()].map(card => card.code);
+    for (const limit of [undefined, 1, 30, 120]) {
+      const result = service.effectSearch("Monarch synergy", pool, { limit });
+      expect(result.total).toBe(40);
+      expect(result.cards).toHaveLength(40);
+      expect(result.cards.filter(card => card.synergyCategory !== "outside")).toHaveLength(15);
+      expect(result.cards.filter(card => card.synergyCategory === "outside")).toHaveLength(25);
+    }
+  });
 
   it("keeps named Temple support first and rejects incidental Trap interactions", () => {
     const result = search("Temple of the Kings synergy");
@@ -104,6 +130,21 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     expect(result.effectGroups?.map(group => [group.archetype, group.cards.map(card => card.name)])).toEqual([
       ["Temple of the Kings", ["Trap Trick"]], ["Blue-Eyes", ["Sage with Eyes of Blue"]],
     ]);
+  });
+  it("skips discarded relaxation scans in empty nested groups but retains top-level hints", () => {
+    const readings = vi.spyOn(effects, "readQuery");
+    try {
+      const result = search("synergy with Temple of the Kings and Blue-Eyes", { passcodes: [10515412] });
+      expect(result.effectGroups?.map(group => group.cards)).toEqual([[], []]);
+      expect(readings).toHaveBeenCalledTimes(1);
+      expect(search("Temple of the Kings synergy", { passcodes: [10515412] }).relax?.length).toBeGreaterThan(0);
+    } finally { readings.mockRestore(); }
+  });
+  it("bounds named synergy targets and fallback groups to four", () => {
+    const result = search("synergy with Temple of the Kings and Blue-Eyes and Monarch and Labrynth and Spright and Dark World", { passcodes: [10515412] });
+    const targets = ["Temple of the Kings", "Blue-Eyes", "Monarch", "Labrynth"];
+    expect(result.reading?.query.supports?.archetypes).toEqual(targets);
+    expect(result.effectGroups?.map(group => group.archetype)).toEqual(targets);
   });
   it.each(["Monarch synergy", "Labrynth synergy", "Blue-Eyes synergy"])("caps before pagination and preserves named support order: %s", text => {
     const result = search(text);

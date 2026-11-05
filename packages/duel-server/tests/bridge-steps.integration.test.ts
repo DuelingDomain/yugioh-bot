@@ -34,7 +34,8 @@ describe("grounded shown bridge steps", () => {
     const stored = db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all();
     const user = seedIdentity(db);
     const workers = { ...bridgeQueryFixture(db),
-      bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(), bridgeEngineShortlist: vi.fn(),
+      bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(),
+      bridgeEngineShortlist: vi.fn(async (candidates: ArchetypeBridge[], query: EngineQuery) => queries.shortlist(candidates, query)),
       bridgeEngines: vi.fn(async (input: Record<string, unknown>, guildId: string) => {
         const { query } = queries.resolve(input, guildId);
         return queries.project(service.engineRows(query.engines, query.format), query);
@@ -62,14 +63,15 @@ describe("grounded shown bridge steps", () => {
         expect(fast.results.find(value => value.target === row.target)!.review.steps).toEqual(projected.review.steps);
         const engines = await call({ op: "engines", engines: [row.source] }) as BridgeEnginesResponse;
         expect(engines.next.flatMap(value => value.links).find(link => link.to === row.target)!.bridge.review.steps).toEqual(projected.review.steps);
-        const started = await call({ op: "start", source: row.source, target: row.target }) as { jobId: string };
+        // Pair selectors were retired; deep searches now scan the source engine.
+        const started = await call({ op: "start", source: row.source }) as { jobId: string };
         for (let attempt = 0; attempt < 100; attempt++) {
           if ((await call({ op: "status", jobId: started.jobId }) as { state: string }).state === "done") break;
           await new Promise(resolve => setImmediate(resolve));
         }
         const deep = await call({ op: "status", jobId: started.jobId }) as { results: ShownBridge[] };
         expect(deep.results.find(value => value.target === row.target)!.review.steps).toEqual(projected.review.steps);
-        expect(await call({ op: "start", source: row.source, target: row.target, join: true })).toMatchObject({ jobId: started.jobId, cached: true });
+        expect(await call({ op: "start", source: row.source, join: true })).toMatchObject({ jobId: started.jobId, cached: true });
         expect(buildBridgeJudgeEvidence(db, row)!.input_hash).toBe(evidence[i]!.input_hash);
       }
       expect(workers.rateBridge).not.toHaveBeenCalled();

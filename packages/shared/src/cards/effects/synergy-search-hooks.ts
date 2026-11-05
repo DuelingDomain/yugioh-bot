@@ -6,6 +6,8 @@ import { compactEffectName } from "./name-match.js";
 import { trapMechanicMatch, trapMechanicTargets, trapRemovalReason } from "./synergy-trap-hooks.js";
 
 export const SYNERGY_SEARCH_LIMIT = 40;
+/** Bound independent fallback scans to the same target count as the UI. */
+export const MAX_SYNERGY_TARGETS = 4;
 export const SYNERGY_ARCHETYPE_LIMIT = 15;
 export const SYNERGY_OUTSIDE_LIMIT = SYNERGY_SEARCH_LIMIT - SYNERGY_ARCHETYPE_LIMIT;
 export const SYNERGY_OUTSIDE_ARCHETYPE_LIMIT = 3;

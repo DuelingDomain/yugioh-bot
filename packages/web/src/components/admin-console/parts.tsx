@@ -25,6 +25,7 @@ const PATHS = {
   creators: <><rect x="3" y="4.5" width="18" height="13" rx="2.2" /><path d="m10.3 8.4 4.6 2.6-4.6 2.6z" /><path d="M8.5 20.5h7" /></>,
   link: <><path d="M10.2 13.8a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1.1 1.1" /><path d="M13.8 10.2a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1.1-1.1" /></>,
   copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" /></>,
+  updates: <><path d="M7 4.5h10.2A1.8 1.8 0 0 1 19 6.3V18a1.5 1.5 0 0 1-1.5 1.5H8.3A2.3 2.3 0 0 1 6 17.2V6.3" /><path d="M6 6.3A1.8 1.8 0 0 0 4.2 4.5" /><path d="M9.5 9h6M9.5 12.2h6M9.5 15.4h3.5" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
 } as const;
 export type IconName = keyof typeof PATHS;

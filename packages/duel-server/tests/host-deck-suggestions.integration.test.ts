@@ -32,7 +32,7 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 beforeEach(() => {
-  vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1"); vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "pinned");
+  vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1"); vi.stubEnv("BRIDGES_ENABLED", "0"); vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "pinned");
   db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db);
   ({ playerId, userId } = seedIdentity(db));
   const insert = db.prepare(`INSERT INTO card_catalog
@@ -54,6 +54,21 @@ async function post(suggestionQuery: unknown, extra: Record<string, unknown> = {
 }
 
 describe("signed deterministic deck suggestion computation", () => {
+  it("leaves bridge jobs uninitialized and returns 503 while Suggestions remain available", async () => {
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name='bridge_deep_job'").get()).toBeUndefined();
+    const raw = JSON.stringify({ guildId: "g", playerId, userId, op: "bridges", bridgeRequest: { op: "engines", engines: ["Blue-Eyes"] } });
+    const url = "http://local/internal/duel";
+    const response = await host.handle(new Request(url, { method: "POST", body: raw,
+      headers: await signedHeaders(raw, SECRET, url, "duel-host") }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("1");
+    expect(await response.json()).toMatchObject({ error: "Bridge search is unavailable. Try again shortly." });
+    expect((await post({ op: "suggestRows", deck })).status).toBe(200);
+    for (const table of ["card_capability", "archetype_bridge", "bridge_artifact_import", "bridge_graph"]) {
+      expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+  });
+
   it("bounds ten parallel uncached scans globally and per player, then releases admission", async () => {
     const actors = Array.from({ length: 10 }, (_, n) => seedIdentity(db, { name: `Parallel ${n}` }));
     const results = await Promise.all(actors.map((actor, n) => post(

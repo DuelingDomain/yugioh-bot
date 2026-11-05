@@ -185,9 +185,17 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 
-  if (pr && updateSha && compatibilityChanged) {
-    const identical = DATA_FILES.every(file => git("ls-tree", updateSha, "--", file).trim() &&
-      git("show", `${updateSha}:${file}`) === (expectedSources.get(file) ?? git("show", `${baseSha}:${file}`)));
+  if (pr && updateSha && (compatibilityChanged || bridgeChanged)) {
+    const identical = DATA_FILES.every(file => {
+      const source = expectedSources.get(file);
+      // Older bases may predate optional artifacts. Unchanged missing files
+      // are equal too; compare tree entries without trying to read them.
+      if (source === undefined) return git("ls-tree", updateSha, "--", file) === git("ls-tree", baseSha, "--", file);
+      if (!git("ls-tree", updateSha, "--", file).trim()) return false;
+      return Buffer.isBuffer(source)
+        ? git("rev-parse", `${updateSha}:${file}`).trim() === git("hash-object", join(artifactDir, file)).trim()
+        : git("show", `${updateSha}:${file}`) === source;
+    });
     // History-only recovery is valid only for the same candidate, including both JSON files.
     if (!identical) historyRepair = null;
     else if (historyRepair === null) return skip("identical-data");

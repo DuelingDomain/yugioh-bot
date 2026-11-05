@@ -7,7 +7,7 @@ import { describe, isEmptyObject, type EffectQuery, type Interpretation } from "
 import { compactEffectName } from "./name-match.js";
 import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
 import { archetypeMember } from "./archetype-roles.js";
-import { synergyHookMatcher, SYNERGY_SCORE_FLOOR, type SynergyCategory } from "./synergy-search-hooks.js";
+import { synergyHookMatcher, MAX_SYNERGY_TARGETS, SYNERGY_SCORE_FLOOR, type SynergyCategory } from "./synergy-search-hooks.js";
 import { type CounterProfile, type Weakness } from "./counters.js";
 import { shortReason } from "./search-reasons.js";
 
@@ -30,7 +30,7 @@ export function intentReading(text: string, card: (name: string) => { id: number
   text=release.text;
   const synergy = synergyTarget(text) ?? text.trim().replace(/[?.!]+$/, "").match(/^(.+?)\s+(?:synerg(?:y|ies)|partners?|combos?)$/i)?.[1];
   if (synergy) {
-    const targets = synergy.split(/\s+(?:and|&|\+)\s+|,\s*/i).map(name => name.trim());
+    const targets = [...new Set(synergy.split(/\s+(?:and|&|\+)\s+|,\s*/i).map(name => name.trim()))].slice(0, MAX_SYNERGY_TARGETS);
     const resolved = targets.map(name => archetype(name));
     // An exact archetype wins over a fuzzy card name (Monarch vs. The First Monarch).
     // Other complete card names still take the individual-card path.

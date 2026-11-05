@@ -207,6 +207,11 @@
       "types": "./dist/deck-legality/banlists/multiplayer.d.ts",
       "source": "./src/deck-legality/banlists/multiplayer.ts",
       "default": "./dist/deck-legality/banlists/multiplayer.js"
+    },
+    "./email": {
+      "types": "./dist/email/index.d.ts",
+      "source": "./src/email/index.ts",
+      "default": "./dist/email/index.js"
     }
   },
   "scripts": {

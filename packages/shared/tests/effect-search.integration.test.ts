@@ -13,6 +13,7 @@ import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js"
 import { matchCard } from "../src/cards/effects/effect-match.js";
 import type { Card } from "../src/cards/effects/card.js";
 import { cardSynergy } from "../src/cards/effects/synergy.js";
+import { formatStaples } from "../src/cards/effects/staples.js";
 
 // Real pinned artifact rather than invented effect fixtures.
 const lines = () => gunzipSync(readFileSync(new URL("../data/effects/tags.jsonl.gz", import.meta.url))).toString("utf8").trim().split("\n");
@@ -551,9 +552,13 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       const staples = result.rows.find(row => row.id === "staples")!;
       expect(staples.cards.length).toBeGreaterThan(0);
       expect(staples.cards.every(card => card.reason.match(/^Format staple: .+ · \d+% of sampled (TCG|Domain) decks$/))).toBe(true);
-      // Strict Outside admission can reduce the quarter-row Staples allowance.
-      if (fixture.id === "branded" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toContain("Ash Blossom & Joyous Spring");
-      if (fixture.id === "domain" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Graceful Charity", "Raigeki", "Infinite Impermanence"]));
+      const usage = formatStaples(fixture.format);
+      for (const card of staples.cards) {
+        const measured = usage.cards.get(canonical(card.passcode));
+        expect(measured, `${fixture.id}: ${card.name}`).toBeDefined();
+        expect(card.score).toBe(measured!.playShare);
+        expect(card.reason).toContain(` · ${Math.round(measured!.playShare * 100)}% of sampled ${usage.label} decks`);
+      }
       const stapleScores = staples.cards.map(card => card.score);
       expect(stapleScores).toEqual([...stapleScores].sort((a,b)=>b-a));
       const outside = result.rows.find(row => row.id === "outside")!;

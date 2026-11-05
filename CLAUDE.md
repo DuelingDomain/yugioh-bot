@@ -154,7 +154,7 @@ The worker drains `product_events` every ten seconds; an empty `POSTHOG_KEY` dis
 
 ### Env and owner operations
 
-`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is a web build arg (production repository variable). `CLERK_SECRET_KEY` is web runtime only; never supply it to a build. Dev keys live in ignored `packages/web/.env.local` and never reach production. Future staging needs a separate instance/source. Web uses an explicit Compose environment list, never a broad env file. `WEB_URL` is required for WS CORS and app links; no NextAuth fallback exists. `MARKETING_URL` supplies external waitlist links.
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is a web build arg (production repository variable). `CLERK_SECRET_KEY` reaches web runtime and the worker for read-only release-email audience discovery; never supply it to a build. Dev keys live in ignored `packages/web/.env.local` and never reach production. Future staging needs a separate instance/source. Web uses an explicit Compose environment list, never a broad env file. `WEB_URL` is required for WS CORS and app links; no NextAuth fallback exists. `MARKETING_URL` supplies external waitlist links.
 
 Owner tools ship in the worker image: `node packages/worker/dist/ops/cli.js season|merge-users|clerk-precreate-users|clerk-reconcile-waitlist`. Dry-run is default; `--apply` writes, `--report` chooses a private 0600 report. Pass Clerk secret explicitly for import/reconcile: `docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js ...`. Stop writers and revoke source Clerk sessions before merge apply. See the VM runbook for commands and rollback.
 

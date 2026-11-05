@@ -729,6 +729,14 @@ Both feature flags default to `0` in Compose. The three AI helper variables
 default to empty values, which keep the paid fallback off. Do not add `GITHUB_TOKEN`.
 The Actions API secret does not configure the VM runtime.
 
+Archetype bridges have a separate `BRIDGES_ENABLED=0` default on both `web` and
+`duel`. Set it to `1` in the Compose `.env` and recreate both services to enable
+bridges. With it off, duel startup skips bridge artifacts, judgements and bridge
+jobs; synergy search and Suggestions still work from effect tags and profiles.
+For host-run systemd web and duel services, set `Environment=BRIDGES_ENABLED=1`
+in both drop-ins (or their shared `EnvironmentFile`), run `systemctl daemon-reload`
+and restart both services. See [the bridge contract](../api/archetype-bridges.md).
+
 `deploy.yml` needs no change. It runs Compose from `/opt/yugioh-bot`, where
 Compose uses the VM `.env` for interpolation. Use the normal deploy procedure
 to apply the change. The `duel` and `web` containers must be recreated;

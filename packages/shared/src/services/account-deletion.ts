@@ -1,4 +1,5 @@
 import { createVisionFeedbackService } from "./vision-feedback.js";
+import { suppressDeletedAccountEmail } from "../email/storage.js";
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
@@ -76,6 +77,7 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     if (!user) return { userId, mode: "removed", counts };
     note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
     db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
+    suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);
 
     const players = db.prepare<[number], PlayerRow>("select id, display_name from players where user_id = ?").all(userId);
     const personNames = [...new Set([user.display_name, ...players.map(player => player.display_name)])]

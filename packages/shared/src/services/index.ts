@@ -103,3 +103,5 @@ export * from "./remote-access.js";
 export { createVisionFeedbackService, VISION_FEEDBACK_LIMITS } from './vision-feedback.js';
 export type { VisionFeedbackInput, VisionSample, VisionLearning } from './vision-feedback.js';
 export * from "./archetype-bridges.js";
+
+export * from "./releases.js";

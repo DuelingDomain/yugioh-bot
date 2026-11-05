@@ -129,7 +129,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       const deterministic=mayReadEffect(text)?interpret(text,findArchetypes):null;
       const explicit=deterministic && (deterministic.query.recruiter || deterministic.query.formatFilter || deterministic.query.released || deterministic.query.sort);
       const targeted = intent(text);
-      const reading = (targeted?.query.intent ? targeted : null) ?? (explicit?deterministic:null) ?? cachedEffectReading(db,text,archetypes) ?? targeted ?? deterministic;
+      const reading = targeted ?? (explicit?deterministic:null) ?? cachedEffectReading(db,text,archetypes) ?? deterministic;
       return reading ? omitReadingChips(reading, omitted) : null;
     },
     match: (code, reading, usage = defaultUsage) => {

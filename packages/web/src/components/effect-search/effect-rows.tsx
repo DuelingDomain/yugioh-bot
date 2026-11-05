@@ -72,7 +72,8 @@ export function EffectRows({
   const [pinned, setPinned] = React.useState<{ id: number; el: HTMLElement } | null>(null);
   const [keyed, setKeyed] = React.useState<{ id: number; el: HTMLElement } | null>(null);
   const hoverTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
-  const rows = React.useRef(new Map<number, HTMLLIElement>());
+  // Keyed by the row key: one card can sit in two groups, and each group has its own row.
+  const rows = React.useRef(new Map<string, HTMLLIElement>());
 
   // A new list closes every summary.
   React.useEffect(() => {
@@ -104,11 +105,11 @@ export function EffectRows({
     setKeyed(null);
     if (!keyboardActive || activeId == null) return;
     const timer = setTimeout(() => {
-      const el = rows.current.get(activeId);
+      const el = rows.current.get(`${activeIndex}:${activeId}`);
       if (el) setKeyed({ id: activeId, el });
     }, KEY_MS);
     return () => clearTimeout(timer);
-  }, [keyboardActive, activeId]);
+  }, [keyboardActive, activeId, activeIndex]);
 
   React.useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
@@ -126,19 +127,20 @@ export function EffectRows({
         {...nav.listProps}
       >
         {cards.map((card, index) => {
+          const rowKey = `${index}:${card.id}`;
           const opt = nav.optionProps(index);
           const inCube = held(card);
           const checked = batch.cards.has(card.id);
           const can = inCube === 0 && selectable(card);
           const describedBy = shown?.id === card.id ? popId : undefined;
           return (
-            <React.Fragment key={`${index}:${card.id}`}>
+            <React.Fragment key={rowKey}>
             {heading?.(index) ? <li role="presentation"><h3>{heading(index)}</h3></li> : null}
             <li
               {...opt}
               ref={(el) => {
-                if (el) rows.current.set(card.id, el);
-                else rows.current.delete(card.id);
+                if (el) rows.current.set(rowKey, el);
+                else rows.current.delete(rowKey);
               }}
               className={styles.row}
               aria-selected={checked}
@@ -251,7 +253,9 @@ export function SelectAllShown({
   /** Matches in all, when more than the list shows. */
   total?: number;
 }) {
-  const pickable = cards.filter(selectable).length;
+  // A card listed in two groups is one pick.
+  const unique = cards.filter((c, i) => cards.findIndex((o) => o.id === c.id) === i);
+  const pickable = unique.filter(selectable).length;
   const all = allShownSelected(batch, cards, selectable);
   const some = cards.some((c) => batch.cards.has(c.id));
   return (
@@ -270,7 +274,7 @@ export function SelectAllShown({
         </span>
         {all ? "Clear shown" : `Select all shown (${pickable})`}
       </button>
-      {total !== undefined && total > cards.length ? <span>Top {cards.length} of {total}</span> : <span>{cards.length} shown</span>}
+      {total !== undefined && total > unique.length ? <span>Top {unique.length} of {total}</span> : <span>{unique.length} shown</span>}
     </div>
   );
 }

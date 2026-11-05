@@ -40,7 +40,8 @@ export class DeckSuggestionWorkers {
   private readonly legalityLoads = new Map<BridgeFormat, Promise<BridgeLegalitySnapshot>>();
   private closing = false;
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
-    private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {}) {}
+    private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {},
+    private readonly fastQueryTimeoutMs = BRIDGE_STATUS_TIMEOUT_MS) {}
 
   private retire(job: Job): void {
     if (job.retiring) return;
@@ -80,7 +81,7 @@ export class DeckSuggestionWorkers {
 
   bridgeDirectedProjection(query: BridgeSearchQuery, rows?: BridgeProjectionInput, deep = false): Promise<BridgeDirectedResponse> {
     return this.queuedBridge("interactive", { kind: "bridge-directed-projection", query, rows, deep }, undefined,
-      deep ? BRIDGE_STATUS_TIMEOUT_MS : BRIDGE_ENGINES_TIMEOUT_MS) as Promise<BridgeDirectedResponse>;
+      deep ? this.fastQueryTimeoutMs : BRIDGE_ENGINES_TIMEOUT_MS) as Promise<BridgeDirectedResponse>;
   }
 
   bridgeResolve(input: Record<string, unknown>, guildId: string): Promise<ResolvedBridgeQuery> {
@@ -133,7 +134,7 @@ export class DeckSuggestionWorkers {
     }
   }
 
-  private queuedBridge(lane: Lane, scan: BridgeWork, progress?: (value: BridgeProgress) => void, timeoutMs = BRIDGE_STATUS_TIMEOUT_MS): Promise<ScanResult> {
+  private queuedBridge(lane: Lane, scan: BridgeWork, progress?: (value: BridgeProgress) => void, timeoutMs = this.fastQueryTimeoutMs): Promise<ScanResult> {
     if (this.closing) return Promise.reject(new BridgeJobError("Suggestion scanner closed", 503, 1));
     const queue = this.bridgeQueues[lane];
     // Deep admission is already bounded to two running jobs. Their steps wait

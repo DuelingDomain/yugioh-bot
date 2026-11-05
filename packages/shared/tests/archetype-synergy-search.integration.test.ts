@@ -2,10 +2,11 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
+import { createInsightCatalog } from "../src/services/card-insight-catalog.js";
 
 const db = new Database(":memory:");
 const service = createCardInsightService(db, { dataDirectory: "/tmp/no-synergy-test-engine" });
@@ -23,6 +24,18 @@ beforeAll(() => {
   insert.run(8696773, "The First Monarch", "Trap Card", "trap", "Special Summon this card as an Effect Monster.", "Monarch");
 });
 afterAll(() => db.close());
+
+it.each(["Monarch synergy", "synergy with Monarch", "cards that work with Monarch", "synergy with Temple of the Kings and Blue-Eyes"])("ignores stale cached readings for deterministic synergy: %s", text => {
+  db.exec("SAVEPOINT stale_synergy_reading");
+  try {
+    const expected = service.effectSearch(text);
+    expect(expected.reading?.query.supports?.archetypes.length).toBeGreaterThan(0);
+    const stale = service.readQuery("hand traps that negate")!;
+    db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(text.toLowerCase(), JSON.stringify(stale.query));
+    expect(service.effectSearch(text)).toEqual(expected);
+    expect(service.effectSearch(text, undefined, { omittedChips: expected.reading!.chips }).total).toBe(6);
+  } finally { db.exec("ROLLBACK TO stale_synergy_reading; RELEASE stale_synergy_reading"); }
+});
 
 it.each(["Temple of the Kings synergy", "synergy with Temple of the Kings", "cards that work with Temple of the Kings"])("finds outside Trap partners through the stored profile: %s", text => {
   const result = service.effectSearch(text);
@@ -92,6 +105,25 @@ it("shows separate lists when no candidate has a specific hook into both archety
   expect(result.groups?.map(group => group.archetype)).toEqual(["Temple of the Kings", "Blue-Eyes"]);
   expect(result.groups?.[0]?.cards.map(card => card.passcode)).toContain(80101899);
   expect(result.groups?.[1]?.cards.map(card => card.passcode)).toContain(62265044);
+});
+
+it("skips discarded relaxation scans for empty nested groups but retains top-level hints", () => {
+  const catalog = createInsightCatalog(db, "/tmp/no-synergy-test-engine");
+  const scans = vi.spyOn(catalog, "candidates");
+  try {
+    const scoped = createCardInsightService(db, { catalog });
+    const result = scoped.effectSearch("synergy with Temple of the Kings and Blue-Eyes", [62265044]);
+    expect(result.groups?.map(group => group.cards.map(card => card.passcode))).toEqual([[], [62265044]]);
+    expect(scans).toHaveBeenCalledTimes(3);
+    expect(scoped.effectSearch("Temple of the Kings synergy", [62265044]).relax?.length).toBeGreaterThan(0);
+  } finally { scans.mockRestore(); catalog.close(); }
+});
+
+it("bounds named synergy targets and fallback groups to four", () => {
+  const result = service.effectSearch("synergy with Temple of the Kings and Blue-Eyes and Monarch and Labrynth and Spright and Dark World");
+  const targets = ["Temple of the Kings", "Blue-Eyes", "Monarch", "Labrynth"];
+  expect(result.reading?.query.supports?.archetypes).toEqual(targets);
+  expect(result.groups?.map(group => group.archetype)).toEqual(targets);
 });
 
 it("preserves explicit pools, card-kind constraints, omitted chips and exact text", () => {
@@ -178,7 +210,7 @@ it("caps each outside archetype before the result share while keeping ungrouped 
     for (const [at, [code]] of kaiju.entries()) db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(?,?,'ok','integration') ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=NULL").run(code, `202${at}-01`);
     const newest = service.effectSearch("Monarch synergy", pool, { sort: "newest", limit: 1 });
     expect(newest.total).toBe(3);
-    expect(newest.cards.map(card => card.passcode)).toEqual([48770333]);
+    expect(newest.cards.map(card => card.passcode)).toEqual([48770333, 28674152, 93332803]);
   } finally { db.exec("ROLLBACK TO diversity_test; RELEASE diversity_test"); }
 });
 

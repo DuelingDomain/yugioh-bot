@@ -11,6 +11,7 @@ import { PeopleView } from "./views/people";
 import { DuelsView } from "./views/duels";
 import { WaitlistView } from "./views/waitlist";
 import { CreatorsView } from "./views/creators";
+import { UpdatesView } from "./views/updates";
 import { HealthView } from "./views/health";
 import { VisionView } from "./views/vision";
 import { InsightsView } from "./views/insights";
@@ -80,7 +81,7 @@ function LiveChip({ s, label }: { s: Snapshots; label?: boolean }) {
   );
 }
 
-/** The /admin console: a left menu with seven views, one large view at a time. */
+/** The /admin console: a left menu with eight views, one large view at a time. */
 export function AdminConsole() {
   const s = useSnapshots();
   const [view, setView] = useState<View>("overview");
@@ -139,7 +140,7 @@ export function AdminConsole() {
   }, []);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  // Keys: 1-7 switch views, "/" filters people, Escape closes the phone sheet.
+  // Keys: 1-8 switch views, "/" filters people, Escape closes the phone sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -222,6 +223,7 @@ export function AdminConsole() {
               : view === "duels" ? <DuelsView s={s} actions={actions} />
               : view === "waitlist" ? <WaitlistView s={s} actions={actions} />
               : view === "creators" ? <CreatorsView s={s} actions={actions} />
+              : view === "updates" ? <UpdatesView actions={actions} />
               : view === "health" ? <HealthView s={s} />
               : view === "vision" ? <VisionView />
               : <InsightsView s={s} />}

@@ -19,11 +19,11 @@
     "profiles": {
       "path": "profiles.jsonl.gz",
       "sourcePath": "upstream-profiles-plus-validated-batch-results",
-      "records": 530,
-      "bytes": 1279868,
-      "sha256": "4292374dc4228b2215669c1071f0993e43d57e61fa4205d349eaf1ae825bc3fe",
-      "gzipBytes": 221215,
-      "gzipSha256": "09f50d41717d825136760e04883af45ea0784ba26d92a2a0576352cd0f1f924e",
+      "records": 531,
+      "bytes": 1281841,
+      "sha256": "8c546bf7bd9f02f7fab5745d47f1494ef8d0211f67dc7575bbbfd944fae280ee",
+      "gzipBytes": 221634,
+      "gzipSha256": "a8fd177f35883e9b4d098de2c57ae6ce16074e7ccbb2398c797a081cddc5f236",
       "baseSourcePath": "data/synergy/profiles.jsonl",
       "baseSourceSha256": "fdeef2f9fdfc4e62e8a11f4bae107223ec95637523c1759e3fbfd200b02e11de"
     },
@@ -61,19 +61,26 @@
       "baseSourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae"
     }
   },
-  "artifactVersion": "610320f23aa3b68a3dd922bef2266a09402aef67e63385a21928c6989113056d",
+  "artifactVersion": "011522cdff6c3383d5816b91dd18791317a63bc51cd253349e98016f58eabd97",
   "generation": {
-    "kind": "release-month-fill",
-    "models": [],
-    "baseArtifactVersion": "54b32592a147d67e338f44c76fd488cfa09bc86116e7e4b1937bdf4011a4fe70",
+    "kind": "anthropic-message-batches",
+    "models": [
+      "claude-haiku-5-5"
+    ],
+    "baseArtifactVersion": "610320f23aa3b68a3dd922bef2266a09402aef67e63385a21928c6989113056d",
     "inputSource": "prepared-engine-card-text",
     "normalization": "newline-trim-pendulum-first-v1",
     "acceptedCards": 0,
-    "acceptedProfiles": 0,
-    "generatedAt": "2026-10-26T14:32:30.725Z",
-    "reservationIds": [],
-    "promptHashes": [],
-    "acceptedProfilesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "acceptedProfiles": 2,
+    "generatedAt": "2026-10-28T14:21:59.120Z",
+    "reservationIds": [
+      "2b98cdb9dab70d2a8c1b2304fecb4990",
+      "3c6042ef13ba6538f3331eacd6370654"
+    ],
+    "promptHashes": [
+      "4ae304fc8cf92aa42e337573187520517c12ca98d8980275f6f9ec39b1e1fdbc"
+    ],
+    "acceptedProfilesSha256": "306b390f20e51947ff9721ec64e17efac4be5ce32d8c88e3edadaded4470939d",
     "acceptedResultsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   }
 }
