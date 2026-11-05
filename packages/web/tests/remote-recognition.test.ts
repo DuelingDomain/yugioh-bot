@@ -1128,6 +1128,22 @@ it.each(['GY','BANISHED'] as const)('a field read before the %s top read after r
   }finally{r.dispose();}
 });
 
+// Owner 2026-11-04: a card brought back from an empty GY showed twice (M5 and GY, both "2×"). The pile cell that shows
+// the empty mat is exit evidence by itself: the field card is the pile card moving, with no hand-touch timing and no prompt.
+it.each(['GY','BANISHED'] as const)('a card that shows on the field while its %s cell shows the empty mat moves from that pile',async zone=>{
+  const r=await ownerFieldRig();
+  try{
+    const {fieldZoneCells,fieldMatPoint,createFieldCalibration}=await import('@yugidraft/vision');
+    const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]),cell=fieldZoneCells(undefined,calibration.zoneSpacing,calibration.zones).find(c=>c.zone===zone)!;
+    const corner=fieldMatPoint({x:cell.x,y:cell.y},calibration);
+    r.state.known=[{id:'pile-x',zone,cardId:'100'}];r.state.empty.add(`${corner.x}/${corner.y}`);r.state.halo=.2;
+    r.state.outlines=[r.quad(.634)];await r.tick(20);
+    expect(r.watcher.getSnapshot().pileClearSince?.[zone]).toBeDefined();
+    const moved=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone==='M4');
+    expect(moved).toHaveLength(1);expect(moved[0]).toMatchObject({fromRef:'pile-x',track:{id:'pile-x',cardId:'100'}});
+  }finally{r.dispose();}
+});
+
 for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] as const)('lifting two '+zone+' cards reveals the lower member and detects destination=%s',async destination=>{
   const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
   try{

@@ -45,6 +45,20 @@ Branch `feat/remote-stack`. Scope: a card on top of a card, on the field and on 
 6. **GY/banished pile (a log, not a picture).** The camera only confirms the top and adds new tops.
    - Pile lift (`pile.lift`, toast with Undo) only after >= 2 s of sharp frames (blur gate from `feat/remote-detect-fix`
      only), no hand, no outline, and a spot that no longer looks like the pile.
+   - Re-check against the mat: the watcher compares the GY and banished cells with their empty-mat baseline (or plain
+     mat) on every sample. A cell is clear only on a sharp frame, with no hand or moving shadow over it and no card there
+     that still looks like itself. A blurred frame is never clear. A clear cell for 2 s is a pile lift, also when the
+     detector still returns a stale low-score outline there. Scan field (S) does the same for GY and banished as for
+     Deck and Extra: after its two passes, an empty cell with no hand is lifted at once.
+   - Before the lift, the board accounts for the pile cards that show up elsewhere: a member the camera placed on the
+     field as a new card (seen now, first seen at most 10 s before the cell cleared) is merged with that field card
+     (one card, "X moved from the GY"). Only the other members go to the hand.
+   - Revive (no prompt): a card that shows on the field while the same card lies in this seat's GY/banished pile is
+     that pile card moving (`twin.place` with `fromRef`, one Undo) when the pile cell shows the empty mat, the pile
+     is gone, or a hand was over the pile just before and the card was the top. While a hand was over that pile in the
+     last 1 s, the placement waits (at most ~1 s) for the cell to settle. A card that the camera still sees on the pile
+     stays there, and the field card is a new copy. The "2×" badge is then correct: it counts the copies of one card
+     on the field and in the piles; the pile number counts the cards in the pile.
    - A top that looks the same = no change. A lower card seen on top = the cards above it left (existing rule).
    - A top that cannot be read: unsure reads get a best match (as on the field); a low match pushes an unnamed card.
    - A new pile card needs entry evidence (camera running > 2 s, and a hand over the pile from 10 s before, or a sure

@@ -23,6 +23,12 @@ type RemoteKnownHandCard = {
 This list is NOT the whole hand. It holds cards added by effects and cards
 returned from the field to the hand. A face-up field card that stays absent
 for 2 s, without arriving in a pile or another field zone, gets `source: 'field'` through the field-departure path.
+Field departures (camera): every card lifted off the field (face-up or face-down) waits the same short window
+(about 0.8 s after the watcher's removal). If it shows up in another field zone, or in the GY/banished cell, that is
+a move or a send to that pile (also up to 2.5 s after it went to the hand). Otherwise it goes to the hand. A face-up
+card becomes a known hand entry with `source: 'field'`; a face-down Set only adds to the hand count (private).
+The notice keeps the correction buttons (GY, Banish, Deck, Extra Deck, Undo); the default is Hand. The camera never
+guesses a return to the Deck or Extra Deck from motion near those piles: only the notice button or voice does that.
 A field-origin card is never a held card. A Set card that returns to hand has
 no known-hand entry. The public log says `a Set card returned to hand`.
 Draws, opening hands, cards seen in an ordinary hand fan, and a pile picked up for inspection do not populate the list.
