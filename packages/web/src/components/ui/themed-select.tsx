@@ -98,6 +98,10 @@ function holdsFixedChildren(el: Element): boolean {
  * It stays on the page when the dialog (or a parent) would move or clip a fixed child.
  */
 function listHost(trigger: Element | null): Element {
+  // A `popover` element sits in the top layer, above everything on the page: a list drawn on the page would open behind it,
+  // and a press on that list would light-dismiss the popover. The list goes inside the popover.
+  const popover = trigger?.closest("[popover]") ?? null;
+  if (popover && popover.matches(":popover-open")) return popover;
   const dialog = trigger?.closest('[role="dialog"][aria-modal="true"], dialog') ?? null;
   if (!dialog) return document.body;
   for (let node: Element | null = dialog; node && node !== document.documentElement; node = node.parentElement) {
