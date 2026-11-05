@@ -100,8 +100,10 @@ function holdsFixedChildren(el: Element): boolean {
 function listHost(trigger: Element | null): Element {
   // A `popover` element sits in the top layer, above everything on the page: a list drawn on the page would open behind it,
   // and a press on that list would light-dismiss the popover. The list goes inside the popover.
+  // The popover is not checked with holdsFixedChildren: it is the top-layer host itself, and the lists here (the camera "More" menu)
+  // have no transform on it. A popover that gets a transform needs the list placed against its rect.
   const popover = trigger?.closest("[popover]") ?? null;
-  if (popover && popover.matches(":popover-open")) return popover;
+  try { if (popover && popover.matches(":popover-open")) return popover; } catch { /* No :popover-open support: draw on the page. */ }
   const dialog = trigger?.closest('[role="dialog"][aria-modal="true"], dialog') ?? null;
   if (!dialog) return document.body;
   for (let node: Element | null = dialog; node && node !== document.documentElement; node = node.parentElement) {
@@ -159,6 +161,13 @@ export function ThemedSelect<T extends string | number | boolean>({
   const edge = useCallback((direction: 1 | -1) => step(direction === 1 ? -1 : choices.length, direction), [choices.length, step]);
 
   const close = useCallback(() => { setOpen(false); setPlace(null); }, []);
+  // A list drawn inside a popover closes with it (Escape, a press outside, or the popover's own toggle).
+  useEffect(() => {
+    if (!open || !host || host === document.body || !host.hasAttribute("popover")) return;
+    const onToggle = (event: Event) => { if ((event as Event & { newState?: string }).newState === "closed") close(); };
+    host.addEventListener("toggle", onToggle);
+    return () => host.removeEventListener("toggle", onToggle);
+  }, [open, host, close]);
   const openList = useCallback((at?: "first" | "last") => {
     if (disabled || !choices.length) return;
     const start = at === "first" ? edge(1) : at === "last" ? edge(-1) : enabled(selectedIndex) ? selectedIndex : edge(1);
@@ -303,7 +312,7 @@ export function ThemedSelect<T extends string | number | boolean>({
   const triggerId = id ?? `${uid}-trigger`;
   const popover = open && typeof document !== "undefined" ? createPortal(
     <div ref={layerRef} className={cx(styles.scope, duelFontClasses)} data-layer-opener="" data-themed-select-layer=""
-      style={inheritedFont ? ({ "--ts-font": inheritedFont } as CSSProperties) : undefined}
+      style={{ ...(inheritedFont ? { "--ts-font": inheritedFont } : null), ...(host?.hasAttribute("popover") ? { display: "contents" } : null) } as CSSProperties}
       onMouseDown={(event) => event.preventDefault()}>
       {sheet ? <div className={styles.backdrop} aria-hidden="true" data-testid="themed-select-backdrop"
         onClick={() => { close(); triggerRef.current?.focus({ preventScroll: true }); }} /> : null}
