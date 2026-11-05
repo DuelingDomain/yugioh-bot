@@ -1,3 +1,4 @@
+import { recordEmailConsent } from "@yugidraft/shared/email";
 import { clientIpKey, createRateLimiter } from "@/lib/rate-limit";
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
@@ -88,6 +89,9 @@ export async function POST(request: Request): Promise<Response> {
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
   const email = normalizeJoinEmail(data.email);
   if (!email) return respond("invalid");
+  // This form explicitly offers alpha news under the current public privacy notice. Do not infer consent for old rows.
+  try { recordEmailConsent(getDb(), email, { provenance: "public-waitlist-form", textVersion: "alpha-news-2026-11-04" }); }
+  catch { return respond("error"); }
   const allowlisted = await handledByAllowlist(email);
   if (allowlisted) return respond(allowlisted);
 
