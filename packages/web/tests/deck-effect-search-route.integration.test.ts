@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
+import { formatStaples } from "../../shared/src/cards/effects/staples";
 import { createPlayerService, type DeckSuggestionQuery } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../../duel-server/src/host";
 import { createHostDataFixture } from "../../duel-server/tests/helpers/host-data-fixture";
-import { emptyCardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
+import { emptyCardQuery, type CardQueryResult, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { queryPoolCards } from "../src/components/decks/pool-search";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn(),
@@ -25,7 +26,7 @@ beforeAll(() => {
   state.db.prepare("INSERT INTO users(id,username,display_name) VALUES(124,'effect-route-other','Joey')").run();
   createPlayerService(state.db).findOrCreate("configured-community", 123, "Yugi");
   createPlayerService(state.db).findOrCreate("configured-community", 124, "Joey");
-  directory = createHostDataFixture([
+  const fixtureCards = [
     {code:57839750,name:"Mother Grizzly",type:0x21},
     {code:83011278,name:"Mystic Tomato",type:0x21},
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
@@ -37,7 +38,13 @@ beforeAll(() => {
     {code:52112003,name:"Card Advance",type:0x2},
     {code:62265044,name:"Dragon Ravine",type:0x80002},
     {code:4929256,name:"Mobius the Frost Monarch",type:0x21},
-  ]);
+  ];
+  // Include a current measured staple without making a fixture card a required weekly staple.
+  const staples = [...formatStaples("normal").cards.values()]
+    .slice(0, 1)
+    .filter(card => !fixtureCards.some(fixture => fixture.code === card.passcode))
+    .map(card => ({ code: card.passcode, name: card.name }));
+  directory = createHostDataFixture([...fixtureCards, ...staples]);
   const engine = new Database(join(directory,"cards.cdb"));
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2,0x10,1,97268402);
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2000,0x10,8,89631139);
@@ -263,10 +270,18 @@ it("reruns hard phrases through the same scoped host filters after a fallback an
   expect(state.fallback).not.toHaveBeenCalled();
 });
 
-it.each([['recruiters','Mother Grizzly'],['staples','Ash Blossom & Joyous Spring']])('keeps effect hits when %s has zero name hits', async (text,name)=>{
+it.each([['recruiters','Mother Grizzly'],['staples',null]] as const)('keeps effect hits when %s has zero name hits', async (text,name)=>{
  const response=await post({text,scope:'all'});expect(response.status).toBe(200);
  const data=await response.json();expect(data.effectSearchEnabled).toBe(true);expect(data.total).toBe(0);expect(data.effectTotal).toBeGreaterThan(0);
- expect(data.effectHits.map((card:DeckCardInfo)=>card.name)).toContain(name);
+ if (name) expect(data.effectHits.map((card:DeckCardInfo)=>card.name)).toContain(name);
+ else {
+   const usage = formatStaples("normal");
+   for (const card of data.effectHits as NonNullable<CardQueryResult["effectHits"]>) {
+     const measured = usage.cards.get(card.canonicalPasscode ?? card.code);
+     expect(measured).toBeDefined();
+     expect(card.reason).toBe(`Played in ${Math.round(measured!.playShare * 100)}% of ${usage.label} decks`);
+   }
+ }
 });
 it('routes format searches through the signed host from both web entry points',async()=>{
  const deck=await post({text:'TCG only',limit:120});expect(deck.status).toBe(200);const expected=await deck.json();

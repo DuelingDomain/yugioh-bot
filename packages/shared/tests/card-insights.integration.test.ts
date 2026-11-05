@@ -7,6 +7,7 @@ import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
 import { createInsightCatalog } from "../src/services/card-insight-catalog.js";
+import { formatStaples } from "../src/cards/effects/staples.js";
 
 const db = new Database(":memory:");
 const directory = mkdtempSync(join(tmpdir(), "yugioh-insight-catalog-"));
@@ -262,9 +263,11 @@ describe("SQL insights over the real pinned artifact", () => {
       total: 1, cards: [{ passcode: 97268402 }], reading: { chips: expect.arrayContaining(["Released: before 2015"]) },
     });
     expect(service.effectSearch("newest spells", [83764719, 47222536]).cards.map(card => card.passcode)).toEqual([47222536, 83764719]);
-    expect(service.effectSearch("hand traps", [97268402, 14558127], { released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
+    const usage = formatStaples("normal");
+    const measured = [97268402, 14558127].filter(id => usage.cards.has(id));
+    expect(service.effectSearch("hand traps", [97268402, 14558127], { released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual(measured.filter(id => id === 97268402));
     expect(service.effectSearch("hand traps before 2015", [97268402, 14558127], { omittedChips: ["Released: before 2015"] }).total).toBe(2);
-    expect(service.effectSearch("hand traps", [97268402, 14558127], { sort: "newest", limit: 1 })).toMatchObject({ total: 2, cards: [{ passcode: 14558127 }] });
+    expect(service.effectSearch("hand traps", [97268402, 14558127], { sort: "newest", limit: 1 })).toMatchObject({ total: measured.length, cards: measured.slice(-1).map(passcode => ({ passcode })) });
     expect(service.effectSearch("monsters", [97268402, 14558127], { released: { to: "2014-12" }, format: "genesys", genesysRemaining: 0 }).cards.map(card => card.passcode)).toEqual([97268402]);
     expect(service.effectSearch("Printed text", [97268402, 14558127], { exact: true, released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
   });
@@ -343,7 +346,7 @@ describe("SQL insights over the real pinned artifact", () => {
         engine.prepare("UPDATE datas SET ot=? WHERE id=97268402").run(pool);
         expect(service.effectSearch("newest monsters", [97268402]).cards).toEqual([]);
         expect(service.effectSearch("monsters before 2015", [97268402]).cards).toEqual([]);
-        expect(service.effectSearch("hand traps", [97268402]).cards).toHaveLength(1);
+        expect(service.effectSearch("hand traps", [97268402]).cards).toHaveLength(Number(formatStaples("normal").cards.has(97268402)));
       }
     } finally {
       engine.prepare("UPDATE datas SET ot=3 WHERE id=97268402").run(); engine.close();

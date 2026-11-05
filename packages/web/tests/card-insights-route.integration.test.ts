@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
+import { formatStaples } from "../../shared/src/cards/effects/staples";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn(), admission: vi.fn() }));
 vi.mock("@/lib/deck-suggestions", () => ({ loadDeckSuggestions: state.admission }));
@@ -109,7 +110,8 @@ describe("authenticated public-catalog insight operations", () => {
     const read = await request({ op: "read", text: "hand traps" });
     expect(await read.json()).toMatchObject({ reading: { chips: expect.arrayContaining(["Role: hand trap"]) } });
     const effects = await request({ op: "effectSearch", text: "hand traps", pool: [97268402] });
-    expect(await effects.json()).toMatchObject({ total: 1, cards: [{ passcode: 97268402 }] });
+    const expected = formatStaples("normal").cards.has(97268402) ? [{ passcode: 97268402 }] : [];
+    expect(await effects.json()).toMatchObject({ total: expected.length, cards: expected });
   });
 
   it("uses real service ranking, health and draft scoring with explicit pools", async () => {
