@@ -1,0 +1,62 @@
+import type Database from "better-sqlite3";
+import type { ClerkDiscoveryBackend, ClerkInvitationJson } from "../clerk/backend.js";
+import { normalizeJoinEmail } from "../util/join-email.js";
+import { recipientKey, rememberEmailSubject } from "./storage.js";
+
+export type AudienceClerk = Pick<ClerkDiscoveryBackend, "listAllUsers" | "listAllInvitations" | "listAllWaitlistEntries">;
+export interface EmailRecipient {
+  key: string; email: string; variant: "members" | "invited" | "waitlist";
+  sourceId: string; inviteUrl: string | null; inviteExpiresAt: number | null;
+}
+export interface AudienceCounts {
+  members: number; invited: number; waitlist: number; total: number; excluded: { reason: string; count: number }[];
+}
+export interface EmailAudience { recipients: EmailRecipient[]; counts: AudienceCounts }
+export function invitationLink(invite: ClerkInvitationJson | null | undefined, now: number): string | null {
+  if (!invite || invite.status !== "pending" || invite.revoked || typeof invite.expires_at !== "number" || invite.expires_at <= now || !invite.url) return null;
+  try { const url = new URL(invite.url); return url.protocol === "https:" && !url.username && !url.password ? url.href : null; } catch { return null; }
+}
+/** Finish every page of every source before persisting any confirmation snapshot. Never mutates Clerk. */
+export async function discoverEmailAudience(db: Database.Database, clerk: AudienceClerk, now = Date.now()): Promise<EmailAudience> {
+  const [users, invitations, pending, invited] = await Promise.all([
+    clerk.listAllUsers(), clerk.listAllInvitations(), clerk.listAllWaitlistEntries("pending"), clerk.listAllWaitlistEntries("invited"),
+  ]);
+  const candidates = new Map<string, EmailRecipient>(), excluded = new Map<string, number>();
+  const exclude = (reason: string) => excluded.set(reason, (excluded.get(reason) ?? 0) + 1);
+  const add = (raw: unknown, variant: EmailRecipient["variant"], sourceId: string, invitation?: ClerkInvitationJson | null) => {
+    const email = normalizeJoinEmail(raw), key = email ? recipientKey(db, email) : null;
+    if (!email || !key) { exclude("invalid_email"); return; }
+    if (candidates.has(key)) { exclude("duplicate_inbox"); return; }
+    candidates.set(key, { key, email, variant, sourceId,
+      inviteUrl: invitationLink(invitation, now), inviteExpiresAt: invitation?.expires_at ?? null });
+  };
+  for (const user of users) {
+    if (!Array.isArray(user.email_addresses)) throw new Error("Invalid Clerk user emails");
+    const verified = user.email_addresses.filter(address => address.verification?.status === "verified");
+    for (const email of verified) rememberEmailSubject(db, user.id, email.email_address);
+    const address = verified.find(address => address.id === user.primary_email_address_id) ?? verified[0];
+    if (!address) { exclude("unverified_email"); continue; }
+    add(address.email_address, "members", user.id);
+  }
+  for (const invite of invitations) {
+    if (invite.status !== "pending" || invite.revoked) { exclude("inactive_invitation"); continue; }
+    add(invite.email_address, "invited", invite.id, invite);
+  }
+  // Invited waitlist entries outrank pending entries for the same inbox.
+  for (const entry of [...invited, ...pending]) {
+    if (entry.status !== "pending" && entry.status !== "invited") { exclude("inactive_waitlist"); continue; }
+    add(entry.email_address, "waitlist", entry.id, entry.status === "invited" ? entry.invitation : null);
+  }
+  const recipients: EmailRecipient[] = [];
+  for (const recipient of candidates.values()) {
+    if (db.prepare("select 1 from email_unsubscribes where recipient_key=?").get(recipient.key)) { exclude("suppressed"); continue; }
+    if (!db.prepare("select 1 from email_consents where recipient_key=? and scope='alpha-news'").get(recipient.key)) { exclude("unknown_consent"); continue; }
+    recipients.push(recipient);
+  }
+  recipients.sort((a, b) => a.key.localeCompare(b.key));
+  return { recipients, counts: {
+    members: recipients.filter(r => r.variant === "members").length, invited: recipients.filter(r => r.variant === "invited").length,
+    waitlist: recipients.filter(r => r.variant === "waitlist").length, total: recipients.length,
+    excluded: [...excluded].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => ({ reason, count })),
+  } };
+}

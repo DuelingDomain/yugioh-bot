@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 
 /** Additive migration. Send reservations and inbox suppression tombstones are permanent. */
@@ -34,13 +35,22 @@ export function migrateReleases(db: Database.Database): void {
         id integer primary key autoincrement, send_id text not null references release_email_sends(id),
         recipient_key text not null, payload_encrypted text, idempotency_key text not null unique,
         status text not null default 'pending' check(status in ('pending','processing','retry','accepted','delivered','failed','suppressed','needs_review')),
-        provider_id text, first_attempt_at integer, accepted_at integer, delivered_at integer,
+        provider_id text, subject_clerk_id text, first_attempt_at integer, accepted_at integer, delivered_at integer,
         attempts integer not null default 0, available_at integer not null,
         lease_token text, lease_expires_at integer, last_error text,
         unique(send_id,recipient_key)
       );
       create index if not exists release_email_deliveries_due_idx on release_email_deliveries(status,available_at,id);
       create unique index if not exists release_email_deliveries_provider_idx on release_email_deliveries(provider_id) where provider_id is not null;
+      create table if not exists email_identity_secret (
+        id integer primary key check(id=1), secret text not null
+      );
+      create table if not exists email_subject_recipients (
+        subject_key text not null, recipient_key text not null, primary key(subject_key,recipient_key)
+      );
+      create table if not exists email_deleted_subjects (
+        subject_key text primary key not null
+      );
       create table if not exists email_consents (
         recipient_key text primary key not null, scope text not null check(scope='alpha-news'),
         provenance text not null, text_version text not null, consented_at integer not null
@@ -60,6 +70,11 @@ export function migrateReleases(db: Database.Database): void {
         event_id text primary key not null, received_at integer not null
       );
     `);
+    // Also upgrade a database initialized by the release-storage revision before the email worker was installed.
+    const deliveryColumns = db.pragma("table_info(release_email_deliveries)") as { name: string }[];
+    if (!deliveryColumns.some(column => column.name === "subject_clerk_id")) db.exec("alter table release_email_deliveries add column subject_clerk_id text");
+    db.exec("create index if not exists release_email_deliveries_subject_idx on release_email_deliveries(subject_clerk_id)");
+    db.prepare("insert into email_identity_secret(id,secret) values(1,?) on conflict(id) do nothing").run(randomBytes(32).toString("hex"));
     const sections = [
       { kind: "new", items: [
         'Synergy search groups. Search results now come in two groups: “Archetype cards” (cards of the archetype you searched) and “Works with” (cards from other archetypes that fit it).',
