@@ -1,7 +1,7 @@
 import { forwardRef, type RefObject } from "react";
 import { ChevronDown, Maximize2, Minimize2, Minus, ScrollText } from "lucide-react";
 import type { Release } from "@/lib/updates/types";
-import { SECTION_META, changeCount, kindOfHighlight, longDate, shortDate } from "@/lib/updates/model";
+import { changeCount, longDate, shortDate } from "@/lib/updates/model";
 import { ReleaseSections, ReleaseTitle, Rich } from "./release-notes";
 import styles from "./updates-board.module.css";
 
@@ -43,15 +43,12 @@ export const CompactPanel = forwardRef<HTMLElement, CompactPanelProps>(function 
         </div>
         <p className={styles.vdate}>{longDate(release.publishedAt)}{changes > 0 ? ` · ${changes} ${changes === 1 ? "change" : "changes"}` : ""}</p>
         <ul className={styles.hl}>
-          {release.highlights.map((highlight, i) => {
-            const kind = kindOfHighlight(release, highlight);
-            return (
-              <li key={i}>
-                {kind ? <span className={styles.em} aria-hidden="true">{SECTION_META[kind].emoji}</span> : <span className={styles.dot} aria-hidden="true" />}
-                <span><Rich text={highlight} /></span>
-              </li>
-            );
-          })}
+          {release.highlights.map((highlight, i) => (
+            <li key={i}>
+              <span className={styles.dot} aria-hidden="true" />
+              <span><Rich text={highlight} /></span>
+            </li>
+          ))}
         </ul>
       </div>
       <div className={styles.cfoot}>

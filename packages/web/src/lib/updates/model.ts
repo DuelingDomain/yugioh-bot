@@ -61,16 +61,6 @@ export function sectionItemCount(release: Pick<Release, "sections">, kind: Relea
   return release.sections.filter((s) => s.kind === kind).reduce((sum, s) => sum + s.items.length, 0);
 }
 
-/** The section kind that holds a highlight, so the compact list can show the same glyph as the full notes. */
-export function kindOfHighlight(release: Pick<Release, "sections">, highlight: string): ReleaseSectionKind | null {
-  const wanted = stripRich(highlight).trim();
-  for (const section of release.sections) {
-    if (section.kind === "howto") continue;
-    if (section.items.some((item) => stripRich(item).trim() === wanted)) return section.kind;
-  }
-  return null;
-}
-
 /** "DDOM-0202" for 0.2.2: a set-code line for the card, from the version. */
 export function setCode(version: string): string {
   const [major = 0, minor = 0, patch = 0] = parts(version);

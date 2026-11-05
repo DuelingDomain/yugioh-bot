@@ -5,6 +5,8 @@ import { cardDate, cardStats, setCode } from "@/lib/updates/model";
 import { Rich, ReleaseTitle } from "./release-notes";
 import styles from "./updates-board.module.css";
 
+const CARD_HIGHLIGHTS = 3;
+
 interface RevealCardProps {
   release: Release;
   leaving: boolean;
@@ -18,6 +20,9 @@ interface RevealCardProps {
 export const RevealCard = forwardRef<HTMLDivElement, RevealCardProps>(function RevealCard({ release, leaving, onRead, onLater, barRef, cardRef }, ref) {
   const stars = Math.min(Math.max(release.highlights.length, 1), 6);
   const stats = cardStats(release);
+  // The card text is short: the first three highlights, then a count. The panels list them all.
+  const shown = release.highlights.slice(0, CARD_HIGHLIGHTS);
+  const more = release.highlights.length - shown.length;
   return (
     <div
       ref={ref}
@@ -49,7 +54,10 @@ export const RevealCard = forwardRef<HTMLDivElement, RevealCardProps>(function R
           <div className={styles.setline}><span>{setCode(release.version)}</span><span>{cardDate(release.publishedAt)}</span></div>
           <div className={styles.effect} id="upd-rv-effect">
             <div className={styles.type}>[ Update / Effect ]</div>
-            <p>When this update is revealed: {release.highlights.map((h, i) => <span key={i}>{i > 0 ? " " : ""}<Rich text={h} /></span>)}</p>
+            <p>
+              When this update is revealed: {shown.map((h, i) => <span key={i}>{i > 0 ? " " : ""}<Rich text={h} /></span>)}
+              {more > 0 ? ` And ${more} more.` : ""}
+            </p>
             {stats.length > 0 ? <div className={styles.stat}>{stats.map((s) => <span key={s}>{s}</span>)}</div> : null}
           </div>
           <div className={styles.rtimer} aria-hidden="true"><i ref={barRef as React.RefObject<HTMLElement>} /></div>

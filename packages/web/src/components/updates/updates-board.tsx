@@ -61,7 +61,7 @@ interface UpdatesBoardProps {
  * the Report bug button shows.
  */
 export function UpdatesBoard({ lift, className, children }: UpdatesBoardProps) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [releases, setReleases] = useState<Release[]>([]);
   const [seenVersion, setSeenVersion] = useState<string | null>(null);
   /** The release that was unseen when the page loaded: it keeps its New tag for this visit. */
@@ -82,6 +82,8 @@ export function UpdatesBoard({ lift, className, children }: UpdatesBoardProps) {
   const revealed = useRef(false);
   const posted = useRef<string | null>(null);
   const pendingGoto = useRef<string | null>(null);
+  /** A tab click scrolls on its own; until it lands, scroll events must not change the tab again. */
+  const tabLock = useRef(0);
   const timer = useRef({ left: REVEAL_MS, start: 0, paused: false, frame: 0 });
   const dismissRef = useRef<() => void>(() => {});
   const [landing, setLanding] = useState(false);
@@ -235,6 +237,7 @@ export function UpdatesBoard({ lift, className, children }: UpdatesBoardProps) {
     if (target instanceof HTMLDetailsElement) target.open = true;
     const tabs = body.querySelector<HTMLElement>("[data-vtabs]")?.offsetHeight ?? 0;
     const top = version === releases[0]?.version ? 0 : body.scrollTop + target.getBoundingClientRect().top - body.getBoundingClientRect().top - tabs;
+    tabLock.current = performance.now() + (smooth ? 800 : 0);
     body.scrollTo({ top, behavior: smooth && !reducedMotion() ? "smooth" : "auto" });
     setActiveVersion(version);
   }, [releases]);
@@ -261,7 +264,7 @@ export function UpdatesBoard({ lift, className, children }: UpdatesBoardProps) {
 
   const onBodyScroll = () => {
     const body = bodyRef.current;
-    if (!body) return;
+    if (!body || performance.now() < tabLock.current) return;
     const tabs = body.querySelector<HTMLElement>("[data-vtabs]")?.offsetHeight ?? 0;
     const line = body.getBoundingClientRect().top + tabs + 12;
     let current = releases[0]?.version ?? "";
@@ -269,6 +272,8 @@ export function UpdatesBoard({ lift, className, children }: UpdatesBoardProps) {
       const el = body.querySelector<HTMLElement>(`[data-rel="${CSS.escape(r.version)}"]`);
       if (el && el.getBoundingClientRect().top <= line) current = r.version;
     }
+    // At the very end a short last release can not reach the top line: it is the one on screen.
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 2) current = releases[releases.length - 1]?.version ?? current;
     setActiveVersion((prev) => (prev === current ? prev : current));
   };
 
