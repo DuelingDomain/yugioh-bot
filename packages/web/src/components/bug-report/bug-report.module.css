@@ -6,6 +6,7 @@
 
 /* ---- Floating button (the app shell, the deck editor, the duel page before a live header takes over) ---- */
 .fab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
