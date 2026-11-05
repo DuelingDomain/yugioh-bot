@@ -1880,10 +1880,14 @@ describe("remote effect origins and hidden information", () => {
     for(const text of ["that effect is good","what does the effect do","what does the effect","the effect is good","effect is good",
       "I think I will activate effect","don't activate effect","activate Skilled Dark Magician and then draw","Skilled Dark Magician effect is good",
       "can I use Skilled Dark Magician effect","use Skilled Dark Magician effect please","use effect later","effect of Skilled Dark Magician",
+      "activate Skilled Dark Magician please","Skilled Dark Magician with effect","activate Skilled Dark Magician my effect",
       "activate Man-Eater Bug","activate Blue-Eyes White Dragon","activate some random conversation"])
       expect(parse(text),text).toBeNull();
     expect(parse("use Trap Tracks effect")).toMatchObject({source:{cardId:70825459,cardRef:"trap"}});
     expect(parse("activate Dark Magician")).toMatchObject({source:{cardRef:"normal"}}); // Unique exact name outranks a partial match.
+    state.seats[1].twin.push({ref:"unloaded",cardId:999999,name:"Unloaded card",zone:"monster",slot:4,faceUp:true,position:"attack"});
+    expect(parse("effect")).toEqual({type:"effect.activated",actorSeat:1,source:{}}); // Missing type facts cannot prove a unique Effect card.
+    state.seats[1].twin.pop();
     state.seats[1].twin.push({...state.seats[1].twin[0],ref:"copy",faceUp:false,slot:3});
     expect(parse("Skilled Dark Magician effect")).toMatchObject({source:{cardRef:"skilled"}}); // Face-up first.
     state.seats[1].twin.at(-1)!.faceUp=true;
@@ -1894,7 +1898,7 @@ describe("remote effect origins and hidden information", () => {
     expect(parse("activate",110_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}});
     // An unrelated state update must not refresh the identification's age.
     state=ygoModule.reduce(state,{type:"lp.change",actorSeat:1,seat:1,delta:-100,reason:"cost",idempotencyKey:"cost",at:110_001});
-    expect(parse("effect",110_002)).toMatchObject({source:{}});
+    expect(parse("effect",110_002)).toEqual({type:"effect.activated",actorSeat:1,source:{}});
     expect(parse("effect",110_002)!.type==="effect.activated" && remoteActionSchema.safeParse({...parse("effect",110_002),idempotencyKey:"pending"}).success).toBe(false);
     state=ygoModule.reduce(state,remoteActionSchema.parse({type:"twin.place",actorSeat:1,seat:1,zone:"field",card:{ref:"latest",name:"Chicken Game",cardId:67616300},idempotencyKey:"placed",at:120_000}));
     expect(parse("use the effect",120_001)).toMatchObject({source:{cardRef:"latest",cardId:67616300}});
@@ -1905,6 +1909,20 @@ describe("remote effect origins and hidden information", () => {
     expect(parse("effect",130_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}});
     state.seats[1].twin=[];
     expect(parse("effect",130_001)).toEqual({type:"effect.activated",actorSeat:1,source:{}}); // Never reuse a stale/off-field identification.
+    state.seats[1].twin=[{ref:"physical",name:"Chicken Game",cardId:67616300,zone:"field",faceUp:true,position:"attack"},
+      {ref:"other-effect",name:"Skilled Dark Magician",cardId:73752131,zone:"monster",slot:1,faceUp:true,position:"attack"}];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"twin.place",actorSeat:1,seat:1,source:"auto",zone:"field",card:{ref:"new-camera-ref",name:"Chicken Game",cardId:67616300},idempotencyKey:"reused",at:140_000}));
+    expect(state.seats[1].twin.map(card=>card.ref)).toEqual(["physical","other-effect"]);
+    expect(parse("effect",140_001)).toMatchObject({source:{cardRef:"physical"}});
+    state.seats[1].twin=[
+      {ref:"old",cardId:46986414,name:"Dark Magician",zone:"hand",faceUp:true,position:"attack"},
+      {ref:"replacement",cardId:46986414,name:"Dark Magician",zone:"monster",slot:1,faceUp:true,position:"attack"},
+      {ref:"effect",cardId:73752131,name:"Skilled Dark Magician",zone:"monster",slot:3,faceUp:true,position:"attack"},
+    ];
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"twin.place",actorSeat:1,seat:1,fromRef:"old",zone:"monster",card:{ref:"new",cardId:46986414,name:"Dark Magician",slot:2},idempotencyKey:"from-hand",at:150_000}));
+    state=ygoModule.reduce(state,{type:"twin.remove",actorSeat:1,seat:1,cardRef:"old",idempotencyKey:"removed",at:150_010});
+    state=ygoModule.reduce(state,{type:"twin.move",actorSeat:1,seat:1,cardRef:"replacement",zone:"monster",slot:2,idempotencyKey:"replacement-moved",at:150_020});
+    expect(parse("effect",150_021)).toMatchObject({source:{cardRef:"effect"}}); // Never substitute a later copy for a departed recent source.
   });
 });
 

@@ -743,7 +743,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     const set = (result: string, ignored = false) => setTranscript(old => ({ ...old, result, ignored }));
     switch (intent.kind) {
-      case "effect": set("Effect activated"); void act(intent.proposal); break;
+      case "effect":
+        if (intent.proposal.type !== "effect.activated" || !intent.proposal.source.cardRef) {
+          setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
+        }
+        set("Effect activated"); void act(intent.proposal); break;
       case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
@@ -766,7 +770,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const heardAt = Date.now();
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
-    const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray", cardNames: voiceCardNames(now, cardInfo) });
+    const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray", cardNames: voiceCardNames(now, cardInfo), now: serverNow(), lookupCard: cardInfo });
     if (gate === "idle") {
       if (intent.kind === "wake") { setWake(Date.now() + WAKE_MS); setTranscript(old => ({ ...old, result: "Wake word · listening 8 s" })); addVoiceLog(`${name(now.mySeat)} said “${final.text}”`); toast(<>Heard <b>“{final.text}”</b>. Listening for 8 seconds.</>); }
       else setTranscript(old => ({ ...old, result: "Idle. Say “chain” first.", ignored: true }));
@@ -797,7 +801,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setProposal(old => {
       if (!old || old.requestId !== final.requestId) return old;
       const { room: now, state: current } = R.current;
-      const intent = interpret(final.text, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, cardInfo) });
+      const intent = interpret(final.text, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, cardInfo), now: serverNow(), lookupCard: cardInfo });
       if (intent.kind === "lp") return { ...old, title: `${name(intent.seat)} ${sg(intent.delta)} LP`, sub: `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, run: () => void changeLp(intent.seat, intent.delta, "Voice adjustment") };
       return old;
     });

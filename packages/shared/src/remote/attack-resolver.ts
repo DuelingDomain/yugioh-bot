@@ -210,8 +210,8 @@ export function resolveAttack(state: RemoteState, input: string | AttackHints, a
  * Fuzzy card-name lookup for voice commands. Uses the same word scoring as attacks (prefixes, sound-alikes, typos).
  * `nameOf` gives the name to match. A face-down card without a public name never matches. Best match first.
  */
-export function matchCardsByName<T extends { ref: string; faceUp: boolean }>(cards: readonly T[], query: string, nameOf: (card: T) => string | undefined): { card: T; score: number }[] {
-  const words = tokens(query).filter(word => !filler.has(word));
+export function matchCardsByName<T extends { ref: string; faceUp: boolean }>(cards: readonly T[], query: string, nameOf: (card: T) => string | undefined, options: { keepFillers?: boolean } = {}): { card: T; score: number }[] {
+  const words = tokens(query).filter(word => options.keepFillers || !filler.has(word));
   if (!words.length || query.length > 500) return [];
   const out: { card: T; score: number }[] = [];
   for (const card of cards) {
