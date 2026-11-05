@@ -57,7 +57,7 @@ export function UpdatesView({ actions }: { actions: ConsoleActions }) {
   if (load.state === "failed") {
     return (
       <Notice tone="warn" title="Updates did not load">
-        {load.status === 403 ? "Only an owner can open this view." : "The server did not answer."}{" "}
+        {load.status === 403 || load.status === 404 ? "Only an owner can open this view." : "The server did not answer."}{" "}
         <button type="button" className={`${styles.btn} ${styles.btnSm}`} onClick={() => void reload()}>Try again</button>
       </Notice>
     );

@@ -28,6 +28,7 @@ textarea.area { height: auto; min-height: 0; padding: 10px 12px; line-height: 1.
 .state { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; }
 .state b { font-weight: 500; font-size: 15px; display: block; }
 .state p { color: var(--t2); font-size: 13.5px; margin-top: 4px; line-height: 1.45; }
+.warnLine { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; font-size: 13.5px; line-height: 1.45; color: var(--warn); padding-top: 12px; border-top: 1px solid var(--line); }
 .missing { list-style: none; margin: 10px 0 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .missing code { font-family: var(--mono); font-size: 12px; color: var(--t1); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; }
 

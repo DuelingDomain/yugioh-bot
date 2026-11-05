@@ -219,7 +219,9 @@
   .release { padding: 18px 16px 8px; }
   .olderRel > summary { padding: 16px; }
   .reveal { left: 0; right: 0; width: auto; display: flex; flex-direction: column; align-items: center; }
-  .rwrap { width: min(300px, calc(100vw - 48px)); }
+  /* The full-width layer must not swallow taps beside the card. */
+  .reveal { pointer-events: none; }
+  .rwrap { width: min(300px, calc(100vw - 48px)); pointer-events: auto; }
 }
 /* Short screens (1366x768 and below): the card shrinks so it never reaches the page bar. */
 @media (max-height: 720px) { .reveal { width: 264px; } .effect p { font-size: 11.6px; } }

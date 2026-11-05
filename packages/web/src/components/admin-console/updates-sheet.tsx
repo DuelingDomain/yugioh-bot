@@ -19,11 +19,32 @@ const lines = (text: string) => text.split("\n").map((l) => l.trim()).filter(Boo
 /** Answers from the release routes, in plain words. */
 function failText(status: number, error: string | null, fallback: string): string {
   if (status === 403) return "Only an owner can change releases.";
-  if (status === 409 || error === "version_exists") return "A release with this version already exists, or this release changed. Close the sheet and open it again.";
-  if (status === 410 || error === "preview_expired") return "The preview ran out. Preview again.";
+  // The error code tells the cases apart; one status can carry several of them.
+  switch (error) {
+    case "version_exists": return "A release with this version already exists. Pick another version.";
+    case "email_already_reserved": return "An email for this update is already queued or sent.";
+    case "invalid_preview":
+    case "preview_expired": return "Preview expired — run the preview again.";
+    case "not_configured": return "Email is not set up (missing settings).";
+    case "clerk_not_configured": return "Clerk is not set up on the server.";
+    case "audience_unavailable": return "Could not load recipients from Clerk — try again later.";
+    default: break;
+  }
+  if (status === 409) return "This release changed. Close the sheet and open it again.";
+  if (status === 410) return "Preview expired — run the preview again.";
   if (status === 429) return "Busy. Try again in a minute.";
   if (status === 0) return "The server did not answer. Try again.";
   return fallback;
+}
+
+/** A plain hint for the last send error the queue kept. */
+function lastErrorHint(code: string): string {
+  switch (code) {
+    case "provider_auth": return "The email provider refused the key. Check the Resend API key. The queue is paused and will retry.";
+    case "provider_domain": return "The sender domain is not verified. Verify the domain in Resend. The queue is paused and will retry.";
+    case "provider_unavailable": return "The email provider is down. The queue is paused and will retry.";
+    default: return "The last send try failed. The queue will retry.";
+  }
 }
 
 interface ReleaseSheetProps {
@@ -310,7 +331,7 @@ function EmailBox({ release, configured, missingConfig, actions, onChanged, onSe
     setError(null);
     const result = await sendEmail(release.id, preview.token);
     setBusy(null);
-    if (!result.ok) { setError(failText(result.status, result.error, "The email was not sent. Try again.")); if (result.status === 410 || result.status === 409) setPreview(null); return; }
+    if (!result.ok) { setError(failText(result.status, result.error, "The email was not sent. Try again.")); if (result.status === 410 || result.status === 409 || result.error === "invalid_preview" || result.error === "preview_expired") setPreview(null); return; }
     setLocal(result.data);
     setPreview(null);
     onSent();
@@ -325,18 +346,7 @@ function EmailBox({ release, configured, missingConfig, actions, onChanged, onSe
     <section className={styles.crBlock} aria-labelledby="rl-mail">
       <div className={styles.crH}><h3 id="rl-mail">Release email</h3>{release.major ? <Tag>Major</Tag> : null}</div>
 
-      {email.state === "not_configured" || !configured ? (
-        <div className={own.box}>
-          <div className={own.state}>
-            <StatusIcon tone="info" />
-            <div>
-              <b>Email is not set up</b>
-              <p>Nothing can be sent yet. These settings are missing on the server:</p>
-              {missingConfig.length ? <ul className={own.missing}>{missingConfig.map((m) => <li key={m}><code>{m}</code></li>)}</ul> : <p className={own.muted}>The server did not name them.</p>}
-            </div>
-          </div>
-        </div>
-      ) : running ? (
+      {running ? (
         <div className={own.box}>
           <div className={own.state}>
             <StatusIcon tone="info" />
@@ -346,6 +356,9 @@ function EmailBox({ release, configured, missingConfig, actions, onChanged, onSe
             </div>
           </div>
           <Progress sent={email.sent} failed={email.failed} total={email.total} />
+          {email.lastError ? (
+            <p className={own.warnLine} role="alert"><StatusIcon tone="warn" /><span>{lastErrorHint(email.lastError)}</span></p>
+          ) : null}
         </div>
       ) : email.state === "done" || email.state === "needs_review" ? (
         <div className={own.box} data-locked="true">
@@ -360,6 +373,20 @@ function EmailBox({ release, configured, missingConfig, actions, onChanged, onSe
             </div>
           </div>
           <Progress sent={email.sent} failed={email.failed} total={email.total} />
+          {email.lastError ? (
+            <p className={own.warnLine} role="alert"><StatusIcon tone="warn" /><span>{lastErrorHint(email.lastError)}</span></p>
+          ) : null}
+        </div>
+      ) : email.state === "not_configured" || !configured ? (
+        <div className={own.box}>
+          <div className={own.state}>
+            <StatusIcon tone="info" />
+            <div>
+              <b>Email is not set up</b>
+              <p>Nothing can be sent yet. These settings are missing on the server:</p>
+              {missingConfig.length ? <ul className={own.missing}>{missingConfig.map((m) => <li key={m}><code>{m}</code></li>)}</ul> : <p className={own.muted}>The server did not name them.</p>}
+            </div>
+          </div>
         </div>
       ) : (
         <div className={own.box}>
