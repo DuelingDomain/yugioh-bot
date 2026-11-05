@@ -39,6 +39,7 @@ export interface EmailSendState {
   total: number;
   /** When the owner confirmed the one send. */
   confirmedAt?: string;
+  lastError?: string;
 }
 
 export interface AdminRelease extends Omit<Release, "publishedAt"> {

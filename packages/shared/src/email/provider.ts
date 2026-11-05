@@ -1,5 +1,5 @@
 export class EmailProviderError extends Error {
-  constructor(readonly code: "transport" | "rate_limited" | "rejected" | "idempotency_conflict", readonly permanent = false, readonly retryAfterMs = 0) {
+  constructor(readonly code: "transport" | "rate_limited" | "rejected" | "idempotency_conflict" | "provider_auth" | "provider_domain", readonly permanent = false, readonly retryAfterMs = 0) {
     super(code); this.name = "EmailProviderError";
   }
 }
@@ -20,6 +20,14 @@ export function createResendProvider(options: { apiKey: string; fetch?: typeof f
       });
       if (!response.ok) {
         if (response.status === 409) throw new EmailProviderError("idempotency_conflict", true);
+        // Inspect provider details only to classify them; never persist messages containing private values.
+        const data = await response.json().catch(() => null) as { name?: unknown; message?: unknown } | null;
+        const name = typeof data?.name === "string" ? data.name : "";
+        const message = typeof data?.message === "string" ? data.message : "";
+        if (["domain_not_verified", "invalid_domain"].includes(name) || /domain.*not verified|verify.*domain/i.test(message))
+          throw new EmailProviderError("provider_domain", false, retryAfter(response));
+        if ([401, 403].includes(response.status) || ["missing_api_key", "invalid_api_key", "restricted_api_key", "suspended_api_key"].includes(name) || /api[ _-]?key/i.test(message))
+          throw new EmailProviderError("provider_auth", false, retryAfter(response));
         throw new EmailProviderError(response.status === 429 ? "rate_limited" : "rejected", response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status), retryAfter(response));
       }
       const data = await response.json() as { id?: unknown };

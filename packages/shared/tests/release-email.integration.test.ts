@@ -17,7 +17,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
   const path = join(directory, "test.sqlite");
   let db = openDatabase(path);
   try {
-    db.exec("drop index release_email_deliveries_subject_idx; alter table release_email_deliveries drop column subject_clerk_id");
+    db.exec("drop index release_email_deliveries_subject_idx; alter table release_email_deliveries drop column subject_clerk_id; alter table email_budget drop column failures");
     migrate(db); // Upgrade the original release-storage revision as well as a fresh/repeated migration.
     db.exec("insert into users(id,username,display_name) values(1,'owner','Owner')");
     const config = email.emailConfig({ RESEND_API_KEY: "fake", MAIL_POSTAL_ADDRESS: "123 Test Street", CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
@@ -130,11 +130,39 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     let unknownCalls = 0;
     now += 60000;
     await outbox.drain({ clerk: singleClerk, provider: { send: async () => { unknownCalls++; throw new email.EmailProviderError("transport"); } }, now: () => now });
+    expect({ delivery: db.prepare("select status,attempts from release_email_deliveries where send_id=(select id from release_email_sends where release_id=?)").get(cutoff.id),
+      state: outbox.state(cutoff.id), budget: db.prepare("select next_attempt_at from email_budget").get() })
+      .toMatchObject({ delivery: { status: "retry", attempts: 0 }, state: { lastError: "provider_unavailable" }, budget: { next_attempt_at: expect.any(Number) } });
     db.close(); db = openDatabase(path); outbox = email.createReleaseEmailOutbox(db, config);
     now += 23 * 60 * 60000 + 1;
     await outbox.drain({ clerk: singleClerk, provider: { send: async () => { unknownCalls++; return { id: "must-not-replay" }; } }, now: () => now });
     expect(unknownCalls).toBe(1); expect(outbox.state(cutoff.id)).toMatchObject({ state: "needs_review", failed: 1 });
     expect(await outbox.confirm(cutoff.id, 1, "repeat")).toMatchObject({ state: "needs_review" });
+
+    // Provider configuration/outage errors pause all work and never exhaust a delivery's attempt counter.
+    const guarded = await reserveSingle();
+    db.prepare("update release_email_deliveries set attempts=8 where send_id=(select id from release_email_sends where release_id=?)").run(guarded.id);
+    for (const [status, name, message, code] of [
+      [401, "invalid_api_key", "private key", "provider_auth"],
+      [403, "restricted_api_key", "private key", "provider_auth"],
+      [403, "validation_error", "The private.example domain is not verified", "provider_domain"],
+      [400, "validation_error", "The private.example domain is not verified", "provider_domain"],
+      [422, "invalid_api_key", "private key", "provider_auth"],
+      ...Array.from({ length: 9 }, () => [503, "application_error", "private outage", "provider_unavailable"]),
+      [429, "rate_limit_exceeded", "private limit", "provider_unavailable"],
+    ] as [number, string, string, string][]) {
+      now = Math.max(now + 60000, (db.prepare("select next_attempt_at from email_budget").get() as { next_attempt_at: number }).next_attempt_at);
+      let calls = 0;
+      const failing = email.createResendProvider({ apiKey: "fake", fetch: async () => { calls++; return Response.json({ name, message }, { status }); } });
+      await outbox.drain({ clerk: singleClerk, provider: failing, now: () => now });
+      await outbox.drain({ clerk: singleClerk, provider: failing, now: () => now + 1000 });
+      expect({ calls, delivery: db.prepare("select status,attempts from release_email_deliveries where send_id=(select id from release_email_sends where release_id=?)").get(guarded.id),
+        state: outbox.state(guarded.id), paused: (db.prepare("select next_attempt_at from email_budget").get() as { next_attempt_at: number }).next_attempt_at >= now + (code === "provider_unavailable" ? 2000 : 3600000) })
+        .toMatchObject({ calls: 1, delivery: { status: "retry", attempts: 8 }, state: { lastError: code }, paused: true });
+    }
+    now += 3600000;
+    await outbox.drain({ clerk: singleClerk, provider: { send: async () => ({ id: "recovered-provider" }) }, now: () => now });
+    expect(outbox.state(guarded.id)).toMatchObject({ state: "done", sent: 1 });
 
     // A second connection can reclaim an expired lease; a late response from the first worker cannot overwrite it.
     const stale = await reserveSingle();
@@ -200,6 +228,12 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     now += 60000; await outbox.drain({ clerk: singleClerk, provider: { send: async () => { forbidden++; throw new Error("suppressed"); } }, now: () => now });
     expect(forbidden).toBe(0); expect(outbox.state(automatic.id)).toMatchObject({ state: "done", total: 0 });
 
+    const preparing = draft("2.1.1"); currentReleases.publish(preparing.id, { actorUserId: 1 });
+    db.prepare("update release_email_sends set attempts=8 where release_id=?").run(preparing.id);
+    await outbox.drain({ clerk: { ...singleClerk, listAllUsers: async () => { throw new Error("Clerk unavailable"); } }, provider: rateProvider, now: () => now });
+    expect(db.prepare("select status,attempts,available_at,last_error from release_email_sends where release_id=?").get(preparing.id))
+      .toEqual({ status: "preparing", attempts: 9, available_at: now + 3600000, last_error: "audience_unavailable" });
+    now += 3600000; await outbox.drain({ clerk: singleClerk, provider: rateProvider, now: () => now });
 
     // Discovery can take longer than a lease; its own lease renews while stale workers remain fenced.
     email.recordEmailConsent(db, "slow@example.test", { provenance: "fixture", textVersion: "alpha-news-v1" });

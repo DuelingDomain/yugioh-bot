@@ -9,11 +9,11 @@ import { EmailProviderError, type EmailProvider } from "./provider.js";
 const RETRY_WINDOW = 23 * 60 * 60_000, LEASE_MS = 60_000, DAY_MS = 86400_000;
 export interface EmailSendState {
   state: "none" | "queued" | "sending" | "done" | "needs_review" | "not_configured";
-  queued: number; sent: number; failed: number; total: number; confirmedAt?: string;
+  queued: number; sent: number; failed: number; total: number; confirmedAt?: string; lastError?: string;
 }
 interface SendRow {
   id: string; release_id: string; release_json: string; status: string; confirmed_at: number;
-  available_at: number; attempts: number; lease_token: string | null; lease_expires_at: number | null;
+  available_at: number; attempts: number; lease_token: string | null; lease_expires_at: number | null; last_error: string | null;
 }
 interface DeliveryRow {
   id: number; send_id: string; recipient_key: string; payload_encrypted: string;
@@ -52,7 +52,8 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
     const status = !configured() && !["done", "needs_review"].includes(current.status) ? "not_configured"
       : current.status === "preparing" ? "queued" : current.status as EmailSendState["state"];
     return { state: status, queued: count(["pending", "retry", "processing"]), sent: count(["accepted", "delivered"]),
-      failed: count(["failed", "suppressed", "needs_review"]), total: rows.reduce((n, r) => n + r.n, 0), confirmedAt: new Date(send.confirmed_at).toISOString() };
+      failed: count(["failed", "suppressed", "needs_review"]), total: rows.reduce((n, r) => n + r.n, 0), confirmedAt: new Date(send.confirmed_at).toISOString(),
+      ...(current.last_error ? { lastError: current.last_error } : {}) };
   }
   function requireConfig(): void {
     if (!configured()) throw new ReleaseError("not_configured", 503);
@@ -73,7 +74,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         values(?,?,?,?,?,?,?) on conflict(send_id,recipient_key) do nothing`)
         .run(sendId, recipient.key, suppressed ? null : encrypt(payload, config), `release/${sendId}/${recipient.key}`, suppressed ? "suppressed" : "pending", now, recipient.variant === "members" ? recipient.sourceId : null);
     }
-    db.prepare("update release_email_sends set status='queued',audience_hash=?,counts_json=?,lease_token=null,lease_expires_at=null where id=?")
+    db.prepare("update release_email_sends set status='queued',audience_hash=?,counts_json=?,lease_token=null,lease_expires_at=null,last_error=null where id=?")
       .run(hash(JSON.stringify(audience.recipients)), JSON.stringify(audience.counts), sendId);
     refresh(sendId);
   }
@@ -138,8 +139,8 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         if (current) insertDeliveries(send.id, JSON.parse(send.release_json), audience, now());
       }).immediate();
     } catch {
-      db.prepare(`update release_email_sends set status=?,available_at=?,lease_token=null,lease_expires_at=null,last_error='audience_unavailable'
-        where id=? and status='preparing' and lease_token=?`).run(send.attempts >= 8 ? "needs_review" : "preparing", now() + Math.min(3600000, 10000 * 2 ** send.attempts), send.id, send.lease_token);
+      db.prepare(`update release_email_sends set available_at=?,lease_token=null,lease_expires_at=null,last_error='audience_unavailable'
+        where id=? and status='preparing' and lease_token=?`).run(now() + Math.min(3600000, 10000 * 2 ** Math.min(send.attempts, 9)), send.id, send.lease_token);
     }
   }
   function claim(now: number): DeliveryRow | undefined {
@@ -205,25 +206,32 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         row.first_attempt_at ??= now();
         const accepted = await options.provider.send(payload.body, row.idempotency_key);
         db.transaction(() => {
-          db.prepare(`update release_email_deliveries set status='accepted',provider_id=?,accepted_at=?,payload_encrypted=null,subject_clerk_id=null,
+          const acceptedRow = db.prepare(`update release_email_deliveries set status='accepted',provider_id=?,accepted_at=?,payload_encrypted=null,subject_clerk_id=null,
             lease_token=null,lease_expires_at=null,last_error=null where id=? and status='processing' and lease_token=?`)
             .run(accepted.id, now(), row.id, row.lease_token);
+          if (!acceptedRow.changes) return;
+          db.prepare("update release_email_sends set last_error=null where id=?").run(row.send_id);
+          db.prepare("update email_budget set failures=0 where id=1").run();
           if (accepted.retryAfterMs) db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?) where id=1").run(now() + accepted.retryAfterMs);
           refresh(row.send_id);
         }).immediate();
       } catch (error) {
         const providerError = error instanceof EmailProviderError ? error : undefined;
-        const code = providerError?.code ?? "audience_or_storage_unavailable";
-        if (providerError?.code === "idempotency_conflict" || (row.first_attempt_at !== null && (now() - row.first_attempt_at >= RETRY_WINDOW || row.attempts >= 8))) {
+        const configurationError = providerError?.code === "provider_auth" || providerError?.code === "provider_domain";
+        const code = configurationError ? providerError.code : providerError && !providerError.permanent ? "provider_unavailable" : providerError?.code ?? "audience_or_storage_unavailable";
+        if (providerError?.code === "idempotency_conflict" || (row.first_attempt_at !== null && now() - row.first_attempt_at >= RETRY_WINDOW)) {
           finish(row, "needs_review", code, now(), false);
-        } else if (providerError?.permanent || row.attempts >= 8) {
+        } else if (providerError?.permanent && !configurationError) {
           finish(row, "failed", code, now());
         } else {
-          const delay = Math.max(1000 * 2 ** Math.min(row.attempts, 12) + Math.floor(Math.random() * 1000), providerError?.retryAfterMs ?? 0);
           db.transaction(() => {
-            db.prepare(`update release_email_deliveries set status='retry',available_at=?,last_error=?,lease_token=null,lease_expires_at=null
+            const failures = db.prepare<[], { failures: number }>("select failures from email_budget where id=1").get()!.failures;
+            const delay = Math.max(configurationError ? 3600000 : Math.min(3600000, 1000 * 2 ** Math.min(failures + 1, 12) + Math.floor(Math.random() * 1000)), providerError?.retryAfterMs ?? 0);
+            const retried = db.prepare(`update release_email_deliveries set status='retry',attempts=max(0,attempts-1),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
               where id=? and status='processing' and lease_token=?`).run(now() + delay, code, row.id, row.lease_token);
-            if (providerError?.retryAfterMs) db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?) where id=1").run(now() + providerError.retryAfterMs);
+            if (!retried.changes) return;
+            db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
+            db.prepare("update release_email_sends set last_error=? where id=?").run(code, row.send_id);
             refresh(row.send_id);
           }).immediate();
         }

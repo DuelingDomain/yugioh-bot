@@ -64,7 +64,7 @@ export function migrateReleases(db: Database.Database): void {
       create index if not exists email_unsubscribe_tokens_recipient_idx on email_unsubscribe_tokens(recipient_key);
       create table if not exists email_budget (
         id integer primary key check(id=1), next_attempt_at integer not null,
-        day_started_at integer not null, attempts integer not null
+        day_started_at integer not null, attempts integer not null, failures integer not null default 0
       );
       create table if not exists email_webhook_receipts (
         event_id text primary key not null, received_at integer not null
@@ -73,6 +73,8 @@ export function migrateReleases(db: Database.Database): void {
     // Also upgrade a database initialized by the release-storage revision before the email worker was installed.
     const deliveryColumns = db.pragma("table_info(release_email_deliveries)") as { name: string }[];
     if (!deliveryColumns.some(column => column.name === "subject_clerk_id")) db.exec("alter table release_email_deliveries add column subject_clerk_id text");
+    const budgetColumns = db.pragma("table_info(email_budget)") as { name: string }[];
+    if (!budgetColumns.some(column => column.name === "failures")) db.exec("alter table email_budget add column failures integer not null default 0");
     db.exec("create index if not exists release_email_deliveries_subject_idx on release_email_deliveries(subject_clerk_id)");
     db.prepare("insert into email_identity_secret(id,secret) values(1,?) on conflict(id) do nothing").run(randomBytes(32).toString("hex"));
     const sections = [

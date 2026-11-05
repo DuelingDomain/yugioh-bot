@@ -94,9 +94,9 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     expect(queuedState).toMatchObject({ state: "queued", total: 1, confirmedAt: expect.any(String) });
     expect(new Date(queuedState.confirmedAt).toISOString()).toBe(queuedState.confirmedAt);
     expect(await (await send.POST(request("/send", { token: prepared.token }), minorParams)).json()).toEqual(queuedState);
-    db.prepare("update release_email_sends set status='needs_review' where release_id=?").run(created.id);
+    db.prepare("update release_email_sends set status='needs_review',last_error='provider_auth' where release_id=?").run(created.id);
     const review = (await (await admin.GET()).json()).releases.find((release: { id: string }) => release.id === created.id);
-    expect(review.email).toMatchObject({ state: "needs_review", confirmedAt: publishedRelease.email.confirmedAt });
+    expect(review.email).toMatchObject({ state: "needs_review", confirmedAt: publishedRelease.email.confirmedAt, lastError: "provider_auth" });
     expect((await preview.POST(request("/preview"), params)).status).toBe(409);
     expect(await (await send.POST(request("/send", { token: "repeat" }), params)).json()).toEqual(review.email);
     const token = email.unsubscribeToken(db, "member@example.test");
