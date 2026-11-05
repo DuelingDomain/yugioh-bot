@@ -15,11 +15,11 @@ test('cached identity settlement preserves deck observations until a real detect
     data.set([...rgb,255],(y*width+x)*4);
   }
   const face={width,height,data},back={width,height,data:new Uint8ClampedArray(data.length).fill(240)};
-  let at=0,detects=0,reads=0,motion=0,outlines=[deck];
+  let at=0,detects=0,reads=0,motion=0,outlines=[deck],deckLook=Array(12).fill(.2);
   const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame:face as ImageData,at})},
     recognizer:{detectCards:async()=>{detects++;return structuredClone(outlines);},recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{total:1},backend:'wasm'} as RecognitionResult;}},
-    analyze:()=>({motion:()=>motion,sharpness:()=>20,appearance:()=>Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
+    analyze:()=>({motion:()=>motion,sharpness:()=>20,appearance:c=>c.quad[0].x===deck.quad[0].x?deckLook:Array(12).fill(.2),crop:c=>c.kind==='face-down'?back:face}),
   });
   const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
   try {
@@ -35,9 +35,16 @@ test('cached identity settlement preserves deck observations until a real detect
     assert.equal(watcher.getSnapshot().piles?.length,1,'cached field outlines cannot prove deck absence');
     motion=.3;for(let i=0;i<10;i++)await tick();
     assert.equal(watcher.getSnapshot().piles?.length,1,'a one-second hand cover retains the verified deck');motion=0;
+    // Owner: the Deck vanished from the board while an arm passed and the detector gave it no box. Its unchanged
+    // spot keeps it; only a changed spot for five seconds (or Scan field) takes it off.
     outlines=[];
-    for(let i=0;i<35;i++)await tick();
-    assert.equal(watcher.getSnapshot().piles?.length,0,'detector absence clears a deck after its three-second grace period');
+    for(let i=0;i<60;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,1,'no box, but the spot still shows the deck: it stays');
+    deckLook=Array(12).fill(.7);
+    for(let i=0;i<45;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,1,'a changed spot is not yet gone');
+    for(let i=0;i<10;i++)await tick();
+    assert.equal(watcher.getSnapshot().piles?.length,0,'a changed spot with no box for five seconds clears the deck');
     assert.equal(watcher.getSnapshot().metrics.errors,0);
   } finally { watcher.dispose(); }
 });
@@ -68,5 +75,38 @@ test('a low-score Extra Deck stack in its calibrated cell is a pile; an empty ma
     assert.deepEqual(snapshot.piles?.map(p=>p.zone),['EXTRA'],'the .3 pink Extra stack is a pile; the .3 outline on empty mat is not');
     assert.deepEqual(snapshot.debug?.pileScores,{DECK:.3,EXTRA:.3});
     assert.equal(snapshot.metrics.errors,0);
+  } finally { watcher.dispose(); }
+});
+
+// Owner 2026-11-04: the white-sleeve Deck was on the mat but missing from the board, and Scan field changed nothing.
+// Scan field is authoritative: after its two fresh full passes a decoded stack outline (here .22, under the .25 pile
+// floor) with a sleeve unlike the mat puts the Deck on the board, and an empty Deck cell takes it off at once.
+test('Scan field adds a Deck the detector scores under the pile floor and clears an empty Deck cell at once', async () => {
+  const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:1}]);
+  const width=320,height=176;
+  const cell=fieldZoneCells('normal',calibration.zoneSpacing,calibration.zones).find(c=>c.zone==='DECK')!,m=fieldMatPoint({x:cell.x+cell.w/2,y:cell.y+cell.h/2},calibration),h=cell.h*.7,w=h*height/width*59/86;
+  const deck:DetectedQuad={kind:'face-down',confidence:.22,partial:false,kept:true,pile:true,quad:[{x:m.x-w/2,y:m.y-h/2},{x:m.x+w/2,y:m.y-h/2},{x:m.x+w/2,y:m.y+h/2},{x:m.x-w/2,y:m.y+h/2}]};
+  const back={width,height,data:new Uint8ClampedArray(width*height*4).fill(240)};
+  let at=0,outlines=[deck],present=true;
+  const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
+    buffer:{sample:async()=>({frame:back as ImageData,at})},
+    recognizer:{detectCards:async()=>structuredClone(outlines),recognize:async()=>{throw new Error('piles are never read');}},
+    analyze:()=>({motion:()=>0,sharpness:()=>20,crop:()=>back,halo:()=>Array(96).fill([.12,.14,.16]).flat(),
+      appearance:c=>Array(96).fill(present&&Math.abs(c.quad[0].x-deck.quad[0].x)<1e-9?[.92,.92,.9]:[.13,.14,.15]).flat()}),
+  });
+  watcher.setCalibration(calibration);
+  const tick=async()=>{at+=100;await watcher.tick();await Promise.resolve();};
+  const scan=async()=>{watcher.scanNow();const asked=at;for(let i=0;i<20&&!((watcher.getSnapshot().lastScanAt??-1)>asked);i++)await tick();};
+  try {
+    for(let i=0;i<8;i++)await tick();
+    assert.deepEqual(watcher.getSnapshot().piles?.map(p=>p.zone)??[],[],'under the pile floor the watcher does not add it by itself');
+    await scan();
+    assert.deepEqual(watcher.getSnapshot().piles?.map(p=>p.zone),['DECK'],'Scan field adds the Deck');
+    outlines=[];present=false;
+    for(let i=0;i<3;i++)await tick();
+    assert.deepEqual(watcher.getSnapshot().piles?.map(p=>p.zone),['DECK'],'without Scan field a changed spot waits for the long absence');
+    await scan();
+    assert.deepEqual(watcher.getSnapshot().piles?.map(p=>p.zone)??[],[],'Scan field clears the empty Deck cell at once');
+    assert.equal(watcher.getSnapshot().metrics.errors,0);
   } finally { watcher.dispose(); }
 });
