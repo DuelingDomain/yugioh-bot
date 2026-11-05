@@ -18,7 +18,7 @@ interface SendRow {
 interface DeliveryRow {
   id: number; send_id: string; recipient_key: string; payload_encrypted: string;
   idempotency_key: string; status: string; first_attempt_at: number | null;
-  attempts: number; lease_token: string; lease_expires_at: number;
+  attempts: number; lease_token: string; lease_expires_at: number; budget_reserved_until: number;
 }
 interface FrozenPayload {
   recipient: EmailRecipient; body: string; unsubscribeUrl: string;
@@ -163,7 +163,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
       const lease = randomUUID();
       db.prepare("update release_email_deliveries set status='processing',attempts=attempts+1,lease_token=?,lease_expires_at=? where id=?").run(lease, now + LEASE_MS, row.id);
       db.prepare("update email_budget set next_attempt_at=?,attempts=attempts+1 where id=1").run(now + 1000);
-      return { ...row, status: "processing", attempts: row.attempts + 1, lease_token: lease, lease_expires_at: now + LEASE_MS };
+      return { ...row, status: "processing", attempts: row.attempts + 1, lease_token: lease, lease_expires_at: now + LEASE_MS, budget_reserved_until: now + 1000 };
     }).immediate();
   }
   function finish(row: DeliveryRow, status: string, error: string, now: number, clearPayload = true): void {
@@ -198,6 +198,15 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         const started = db.transaction(() => {
           // Fence immediately before network I/O, and recheck suppression after asynchronous discovery.
           if (db.prepare("select 1 from email_unsubscribes where recipient_key=?").get(row.recipient_key)) return false;
+          const budget = db.prepare<[], { next_attempt_at: number }>("select next_attempt_at from email_budget where id=1").get()!;
+          // Our claim reserved one second. A newer future deadline can pause work while discovery awaits Clerk.
+          if (budget.next_attempt_at > row.budget_reserved_until && budget.next_attempt_at > now()) {
+            db.prepare(`update release_email_deliveries set status='retry',attempts=max(0,attempts-1),available_at=?,lease_token=null,lease_expires_at=null
+              where id=? and status='processing' and lease_token=? and lease_expires_at>?`)
+              .run(budget.next_attempt_at, row.id, row.lease_token, now());
+            refresh(row.send_id);
+            return false;
+          }
           return db.prepare(`update release_email_deliveries set first_attempt_at=coalesce(first_attempt_at,?),payload_encrypted=?,subject_clerk_id=?
             where id=? and status='processing' and lease_token=? and lease_expires_at>? and (first_attempt_at is null or first_attempt_at>?)`)
             .run(now(), encrypt(payload, config), payload.recipient.variant === "members" ? payload.recipient.sourceId : null, row.id, row.lease_token, now(), now() - RETRY_WINDOW).changes > 0;

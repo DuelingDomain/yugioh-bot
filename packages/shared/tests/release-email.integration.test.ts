@@ -177,6 +177,29 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     await outbox.drain({ clerk: singleClerk, provider: { send: async () => ({ id: "recovered-provider" }) }, now: () => now });
     expect(outbox.state(guarded.id)).toMatchObject({ state: "done", sent: 1 });
 
+    // A row waiting on Clerk must honor a global pause recorded by a different drain before dispatch.
+    const waitingRelease = await reserveSingle(), pausingRelease = await reserveSingle();
+    let resumeDiscovery!: () => void, notifyDiscovery!: () => void, sendsDuringPause = 0;
+    const discoveryStarted = new Promise<void>(resolve => { notifyDiscovery = resolve; });
+    const discoveryBlocked = new Promise<void>(resolve => { resumeDiscovery = resolve; });
+    const waitingClerk = { ...singleClerk, listAllUsers: async () => { notifyDiscovery(); await discoveryBlocked; return singleClerk.listAllUsers(); } };
+    now += 60000;
+    const waitingDrain = outbox.drain({ clerk: waitingClerk, provider: { send: async () => { sendsDuringPause++; return { id: "must-wait" }; } }, now: () => now });
+    await discoveryStarted;
+    try {
+      now += 1000;
+      await email.createReleaseEmailOutbox(db, config).drain({ clerk: singleClerk,
+        provider: email.createResendProvider({ apiKey: "fake", fetch: async () => Response.json({}, { status: 401 }) }), now: () => now });
+      resumeDiscovery(); await waitingDrain;
+      expect({ sendsDuringPause, delivery: db.prepare("select status,attempts from release_email_deliveries where send_id=(select id from release_email_sends where release_id=?)").get(waitingRelease.id) })
+        .toEqual({ sendsDuringPause: 0, delivery: { status: "retry", attempts: 0 } });
+    } finally { resumeDiscovery(); await waitingDrain; }
+    let recovered = 0;
+    const recoveredProvider = { send: async () => ({ id: `pause-recovered-${++recovered}` }) };
+    now += 3600000; await outbox.drain({ clerk: singleClerk, provider: recoveredProvider, now: () => now });
+    now += 1000; await outbox.drain({ clerk: singleClerk, provider: recoveredProvider, now: () => now });
+    expect([outbox.state(waitingRelease.id).state, outbox.state(pausingRelease.id).state]).toEqual(["done", "done"]);
+
     // A second connection can reclaim an expired lease; a late response from the first worker cannot overwrite it.
     const stale = await reserveSingle();
     let unblock!: () => void, entered!: () => void;
