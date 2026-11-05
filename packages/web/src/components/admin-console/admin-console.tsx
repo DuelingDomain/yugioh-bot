@@ -11,6 +11,7 @@ import { PeopleView } from "./views/people";
 import { DuelsView } from "./views/duels";
 import { WaitlistView } from "./views/waitlist";
 import { CreatorsView } from "./views/creators";
+import { UpdatesView } from "./views/updates";
 import { HealthView } from "./views/health";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
@@ -78,7 +79,7 @@ function LiveChip({ s, label }: { s: Snapshots; label?: boolean }) {
   );
 }
 
-/** The /admin console: a left menu with seven views, one large view at a time. */
+/** The /admin console: a left menu with eight views, one large view at a time. */
 export function AdminConsole() {
   const s = useSnapshots();
   const [view, setView] = useState<View>("overview");
@@ -137,7 +138,7 @@ export function AdminConsole() {
   }, []);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  // Keys: 1-7 switch views, "/" filters people, Escape closes the phone sheet.
+  // Keys: 1-8 switch views, "/" filters people, Escape closes the phone sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -220,13 +221,14 @@ export function AdminConsole() {
               : view === "duels" ? <DuelsView s={s} actions={actions} />
               : view === "waitlist" ? <WaitlistView s={s} actions={actions} />
               : view === "creators" ? <CreatorsView s={s} actions={actions} />
+              : view === "updates" ? <UpdatesView actions={actions} />
               : view === "health" ? <HealthView s={s} />
               : <InsightsView s={s} />}
           </section>
         </div>
       </main>
 
-      <nav className={`${styles.tabbar} ${styles.tabbar7}`} aria-label="Admin views">
+      <nav className={`${styles.tabbar} ${styles.tabbar8}`} aria-label="Admin views">
         {VIEWS.map((v) => (
           <button key={v} type="button" className={styles.tab} aria-current={view === v ? "page" : undefined} onClick={() => go(v)}>
             <Icon name={VIEW_META[v].icon} />{VIEW_META[v].label}{badges.tabs[v] ?? null}
