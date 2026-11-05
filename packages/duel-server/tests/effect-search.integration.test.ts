@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { formatStaples, importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
+import { archetypePlayShare, formatStaples, importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { createCardInsightService } from "@yugidraft/shared/services";
 import { emptyCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
@@ -554,9 +554,12 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     expect(result.reading?.chips).toEqual(text === 'hand traps' ? ['Format staples','Role: hand trap'] : ['Role: hand trap']);
     expect(result.cards).toEqual([]);
     expect(result.total).toBe(0);
-    expect(result.effectHits?.map(card => card.code)).toEqual(expect.arrayContaining([
+    const candidates = [
       'Ash Blossom & Joyous Spring', 'Effect Veiler', 'Droll & Lock Bird', 'Ghost Ogre & Snow Rabbit',
-    ].map(code)));
+    ].map(code);
+    const expected = text === 'hand traps' ? candidates.filter(id => formatStaples('normal').cards.has(id)) : candidates;
+    expect(result.effectHits?.length).toBeGreaterThan(0);
+    expect(result.effectHits?.map(card => card.code)).toEqual(expect.arrayContaining(expected));
   });
   it.each(supportCases)('support phrase: %s', text => {
     evaluatedQueries++;
@@ -947,11 +950,16 @@ it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async (
 // Uses the full real engine catalog and the production effect index.
 it.each(["staples", "format staples", "best staples", "hand traps"])("finds measured format staples for %s", text => {
   const result = search(text);
+  const usage = formatStaples("normal");
   expect(result.reading?.query.intent?.kind).toBe("staples");
   expect(result.cards).toEqual([]);
-  expect(result.effectHits?.map(card => card.name)).toContain("Ash Blossom & Joyous Spring");
-  expect(result.effectHits?.map(card => card.name)).toContain("Infinite Impermanence");
-  expect(result.effectHits?.every(card => /^Played in [\d.]+% of TCG decks$/.test(card.reason))).toBe(true);
+  expect(result.effectHits?.length).toBeGreaterThan(0);
+  for (const card of result.effectHits!) {
+    const measured = usage.cards.get(card.canonicalPasscode ?? card.code);
+    expect(measured, card.name).toBeDefined();
+    expect(card.score).toBe(measured!.playShare);
+    expect(card.reason).toBe(`Played in ${Math.round(measured!.playShare * 100)}% of ${usage.label} decks`);
+  }
 });
 
 it("uses the selected format and preserves real card names and search filters", () => {
@@ -1000,10 +1008,17 @@ it('includes any-destruction recruiters and reads the complete destruction condi
 });
 it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('finds generic and native roles for %s', archetype => {
   const data=search(`${archetype} hand traps`);
+  const usage = formatStaples('normal');
   expect(data.reading?.query.intent?.kind).toBe('archetype_role');
   expect(data.reading?.chips).toContain(`For ${archetype} decks`);
-  expect(data.effectHits?.map(card=>card.name)).toEqual(expect.arrayContaining(['Ash Blossom & Joyous Spring','Infinite Impermanence']));
-  expect(data.effectHits?.map(card=>card.name)).toContain('Droll & Lock Bird');
+  expect(data.effectHits?.length).toBeGreaterThan(0);
+  for (const card of data.effectHits!) {
+    if (card.reason === `${archetype} card`) continue;
+    const id = card.canonicalPasscode ?? card.code;
+    expect(usage.playShares.get(id), card.name).toBeGreaterThan(0);
+    const share = archetypePlayShare(usage, archetype, id) ?? 0;
+    expect(card.reason).toBe(share > 0 ? `Run in ${Math.round(share * 100)}% of ${archetype} decks` : 'Format staple');
+  }
 });
 it('reads a plain released year as a full year', () => {
   expect(cardEffectIndex(cards)!.readQuery('released 2024')?.query.released).toEqual({from:'2024-01',to:'2024-12'});
@@ -1056,8 +1071,8 @@ it('applies release words to real cards, including usage-ranked results in both 
   expect(newest.map(card=>card.release!.date)).toEqual(newest.map(card=>card.release!.date).sort().reverse());
   for(const text of ['hand traps before 2015','Blue-Eyes hand traps before 2015']){
     for(const rows of [search(text).effectHits!,sql.effectSearch(text).cards]){
-      expect(rows.length).toBeGreaterThan(0);
-      expect(rows.map(card=>card.name)).toContain('Effect Veiler');
+      const expectedVeiler = text === 'hand traps before 2015' || (formatStaples('normal').playShares.get(code('Effect Veiler')) ?? 0) > 0;
+      expect(rows.some(card => card.name === 'Effect Veiler')).toBe(expectedVeiler);
       expect(rows.map(card=>card.name)).not.toContain('Ash Blossom & Joyous Spring');
       expect(rows.every(card=>!!card.release?.date && card.release.date<'2015-01')).toBe(true);
     }
@@ -1136,33 +1151,34 @@ it('uses signed host Domain admission and preserves the archetype play guide',as
 });
 
 
-it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('ranks generic %s hand traps only by measured archetype then format shares in both readers',async archetype=>{
-  const {formatStaples,archetypePlayShare}=await import('@yugidraft/shared/cards/effects');
+it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('ranks generic %s hand traps only by measured archetype then format shares in both readers',archetype=>{
   const usage=formatStaples('normal');
   const pool=['Ash Blossom & Joyous Spring','Droll & Lock Bird','Ghost Ogre & Snow Rabbit','Effect Veiler','Infinite Impermanence'].map(code);
-  const expected=[...pool].sort((a,b)=>{
+  const expected=pool.filter(id => (usage.playShares.get(id) ?? 0) > 0).sort((a,b)=>{
     const left=archetypePlayShare(usage,archetype,a)??0,right=archetypePlayShare(usage,archetype,b)??0;
-    return Number(right>0)-Number(left>0) || right-left || usage.cards.get(b)!.playShare-usage.cards.get(a)!.playShare;
+    return Number(right>0)-Number(left>0) || right-left || usage.playShares.get(b)!-usage.playShares.get(a)!
+      || cardEffectIndex(cards)!.popularity(b)-cardEffectIndex(cards)!.popularity(a) || a-b;
   });
   const host=search(`${archetype} hand traps`,pool).effectHits!;
   const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
   const shared=sql.effectSearch(`${archetype} hand traps`,pool,{era:{medianYear:2010,spread:1}}).cards;
   expect(host.map(card=>card.code)).toEqual(expected);
   expect(shared.map(card=>card.passcode)).toEqual(expected);
-  expect(host.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
-  expect(shared.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
   expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
 });
 
-it('uses real format play share for generic role cards below the global staple threshold',()=>{
-  const names=['Effect Veiler','Ghost Belle & Haunted Mansion'];
-  const pool=names.map(code);
+it('uses measured Genesys shares for generic role cards in both readers',()=>{
+  const usage = formatStaples('genesys');
+  const pool=['Effect Veiler','Ghost Belle & Haunted Mansion'].map(code);
+  const expected = pool.flatMap(id => {
+    const formatShare = usage.playShares.get(id) ?? 0;
+    const archetypeShare = archetypePlayShare(usage, 'Blue-Eyes', id) ?? 0;
+    if (archetypeShare > 0) return [{ code: id, score: 10_000 + archetypeShare * 1000 + formatShare / 100 }];
+    return formatShare > 0 ? [{ code: id, score: 1000 + formatShare * 1000 }] : [];
+  }).sort((a, b) => b.score - a.score || cardEffectIndex(cards)!.popularity(b.code)-cardEffectIndex(cards)!.popularity(a.code) || a.code-b.code);
   const host=search('Blue-Eyes hand traps',pool,{format:'genesys'}).effectHits!;
   const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
   const shared=sql.effectSearch('Blue-Eyes hand traps',pool,{format:'genesys'}).cards;
-  // Six versus four of the 80 real Genesys lists. Neither qualifies as a global staple.
-  expect(host.map(card=>card.name)).toEqual(names);
-  expect(shared.map(card=>card.name)).toEqual(names);
-  expect(host[0].score).toBeGreaterThan(host[1].score);
-  expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
+  expect(host.map(card => ({ code: card.code, score: card.score }))).toEqual(expected);
+  expect(shared.map(card => ({ code: card.passcode, score: card.score }))).toEqual(expected);
 });

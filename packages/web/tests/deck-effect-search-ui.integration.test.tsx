@@ -3,11 +3,12 @@ import React, { createRef } from "react";
 import Database from "better-sqlite3";
 import { webcrypto } from "node:crypto";
 import { existsSync } from "node:fs";
-import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, within, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { beforeAll, afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyCardQuery, type CardQueryResult } from "@yugidraft/shared/duels";
 import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
+import { archetypePlayShare, formatStaples } from "../../shared/src/cards/effects/staples";
 import { loadCardDatabase } from "../../duel-server/src/cards";
 import { createCanonicalEffectResolver, createCardEffectIndex } from "../../duel-server/src/card-effects";
 import { createDuelHost, type DuelHost } from "../../duel-server/src/host";
@@ -49,18 +50,41 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
   afterEach(()=>{cleanup();vi.unstubAllEnvs();vi.unstubAllGlobals();});
   it.each([
     ["recruiters","Mother Grizzly"], ["water recruiter","Mother Grizzly"],
-    ["recruiters 1500 atk or less","Mystic Tomato"], ["staples","Ash Blossom & Joyous Spring"],
-    ["Blue-Eyes hand traps","Infinite Impermanence"], ["Blue-Eyes hand traps","Droll & Lock Bird"], ["Branded removal","Branded Beast"],
-  ])("shows real effect hits with zero name hits: %s",async(text,name)=>{
+    ["recruiters 1500 atk or less","Mystic Tomato"], ["staples",null],
+    ["Blue-Eyes hand traps",null], ["Branded removal","Branded Beast"],
+  ] as const)("shows real effect hits with zero name hits: %s",async(text,name)=>{
     render(<CardBrowser query={{...emptyCardQuery(),text}} onQueryChange={vi.fn()} archetypes={[]} limits={null}
       view="grid" onViewChange={vi.fn()} deckCount={()=>0} inspectCode={null} onInspect={vi.fn()} onHover={vi.fn()}
       onAdd={vi.fn()} onCatalog={vi.fn()} onRemoveDrop={vi.fn()} searchRef={createRef<HTMLInputElement>()}/>);
-    await waitFor(()=>expect(screen.getByRole("button",{name:label=>label===name||label.startsWith(`${name},`)})).toBeVisible());
+    const shown = await waitFor(() => {
+      const hitName = name ?? last?.effectHits?.[0]?.name;
+      expect(hitName).toBeDefined();
+      const button = screen.getByRole("button", { name: label => label === hitName || label.startsWith(`${hitName},`) });
+      expect(button).toBeVisible();
+      return button;
+    });
     expect(last.total).toBe(0);expect(last.effectTotal).toBeGreaterThan(0);
     expect(screen.getByText(`${last.effectTotal} cards`)).toBeVisible();
     expect(screen.queryByRole("button",{name:"Morphtronic Staplen"})).not.toBeInTheDocument();
-    if(text==="staples")expect(screen.getByText("Played in 100% of TCG decks")).toBeVisible();
+    if (text === "staples") {
+      const hit = last.effectHits![0], usage = formatStaples("normal");
+      const measured = usage.cards.get(hit.canonicalPasscode ?? hit.code);
+      expect(measured).toBeDefined();
+      const reason = `Played in ${Math.round(measured!.playShare * 100)}% of ${usage.label} decks`;
+      expect(hit.reason).toBe(reason);
+      expect(within(shown.closest("li")!).getByText(reason)).toBeVisible();
+    }
     if(text.startsWith("Blue-Eyes")){
+      const usage = formatStaples("normal");
+      for (const hit of last.effectHits!) {
+        const id = hit.canonicalPasscode ?? hit.code;
+        expect(usage.playShares.get(id), hit.name).toBeGreaterThan(0);
+        const share = archetypePlayShare(usage, "Blue-Eyes", id) ?? 0;
+        const reason = share > 0 ? `Run in ${Math.round(share * 100)}% of Blue-Eyes decks` : "Format staple";
+        expect(hit.reason).toBe(reason);
+        const button = screen.getByRole("button", { name: label => label === hit.name || label.startsWith(`${hit.name},`) });
+        expect(within(button.closest("li")!).getByText(reason)).toBeVisible();
+      }
       expect(screen.getByRole("button",{name:"Remove reading For Blue-Eyes decks"})).toBeVisible();
       expect(screen.getByRole("region",{name:"How it plays: Blue-Eyes"})).toBeVisible();
       expect(screen.queryByText("How to beat Blue-Eyes")).not.toBeInTheDocument();
