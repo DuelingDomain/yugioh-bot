@@ -153,11 +153,21 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
 
 it("parses activation with a named source and activation after identifying a card", async()=>{
   const {interpret,suggestCommands,trySaying}=await import("../src/components/remote/ui/grammar");
-  const {ygoModule}=await import("@yugidraft/shared/remote");
-  const state=ygoModule.initialState({seatCount:2}); state.identified={seat:0,cardId:70825459,name:"Trap Tracks",source:"voice",addErrors:[]};
+  const {ygoModule,remoteActionSchema}=await import("@yugidraft/shared/remote");
+  let state=ygoModule.initialState({seatCount:2});
+  for (const [index,name] of ["Trap Tracks","See You Later!","There Can Be Only One"].entries()) {
+    state=ygoModule.reduce(state,remoteActionSchema.parse({type:"twin.place",actorSeat:0,seat:0,zone:"spell-trap",at:1000,
+      idempotencyKey:`voice-fixture-${index}`,card:{ref:`source-${index}`,name,...(index===0 ? {cardId:70825459} : {}),slot:index+1,faceUp:true}}));
+  }
+  state=ygoModule.reduce(state,remoteActionSchema.parse({type:"card.identified",actorSeat:0,seat:0,cardRef:"source-0",cardId:70825459,name:"Trap Tracks",source:"voice",at:1001,idempotencyKey:"voice-fixture-identify"}));
   const ctx={state,players:[{seat:0,displayName:"Alice"}],me:0,trayOpen:false};
   expect(interpret("I activate Trap Tracks",ctx)).toMatchObject({kind:"effect",proposal:{type:"effect.activated",source:{name:"Trap Tracks"}}});
   expect(interpret("activate",ctx)).toMatchObject({kind:"effect",proposal:{source:{cardId:70825459}}});
+  for (const text of ["effect","activate effect","Trap Tracks effect"]) {
+    expect(interpret(text,ctx),text).toMatchObject({kind:"effect",proposal:{source:{cardId:70825459,cardRef:"source-0"}}});
+  }
+  expect(interpret("that effect is good",ctx)).toEqual({kind:"none"});
+  expect(suggestCommands("that effect is good",ctx)).toEqual([]);
   // Fixed transcript corpus. Also used for the before/after report.
   const phrases: [string, string, string][] = [
     ["standby phase", "draw", "phase:standby"],

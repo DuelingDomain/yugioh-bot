@@ -27,6 +27,8 @@ export type GrammarContext = {
   trayOpen: boolean;
   /** Actual card names from the table and registered decks, most recent first. */
   cardNames?: readonly string[];
+  now?: number;
+  lookupCard?: (code: number) => { name: string; type?: string } | undefined;
 };
 
 const UNITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -81,8 +83,8 @@ function commandUtterance(raw: string, ctx: GrammarContext): boolean {
   if (!text || count > 24 || /\b(?:um|uh|erm|hmm|like|i ve|we ve|and now|you know|i think|i was|because|and then|every|always|usually|sometimes|often|all the time|my opponent|is|are|was|were|should|would|could|we can|when|whenever|while|if|unless|until|after|before)\b/.test(text)) return false;
   if (/^(?:like |do you |did you |can i |could you |don t |do not |let me |we |you |he |she |they |i (?:placed|have|had|will) )/.test(text)
     || /\b(?:phase|turn|undo(?: that)?) later$/.test(text)) return false;
-  if (/^(?:i )?activate (?:(?:this|that) )?card .+/.test(text)) return false;
-  return count <= 12 || /^(?:i )?(?:activate|summon|normal summon|special summon|set|tribute|chain|banish|send|move|attach|detach|negate)\b/.test(text);
+  if (/^(?:i )?activate (?:(?:this|that) )?card .+/.test(text) && !/^(?:i )?activate card(?: s)? effect$/.test(text)) return false;
+  return count <= 12 || /^(?:i )?(?:activate|use|summon|normal summon|special summon|set|tribute|chain|banish|send|move|attach|detach|negate)\b/.test(text);
 }
 
 const SLOT = "(1|2|3|4|5|one|won|two|too|three|four|for|five)";
@@ -143,7 +145,7 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) return phase;
-  const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state});
+  const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state,now:ctx.now,lookupCard:ctx.lookupCard});
   if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
   if (ctx.trayOpen) {
     const pick = /^(?:number|pick|choose|option|guess)?\s*(one|two|three|four|five|1|2|3|4|5)$/.exec(text)
@@ -193,9 +195,11 @@ export function suggestCommands(raw: string, ctx: GrammarContext): string[] {
   const words = new Set(norm(raw).split(" "));
   const cardNames = contextCardNames(ctx);
   const text = norm(raw);
+  // Keep unrecognized effect utterances quiet, including ordinary conversation about a named card.
+  if (/\beffect\b/.test(text)) return [];
   if (/^(?:draw|standby|stand|main|mane|battle|bottle|end|and|in)\b/.test(text)
     && !/^[a-z]+(?: (?:by|bye))?(?: (?:phase|face|faze|fase|phas|phaze|fays|[12]|one|two|too|to|won)){0,2}$/.test(text)) return [];
-  const commandStart = /^(?:(?:i |my )?(?:activate|summon|normal|special|set|tribute|chain|banish|graveyard|gy|link|xyz|synchro|fusion|attach|detach|negate|lp|life|draw|standby|stand|main|mane|battle|bottle|end|pass|go|enter|next|move|send|put|place|undo|phase|monster|spell|trap|field|extra|defense|attack|direct|respond|pay|take|gain|minus|plus))\b/.test(text);
+  const commandStart = /^(?:(?:i |my )?(?:activate|effect|use|summon|normal|special|set|tribute|chain|banish|graveyard|gy|link|xyz|synchro|fusion|attach|detach|negate|lp|life|draw|standby|stand|main|mane|battle|bottle|end|pass|go|enter|next|move|send|put|place|undo|phase|monster|spell|trap|field|extra|defense|attack|direct|respond|pay|take|gain|minus|plus))\b/.test(text);
   if (!commandStart && !cardNames.some(name => text.startsWith(norm(name)))) return [];
   const samples = [...new Set(["draw phase", "standby phase", "main phase", "main phase one", "main phase two",
     "battle phase", "end phase", "go back a phase", "end turn", "undo", ...trySaying(ctx.players, ctx.me, cardNames)])];

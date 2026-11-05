@@ -307,7 +307,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
   // After merges and eliminations, so no hold or link points to a card that is gone.
   clearZoneLinks(next, at);
-  rememberRemoteAction(state, next, action);
+  // Camera placements may retain an existing physical ref. History must point to the card actually placed.
+  const remembered = action.type === "twin.place" && deckAction.type === "twin.place"
+    ? { ...action, card: { ...action.card, ref: deckAction.card.ref } } : action;
+  rememberRemoteAction(state, next, remembered);
   return next;
 }
 export const ygoModule: GameModule = {

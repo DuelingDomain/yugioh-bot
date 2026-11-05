@@ -3,12 +3,14 @@ import { remoteUndoHistory } from "./undo.js";
 import { remoteActionSchema, type RemoteActionProposal } from "./actions.js";
 import type { GameModule } from "./types.js";
 import { parsePhaseCommand } from "./phases.js";
+import { parseEffectCommand } from "./effect-command.js";
 
 const fold = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const zones: Record<string, string> = { monster: "monster", "extra monster": "extra-monster", "spell trap": "spell-trap", field: "field", graveyard: "graveyard", banished: "banished" };
 
 /** Small explicit speech grammar. Produces proposals only; the reducer remains authoritative. */
-export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat, state }) => {
+export const parseRemoteCommand: GameModule["parseCommand"] = (input) => {
+  const { text, actorSeat, state } = input;
   const seat = state.seats.find(s => s.seat === actorSeat);
   if (!seat || text.length > 500) return null;
   const raw = text.trim().replace(/[.!?]+$/, ""); const words = fold(raw);
@@ -38,15 +40,8 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   if (words === "resolve attack" || words === "cancel attack") {
     if (state.attack) proposal = { type: "attack.resolve", actorSeat, attackId: state.attack.id, outcome: words === "resolve attack" ? "resolved" : "cancelled" };
   }
-  const activate = raw.match(/^(?:I\s+)?activate(?:\s+(.+))?$/i);
-  if (activate) {
-    const query = activate[1]?.replace(/^(?:the )?effect (?:of )?/i, "").trim();
-    const cards = query ? seat.twin.filter(c=>fold(c.name ?? "")===fold(query) || fold(c.ref)===fold(query)) : [];
-    const identified = !query && state.identified?.seat===actorSeat ? state.identified : undefined;
-    const card = cards.length===1 ? cards[0] : undefined;
-    const code=card?.cardId ?? card?.passcode ?? identified?.cardId ?? identified?.passcode;
-    proposal = {type:"effect.activated",actorSeat,source:{...(code ? {cardId:code} : {}), ...(card ? {cardRef:card.ref} : {}), ...(query ? {name:query} : {})}};
-  }
+  const activation = parseEffectCommand(input);
+  if (activation) return activation;
   const identified = words.match(/^identify (\d{1,10})$/);
   if (identified) proposal = { type: "card.identified", actorSeat, seat: actorSeat, cardId: Number(identified[1]), source: "voice" };
   if (/^note /i.test(raw)) proposal = { type: "log.note", actorSeat, text: raw.slice(5).trim() };

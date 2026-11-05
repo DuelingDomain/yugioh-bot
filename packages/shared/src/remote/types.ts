@@ -65,8 +65,14 @@ export interface GameModule {
   initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf }): RemoteState;
   /** Pure. No clocks, I/O, randomness, or catalog/engine calls. `action.at` is the injected clock. */
   reduce(state: RemoteState, action: RemoteAction, context?: RemoteReductionContext): RemoteState;
-  /** Extension point for the speech worker. Null means no proposal; never executes an action. */
-  parseCommand(input: { text: string; actorSeat: number; state: RemoteState }): RemoteActionProposal | null;
+  /** Null means no proposal. An empty effect source asks the UI which card; it must not be submitted. */
+  parseCommand(input: {
+    text: string; actorSeat: number; state: RemoteState;
+    /** Inject the current clock so an idle table cannot keep a recent card alive indefinitely. */
+    now?: number;
+    /** Already loaded catalog facts; parsing performs no I/O. */
+    lookupCard?: (code: number) => { name: string; type?: string } | undefined;
+  }): RemoteActionProposal | null;
   /** Pure board-based suggestions, never execution. Multiple fitting pairs require a quick pick. */
   resolveAttack(state: RemoteState, input: string | AttackHints, actorSeat: number): AttackResolution;
 }
