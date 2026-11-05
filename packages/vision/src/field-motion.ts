@@ -5,7 +5,7 @@ import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
-export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the ring just outside the card covered by skin connected to the crop edge (a hand or arm beside the card). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -111,9 +111,9 @@ export function createFieldAnalyzer() {
         const cached=occlusions.get(card);if(cached!==undefined)return cached;
         // Skin must connect through the sleeve edge to the surrounding hand.
         // Warm printed artwork alone is not an occluder, even while stationary.
-        const b=crop(card,.3),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
+        const b=crop(card,.3),box=boundsOf(card.quad),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
-        const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),queue:number[]=[];
+        const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
         let total=0,covered=0,near=0;
         for(let y=0;y<h;y++)for(let x=0;x<w;x++){
           const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
@@ -122,15 +122,17 @@ export function createFieldAnalyzer() {
           mask[index]=Number(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173);
           const signs=card.quad.map((a,j)=>{const next=card.quad[(j+1)%4];return (next.x-a.x)*(py/image.height-a.y)-(next.y-a.y)*(px/image.width-a.x);});
           inside[index]=Number(signs.every(v=>v>=0)||signs.every(v=>v<=0));total+=inside[index];
+          // The edge ring: just outside the card (12% of its size), not the neighbouring zone (an orange card frame there is not a hand).
+          const fx=px/image.width,fy=py/image.height;edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
           if(mask[index]&&(x===0||y===0||x===w-1||y===h-1)){mask[index]=2;queue.push(index);}
         }
         for(let head=0;head<queue.length;head++){
-          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=inside[index]?0:1;
+          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=edge[index];
           for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
             if(next>=0&&mask[next]===1){mask[next]=2;queue.push(next);}
         }
-        let outside=0;for(let i=0;i<w*h;i++)outside+=inside[i]?0:1;
-        const result=total>0?covered/total:0;occlusions.set(card,result);nearSkin.set(card,outside>0?near/outside:0);return result;
+        let ring=0;for(let i=0;i<w*h;i++)ring+=edge[i];
+        const result=total>0?covered/total:0;occlusions.set(card,result);nearSkin.set(card,ring>0?near/ring:0);return result;
       },
       sharpness(card) {
         const b=crop(card,0),w=b.right-b.left,h=b.bottom-b.top;
