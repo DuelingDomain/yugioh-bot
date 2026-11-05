@@ -127,6 +127,7 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
       let added = 0;
       for (const entry of page) {
         if (!entry || typeof entry.id !== "string" || !entry.id) throw new ClerkBackendError("Invalid audience response", 0, null, null);
+        if (seen.has(entry.id) && offset > 0) throw new ClerkBackendError("Incomplete audience response", 0, null, null);
         if (!seen.has(entry.id)) { seen.add(entry.id); result.push(entry as T); added++; }
       }
       offset += page.length;
