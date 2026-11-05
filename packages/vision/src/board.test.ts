@@ -1289,3 +1289,44 @@ test('a stationary card recovers after a transient empty detector result',async(
  assert.ok(r.events.some(e=>e.type==='placed'&&e.track.faceDown),'quiet retries recover a missed card without new motion');
  assert.equal(r.reads,0);r.watcher.dispose();
 });
+
+// Owner 2026-11-04 (Remote Duels, CPU): a card shown to the camera above the field was placed on the field
+// ("Treasures of the Kings placed"). Through the mat homography a card held above the mat maps much larger than
+// the cards resting there; with fingers on it, it is a held card (add-to-hand path), never a field card.
+test('a card held above the mat over a zone is a held card, never a field placement; Debug says why',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const resting=card(.33,.38,.1,.259),held=card(.5,.42,.13,.337);
+ const isHeld=(c:DetectedQuad)=>zones.fieldCenter(c).x>.5;r.appearanceAt=c=>isHeld(c)?Array(12).fill(.9):Array.from({length:12},(_,i)=>i%2?.6:.2);
+ r.outlines=[resting];for(let i=0;i<12;i++)await r.tick(100);
+ const placed=r.events.find(e=>e.type==='placed')!;assert.equal(placed.track.zone,'M2');r.watcher.confirm(placed.track.id,'A');r.known=[{id:placed.track.id,zone:'M2',cardId:'A',faceDown:false}];
+ for(let i=0;i<4;i++)await r.tick(100);all.length=0;
+ // Shown over M3/S3, 1.3x the resting card's size (under the two-zone outline limit), fingers at its edge, reading as another card.
+ r.identityAt=c=>isHeld(c)?'B':'A';r.touchedAt=c=>isHeld(c)?.04:0;
+ r.outlines=[resting,held];for(let i=0;i<12;i++)await r.tick(100);
+ assert.equal(all.some(e=>e.track.cardId==='B'||['reading','placed','prompt'].includes(e.type)&&e.track.id!==placed.track.id),false,JSON.stringify(all.map(e=>[e.type,e.track.zone,e.track.cardId])));
+ assert.equal(r.watcher.getSnapshot().held?.length,1,'the held-card reader owns it');
+ const debug=r.watcher.getSnapshot().debug!;
+ assert.match(debug.detections.find(d=>d.quad[0].x===held.quad[0].x)?.use??'',/^held: size 1\.\dx/);
+ assert.match(debug.reasons[placed.track.id]??'',/^on mat/);
+ r.watcher.dispose();
+});
+
+// Owner 2026-11-04: a face-down track "S1 · down · hid" whose box ran from S1 down into M1 over the owner's arm stayed on
+// the board with no detector box; Scan field did not remove it. A box that never lay on the mat plane is a phantom:
+// a nearby arm, its own (arm) look or a weak kept outline cannot keep it, and it is taken back, not sent to the hand.
+test('a phantom track with no box on the mat plane expires in two full scans despite an arm and weak outlines',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const tall:DetectedQuad={...card(.23,.47,.09,.36),kind:'face-down',confidence:.8};
+ r.known=[{id:'set-1',zone:'S1',faceDown:true,card:tall}];r.outlines=[tall];r.appearanceAt=()=>Array(288).fill(.7);
+ for(let i=0;i<4;i++)await r.tick(333);
+ assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='set-1')?.removed,false,'the restored track exists');
+ // The arm stays beside it; only a weak kept outline of the arm remains.
+ r.skinNearAt=()=>.2;r.outlines=[{...tall,confidence:.3,kept:true}];const from=r.at;
+ for(let i=0;i<12&&!r.events.some(e=>e.type==='removed');i++)await r.tick(333);
+ const gone=r.events.find(e=>e.type==='removed');
+ assert.equal(gone?.track.id,'set-1',JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.equal(gone?.reason,'phantom');assert.ok(r.at-from<=3000,`gone after ${r.at-from} ms`);
+ assert.equal((r.keeps as {x:number;y:number}[][]).some(q=>Math.abs(q[0].x-tall.quad[0].x)<1e-6&&Math.abs(q[0].y-tall.quad[0].y)<1e-6),false,'its box does not keep weak outlines');
+ r.watcher.dispose();
+});

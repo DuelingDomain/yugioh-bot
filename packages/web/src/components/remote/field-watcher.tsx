@@ -485,6 +485,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const timer=departureTimers.current.get(event.track.id);if(timer){clearTimeout(timer);departureTimers.current.delete(event.track.id);}
       pendingLeft.current.delete(event.track.id);
     }
+    // A phantom: no card box on the mat plane ever backed this track (an arm, a box across two cells). Its unnamed card is
+    // taken back off the board, never sent to the hand. A named front still leaves through the usual departure.
+    if(event.type==='removed'&&event.reason==='phantom'&&!placeholders.current.has(event.track.id)){
+      const ref=bindings.current.get(event.track.id)??event.track.id,card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+      if(card&&publicField(card.zone)&&!(card.faceUp&&cardCode(card))){
+        void queue(async act=>{
+          const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+          if(!live()||!latest||!publicField(latest.zone)||undoKept.current.has(ref)||!watch.isRemoved(event.track.id))return;
+          const updated=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});
+          if(updated){setNotice(`${latest.faceUp?'Unread card':'Face-down card'} removed: nothing on the mat there · auto`);setUndoId(updated.state.undo?.actionId??'');}
+        },event);
+        return;
+      }
+    }
     if(event.type==='removed'&&!event.destination&&!departureOrigin&&!placeholders.current.has(event.track.id)){
       const ref=bindings.current.get(event.track.id)??event.track.id,card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!card||!publicField(card.zone))return;
@@ -865,11 +879,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       for(const ref of missingSince.current.keys())if(!snap.missingTwins?.includes(ref))missingSince.current.delete(ref);
       for(const ref of snap.missingTwins??[]){
         const since=missingSince.current.get(ref)??performance.now();missingSince.current.set(ref,since);
-        if(performance.now()-since<2000)continue;
+        // Scan field is authoritative: its two fresh passes already showed the zone empty, so it does not wait.
+        if(!manualScan&&performance.now()-since<2000)continue;
         const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
         if(!card||!publicField(card.zone))continue;
         if(undoKept.current.has(ref)){if(!manualScan)continue;undoKept.current.delete(ref);}
-        const proposal=fieldDepartureProposal(card,seat);if(!proposal)continue;
+        // An unnamed Set the camera placed and no longer sees is taken back, not added to the hand as an unknown card.
+        const unnamedSet=manualScan&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
+        const proposal=unnamedSet?{type:'twin.remove' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat);if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
         await write(key,proposal);
       }
@@ -885,15 +902,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const timer=setInterval(()=>{if(!document.hidden)resyncRef.current();},every);
     return()=>clearInterval(timer);
   },[room.slug,seat,recognition.backend]);
-  // "Scan field": force a full detector pass, wait for it (3 s at most), then re-sync once.
+  // "Scan field": force two fresh full detector passes and the watcher's sweep (5 s at most on a slow CPU), then re-sync once.
   const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined);
   useEffect(()=>()=>clearInterval(scanTimer.current),[]);
   const scanField=useCallback(()=>{
     if(scanTimer.current!==undefined||resyncing.current){setNotice('Board check already running');return;}
-    setScanning(true);const asked=performance.now(),since=watch.getSnapshot?.()?.lastFullAt??-Infinity;watch.scanNow?.();
+    setScanning(true);const asked=performance.now();watch.scanNow?.();
     scanTimer.current=setInterval(()=>{
-      const full=watch.getSnapshot?.()?.lastFullAt??-Infinity;
-      if(full>since&&full>=asked-50||performance.now()-asked>=3000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
+      const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
+      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
     },100);
   },[watch.scanNow,watch.getSnapshot]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);

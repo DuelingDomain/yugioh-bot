@@ -53,7 +53,7 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
         if(moving||!(contact||planeHeld))track.stable=at;
         track.planeHeld=planeHeld;track.eligible=planeHeld||!track.field&&contact;
         track.view.card=structuredClone(card);track.seen=at;track.look=look;used.add(track);
-        if(track.eligible){held.push(card);notes.set(card,planeHeld?verdict!.text:'held: hand contact');}
+        if(track.eligible){held.push(card);notes.set(card,planeHeld?verdict!.hard?verdict!.text:`${verdict!.text.replace(/^held\? /,'held: ')} · fingers`:'held: hand contact');}
       }
       for(const track of tracks){track.visible=used.has(track);track.view.visible=track.visible;if(!track.visible)track.stable=at;}
       for(let i=tracks.length-1;i>=0;i--)if(at-tracks[i].seen>(tracks[i].field?10_000:1500)&&!tracks[i].pending)tracks.splice(i,1);
@@ -232,7 +232,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const soft=restSize===undefined?REST_CELL_LIMIT:restSize*REST_SIZE_LIMIT,hard=restSize===undefined?REST_CELL_HARD:restSize*REST_SIZE_HARD;
     if(g.size>=hard)return {ok:false,hard:true,text:`held: size ${ratio.toFixed(1)}${unit}`,size:g.size};
     if(g.tilt>=REST_TILT_HARD||g.sides<=REST_SIDES_HARD)return {ok:false,hard:true,text:`held: tilted ${Math.round(g.tilt)}°`,size:g.size};
-    if(g.size>soft)return {ok:false,hard:false,text:`held? size ${ratio.toFixed(2)}${unit}`,size:g.size};
+    if(g.size>soft)return {ok:false,hard:false,text:`held? size ${ratio.toFixed(1)}${unit}`,size:g.size};
     if(g.tilt>REST_TILT||g.sides<REST_SIDES)return {ok:false,hard:false,text:`held? tilted ${Math.round(g.tilt)}° · sides ${g.sides.toFixed(2)}`,size:g.size};
     // Across two cells AND about a cell or more in size: an arm, or a held card over the line (a sloppy card on a line is smaller).
     if(g.cellShare<REST_CELL_SHARE&&g.size>soft*.85)return {ok:false,hard:false,text:`held? across cells (${Math.round(g.cellShare*100)}% in ${g.zone})`,size:g.size};
