@@ -55,8 +55,8 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     const published = await publish.POST(request("/publish", { autoEmail: true }), params);
     expect(published.status).toBe(200);
     const publishedRelease = await published.json();
-    expect(publishedRelease).toMatchObject({ status: "published", email: { confirmedAt: publishedRelease.publishedAt } });
-    expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 1 });
+    expect(publishedRelease).toMatchObject({ status: "published", email: { state: "not_configured" } });
+    expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 0 });
     expect((await publish.POST(request("/publish", { autoEmail: true }), params)).status).toBe(200);
     expect((await edit.PATCH(request("/edit", { title: "Cannot change" }, undefined, "PATCH"), params)).status).toBe(409);
     expect((await seen.POST(request("/api/releases/seen", { version: "0.10.0" }))).status).toBe(204);
@@ -71,7 +71,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     const minor = await (await admin.POST(request("/releases", { ...content, version: "0.10.1", major: false }))).json();
     const minorParams = { params: Promise.resolve({ id: minor.id }) };
     await publish.POST(request("/publish", { autoEmail: true }), minorParams);
-    expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 1 });
+    expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 0 });
     expect((await preview.POST(request("/preview"), minorParams)).status).toBe(503);
     vi.stubEnv("RESEND_API_KEY", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -79,7 +79,10 @@ it("serves published releases and monotonic seen state, enforces owner mutations
       if (url.hostname !== "api.clerk.com") throw new Error("No real network permitted");
       return Response.json({ data: url.pathname.endsWith("/users") ? [{ id: "u1", primary_email_address_id: "e1", email_addresses: [{ id: "e1", email_address: "member@example.test", verification: { status: "verified" } }] }] : [], total_count: url.pathname.endsWith("/users") ? 1 : 0 });
     }));
-    email.recordEmailConsent(db, "member@example.test", { provenance: "fixture", textVersion: "alpha-news-v1" });
+    const automatic = await (await admin.POST(request("/releases", { ...content, version: "0.11.0" }))).json();
+    const automaticParams = { params: Promise.resolve({ id: automatic.id }) };
+    const automaticRelease = await (await publish.POST(request("/publish"), automaticParams)).json();
+    expect(automaticRelease).toMatchObject({ status: "published", email: { state: "queued", confirmedAt: automaticRelease.publishedAt } });
     const expiredPreview = await (await preview.POST(request("/preview"), minorParams)).json();
     db.prepare("update release_email_previews set expires_at=1 where token_hash=?").run(email.hash(expiredPreview.token));
     const expired = await send.POST(request("/send", { token: expiredPreview.token }), minorParams);
@@ -94,11 +97,11 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     expect(queuedState).toMatchObject({ state: "queued", total: 1, confirmedAt: expect.any(String) });
     expect(new Date(queuedState.confirmedAt).toISOString()).toBe(queuedState.confirmedAt);
     expect(await (await send.POST(request("/send", { token: prepared.token }), minorParams)).json()).toEqual(queuedState);
-    db.prepare("update release_email_sends set status='needs_review',last_error='provider_auth' where release_id=?").run(created.id);
-    const review = (await (await admin.GET()).json()).releases.find((release: { id: string }) => release.id === created.id);
-    expect(review.email).toMatchObject({ state: "needs_review", confirmedAt: publishedRelease.email.confirmedAt, lastError: "provider_auth" });
-    expect((await preview.POST(request("/preview"), params)).status).toBe(409);
-    expect(await (await send.POST(request("/send", { token: "repeat" }), params)).json()).toEqual(review.email);
+    db.prepare("update release_email_sends set status='needs_review',last_error='provider_auth' where release_id=?").run(automatic.id);
+    const review = (await (await admin.GET()).json()).releases.find((release: { id: string }) => release.id === automatic.id);
+    expect(review.email).toMatchObject({ state: "needs_review", confirmedAt: automaticRelease.email.confirmedAt, lastError: "provider_auth" });
+    expect((await preview.POST(request("/preview"), automaticParams)).status).toBe(409);
+    expect(await (await send.POST(request("/send", { token: "repeat" }), automaticParams)).json()).toEqual(review.email);
     const token = email.unsubscribeToken(db, "member@example.test");
     auth.mockResolvedValue(null);
     const url = `https://app.example.test/unsubscribe?t=${token}`;

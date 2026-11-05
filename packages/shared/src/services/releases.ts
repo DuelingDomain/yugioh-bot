@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { ExpectedError } from "../observability/index.js";
+import { emailConfig, missingEmailConfig } from "../email/storage.js";
 
 export interface ReleaseSection { kind: "new" | "improvements" | "cards" | "fixes" | "howto"; items: string[] }
 export interface Release {
@@ -91,7 +92,7 @@ export function createReleaseService(db: Database.Database) {
       return db.transaction(() => {
         const release = find(id);
         if (release.status === "published") return release;
-        const now = Date.now(), auto = release.major && (options.autoEmail ?? true);
+        const now = Date.now(), auto = release.major && missingEmailConfig(emailConfig()).length === 0 && (options.autoEmail ?? true);
         db.prepare("update releases set published_at=?,auto_email=?,updated_at=? where id=?").run(now, auto ? 1 : 0, now, id);
         const published = find(id);
         if (auto) {

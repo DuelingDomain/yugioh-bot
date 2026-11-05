@@ -25,7 +25,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     db.exec("insert into users(id,username,display_name) values(1,'owner','Owner')");
     const config = email.emailConfig({ RESEND_API_KEY: "fake", MAIL_POSTAL_ADDRESS: "123 Test Street", CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
     const releases = services.createReleaseService(db);
-    const release = releases.createDraft({ version: "0.3.0", title: "News <safe>", major: false, highlights: ["Deck help"], sections: [{ kind: "new", items: ["Deck help <safe>"] }] });
+    const release = releases.createDraft({ version: "0.3.0", title: "News <safe>", major: false, highlights: ["Deck help"], sections: [{ kind: "new", items: ["**Deck help <safe>**"] }] });
     releases.publish(release.id, { actorUserId: 1, autoEmail: true });
     expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 0 });
     const clerkRequests: string[] = [];
@@ -95,6 +95,8 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     expect(bodies.find(body => body.to[0] === "invite@example.test").text).toContain("ticket/secret");
     expect(bodies.find(body => body.to[0] === "expired@example.test").text).not.toContain("/expired");
     expect(bodies[0].html).toContain("&lt;safe&gt;");
+    expect(bodies[0].html).toContain("<b>Deck help &lt;safe&gt;</b>");
+    expect(bodies[0].text).toContain("Deck help <safe>"); expect(bodies[0].text).not.toContain("**");
     expect(clerkRequests.some(path => path.includes("status=pending"))).toBe(true);
     db.prepare("delete from waitlist_signups where email=?").run("historical@example.test");
 
@@ -229,6 +231,12 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     // Major releases default to automatic reservation; missing config sends nothing and minor/opted-out majors never auto-send.
     const currentReleases = services.createReleaseService(db);
     const draft = (v: string) => currentReleases.createDraft({ version: v, title: "Major news", major: true, highlights: [], sections: [] });
+    vi.stubEnv("RESEND_API_KEY", ""); vi.stubEnv("MAIL_POSTAL_ADDRESS", "");
+    for (const autoEmail of [undefined, true]) {
+      const unconfigured = draft(autoEmail ? "1.9.1" : "1.9.0"); currentReleases.publish(unconfigured.id, { actorUserId: 1, autoEmail });
+      expect(db.prepare("select 1 from release_email_sends where release_id=?").get(unconfigured.id)).toBeUndefined();
+    }
+    vi.stubEnv("RESEND_API_KEY", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
     const optedOut = draft("2.0.0"); currentReleases.publish(optedOut.id, { actorUserId: 1, autoEmail: false });
     expect(db.prepare("select 1 from release_email_sends where release_id=?").get(optedOut.id)).toBeUndefined();
     const automatic = draft("2.1.0"); currentReleases.publish(automatic.id, { actorUserId: 1 });

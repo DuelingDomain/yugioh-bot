@@ -4,6 +4,8 @@ import type { EmailConfig } from "./storage.js";
 
 export interface EmailMessage { from: string; to: string[]; reply_to: string; subject: string; html: string; text: string; headers: Record<string, string> }
 export const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const htmlText = (text: string): string => escapeHtml(text).replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>");
+const plainText = (text: string): string => text.replace(/\*\*/g, "");
 const headings = { new: "New", improvements: "Improvements", cards: "Card data", fixes: "Fixes", howto: "How to use" };
 export function renderReleaseEmail(release: Release, recipient: EmailRecipient, config: EmailConfig, unsubscribeUrl: string): EmailMessage {
   const home = new URL(config.webUrl);
@@ -17,10 +19,10 @@ export function renderReleaseEmail(release: Release, recipient: EmailRecipient, 
   const href = recipient.inviteUrl ?? signIn;
   // No pixels, scripts, remote assets or rewritten links. Disable tracking on the Resend sending domain too.
   const link = (url: string, text: string) => `<a href="${escapeHtml(url)}" data-resend-no-track="true">${escapeHtml(text)}</a>`;
-  const text = [release.title, intro, ...release.sections.flatMap(section => [headings[section.kind], ...section.items.map(item => `• ${item}`)]),
+  const text = [plainText(release.title), intro, ...release.sections.flatMap(section => [headings[section.kind], ...section.items.map(item => `• ${plainText(item)}`)]),
     `${cta}: ${href}`, `Updates: ${home.href}`, "Dueling Domain alpha release news", config.postalAddress, `Unsubscribe: ${unsubscribeUrl}`].join("\n\n");
-  const html = `<!doctype html><html><body><h1>${escapeHtml(release.title)}</h1><p>${escapeHtml(intro)}</p>${release.sections.map(section =>
-    `<h2>${headings[section.kind]}</h2><ul>${section.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`).join("")}<p>${link(href, cta)}</p><p>${link(home.href, "Updates")}</p><footer><p>Dueling Domain alpha release news</p><p>${escapeHtml(config.postalAddress)}</p><p>${link(unsubscribeUrl, "Unsubscribe")}</p></footer></body></html>`;
-  return { from: config.from, to: [recipient.email], reply_to: config.replyTo, subject: release.title.replace(/[\r\n]/g, " "), html, text,
+  const html = `<!doctype html><html><body><h1>${htmlText(release.title)}</h1><p>${escapeHtml(intro)}</p>${release.sections.map(section =>
+    `<h2>${headings[section.kind]}</h2><ul>${section.items.map(item => `<li>${htmlText(item)}</li>`).join("")}</ul>`).join("")}<p>${link(href, cta)}</p><p>${link(home.href, "Updates")}</p><footer><p>Dueling Domain alpha release news</p><p>${escapeHtml(config.postalAddress)}</p><p>${link(unsubscribeUrl, "Unsubscribe")}</p></footer></body></html>`;
+  return { from: config.from, to: [recipient.email], reply_to: config.replyTo, subject: plainText(release.title).replace(/[\r\n]/g, " "), html, text,
     headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
 }
