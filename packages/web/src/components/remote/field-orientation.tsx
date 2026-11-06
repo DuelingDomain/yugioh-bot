@@ -62,12 +62,13 @@ export function FieldOrientationControls({ confirmHint=true, disabled=false, ...
  * The compact dropdown on the camera at the table. Side and Mirror are in the Settings menu under the camera (`FieldOrientationSettings`).
  * A side set there to Left or Right has no choice here, so the button names it.
  * The wrapper also stops the list's events: React sends them from the portal through this tree to the feed.
+ * `onPointerEnter` lets the feed drop what it started before the pointer got here, because it sees no moves from here on.
  */
-export function FieldOrientationSelect({ disabled=false, ...props }: OrientationProps) {
+export function FieldOrientationSelect({ disabled=false, onPointerEnter, ...props }: OrientationProps&{ onPointerEnter?():void }) {
   const value=useOrientation(props);
   const {flipped,orientation,set,unconfirmed}=value;
-  return <div className={s.orientation} data-testid="field-orientation" data-flipped={flipped} data-confirmed={!unconfirmed} onPointerDown={stop} onPointerMove={stop} onClick={stop}>
-    <ThemedSelect<PlayerSide> variant="menu" className={s.select} label="Where is the camera?" testId="camera-orientation" disabled={disabled}
+  return <div className={s.orientation} data-testid="field-orientation" data-flipped={flipped} data-confirmed={!unconfirmed} onPointerEnter={onPointerEnter} onPointerDown={stop} onPointerMove={stop} onClick={stop}>
+    <ThemedSelect<PlayerSide> variant="menu" className={s.select} label="Where is the camera?" testId="camera-orientation" disabled={disabled} saveSame={unconfirmed} releaseFocusOnPick
       value={orientation.playerSide} placeholder={`My side: ${sideName(orientation.playerSide)}`} onChange={set}
       choices={[{value:'top',label:'Camera faces me'},{value:'bottom',label:'Camera from my view'}]} />
     {unconfirmed?<ConfirmHint orientation={value} disabled={disabled} className={`${s.controls} ${s.hint}`} />:null}

@@ -875,7 +875,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.getByTestId("camera-on-feed").click();
     await expect(page.locator('[data-testid="feed-0"] video')).toBeAttached({ timeout: 60_000 });
     await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    // A press on the camera only closes the orientation list: no read starts. Yes then confirms, and a pick from the list reads nothing either.
+    const orientation = page.getByTestId("camera-orientation-trigger"), camera = (await page.getByTestId("feed-0").boundingBox())!;
+    await orientation.click(); await page.mouse.click(camera.x + camera.width * .75, camera.y + camera.height * .7);
+    await expect(orientation).toHaveAttribute("aria-expanded", "false");
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
+    await orientation.click(); await page.getByRole("option", { name: "Camera faces me" }).click(); await expect(orientation).not.toBeFocused();
+    await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
