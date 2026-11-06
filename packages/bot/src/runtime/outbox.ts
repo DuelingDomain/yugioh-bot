@@ -4,7 +4,7 @@ import type { OutboxFailure } from "@yugidraft/shared/discord-admin";
 import type { DiscordOutboxRow, SharedAdminServices } from "./shared.js";
 import type { Stop } from "./types.js";
 
-export interface OutboxDelivery { messageId: string; channelId?: string }
+export interface OutboxDelivery { messageId: string; channelId?: string; targetMissing?: boolean }
 class DeliveryError extends Error {
   constructor(readonly failure: OutboxFailure) { super("Outbox delivery refused"); }
 }
@@ -53,9 +53,9 @@ export function createOutboxDelivery(options: { token: string; restApi?: string;
         try {
           message = await rest.patch(Routes.channelMessage(row.channel_id, row.message_id!), { body, signal: writeSignal }) as typeof message;
         } catch (error) {
-          // Unknown Message means the edit target was deleted; it needs no further retries.
+          // Unknown Message ends retries, but the decision still needs a Discord record.
           if (error instanceof DiscordAPIError && error.code === 10008) {
-            return { messageId: row.message_id!, channelId: row.channel_id };
+            return { messageId: row.message_id!, channelId: row.channel_id, targetMissing: true };
           }
           throw error;
         }

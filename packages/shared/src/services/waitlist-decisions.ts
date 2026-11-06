@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { createClerkBackend, type ClerkBackend } from "../clerk/backend.js";
 import { isAdminActor, lookupSiteAccount, type AdminActor } from "../discord-admin/access.js";
-import { enqueueOutbox } from "../discord-admin/outbox.js";
+import { enqueueOutbox, type OutboxRow } from "../discord-admin/outbox.js";
 import { recordModAction } from "../discord-admin/moderation.js";
 import { notificationSubjectHash, normalizedNoticeEmail } from "../discord-admin/subject.js";
 import { discordContextText } from "../util/discord-text.js";
@@ -34,6 +34,21 @@ export function waitlistDecisionText(row: WaitlistAction): string {
 export function waitlistDecisionPayload(row: WaitlistAction): Record<string, unknown> {
   return { content: waitlistDecisionText(row),
     embeds: [], components: [], allowed_mentions: { parse: [] } };
+}
+
+/** Preserve the decision record when its Discord card cannot carry the result. */
+export function enqueueDecisionFallback(db: Database.Database, row: OutboxRow): void {
+  const channelId = process.env.DISCORD_MOD_LOG_CHANNEL_ID?.trim();
+  if (!row.waitlist_action_id || process.env.DISCORD_BOT_ENABLED !== "1" || !channelId) return;
+  const action = getWaitlistAction(db, row.waitlist_action_id);
+  if (!action?.decision || action.completed_at === null) return;
+  const audit = db.prepare<[string, string], { id: number }>(`select id from mod_actions
+    where action=? and result='success' and json_extract(params_json,'$.actionId')=?
+    order by id limit 1`).get(`waitlist.${action.decision}`, action.id);
+  if (!audit) return;
+  enqueueOutbox(db, { idempotencyKey: `mod-action:${audit.id}`, kind: "mod_log", channelId, modActionId: audit.id,
+    subjectHash: action.subject_hash ?? undefined,
+    payload: { content: `${waitlistDecisionText(action)} · waitlist entry ${discordContextText(action.clerk_entry_id ?? action.id)}` } });
 }
 
 /** Return whether a durable alert post/edit carries the decision. */

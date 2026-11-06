@@ -39,12 +39,12 @@ for (const row of rows) {
 
 - `enqueueOutbox(db, { idempotencyKey, kind, channelId, payload, operation?, messageId?, waitlistActionId?, modActionId?, subjectHash?, subjectClerkId?, availableAt? })` returns the existing or new row ID. Call it in the transaction that writes domain state.
 - `claimOutbox(db, limit = 10, { now?, leaseMs? }?)` atomically returns due rows with fresh lease tokens. The default lease is 60 seconds. A shared SQLite budget permits 30 claims per minute, including retries and edits. Keep batches small enough to deliver within the lease.
-- `markPosted(db, claimedRow, { messageId, channelId? }, now?)` saves delivery IDs and clears the transient body. It returns `false` for a stale or deleted claim. Original waitlist posts bind the message ID to the action and its queued edit. Completed edits set `discord_updated_at`.
+- `markPosted(db, claimedRow, { messageId, channelId?, targetMissing? }, now?)` saves delivery IDs and clears the transient body. It returns `false` for a stale or deleted claim. Original waitlist posts bind the message ID to the action and its queued edit. Completed edits set `discord_updated_at`; a missing target queues a decision fallback instead.
 - `markFailed(db, claimedRow, { code?, retryAfterMs?, permanent? }?, now?)` returns whether the claim still belongs to the caller. Codes are `transport`, `rate_limited`, `rejected`, and `invalid_payload`. Pass Discord's retry delay in milliseconds. Backoff starts at one second. Eight failed attempts or `permanent: true` makes the row `dead` and clears its body.
 
 Rows use snake_case: `id`, `idempotency_key`, `kind`, `operation`, `channel_id`, `message_id`, `payload_json`, `status`, `attempts`, `available_at`, `lease_token`, `lease_expires_at`, `last_error`, `waitlist_action_id`, `mod_action_id`, `subject_hash`, `subject_clerk_id`, `created_at`, `posted_at`.
 Statuses are `pending`, `processing`, `posted`, `failed`, and `dead`.
-Every message disables mentions. Posts include a stable `nonce` and `enforce_nonce`; preserve both fields in the REST body. Delivery is at least once; Discord's nonce check covers recent repeated posts. A deleted edit target (404) can be acknowledged with `markPosted` using its existing ID.
+Every message disables mentions. Posts include a stable `nonce` and `enforce_nonce`; preserve both fields in the REST body. Delivery is at least once; Discord's nonce check covers recent repeated posts. A deleted edit target (Discord 10008) can be acknowledged with `markPosted` using its existing ID and `targetMissing: true`.
 
 ## Waitlist decisions
 
@@ -71,6 +71,7 @@ A web-first decision must supply the entry's email so deletion can find its hash
 
 Completion records an audit row and, when a post or message ID exists, queues `waitlist_decision` as an edit with no buttons and text such as `Approved by Owner (web)`. A web-first decision without a Discord alert queues no edit.
 The edit waits for the original post's message ID. If a decision precedes the post, its queued alert body is replaced with the result, removing email and buttons.
+If a decision edit goes dead or its target is deleted, or an unposted alert goes dead after completion, the same transaction queues an email-free mod-log fallback. It uses the success audit's `mod-action:<id>` key to deduplicate against an immediate mod-log line. The bot must be enabled and the mod-log channel configured.
 
 ## Schema and retention
 

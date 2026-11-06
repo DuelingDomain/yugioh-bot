@@ -8,7 +8,7 @@ import { openDatabase, migrate } from "../src/db/index.js";
 import { createClerkBackend } from "../src/clerk/backend.js";
 import { adminAccess, isAdminActor, isModerator, lookupSiteAccount, enqueueOutbox, claimOutbox, markPosted, markFailed,
   recordModAction, addWarning, listWarnings } from "../src/discord-admin/index.js";
-import { decideWaitlistEntry, prepareWaitlistAction } from "../src/services/waitlist-decisions.js";
+import { decideWaitlistEntry, prepareWaitlistAction, waitlistDecisionText } from "../src/services/waitlist-decisions.js";
 import { createWaitlistService } from "../src/services/waitlist.js";
 import { createCreatorAccessService } from "../src/services/creator-access.js";
 import { deleteUserAccount } from "../src/services/account-deletion.js";
@@ -218,6 +218,48 @@ describe("shared Discord administration with SQLite", () => {
 });
 
 describe("one leased Clerk decision for web and Discord", () => {
+  it.each(["edit 403", "edit 10008", "post goes dead"] as const)
+    ("queues one email-free fallback when %s after a decision, including retries", async failure => {
+    await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
+    if (failure !== "post goes dead") {
+      const [alert] = claimOutbox(db, 1);
+      markPosted(db, alert, { messageId: "posted" });
+    }
+    const result = await decide();
+    expect(db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+    let [row] = claimOutbox(db, 1);
+    const posted = { messageId: "posted", targetMissing: true };
+    const rejected = { code: "rejected" as const, permanent: true };
+    if (failure === "edit 10008") {
+      expect(markPosted(db, row, posted)).toBe(true);
+      expect(action().discord_updated_at).toBeNull();
+    } else if (failure === "edit 403") {
+      expect(markFailed(db, row, rejected)).toBe(true);
+    } else {
+      const now = Date.now();
+      for (let attempt = 1; attempt < 8; attempt++) {
+        expect(markFailed(db, row, {}, now + attempt * 120_000)).toBe(true);
+        expect(db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+        [row] = claimOutbox(db, 1, { now: now + (attempt + 1) * 120_000 });
+      }
+      expect(row.attempts).toBe(8);
+      expect(row.message_id).toBeNull();
+      expect(markFailed(db, row)).toBe(true);
+    }
+    const audit = db.prepare<[string], { id: number }>(`select id from mod_actions
+      where result='success' and json_extract(params_json,'$.actionId')=?`).get(result.action.id)!;
+    const logs = () => db.prepare("select * from discord_outbox where kind='mod_log'").all();
+    expect(logs()).toMatchObject([{ idempotency_key: `mod-action:${audit.id}`, mod_action_id: audit.id,
+      channel_id: "mod-log", payload_json: expect.any(String) }]);
+    const [log] = db.prepare<[], { payload_json: string }>("select payload_json from discord_outbox where kind='mod_log'").all();
+    expect(JSON.parse(log.payload_json).content).toBe(`${waitlistDecisionText(result.action)} · waitlist entry wle\\_1`);
+    expect(log.payload_json).not.toContain("@");
+    expect(failure === "edit 10008" ? markPosted(db, row, posted) : markFailed(db, row, rejected)).toBe(false);
+    expect((await decide()).status).toBe("already_decided");
+    expect(logs()).toHaveLength(1);
+    expect(requests).toHaveLength(1);
+  });
+
   it.each(["web", "discord", "admin"] as const)("completes through %s, saves the actor, clears email and queues an edit", async source => {
     createWaitlistService(db).join(email, { source: "hero" });
     await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
