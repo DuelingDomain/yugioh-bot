@@ -6,19 +6,24 @@ A major release defaults to automatic email on publication when email is configu
 
 ## Runtime settings
 
-Web prepares previews and handles unsubscribe/webhooks; the worker prepares automatic campaigns and sends individual messages. Both use the same SQLite file and explicit Compose environment lists. No bot flag controls email. Missing `RESEND_API_KEY` or `MAIL_POSTAL_ADDRESS` makes sending `not_configured`, while publication continues without reserving an automatic campaign. Both the publish route and shared service enforce this guard, even for explicit `autoEmail: true`. Restoring configuration does not retroactively reserve published releases; use manual preview/confirmation for those. Already reserved campaigns wait if configuration is later removed.
+Web prepares previews and handles unsubscribe; the worker prepares automatic campaigns and sends individual messages. Both use the same SQLite file and explicit Compose environment lists. No bot flag controls email. Any missing `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD` or `MAIL_POSTAL_ADDRESS` makes sending `not_configured`, while publication continues without reserving an automatic campaign. Both the publish route and shared service enforce this guard, even for explicit `autoEmail: true`. Restoring configuration does not retroactively reserve published releases; use manual preview/confirmation for those. Already reserved campaigns wait if configuration is later removed.
 
-- `RESEND_API_KEY`: restricted sending key, runtime only.
+- `MAIL_HOST`: Namecheap Private Email SMTP hostname, runtime only. Implicit TLS on port **465** is fixed.
+- `MAIL_USER`: existing mailbox login (`support@duelingdomain.com` in production).
+- `MAIL_PASSWORD`: that mailbox password, runtime only.
 - `MAIL_POSTAL_ADDRESS`: physical mailing address in every HTML/text message.
-- `MAIL_FROM`: defaults to `Dueling Domain <news@updates.duelingdomain.com>`.
+- `MAIL_FROM`: defaults to `Dueling Domain <support@duelingdomain.com>`.
 - `MAIL_REPLY_TO`: defaults to `support@duelingdomain.com`.
 - `MAIL_ENCRYPTION_KEY`: optional dedicated secret for AES-256-GCM payload encryption. Without it, payload encryption derives from `CLERK_SECRET_KEY`. Set the same value on web and worker. Keep the encryption secret stable while previews or deliveries remain pending; do not change from the fallback to a dedicated key with pending work.
-- `MAIL_DAILY_LIMIT`: persisted UTC daily **attempt** budget, default 100. Retries count. Increase only to the approved provider allowance.
-- `RESEND_WEBHOOK_SECRET`: web-only Svix signing secret for `POST /api/webhooks/resend`.
+- `MAIL_DAILY_LIMIT`: persisted UTC daily SMTP **attempt** budget, default **2000**. Safe retries count against this conservative daily budget; auth/setup rejections do not spend a per-delivery attempt. Suppressed recipients and audience discovery do not spend the SMTP budget. The budget resets at UTC midnight, while queue pauses survive midnight and restarts.
 - `CLERK_SECRET_KEY`: also required on the worker for read-only discovery/revalidation. Never supplied to a build.
 - `WEB_URL`: canonical application origin for sign-in, signup and public unsubscribe links.
 
-Verify the sending domain in Resend and disable its open and click tracking before enabling delivery. The renderer adds no tracking pixels, remote assets, or analytics links; the Resend send API has no per-message tracking switch. Keep support mail on its existing mailbox. Subscribe the signed webhook to sent, delivered, bounced, complained, failed and suppressed events. Deployment DNS, provider configuration and production audience verification are owner operations; implementing this backend performs none of them.
+The owner decided on **2026-11-05** to send through the existing Namecheap Private Email mailbox using Nodemailer. The worker reuses one TLS connection where possible and sends one recipient per message. The renderer adds no tracking pixels, remote assets or analytics links. SMTP does not append a copy to the Sent folder; this implementation never connects over IMAP. Nodemailer's internal requeue is disabled so only the durable outbox decides whether a retry is safe.
+
+Namecheap's [Private Email limits](https://www.namecheap.com/support/knowledgebase/article.aspx/10719/2179/email-sending-and-usage-limits-for-private-email/) and [terms](https://www.namecheap.com/legal/hosting/netos/) list **500 emails/hour/mailbox** for paid plans and say Private Email is not intended for mass mail. The application spaces SMTP attempts at least **12 seconds** apart (at most **300/hour**) to leave headroom for support mail. The daily cap and spacing are shared by every campaign on this database and persist across restarts. Other clients using the mailbox are outside this application's budget. The preview adds `estimatedMinutes` (recipient count at 300/hour, rounded up); provider pauses, existing queue work and daily caps can extend it. Existing preview fields are unchanged.
+
+Configure mailbox credentials only in the deployment secret store. Never put them in builds or source control. Deployment DNS, provider configuration and production audience verification are owner operations; implementing this backend performs none of them.
 
 To trigger the drain by hand after configuration is intentionally enabled, restart the worker:
 
@@ -40,19 +45,28 @@ Snapshots are encrypted, expire after fifteen minutes, and bind the owner, publi
 
 ## Delivery and recovery
 
-The worker uses fenced sixty-second leases, renews them during paginated discovery, a persisted one-request-per-second budget and the daily attempt budget. Each tick claims at most ten due rows individually and drains its in-flight work on shutdown. HTTP 401/403 and Resend key/domain errors put the row back into retry and pause the entire queue through `email_budget.next_attempt_at` for at least one hour. Transport errors, 5xx and 429 also pause the entire queue, with persisted exponential backoff capped at one hour unless a longer provider Retry-After applies. These errors do not consume a per-delivery attempt; the daily request budget still counts retries. Deliveries already awaiting discovery recheck the budget immediately before provider I/O and defer without spending a per-delivery attempt when another worker has paused the queue. A successful fenced acceptance resets queue backoff and clears that send's error.
+The worker uses fenced sixty-second leases and renews them during paginated discovery. Each tick processes at most ten due rows, checks the shared rate/daily budget immediately before SMTP, and drains its in-flight work on shutdown. The email writer sets SQLite `synchronous=FULL`, so the delivery's attempt timestamp, encrypted rendered message and budget commit durably **before** calling SMTP. SMTP supplies no idempotency key: the legacy `idempotency_key` database column remains a local audit identifier only. There is no 23-hour retry window.
 
-`GET /api/admin/console/releases` exposes an optional `email.lastError` fixed code, including `provider_auth`, `provider_domain`, `provider_unavailable` or `audience_unavailable`. Raw provider messages and private values are never stored there. Automatic audience preparation retries indefinitely with backoff capped at one hour, even after eight attempts; it has no deliveries or provider idempotency window yet. Acceptance and confirmed delivery have separate statuses. The API's `sent` count includes accepted/delivered rows; `failed` includes permanent failure, suppression and review rows.
+- Connection refusal, DNS, TLS or greeting failures that prove setup failed before DATA: retry safely after a persisted queue pause.
+- Explicit SMTP **4xx** rejection: retry safely with queue backoff, capped at one hour. No per-delivery attempt is spent.
+- Authentication failure (**535**): `provider_auth`, retry without a per-delivery attempt, pause the entire queue at least **one hour**.
+- **5xx recipient rejection** without rate/policy language: permanently fail that delivery only. Other recipients continue under the normal spacing.
+- **5xx rate, limit, spam, quota or policy rejection** (including 550/554): `provider_policy`, return the delivery to retry without a per-delivery attempt and pause the **whole queue for one hour**. No remaining recipients are tried during that pause. Other non-recipient 5xx failures also pause conservatively.
+- Connection loss or timeout with an unknown outcome after handoff, unclassified transport failures, or a crash leaving a durable attempted row: `needs_review`, **never retried automatically**. Expired attempted leases are quarantined before checking the queue budget; a late worker response cannot override that decision.
 
-A delivery stores its exact serialized body and permanent Resend idempotency key before the first provider request. A timeout after provider acceptance retries those same bytes/key, including after process restart. Resend retains keys for 24 hours; this backend stops automatic retries at **23 hours** from the first attempt. This window is the only retry limit for transient/provider-configuration failures; there is no eight-attempt cutoff. Expired unresolved attempts become `needs_review`, as do idempotency conflicts, and cannot be automatically replayed. Signed webhook tags can reconcile acceptance even when the original provider response was lost. Receipt deduplication and terminal failure precedence prevent webhook replays or late delivery events from undoing a complaint/bounce.
+Safe rejections clear the attempt marker atomically with recording the pause. Queue pauses persist and resume automatically when due; repeated outages keep retrying with backoff until the provider recovers. There is no delivery-attempt cutoff or retry-window expiry for proven-safe failures. A crash before the safe rejection can be recorded leaves the row for review, preserving at-most-once delivery at the cost of possibly skipping a message. A fenced successful acceptance resets queue backoff.
 
-Review ambiguous work through the provider records and local delivery IDs/keys. Do not delete the send reservation, clear its attempts or generate a new key. No automatic redrive beyond the safety window exists. Accepted/failed/suppressed payloads are purged immediately; review payloads are purged after thirty days when the configured worker drains. Permanent minimal reservation, delivery and suppression tombstones remain. Preview snapshots are deleted on expiry during preview/drain and on confirmation or account deletion.
+`GET /api/admin/console/releases` exposes an optional `email.lastError` fixed code, including `provider_auth`, `provider_policy`, `provider_unavailable`, `unknown_outcome` or `audience_unavailable`. Raw SMTP messages and private values are never stored there. Automatic audience preparation retries indefinitely with backoff capped at one hour. The API's `sent` count means SMTP accepted (plus legacy delivered rows); `failed` includes permanent failure, suppression and review rows. SMTP acceptance does not establish inbox delivery.
+
+There are **no bounce or complaint webhooks**. Hard bounces arrive in the **support@duelingdomain.com inbox** and are **not automatically suppressed**; the owner must monitor that inbox and handle them. Existing suppression records remain effective, and **one-click unsubscribe still immediately suppresses** further alpha-news mail.
+
+Review ambiguous work against mailbox/provider records and local delivery IDs. Do not delete the send reservation, clear an ambiguous attempt or create a replacement campaign. No automatic redrive exists for review rows. Accepted/failed/suppressed payloads are purged immediately; review payloads are purged after thirty days when the configured worker drains. Permanent minimal reservation, delivery and suppression tombstones remain. Preview snapshots are deleted on expiry during preview/drain and on confirmation or account deletion.
 
 `GET /unsubscribe?t=...` displays a confirmation form and does not change preferences. Public `POST` immediately suppresses all alpha-news mail; RFC 8058 one-click requests require no login or Origin. Every message carries both unsubscribe headers, the visible link and the postal address. These links do not expire.
 
 ## Offline validation
 
-Use Node 22 and build shared before consumers. The two integration test files cover the broadcast and the releases API/seen feature; all Clerk/Resend requests use fakes. Run only these files and touched-package typechecks:
+Use Node 22 and build shared before consumers. The two integration test files cover the broadcast and the releases API/seen feature; all Clerk requests and SMTP transports use fakes; no test contacts a mail server. Run only these files and touched-package typechecks:
 
 ```sh
 prlimit --core=0 -- npm run build --workspace=@yugidraft/shared
@@ -63,4 +77,4 @@ prlimit --core=0 -- npm run typecheck --workspace=@yugidraft/worker
 prlimit --core=0 -- npm run typecheck --workspace=@yugioh-discord-bot/web
 ```
 
-Provider references: [idempotency window](https://resend.com/docs/dashboard/emails/idempotency-keys), [send API](https://resend.com/docs/api-reference/emails/send-email), [signed webhooks](https://resend.com/docs/webhooks/verify-webhooks-requests), [bounce payload](https://resend.com/docs/webhooks/emails/bounced).
+Provider references: [SMTP transport](https://nodemailer.com/smtp), [pooled SMTP and retry controls](https://nodemailer.com/smtp/pooled), [SMTP error fields](https://nodemailer.com/errors).
