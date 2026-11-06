@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Martian_Mono, Schibsted_Grotesk } from "next/font/google";
 import { AdminConsole } from "@/components/admin-console/admin-console";
 import { isOwnerUser } from "@/lib/owner-access";
+import { remoteDuelsForViewer } from "@/lib/remote-duels";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 
 export const metadata = { title: "Admin console" };
@@ -18,7 +19,7 @@ export default async function AdminConsolePage() {
 
   return (
     <div className={`${sans.variable} ${mono.variable}`}>
-      <AdminConsole />
+      <AdminConsole vision={await remoteDuelsForViewer()} />
     </div>
   );
 }

@@ -1,14 +1,14 @@
-import { requireWebAccess } from '@/lib/web-access';
+import { requireRemoteActor } from '@/lib/remote-duels';
 import { readJsonBody } from '@/lib/bug-reports/read-body';
 import { feedbackJson,feedbackOrigin,feedbackService,validFeedbackIndex } from '@/lib/vision-feedback';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function GET() {
-  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
+  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
   return feedbackJson(feedbackService().preference(actor.userId));
 }
 export async function PATCH(request:Request) {
-  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
+  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
   if(!feedbackOrigin(request))return feedbackJson({error:'invalid_origin'},403);
   const input=await readJsonBody(request,1024);if(!input.ok)return input.response;
   const value=input.value;
@@ -17,12 +17,12 @@ export async function PATCH(request:Request) {
   return feedbackJson(feedbackService().setPreference(actor.userId,value.enabled));
 }
 export async function DELETE(request:Request) {
-  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
+  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
   if(!feedbackOrigin(request))return feedbackJson({error:'invalid_origin'},403);
   return feedbackJson({deleted:feedbackService().deleteForUser(actor.userId)});
 }
 export async function POST(request:Request) {
-  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
+  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
   if(!feedbackOrigin(request))return feedbackJson({error:'invalid_origin'},403);
   const service=feedbackService(),pref=service.preference(actor.userId);
   if(!pref.collectionEnabled)return feedbackJson({error:'collection_disabled'},404);
