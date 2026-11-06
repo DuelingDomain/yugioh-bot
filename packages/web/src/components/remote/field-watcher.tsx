@@ -390,14 +390,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,pending:[...pendingLeft.current.values()],firstSeen:track.firstSeen,twins,removed:outOfView,now:serverNow()}):undefined;
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
-    if(stale&&!summon?.materialRefs.includes(stale.ref)){
+    // Release a slot only for a card that lands in it: a Trap seen in M4 goes to the Spell/Trap row and leaves the M4 twin alone.
+    const claimsSlot=stale&&projectObserved(track,twins.filter(c=>c.ref!==stale.ref),existing,entry?cardInfo(catalogCardId(entry)):undefined).zone===track.zone;
+    if(stale&&claimsSlot&&!summon?.materialRefs.includes(stale.ref)){
       const trackBefore=watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===stale.ref);
       const absentAt=trackBefore?.lastSeen??missingSince.current.get(stale.ref)??performance.now();
       missingSince.current.set(stale.ref,absentAt);
       if(performance.now()-absentAt<2000){
         const key=`stale:${event.track.id}`;
         if(!departureTimers.current.has(key))departureTimers.current.set(key,setTimeout(()=>{
-          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act),event);
+          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt),event,humanChoice);
         },Math.max(1,2000-(performance.now()-absentAt))));
         return;
       }
