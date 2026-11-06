@@ -1280,12 +1280,19 @@ test.describe("remote duels, spectators", () => {
         type Fiber = { return?: Fiber; memoizedProps?: { value?: { publishFieldTracks?: (message: unknown) => void } } };
         let fiber = (element as unknown as Record<string, Fiber>)[key];
         while (fiber && !fiber.memoizedProps?.value?.publishFieldTracks) fiber = fiber.return!;
-        fiber.memoizedProps!.value!.publishFieldTracks!({ type: "field.tracks", cards: [{ ref: "shown", cardId: 900000001, name: "Origin fixture 1", quad }], backs: [{ ref: "c0-53582587-set", zone: "S1", quad }] });
+        const send = () => fiber.memoizedProps!.value!.publishFieldTracks!({ type: "field.tracks", cards: [{ ref: "shown", cardId: 900000001, name: "Origin fixture 1", quad }], backs: [{ ref: "c0-53582587-set", zone: "S1", quad }] });
+        // The field watcher also publishes each second, with no backs in this test.
+        send(); (window as unknown as { __backs: ReturnType<typeof setInterval> }).__backs = setInterval(send, 200);
       });
       const rawData = (page: Page) => page.evaluate(() => (window as unknown as { __lkData: string }).__lkData);
       await expect.poll(() => rawData(c), { timeout: 15_000 }).toContain("Origin fixture 1");
       await expect.poll(() => rawData(b), { timeout: 15_000 }).toContain("c0-53582587-set");
       for (const secret of ["c0-53582587", "53582587", "backs"]) expect(await rawData(c), secret).not.toContain(secret);
+      // The seated opponent's board shows the back. The spectator's does not.
+      await expect(b.getByTestId("set-marker")).toBeVisible({ timeout: 15_000 });
+      await expect(c.getByTestId("set-marker")).toHaveCount(0);
+      await a.evaluate(() => clearInterval((window as unknown as { __backs: ReturnType<typeof setInterval> }).__backs));
+      await expect(b.getByTestId("set-marker")).toHaveCount(0, { timeout: 15_000 });
       await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
       await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
       await expect(c.getByTestId("lp-value-0")).toHaveText("7900");
