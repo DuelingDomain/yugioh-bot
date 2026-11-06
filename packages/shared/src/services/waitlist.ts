@@ -1,6 +1,6 @@
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
-import { notifyJoinRequest } from "../notify/join-request.js";
+import { notifyJoinRequest, waitlistNoticeSource } from "../notify/join-request.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
 import { normalizedNoticeEmail } from "../discord-admin/subject.js";
 import { parseHeardFrom } from "../util/heard-from.js";
@@ -51,7 +51,7 @@ export function createWaitlistService(db: Database.Database) {
       if (result.changes !== 0) {
         void notifyJoinRequest(db, {
           email: normalizedEmail, createdAt,
-          source: meta.source?.trim() === "app-not-invited" ? "app waitlist" : "marketing waitlist",
+          source: waitlistNoticeSource(meta.source), heardFrom: heard ?? undefined,
         });
       }
       return { status: result.changes === 0 ? "exists" : "joined" };

@@ -9,6 +9,7 @@ import { openDatabase, migrate } from "@yugidraft/shared/db";
 import { createWaitlistService, deleteUserAccount } from "@yugidraft/shared/services";
 import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
 import { claimOutbox, markPosted } from "@yugidraft/shared/discord-admin";
+import { prepareWaitlistAction } from "@yugidraft/shared/services/waitlist-decisions";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
@@ -58,7 +59,7 @@ afterEach(() => {
 });
 
 describe("verified Clerk events to the durable Discord outbox", () => {
-  it.each([[1, "Personal"], [3, "Friends"]] as const)("queues a creator %s-use sign-up without a waitlist entry or local account", async (uses, type) => {
+  it.each([1, 3])("queues a creator %s-use sign-up without a waitlist entry or local account", async uses => {
     vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "0");
     const { signup } = creatorSignup(uses);
     expect((await POST(signed(signup))).status).toBe(200);
@@ -68,7 +69,7 @@ describe("verified Clerk events to the durable Discord outbox", () => {
     expect(rows[0].kind).toBe("signup_alert");
     expect(JSON.parse(rows[0].payload_json)).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ fields: expect.arrayContaining([
       { name: "Email", value: "`a***@gmail.com`" },
-      { name: "Creator invite", value: `Kaiba Plays · Launch crew \\(${type}\\)` },
+      { name: "Where", value: "Creator link: Kaiba Plays · Launch crew" },
       { name: "Heard from", value: "YouTube · Launch video" },
     ]) }] });
     expect(rows[0].payload_json).not.toContain("ab+account@gmail.com");
@@ -84,7 +85,7 @@ describe("verified Clerk events to the durable Discord outbox", () => {
     expect((await POST(signed({ ...signup, data: { ...signup.data, public_metadata: {}, unsafe_metadata: { heardFrom: "creator" } } }))).status).toBe(200);
     const row = state.db!.prepare<[], { payload_json: string }>("select payload_json from discord_outbox where kind='signup_alert'").get()!;
     expect(JSON.parse(row.payload_json).embeds[0].fields).toEqual(expect.arrayContaining([
-      { name: "Creator email invite", value: "Kaiba Plays" }, { name: "Heard from", value: "Twitch · Kaiba live" },
+      { name: "Where", value: "Creator email invite: Kaiba Plays" }, { name: "Heard from", value: "Twitch · Kaiba live" },
     ]));
   });
 
@@ -93,12 +94,33 @@ describe("verified Clerk events to the durable Discord outbox", () => {
     state.db!.exec("delete from creator_grants");
     expect((await POST(signed({ ...signup, data: { ...signup.data, public_metadata: {} } }))).status).toBe(200);
     const [row] = claimOutbox(state.db!, 1);
-    expect(row.payload_json).not.toContain("Creator invite");
+    expect(JSON.parse(row.payload_json).embeds[0].fields).toContainEqual({ name: "Where", value: "Direct invite or Clerk" });
     expect(markPosted(state.db!, row, { messageId: "posted_creator" })).toBe(true);
     state.db!.prepare(`insert into creator_grants(creator_id,kind,email,email_key,status,created_at)
       values(1,'allowlist','ab+account@gmail.com','ab@gmail.com','sent',?)`).run(time - 60_000);
     expect((await POST(signed(signup, "msg_late_attribution"))).status).toBe(200);
     expect(state.db!.prepare("select status,payload_json from discord_outbox").all()).toEqual([{ status: "posted", payload_json: null }]);
+  });
+
+  it.each([
+    ["Owner owner@example.test", "footer", time - 1000, "Waitlist: approved by Owner \\[email hidden\\] · Originally: Website: join form at the bottom of the home page"],
+    [null, null, time - 1000, "Waitlist: approved"],
+    ["Owner", "hero", time + 1000, "Direct invite or Clerk"],
+  ])("describes a waitlist approval from the audit: actor=%s, origin=%s, completed=%s", async (actor, source, completed, where) => {
+    if (source) createWaitlistService(state.db!).join("player@example.test", { source: String(source), heardFrom: "twitch", heardFromDetail: "Ask player@example.test" });
+    const action = prepareWaitlistAction(state.db!, { email: "player@example.test", clerkEntryId: "wle_network" });
+    state.db!.prepare("update discord_waitlist_actions set decision='approve',actor_name=?,completed_at=? where id=?").run(actor, completed, action.id);
+    const signup = { type: "user.created", data: { id: "user_approved", created_at: time,
+      primary_email_address_id: "email_approved", email_addresses: [{ id: "email_approved", email_address: "player@example.test" }] } };
+    expect((await POST(signed(signup))).status).toBe(200);
+    expect((await POST(signed(signup, "msg_signup_again"))).status).toBe(200);
+    const rows = state.db!.prepare<[], { payload_json: string }>("select payload_json from discord_outbox where kind='signup_alert'").all();
+    expect(rows).toHaveLength(1);
+    const fields = JSON.parse(rows[0].payload_json).embeds[0].fields;
+    expect(fields).toContainEqual({ name: "Where", value: where });
+    if (source) expect(fields).toContainEqual({ name: "Heard from", value: "Twitch · Ask \\[email hidden\\]" });
+    expect(rows[0].payload_json).not.toContain("player@example.test");
+    expect(rows[0].payload_json).not.toContain("owner@example.test");
   });
 
   it("deletes attributed alert data after an email change before local sign-in", async () => {

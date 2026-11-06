@@ -29,6 +29,14 @@ export interface CreatorSignUpAttribution {
   linkType: "Personal" | "Friends" | "Community" | null;
 }
 
+/** Read-only context for a waitlist form on a closed link; never return the code or locked email. */
+export function resolveCreatorWaitlistAttribution(db: Database.Database, code: string): { creatorName: string; linkLabel: string | null } | null {
+  if (!LINK_CODE_PATTERN.test(code)) return null;
+  const row = db.prepare<[string], { creatorName: string; linkLabel: string | null }>(`select c.name as creatorName, l.label as linkLabel
+    from creator_links l join creators c on c.id=l.creator_id where l.code=?`).get(code);
+  return row ?? null;
+}
+
 /**
  * Read-only attribution for a verified user.created webhook, before local Clerk sync.
  * Match ddGrant with the same inbox check as attributeSignUp, then fall back to the

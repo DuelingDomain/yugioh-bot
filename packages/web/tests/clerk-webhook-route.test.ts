@@ -64,7 +64,7 @@ describe("POST /api/webhooks/clerk", () => {
       unsafe_metadata: { heardFrom: "friend", heardFromDetail: "player@example.test" } } };
     expect((await POST(signed(payload))).status).toBe(200);
     expect(messages()[0].embeds[0].fields).toEqual(expect.arrayContaining([
-      { name: "Creator invite", value: "Kaiba Plays \\(Personal\\)" },
+      { name: "Where", value: "Creator link: Kaiba Plays" },
       { name: "Heard from", value: "A friend · \\[email hidden\\]" },
     ]));
     expect(JSON.stringify(messages())).not.toContain("player@example.test");
@@ -76,8 +76,8 @@ describe("POST /api/webhooks/clerk", () => {
     expect(await response.json()).toEqual({ received: true });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
-    expect(messages()[0]).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ title: "New join request", timestamp: new Date(createdAt).toISOString(),
-      fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Source", value: "Clerk waitlist" }] }] });
+    expect(messages()[0]).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ title: "Waitlist request: needs your decision", timestamp: new Date(createdAt).toISOString(),
+      fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Where", value: "Clerk: added directly to the waitlist in Clerk" }] }] });
   });
 
   it("rejects an invalid signature before database or Discord effects", async () => {
@@ -245,7 +245,7 @@ describe("POST /api/webhooks/clerk", () => {
     await POST(signed(signup, "msg_signup_placeholder"));
     await POST(signed(signup, "msg_signup_placeholder"));
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(messages()[0].embeds[0]).toMatchObject({ title: "New user sign-up", fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Source", value: "sign\\-up" }] });
+    expect(messages()[0].embeds[0]).toMatchObject({ title: "New account created", fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Where", value: "Direct invite or Clerk" }] });
   });
 
   it("supports an email-less user and a missing primary email", async () => {

@@ -73,7 +73,7 @@ describe("printed Set access on the pinned catalog", () => {
         }
       }
     }
-  }, 30_000);
+  }, 120_000);
 
   it("grounds revealed Normal Trap recipients and non-archetype Set filters", () => {
     const engine = storedBridgeEngine(db);

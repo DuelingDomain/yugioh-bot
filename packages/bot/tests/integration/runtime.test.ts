@@ -12,6 +12,7 @@ import { enqueueOutbox, type OutboxRow } from "@yugidraft/shared/discord-admin";
 import { startBot } from "../../src/runtime/app.js";
 import { deployCommands } from "../../src/runtime/deploy.js";
 import type { FeatureModule } from "../../src/runtime/types.js";
+import { loadSharedAdminServices } from "../../src/runtime/shared.js";
 
 const guildId = "100000000000000001";
 const applicationId = "100000000000000002";
@@ -346,11 +347,16 @@ it("isolates invalid JSON and foreign-guild rows, then acknowledges a deleted ed
   const deletedStub = await discordStub({ editStatus: 404 });
   const deletedDb = openDatabase(join(directory, "deleted.sqlite"));
   const deleted = queueMessage(deletedDb, "deleted", "edit");
-  const deletedBot = await startBot({ ...options, db: deletedDb,
+  const shared = await loadSharedAdminServices(deletedDb);
+  const posted = vi.spyOn(shared, "markPosted");
+  const deletedBot = await startBot({ ...options, db: deletedDb, shared,
     config: { ...options.config, restApi: deletedStub.api, healthPath: join(directory, "deleted-health.json") } });
   cleanups.push(() => deletedBot.stop());
   await expect.poll(() => outboxRow(deletedDb, deleted).status).toBe("posted");
   expect(outboxRow(deletedDb, deleted)).toMatchObject({ message_id: "100000000000000098", payload_json: null, attempts: 1 });
+  expect(posted).toHaveBeenCalledWith(expect.objectContaining({ id: deleted }), {
+    messageId: "100000000000000098", channelId, targetMissing: true,
+  });
 });
 
 it("drains one claimed message on shutdown and leaves later rows pending", async () => {
