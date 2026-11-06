@@ -30,7 +30,7 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
     <section className={styles.section} aria-labelledby="creator-remote" data-testid="remote-setup">
       <div className={styles.side}>
         <h2 id="creator-remote" className={ui.sectionTitle}>Remote table</h2>
-        <p className={ui.hint}>Duel type, seats and your deck. The table keeps score.</p>
+        <p className={ui.hint}>Format, seats and your deck. The table keeps score.</p>
       </div>
       <div className={styles.fields}>
         {formatControls}

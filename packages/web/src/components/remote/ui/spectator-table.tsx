@@ -50,8 +50,8 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
   </div></div>;
 }
 
-function SpectatorFeed({ seat, name, video, online, frozen, onCard }: {
-  seat: number; name: string; video: SpectatorVideo; online: boolean; frozen: (seat: number, value: boolean) => void;
+function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard }: {
+  seat: number; name: string; video: SpectatorVideo; online: boolean; stopped: boolean; frozen: (seat: number, value: boolean) => void;
   /** A click on the camera at a point of the frame (0..1). */ onCard: (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => void;
 }) {
   const snapshot = useSyncExternalStore(video.subscribe, video.getSnapshot, video.getSnapshot);
@@ -79,7 +79,7 @@ function SpectatorFeed({ seat, name, video, online, frozen, onCard }: {
     <div className={s.cams} role="group" aria-label={`${name}'s field camera. Click a public card to see it.`} data-testid={`feed-${seat}`} data-layer-asked={video.layerName}>
       <div className={s.fcam} style={{ cursor: "default" }} onClick={click}>
         {track ? <video ref={element} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
-          <span>{online ? `Waiting for ${name}'s camera.` : "Connecting to table video…"}</span></div>}
+          <span>{online ? `Waiting for ${name}'s camera.` : stopped ? "Table video is off." : "Connecting to table video…"}</span></div>}
       </div>
     </div>
   </div>;
@@ -101,7 +101,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.slug, room.guildId, ended]);
   useEffect(() => { video?.setMembers(JSON.parse(members)); }, [video, members]);
-  const noVideo = { subscribe: () => () => undefined, snapshot: { connection: ConnectionState.Disconnected, feeds: [], error: "" } };
+  const noVideo = { subscribe: () => () => undefined, snapshot: { connection: ConnectionState.Disconnected, feeds: [], error: "" } as ReturnType<SpectatorVideo["getSnapshot"]> };
   const snapshot = useSyncExternalStore(video?.subscribe ?? noVideo.subscribe, video?.getSnapshot ?? (() => noVideo.snapshot), () => noVideo.snapshot);
   const online = snapshot.connection === ConnectionState.Connected;
   const [, setFrozen] = useState<Record<number, boolean>>({});
@@ -164,7 +164,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
         <a className={`${s.tb} ${v.leave}`} href="/duels" data-testid="spectator-leave" onClick={() => void stopWatching(room.slug)}>Stop watching</a>
       </header>
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table">
-        {note ? <p className={v.note} role="status" data-testid="spectator-note">{note}</p> : null}
+        {note ? <p className={v.note} role="status" data-testid="spectator-note">{note}{!ended && snapshot.error && !online
+          ? <button type="button" className={v.retry} data-testid="spectator-video-retry" onClick={() => video?.retry()}>Try again</button> : null}</p> : null}
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {seatIds.map(seat => {
           const twin = state.seats[seat]?.twin ?? [];
@@ -183,7 +184,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {state.seats[seat]?.eliminated ? <span className={s.tag}>OUT</span> : null}
             </header>
             <div className={s.sbody}>
-              {video ? <SpectatorFeed seat={seat} name={name(seat)} video={video} online={online} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
+              {video ? <SpectatorFeed seat={seat} name={name(seat)} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
               <div className={`${s.fside} ${v.side}`}>
                 <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span>
                   <span data-testid={`hand-count-${seat}`}>Hand: <b>{state.seats[seat]?.handCount ?? "?"}</b></span></div>

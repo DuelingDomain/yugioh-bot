@@ -18,13 +18,14 @@ export function useRemoteRoom(slug: string) {
   const [realtime, setRealtime] = useState("Connecting…");
   // A person with no seat watches a public table. The spectate request also keeps the spectator slot, so this poll holds it.
   const spectating = useRef(false);
+  const [watching, setWatching] = useState(false);
   const load = useCallback(async () => {
-    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, {}); spectating.current = !!view.spectator; return view; };
+    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, {}); spectating.current = !!view.spectator; setWatching(spectating.current); return view; };
     if (spectating.current) return watch();
     try { return await remoteApi<RemoteRoom>(`/${slug}`); }
     catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
   }, [slug]);
-  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000 });
+  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000, /* A hidden tab still receives video, so it must keep its slot. */ refreshWhenHidden: watching });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const roomRef = useRef<RemoteRoom | undefined>(room);

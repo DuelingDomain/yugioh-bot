@@ -315,8 +315,8 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.locator('[data-testid="feed-1"] [data-testid="zone-grid"]')).toHaveCount(0);
   });
 
-  // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat. Genesys has none.
-  test("virtual field shows Extra Monster Zones and Pendulum labels, and hides them for Genesys", async ({ page, context }) => {
+  // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat.
+  test("virtual field shows Extra Monster Zones and Pendulum labels", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
     const path = `/api/remote/${slug}`;
     const act = async (action: Record<string, unknown>) => {
@@ -342,15 +342,6 @@ test.describe("remote duels screen, solo", () => {
     await expect(field.locator('[data-zone="s1"]')).toContainText("PZ");
     await expect(field.locator('[data-zone="ex"]')).toContainText(/EXTRA/);
     await shot(page, "field-emz-1v1");
-    // Genesys: no Extra Monster Zones and no Pendulum label.
-    const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true, format: "genesys" } });
-    expect(created.status()).toBe(201); const genesys = await created.json();
-    await context.request.post(`/api/remote/${genesys.slug}/ready`, { data: { ready: true } });
-    expect((await context.request.post(`/api/remote/${genesys.slug}/start`, { data: {} })).status()).toBe(200);
-    await page.goto(`/duels/remote/${genesys.slug}`);
-    await expect(page.getByTestId("field-0")).toBeVisible();
-    await expect(page.getByTestId("field-0").locator('[data-zone="e1"]')).toHaveCount(0);
-    await expect(page.getByTestId("field-0").locator('[data-zone="s1"]')).not.toContainText("PZ");
   });
 
   // The feed box takes the camera's real shape, the camera row sits under it, and the virtual field is smaller.
@@ -932,9 +923,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.reload();
     await expect(page.getByRole("radio", { name: "Remote Duel" })).toBeChecked();
     await expect(page.getByTestId("remote-setup")).toBeVisible();
-    // The same duel type and Genesys controls as Online, and the rule on by default.
-    await expect(page.getByRole("radiogroup", { name: "Duel type" })).toBeVisible();
-    await expect(page.getByTestId("genesys-toggle")).toBeVisible();
+    // Remote offers only Advanced for now, with no format choice, and the rule on by default.
+    await expect(page.getByTestId("remote-format")).toHaveText(/Advanced/);
+    await expect(page.getByRole("radiogroup", { name: "Duel type" })).toHaveCount(0);
+    await expect(page.getByTestId("genesys-toggle")).toHaveCount(0);
     await expect(page.getByTestId("create-show-set")).toBeChecked();
     await onlineRadio(page).click();
     await expect(page).toHaveURL(/\/duels\/new$/);
@@ -1147,7 +1139,7 @@ for (const showCardsSetFromDeck of [true]) test(`two browsers honor Deck publici
 
 test.describe("remote duels, spectators", () => {
   test("a spectator watches a public table, cannot act, sees nothing hidden, and a private table refuses", async ({ browser }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(480_000);
     const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
     const [alice, bob, carol, dave] = await Promise.all([1, 2, 3, 4].map(() => browser.newContext()));
     const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
@@ -1160,10 +1152,13 @@ test.describe("remote duels, spectators", () => {
         const done = await alice!.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { actorSeat: 0, idempotencyKey: crypto.randomUUID(), ...action } } });
         expect(done.status(), await done.text()).toBe(200);
       };
-      await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "hidden-set", slot: 1, cardId: 53582587, name: "Torrential Tribute", faceUp: false } });
+      await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-53582587-set", slot: 1, cardId: 53582587, name: "Torrential Tribute", faceUp: false } });
+      // Face up once, then Set: the old event must not name it.
+      await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-70825459-was", slot: 2, cardId: 70825459, name: "Trap Tracks", faceUp: true } });
+      await act({ type: "twin.flip", seat: 0, cardRef: "c0-70825459-was", faceUp: false });
       await act({ type: "hand.add", cardId: 47355498, source: "unknown" });
       await act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "shown", slot: 1, cardId: 900000001, name: "Origin fixture 1", faceUp: true } });
-      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Necrovalley", "47355498", "knownHand", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
+      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Trap Tracks", "70825459", "Necrovalley", "47355498", "knownHand", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
 
       // Listed where normal duels list tables, and the view from the server holds no hidden fact.
       expect((await (await carol!.request.get("/api/remote?scope=open")).json()).tables.some((t: { slug: string }) => t.slug === slug)).toBe(true);
@@ -1174,7 +1169,7 @@ test.describe("remote duels, spectators", () => {
       expect([view.spectator, view.mySeat]).toEqual([true, -1]);
       hiddenFree(viewText);
       expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "shown").name).toBe("Origin fixture 1");
-      expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "hidden-set").cardId).toBeUndefined();
+      expect(view.state.seats[0].twin.filter((c: { ref: string; cardId?: number }) => c.ref.startsWith("private-card-") && c.cardId === undefined)).toHaveLength(2);
       expect(view.state.seats[0].handCount).toBeDefined();
 
       // No seat change, no event, no idle clock.
@@ -1198,7 +1193,14 @@ test.describe("remote duels, spectators", () => {
       const media = await carol!.request.post(`${path}/livekit`);
       expect(media.status(), await media.text()).toBe(200);
       const grant = JSON.parse(Buffer.from((await media.json()).token.split(".")[1], "base64url").toString()).video;
-      expect(grant).toMatchObject({ canPublish: false, canPublishData: false, canSubscribe: true, hidden: true });
+      expect(grant).toMatchObject({ canPublish: false, canPublishData: false, canSubscribe: true, hidden: true, room: `remote-${slug}` });
+      const grantOf = (token: string) => JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()).video;
+      // Voice: a spectator gets no token for its room, and no seated token can put a microphone in the room a spectator enters.
+      const noVoice = await carol!.request.post(`${path}/livekit?voice=1`);
+      expect([noVoice.status(), (await noVoice.json()).code]).toEqual([403, "SPECTATOR_READ_ONLY"]);
+      const seatGrant = grantOf((await (await alice!.request.post(`${path}/livekit`)).json()).token), voiceGrant = grantOf((await (await alice!.request.post(`${path}/livekit?voice=1`)).json()).token);
+      expect(JSON.stringify(seatGrant.canPublishSources).toLowerCase()).not.toContain("microphone");
+      expect([voiceGrant.room, JSON.stringify(voiceGrant.canPublishSources).toLowerCase()]).toEqual([`remote-${slug}-voice`, '["microphone"]']);
 
       // The socket: its own projection, no player room event, and it cannot send.
       const credentials = await (await carol!.request.get(`${path}/connection`)).json();
@@ -1226,6 +1228,19 @@ test.describe("remote duels, spectators", () => {
       c.on("request", request => { if (/\.onnx|ort-wasm|\/vision|remote-vision/.test(request.url())) readerFiles.push(request.url()); });
       c.on("worker", worker => workers.push(worker.url()));
       await fakeCamera(a, "16:9"); await fakeCamera(b, "16:9");
+      for (const page of [a, b]) await page.addInitScript(() => {
+        const asked = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async constraints => {
+          if (constraints?.video) return asked(constraints);
+          const sound = new AudioContext(), out = sound.createMediaStreamDestination(); sound.createOscillator().connect(out);
+          return out.stream;
+        };
+      });
+      const { RoomServiceClient, TrackType } = await import("livekit-server-sdk");
+      const lk = new RoomServiceClient((process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880").replace(/^ws/, "http"), process.env.LIVEKIT_API_KEY ?? "devkey", process.env.LIVEKIT_API_SECRET ?? "secret");
+      const inRoom = async (room: string) => lk.listParticipants(room).catch(() => []);
+      const audioIn = async (room: string) => (await inRoom(room)).flatMap(p => p.tracks.filter(t => t.type === TrackType.AUDIO).map(() => p.identity));
+      const watcher = "remote-spectator-103", tableRoom = `remote-${slug}`, voiceRoom = `remote-${slug}-voice`;
       await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`), c.goto(`/duels/remote/${slug}`)]);
       for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
       await expect(c.getByTestId("spectator-table")).toBeVisible();
@@ -1236,11 +1251,22 @@ test.describe("remote duels, spectators", () => {
         expect(await video.evaluate((v: HTMLVideoElement) => v.videoHeight)).toBeLessThanOrEqual(720);
         await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "medium");
       }
+      // Talk is in the voice room for both players, comes back after a lost connection, and no audio track exists in the room of the spectator.
+      // A table opens unmuted but publishes the microphone only after a toggle on a connected table (video-hub setMic).
+      for (const page of [a, b]) { await page.getByRole("button", { name: "Mute microphone" }).click(); await page.getByRole("button", { name: "Unmute microphone" }).click(); }
+      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
+      expect((await inRoom(voiceRoom)).map(p => p.identity)).not.toContain(watcher);
+      expect((await inRoom(tableRoom)).map(p => p.identity)).toContain(watcher);
+      expect(await audioIn(tableRoom)).toEqual([]);
+      await lk.removeParticipant(voiceRoom, "remote-user-101");
+      await expect.poll(() => audioIn(voiceRoom), { timeout: 5000, intervals: [100] }).toEqual(["remote-user-102"]);
+      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
+      expect(await audioIn(tableRoom)).toEqual([]);
       await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
       await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
       await expect(c.getByTestId("lp-value-0")).toHaveText("7900");
       await expect(c.getByTestId("public-cards-0")).toContainText("Origin fixture 1");
-      await expect(c.getByTestId("set-count-0")).toHaveText("1 Set");
+      await expect(c.getByTestId("set-count-0")).toHaveText("2 Set");
       hiddenFree((await c.locator("body").innerText()));
       // A click on a public card opens the view-only popup. A click on the camera with no public read opens nothing.
       await c.getByTestId("public-cards-0").getByRole("button", { name: "Origin fixture 1" }).click();
@@ -1270,8 +1296,42 @@ test.describe("remote duels, spectators", () => {
       }
       await c.setViewportSize({ width: 1920, height: 1080 });
 
-      // The cap, with a clear message. Carol keeps her slot; Dave is the one too many.
       const tableId = (db.prepare("select id from remote_tables where slug=?").get(slug) as { id: number }).id;
+      const frames = () => c.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0);
+      // A hidden tab keeps its slot.
+      const seen = () => (db.prepare("select last_seen_at from remote_spectators where table_id=? and user_id=103").get(tableId) as { last_seen_at: number }).last_seen_at;
+      const seenBefore = seen();
+      await c.evaluate(() => { Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); });
+      await expect.poll(seen, { timeout: 50_000, intervals: [2000] }).toBeGreaterThan(seenBefore);
+      await c.evaluate(() => { delete (document as unknown as { visibilityState?: string }).visibilityState; });
+      // A slot that ends takes the video with it. When the slot comes back, so does the video, with no reload.
+      await c.route("**/spectate", route => route.abort());
+      db.prepare("update remote_spectators set last_seen_at=? where table_id=? and user_id=103").run(Date.now() - 100_000, tableId);
+      await expect.poll(async () => (await inRoom(tableRoom)).map(p => p.identity), { timeout: 50_000, intervals: [2000] }).not.toContain(watcher);
+      await c.unroute("**/spectate");
+      await expect.poll(async () => (await inRoom(tableRoom)).map(p => p.identity), { timeout: 100_000, intervals: [2000] }).toContain(watcher);
+      await expect.poll(frames, { timeout: 100_000, intervals: [2000] }).toBeGreaterThan(0);
+      // A second tab of one person takes the video. The first tab says so and takes it back with a click.
+      const secondTab = await carol!.newPage();
+      await secondTab.goto(`/duels/remote/${slug}`);
+      // The dev server can reload the first tab while it compiles for the second, so either tab can be the one that lost.
+      const lost = (page: Page) => page.getByTestId("spectator-video-retry");
+      await expect.poll(async () => await lost(c).count() + await lost(secondTab).count(), { timeout: 40_000, intervals: [500] }).toBe(1);
+      const firstLost = await lost(c).count() === 1;
+      await expect((firstLost ? c : secondTab).getByTestId("spectator-note")).toContainText("another tab");
+      await secondTab.close();
+      if (firstLost) await lost(c).click();
+      await expect.poll(frames, { timeout: 40_000, intervals: [1000] }).toBeGreaterThan(0);
+      // Stop watching ends the video at once, not at the next sweep.
+      const daveTab = await dave!.newPage();
+      await daveTab.goto(`/duels/remote/${slug}`);
+      await expect.poll(async () => (await inRoom(tableRoom)).map(p => p.identity), { timeout: 30_000 }).toContain("remote-spectator-104");
+      expect((await dave!.request.delete(`${path}/spectate`)).status()).toBe(200);
+      await expect.poll(async () => (await inRoom(tableRoom)).map(p => p.identity), { timeout: 5000, intervals: [250] }).not.toContain("remote-spectator-104");
+      await daveTab.close();
+      await dave!.request.delete(`${path}/spectate`);
+
+      // The cap, with a clear message. Carol keeps her slot; Dave is the one too many.
       for (let filler = 0; filler < 9; filler++) db.prepare("insert into remote_spectators(table_id,user_id,last_seen_at) values(?,?,?)").run(tableId, 9000 + filler, Date.now());
       const full = await dave!.request.post(`${path}/spectate`, { data: {} });
       expect([full.status(), (await full.json()).code]).toEqual([409, "SPECTATORS_FULL"]);

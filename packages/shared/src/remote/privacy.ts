@@ -73,7 +73,30 @@ const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.confi
   "phase.set","phase.advance","turn.end","lp.change","attack.declare","attack.resolve","player.concede","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
   "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","pile.lift","pile.order","effect.activated"]);
 const PUBLIC_ZONE=(card:{zone:string;faceUp?:boolean})=>card.faceUp!==false && !["hand","deck","extra"].includes(card.zone);
-function spectatorPosition<T extends RemotePosition>(state:T):T {
+/** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
+function spectatorRefs(state:RemotePosition) {
+  const open=new Set(state.seats.flatMap(seat=>seat.twin.filter(PUBLIC_ZONE).map(card=>card.ref))), names=new Map<string,string>();
+  const hide=(ref:string)=>{
+    if(open.has(ref)) return ref;
+    if(!names.has(ref)) names.set(ref,`private-card-${names.size+1}`);
+    return names.get(ref)!;
+  };
+  return {open,hide};
+}
+type SpectatorRefs=ReturnType<typeof spectatorRefs>;
+/** Renames every field that holds a twin ref (ref, cardRef, materialRefs, materials, materialOf...), at any depth. */
+function renameRefs(value:unknown,hide:(ref:string)=>string):void {
+  if(Array.isArray(value)) { value.forEach(item=>renameRefs(item,hide)); return; }
+  if(!value || typeof value!=="object") return;
+  const object=value as Record<string,unknown>;
+  for(const [key,item] of Object.entries(object)) {
+    if(typeof item==="string" && (/ref$/i.test(key) || key==="materialOf")) object[key]=hide(item);
+    else if(Array.isArray(item) && (/refs$/i.test(key) || key==="materials") && item.every(entry=>typeof entry==="string")) object[key]=item.map(entry=>hide(entry as string));
+    else renameRefs(item,hide);
+  }
+}
+const CARD_IDENTITY=["cardId","passcode","name","race","bestMatch","publicIdentity","setBy","zoneRule"] as const;
+function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs):T {
   const next=structuredClone(state);
   delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
   next.deckChecks.registrations={}; next.deckChecks.flags=[]; next.deckChecks.instances=[];
@@ -88,7 +111,7 @@ function spectatorPosition<T extends RemotePosition>(state:T):T {
   next.identified=shown && on && PUBLIC_ZONE(on) && !shown.private ? {seat:shown.seat,cardRef:shown.cardRef,cardId:shown.cardId,passcode:shown.passcode,zone:shown.zone,source:shown.source,name:shown.name,addErrors:[]} : null;
   return next;
 }
-function spectatorEvent(event:RemoteEvent):RemoteEvent {
+function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs):RemoteEvent {
   const projected=projectEvent(event,new Set());
   delete projected.messages;
   const a=projected.action;
@@ -96,12 +119,20 @@ function spectatorEvent(event:RemoteEvent):RemoteEvent {
   if(!SPECTATOR_EVENTS.has(a.type)) return {...projected,action:{type:"log.note",actorSeat:actor,text:a.type==="undo" ? "Undid an action" : "Updated a private card",idempotencyKey:event.id}};
   if(a.type==="twin.flip" && !a.faceUp) { delete a.cardId; }
   if(a.type==="twin.place" && (a.zone==="hand" || a.zone==="deck")) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
+  // An old event must not name a card that is not public now: Set again, back in the hand or Deck, or removed.
+  const subject=(a.type==="twin.place" ? a.card : a.type==="effect.activated" ? a.source : a) as unknown as Record<string,unknown>, subjectRef=a.type==="twin.place" ? a.card.ref : "cardRef" in subject ? subject.cardRef : undefined;
+  if(typeof subjectRef==="string" && !refs.open.has(subjectRef)) {
+    for(const key of CARD_IDENTITY) delete subject[key];
+    delete (a as Record<string,unknown>).name; delete (a as Record<string,unknown>).zoneRule;
+  }
+  renameRefs(a,refs.hide);
   return projected;
 }
 /** The one view of a table that spectators get, from the HTTP route and from the socket. */
 export function projectRemoteSpectator(snapshot:RemoteSnapshot):RemoteSnapshot {
-  const state=spectatorPosition(snapshot.state);
-  return {table:projectRemoteTable(snapshot.table),state:{...state,undo:null,undoHistory:[]},events:snapshot.events.map(spectatorEvent)};
+  const refs=spectatorRefs(snapshot.state), state={...spectatorPosition(snapshot.state,refs),undo:null,undoHistory:[]};
+  renameRefs(state,refs.hide);
+  return {table:projectRemoteTable(snapshot.table),state,events:snapshot.events.map(event=>spectatorEvent(event,refs))};
 }
 export function projectRemoteSnapshot(snapshot:RemoteSnapshot,seats:ReadonlySet<number>=new Set()):RemoteSnapshot {
   return {table:projectRemoteTable(snapshot.table,seats),state:projectRemoteState(snapshot.state,seats),events:snapshot.events.map(e=>projectEvent(e,seats))};

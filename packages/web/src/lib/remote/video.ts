@@ -2,7 +2,7 @@ import { DesktopPhoneLink } from "./phone-desktop";
 import type { PhoneReading, PhoneScan } from "./phone-protocol";
 import {
   ConnectionState, Room, RoomEvent, Track, TrackEvent, VideoPresets, createLocalVideoTrack,
-  type ConnectionQuality, type LocalVideoTrack, type LocalAudioTrack, type RemoteVideoTrack, type RemoteAudioTrack,
+  type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
@@ -11,6 +11,7 @@ import {
 import {FieldTrackCache,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
+import { RemoteVoice } from "./voice";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
@@ -24,11 +25,11 @@ export type VideoSnapshot = {
 export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal }) => Promise<RecognitionAnswer>;
 
 export class RemoteVideo {
+  private voice = new RemoteVoice({ slug: () => this.options.slug, guildId: () => this.options.guildId, members: () => this.options.members, changed: () => this.sync(), failed: error => this.fail(error) });
   private room = new Room({ adaptiveStream: true, dynacast: true, stopLocalTrackOnUnpublish: false, disconnectOnPageLeave: false });
   readonly phone: DesktopPhoneLink;
   private camera?: LocalVideoTrack;
   private readyTrack?: MediaStreamTrack;
-  private microphoneTrack?: LocalAudioTrack;
   private preparing?: { track: MediaStreamTrack; promise: Promise<void> };
   private channel?: RecognitionChannel;
   private scans = new AbortController();
@@ -36,7 +37,7 @@ export class RemoteVideo {
   private epoch = 0;
   private starting = false;
   private closed = false;
-  private pagehide = () => { void this.room.disconnect().catch(error => this.fail(error)); };
+  private pagehide = () => { void this.voice.stop(); void this.room.disconnect().catch(error => this.fail(error)); };
   private fieldTracks=new FieldTrackCache();
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
@@ -65,7 +66,7 @@ export class RemoteVideo {
       if (connection !== ConnectionState.Connected) this.fieldTracks.clear();
       if (connection === ConnectionState.Disconnected) {
         this.channel?.close(); this.scans.abort();
-        this.microphoneTrack?.stop(); this.microphoneTrack = undefined;
+        void this.voice.stop();
         const camera = this.camera; this.camera = undefined; this.readyTrack = undefined; this.preparing = undefined;
         if (camera) { ++this.epoch; void this.stopCamera(camera).catch(error => this.fail(error)); this.sync(); }
       }
@@ -111,13 +112,12 @@ export class RemoteVideo {
       for (const publication of participant.trackPublications.values()) {
         const allowed = seat !== undefined && (phoneSeat !== undefined
           ? publication === camera && this.phone.mode(participant) !== "scan"
-          : publication.source === Track.Source.Camera || publication.source === Track.Source.Microphone);
+          : publication.source === Track.Source.Camera);
         if (publication.isDesired !== allowed) publication.setSubscribed(allowed);
       }
       if (seat === undefined) continue;
-      const mic = participant.getTrackPublication(Track.Source.Microphone);
       feeds.push({ seat, phone: phoneSeat !== undefined, mode: phoneSeat !== undefined ? this.phone.mode(participant) : undefined, video: camera?.track?.kind === Track.Kind.Video && this.phone.mode(participant) !== "scan" ? camera.videoTrack : undefined,
-        audio: mic?.track?.kind === Track.Kind.Audio ? mic.audioTrack as RemoteAudioTrack : undefined,
+        audio: phoneSeat === undefined ? this.voice.audio(seat) : undefined,
         quality: participant.connectionQuality, muted: camera?.isMuted ?? false });
     }
     for(const phone of this.phone.dataOnlyFeeds())feeds.push({...phone,phone:true,quality:local.connectionQuality,muted:false});
@@ -251,9 +251,9 @@ export class RemoteVideo {
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
       }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }), Date.now,
         owner => this.phone.forSeat(owner) ? 60_000 : 10_000);
-      this.patch({ connection: this.room.state, microphone: false }); this.sync(); await this.refreshDevices();
+      this.patch({ connection: this.room.state, microphone: false }); this.sync(); void this.voice.start(); await this.refreshDevices();
     } catch (error) {
-      await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.room.disconnect();
+      await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
   }
@@ -270,9 +270,8 @@ export class RemoteVideo {
     this.patch({ cameraId: await camera.getDeviceId() ?? deviceId }); this.sync();
   }
   async setMicrophone(enabled: boolean) {
-    const publication = await this.room.localParticipant.setMicrophoneEnabled(enabled);
-    this.microphoneTrack = publication?.audioTrack ?? this.microphoneTrack;
-    if (this.closed) { await this.room.disconnect(); return; }
+    await this.voice.setMicrophone(enabled);
+    if (this.closed) { await this.voice.stop(); return; }
     this.patch({ microphone: enabled });
   }
   trackedAt(seat:number,x:number,y:number) {return this.room.state===ConnectionState.Connected?this.fieldTracks.hit(seat,x,y):undefined;}
@@ -295,13 +294,13 @@ export class RemoteVideo {
     if (!this.channel || this.room.state !== ConnectionState.Connected) return Promise.reject(new Error("Connect table video first"));
     return this.channel.request(seat, x, y,undefined,force);
   }
-  startAudio() { return this.room.startAudio(); }
+  startAudio() { return this.voice.startAudio(); }
   fail(error: unknown) { this.patch({ error: error instanceof Error ? error.message : "Video failed" }); }
   async stop() {
     this.phone.reset();
     this.fieldTracks.clear();
     ++this.epoch; this.channel?.close(); this.channel = undefined; this.scans.abort();
-    await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.room.disconnect();
+    await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
   dispose() { if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }

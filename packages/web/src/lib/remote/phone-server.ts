@@ -5,6 +5,7 @@ import { createRemotePhoneToken, verifyRemotePhoneToken, REMOTE_PHONE_PAIR_TTL_M
 import { createRemoteDuelService } from "@yugidraft/shared/services";
 import { remoteAssert, type RemoteRoom } from "@yugidraft/shared/remote";
 import { getDb } from "@/lib/db";
+import { makeRoomForPlayer } from "./spectator-server";
 
 type Pair = { id: string; slug: string; guild_id: string; user_id: number; seat: number; expires_at: number; used_at: number | null; revoked: number; device_expires_at: number; mode: string; code_hash: string; cleanup_pending: number };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -119,6 +120,7 @@ export async function connectPhone(slug: string, body: Record<string, unknown>) 
   }
   member(p);
   const c = phoneConfig();
+  await makeRoomForPlayer(slug, phoneIdentity(p.id));
   const token = new AccessToken(c.key,c.secret,{ identity:phoneIdentity(p.id), name:"Phone camera", ttl:30,
     metadata:JSON.stringify({ guildId:p.guild_id,tableId:p.slug,userId:p.user_id,seat:p.seat,role:"field-phone",pairId:p.id }) });
   token.addGrant({roomJoin:true,room:`remote-${slug}`,canPublish:true,canSubscribe:false,canPublishData:true,

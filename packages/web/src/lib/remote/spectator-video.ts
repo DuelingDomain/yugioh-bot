@@ -1,8 +1,8 @@
-import { ConnectionState, Room, RoomEvent, Track, VideoQuality, type RemoteTrackPublication, type RemoteVideoTrack } from "livekit-client";
+import { ConnectionState, DisconnectReason, Room, RoomEvent, Track, VideoQuality, type RemoteTrackPublication, type RemoteVideoTrack } from "livekit-client";
 import { participantSeat, type VideoMember } from "./video-protocol";
 import { FIELD_TRACKS_TOPIC, FieldTrackCache } from "./field-track-cache";
 
-export type SpectatorVideoSnapshot = { connection: ConnectionState; feeds: { seat: number; video: RemoteVideoTrack }[]; error: string };
+export type SpectatorVideoSnapshot = { connection: ConnectionState; feeds: { seat: number; video: RemoteVideoTrack }[]; error: string; /** Another tab of this person holds the video: only a click takes it back, else the two tabs would remove each other for ever. */ needsClick?: boolean };
 /** Spectator traffic has a ceiling: the 720p simulcast layer, and the 360p layer on a phone screen. Adaptive stream stays off because it would choose the layer by tile size. */
 const spectatorLayer = () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches ? VideoQuality.LOW : VideoQuality.MEDIUM;
 
@@ -25,9 +25,16 @@ export class SpectatorVideo {
   private snapshot: SpectatorVideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], error: "" };
   private closed = false;
   private layer = spectatorLayer();
+  private attempts = 0;
+  private timer?: ReturnType<typeof setTimeout>;
   constructor(private options: { slug: string; guildId: string; members: VideoMember[] }) {
     const sync = () => this.sync();
     for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.ParticipantMetadataChanged, RoomEvent.ConnectionStateChanged]) this.room.on(event, sync);
+    this.room.on(RoomEvent.Disconnected, reason => {
+      if (this.closed) return;
+      if (reason === DisconnectReason.DUPLICATE_IDENTITY) this.patch({ error: "This table is open in another tab. Video plays there.", needsClick: true });
+      else this.later();
+    });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic) => {
       if (topic !== FIELD_TRACKS_TOPIC || bytes.byteLength > 8192 || !participant) return;
       const seat = this.seatOf(participant);
@@ -72,8 +79,14 @@ export class SpectatorVideo {
       if (!response.ok) throw new Error(credentials.error ?? "Video is unavailable");
       if (this.closed) return;
       await this.room.connect(credentials.url, credentials.token, { autoSubscribe: false });
-      this.sync();
-    } catch (error) { this.patch({ error: error instanceof Error ? error.message : "Video is unavailable" }); }
+      this.attempts = 0; this.patch({ error: "", needsClick: false }); this.sync();
+    } catch (error) { this.patch({ error: error instanceof Error ? error.message : "Video is unavailable" }); this.later(); }
   }
-  dispose() { this.closed = true; this.listeners.clear(); this.tracks.clear(); void this.room.disconnect(); }
+  /** The slot can come back with the next poll, so this keeps trying: 2 s, 4 s, then at most every 30 s. */
+  private later() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.connect(), Math.min(30_000, 2000 * 2 ** this.attempts++));
+  }
+  retry() { clearTimeout(this.timer); this.attempts = 0; this.patch({ needsClick: false }); void this.connect(); }
+  dispose() { clearTimeout(this.timer); this.closed = true; this.listeners.clear(); this.tracks.clear(); void this.room.disconnect(); }
 }

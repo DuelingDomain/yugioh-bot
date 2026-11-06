@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
-import { REMOTE_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTable } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTable } from "@yugidraft/shared/remote";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { AlertTriangle, Bot, Check, CheckCircle2, CircleDashed, Link2, Swords, UserPlus } from "lucide-react";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "@/components/duel/sheet-ui";
@@ -102,7 +102,11 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
     } catch { /* storage may be blocked */ }
   }, [room.slug]);
   const current = room.format ?? normalizeRemoteFormat();
-  const [format, setFormat] = useState<string>(current.id);
+  const [formatDraft, setFormat] = useState<string>(current.id);
+  // The open formats, and the format of an older room, which that room keeps until the host changes it.
+  const formatChoices = REMOTE_FORMATS.filter(item => REMOTE_OPEN_FORMATS.includes(item.value) || item.value === current.id);
+  // Another tab can change the room's format and take the draft off the list. The room's format then applies.
+  const format = formatChoices.some(choice => choice.value === formatDraft) ? formatDraft : current.id;
   const [bestOf, setBestOf] = useState<string>(String(room.bestOf ?? room.state.match?.bestOf ?? 1));
   const [banlist, setBanlist] = useState(current.settings.banlist);
   const [points, setPoints] = useState(current.settings.genesys?.pointCap ?? 100);
@@ -203,9 +207,9 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
               <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
                 choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
                 onChange={setBestOf} />
-              <SheetSelect label="Duel format" value={format} testId="room-format"
-                choices={REMOTE_FORMATS.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
-                onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} />
+              {formatChoices.length > 1 ? <SheetSelect label="Duel format" value={format} testId="room-format"
+                choices={formatChoices.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
+                onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} /> : null}
               {format.includes("genesys")
                 ? <label><span className={ui.label}>Genesys point cap</span><input className={ui.input} type="number" min={0} max={1000} value={points} onChange={e => setPoints(Number(e.target.value))} /></label>
                 : <SheetSelect label="Banlist" value={banlist} choices={DUEL_BANLIST_OPTIONS.map(item => ({ value: item.id as string, label: item.label }))} onChange={setBanlist} />}

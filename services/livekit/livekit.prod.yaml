@@ -8,8 +8,9 @@ turn:
   enabled: false
 room:
   auto_create: true
-  # 4 seats + 4 phones + 10 spectators (REMOTE_SPECTATOR_CAP). Hidden spectators count here.
-  max_participants: 18
+  # 4 seats + 4 phones + 10 spectators (REMOTE_SPECTATOR_CAP) = 18, the limit the web server keeps to
+  # (REMOTE_ROOM_LIMIT, spectator-server.ts). The 2 extra places mean a player's reconnect wins while a spectator is being removed.
+  max_participants: 20
   empty_timeout: 300
   departure_timeout: 20
 limit:

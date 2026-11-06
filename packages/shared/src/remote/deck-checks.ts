@@ -9,6 +9,8 @@ export const REMOTE_FORMATS = [
   { value: "normal", label: "Advanced" }, { value: "domain", label: "Domain" },
   { value: "genesys", label: "Genesys" }, { value: "genesys-domain", label: "Genesys Domain" },
 ] as const;
+/** The formats a new Remote room may use. Add a value here to open it; every format rule stays in place until then. */
+export const REMOTE_OPEN_FORMATS: readonly string[] = ["normal"];
 /** The same mode, banlist defaults and Genesys normalizer used by ordinary tables. */
 export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown, seatCount:SeatCount=2): RemoteFormat {
   remoteAssert(REMOTE_FORMATS.some(f => f.value === id), "Unknown duel format");

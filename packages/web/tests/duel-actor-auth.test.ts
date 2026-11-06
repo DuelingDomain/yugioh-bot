@@ -293,10 +293,12 @@ describe("remote duel API foundation", () => {
   it("authorizes format/deck setup, rejects foreign decks and blocks invalid ready-up", async () => {
     vi.stubEnv("REMOTE_DUELS","1");
     const { POST } = await import("../app/api/remote/route");
-    const made = await POST(request("",{gameId:"ygo",seatCount:2,format:"domain",solo:true}));
-    expect(made.status).toBe(201);
-    const room = await made.json(); const context = {params:Promise.resolve({slug:room.slug})};
-    expect(room.format.id).toBe("domain");
+    expect((await POST(request("",{gameId:"ygo",seatCount:2,format:"domain",solo:true}))).status).toBe(400);
+    // A Domain room made before the format closed keeps working.
+    const { createRemoteDuelService } = await import("@yugidraft/shared/services");
+    const room = createRemoteDuelService(state.db!,{openFormats:["domain"]}).create({guildId:"guild-1",userId,displayName:"Yugi",gameId:"ygo",seatCount:2,format:"domain",solo:true});
+    const context = {params:Promise.resolve({slug:room.slug})};
+    expect(room.format?.id).toBe("domain");
     const { POST: select } = await import("../app/api/remote/[slug]/deck/route");
     const owned = remoteSavedDeck(userId);
     const foreign = createUserService(state.db!).ensureDiscord({discordUserId:"900000000000000008",displayName:"Guest"}).id;
@@ -309,7 +311,9 @@ describe("remote duel API foundation", () => {
     const { POST: format } = await import("../app/api/remote/[slug]/format/route");
     expect((await format(request("/format",{format:"normal",userId:foreign}),context)).status).toBe(400);
     expect((await format(request("/format",{format:"normal",rules:{banlist:"made-up"}}),context)).status).toBe(400);
+    expect((await format(request("/format",{format:"domain"}),context)).status).toBe(200);
     expect((await format(request("/format",{format:"normal"}),context)).status).toBe(200);
+    expect((await format(request("/format",{format:"domain"}),context)).status).toBe(400);
     expect((await ready(request("/ready",{ready:true}),context)).status).toBe(200);
     state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
     expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
@@ -359,7 +363,7 @@ describe("remote duel API foundation", () => {
 });
 
 describe("remote LiveKit credentials", () => {
-  it("mints short-lived camera/mic/data grants for the stored seat and refuses foreign, absent, ended and idle memberships", async () => {
+  it("mints short-lived camera/data grants for the stored seat and refuses foreign, absent, ended and idle memberships", async () => {
     vi.stubEnv("REMOTE_DUELS", "1");
     vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880");
     vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");
@@ -379,7 +383,7 @@ describe("remote LiveKit credentials", () => {
     expect(claims.sub).toBe(`remote-user-${userId}`);
     expect(JSON.parse(claims.metadata!)).toEqual({ guildId: "guild-1", tableId: room.slug, seat: 0, userId });
     expect(claims.exp! - claims.nbf!).toBeLessThanOrEqual(300);
-    expect(claims.video).toMatchObject({ roomJoin: true, room: `remote-${room.slug}`, canPublish: true, canSubscribe: true, canPublishData: true, canPublishSources: ["camera", "microphone"], canUpdateOwnMetadata: false });
+    expect(claims.video).toMatchObject({ roomJoin: true, room: `remote-${room.slug}`, canPublish: true, canSubscribe: true, canPublishData: true, canPublishSources: ["camera"], canUpdateOwnMetadata: false });
     expect(JSON.stringify(credentials)).not.toContain('"secret"');
     state.auth.mockResolvedValue(null);
     expect((await POST(request(), context)).status).toBe(401);

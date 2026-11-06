@@ -2,14 +2,14 @@ import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteSpectator, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomUUID } from "node:crypto";
-import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
+import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
 import { generateWebSlug } from "../util/web-slug.js";
-import { getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
+import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
 import { ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, validateRemoteSideChange } from "../remote/match.js";
 import type { RemoteBestOf, RemoteMatch } from "../remote/match-contract.js";
@@ -35,8 +35,12 @@ const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempo
     (seats.find(s => s.seat === message.seat)?.displayName ?? "Seat " + (message.seat + 1)) + message.text) } : {}) });
 
 /** All writes serialize through BEGIN IMMEDIATE; a successful return is already committed. */
-export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string } = {}) {
+export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string; openFormats?: readonly string[] } = {}) {
   const deckRules = createRemoteDeckRules(db, options.dataDirectory);
+  const openFormats = options.openFormats ?? REMOTE_OPEN_FORMATS;
+  /** A room can stay on the format it already has. Only a change to a format that is not open is refused. */
+  const assertFormatOpen = (id: unknown, current?: string) =>
+    remoteAssert(id === undefined || id === current || openFormats.includes(id as string), "This duel format is not open for Remote Duels yet");
   const transaction = <T>(work: () => T): T => db.transaction(work).immediate();
   function load(slug: string, guildId: string): Row {
     const row = db.prepare("select *,json_extract(state_json,'$.match.bestOf') as best_of,json_extract(state_json,'$.revealedHand') as revealed_hand from remote_tables where slug=? and guild_id=?").get(slug, guildId) as Row | undefined;
@@ -165,13 +169,14 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const displayName = name(input.displayName);
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
         const slug = generateWebSlug();
+        assertFormatOpen(input.format);
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules,input.seatCount);
         const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
         initial.revealedHand = input.revealedHand ?? "until-played";
         db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility) values(?,?,?,?,'lobby',?,?,?,?,?,?,?,?)")
           // Same default as normal duels: public. A solo test table is always private, as a test duel is.
-          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? "public");
+          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY);
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
         append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
@@ -190,6 +195,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
+        assertFormatOpen(input.format, format(row).id);
         const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules,row.seat_count);
         const state = applyRemoteFormat(readState(row), chosenFormat);
         if (input.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, input.bestOf);
@@ -265,6 +271,19 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(row.visibility === "public" && !row.solo && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS), "Remote table not found", 404, "REMOTE_NOT_FOUND");
       }
       return { slug: row.slug, status: row.status, solo: !!row.solo, lastEventAt: row.last_event_at, seat: seat?.seat ?? null, displayName: seat?.displayName ?? "Spectator" };
+    },
+    /**
+     * Who may hold LiveKit media now, for public tables that are live or ended in the last 15 minutes: the seated users and the live spectator slots.
+     * A private table never has spectators, so it is not here.
+     */
+    mediaRosters(now = Date.now(), slug?: string): { slug: string; seated: number[]; slots: number[] }[] {
+      const rows = db.prepare(`select id,slug,status from remote_tables where solo=0 and visibility='public' and (status!='ended' or ended_at>?)${slug ? " and slug=?" : ""}`)
+        .all(...(slug ? [now - 15 * 60_000, slug] : [now - 15 * 60_000])) as { id: number; slug: string; status: string }[];
+      return rows.map(row => ({
+        slug: row.slug,
+        seated: (db.prepare("select user_id from remote_seats where table_id=?").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
+        slots: row.status === "ended" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id),
+      }));
     },
     list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {
       // "open": what a person can join or watch, as in the normal duel list. A private table is reached only by its invite.
