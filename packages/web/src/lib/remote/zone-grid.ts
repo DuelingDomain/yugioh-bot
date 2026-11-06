@@ -73,6 +73,8 @@ export interface ZoneGridState {
   ownSeat: number | null; format: FieldFormat; calibration?: FieldCalibration;
   /** The own zones were placed on the mat (the shared "calibrated" rule), not only a side saved. */
   placed?: boolean;
+  /** Auto-detect waits for the player to calibrate. False until the saved record has loaded, so a calibrated player sees no flash of the grid. */
+  calibrationNeeded?: boolean;
   /** Side to guess for the own feed until the player confirms one. */
   defaultSide?: PlayerSide;
   tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];
@@ -119,10 +121,10 @@ export function useZoneGrid(): ZoneGridState {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => current, () => empty);
 }
 
-/** "Show zone grid": on by default for the player's own feed, off for opponents, remembered per device. */
+/** "Show zone grid": off by default on every feed, and a choice is remembered per device. Own feeds still draw the grid while the zones need calibration. */
 const prefKey = (own: boolean) => `dd-zone-grid:${own ? "own" : "opponent"}`;
 export function readGridPref(own: boolean): boolean {
-  try { const value = localStorage.getItem(prefKey(own)); return value === null ? own : value === "1"; } catch { return own; }
+  try { return localStorage.getItem(prefKey(own)) === "1"; } catch { return false; }
 }
 export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { ScanLine } from "lucide-react";
-import { useFieldScan } from "@/lib/remote/zone-grid";
+import { useFieldScan, useMissingPiles } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
@@ -10,7 +10,7 @@ import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, typ
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
-import { HandStrip, type HandProps } from "./hand-ui";
+import { HandCount, HandStrip, type HandProps } from "./hand-ui";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -43,7 +43,7 @@ export type SeatPanelProps = {
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
   undo?: SeatUndo;
-  /** The virtual field is hidden. The camera feed takes its space. */ webcamOnly?: boolean;
+  /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
   /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** A camera click on a card the table knows (both views). Webcam only also uses the camera for hover info and piles. Right click or long press opens the card actions (always). Same shapes as on the feed. */
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
@@ -67,7 +67,15 @@ function useFieldView(key: string) {
 export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
   const fieldView = fieldViewPref && !p.webcamOnly;
-  const scan = useFieldScan(p.seat);
+  const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat);
+  // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
+  const targeting = !!p.webcamOnly && p.picking && !p.eliminated;
+  const listed = p.webcamOnly ? (Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).flatMap(([key, cell]) =>
+    cell?.card && !isPile(key) && (!targeting || cell.card.zone === "monster" || cell.card.zone === "extra-monster") ? [{ key, card: cell.card }] : []) : [];
+  const cardList = p.webcamOnly ? <ul className={`${s.wclist} ${targeting ? s.wctargets : ""}`} aria-label={targeting ? `Attack targets on ${p.name}'s field` : `${p.name}'s cards on the field`} data-testid={`wc-cards-${p.seat}`} data-targets={targeting || undefined}>
+    {targeting ? <li className={s.wclab}>{listed.length ? "Attack target:" : "No monsters on this field"}</li> : null}
+    {listed.map(({ key, card }) => <li key={card.ref}><button type="button" onClick={() => { if (targeting) p.onActivate(key, card); else p.onInspect(card); }}>{`${ZN[key]}: ${cardName(card, p.info(cardCode(card)))}`}</button></li>)}
+  </ul> : null;
   // A click on the empty field or its frame enlarges it. Cards, zones that hold a card, buttons and a pending attack pick keep their own click.
   const enlargeFromField = (event: MouseEvent<HTMLElement>) => {
     if (fieldView || p.picking) return;
@@ -95,7 +103,7 @@ export function SeatPanel(p: SeatPanelProps) {
         <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
         <button type="button" onClick={event => p.onPile?.("banished", event.currentTarget)} aria-label={`${p.name} Banished: ${banished} cards. Open`}>BAN <b className={s.num}>{banished}</b></button>
       </span> : null}
-      {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
+      {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
@@ -104,8 +112,8 @@ export function SeatPanel(p: SeatPanelProps) {
         title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
         <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
       {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
-        title={p.webcamOnly ? "Show the virtual fields again (W)" : "Hide the virtual fields. The camera takes the screen (W)"}>
-        {p.webcamOnly ? "Show virtual field" : "Hide virtual field"} <kbd>W</kbd></button> : null}
+        title={p.webcamOnly ? "Show the virtual fields (beta) (W). Card recognition does not need them." : "Hide the virtual fields (beta). The camera takes the screen (W)"}>
+        <span>{p.webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button> : null}
       {p.webcamOnly ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat}
@@ -119,6 +127,8 @@ export function SeatPanel(p: SeatPanelProps) {
         below={p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
+          {targeting ? cardList : null}
+          {p.webcamOnly && missingPiles.length ? <div className={s.wcoffmat} role="status" data-testid={`wc-off-mat-${p.seat}`}>{`${missingPiles.map(zone => zone === "DECK" ? "Deck" : "Extra Deck").join(" and ")} not on the mat`}</div> : null}
           {p.webcamOnly && p.hand ? <HandStrip seat={p.seat} name={p.name} hand={{ ...p.hand, overlay: true }} /> : null}
           <div className={s.fz} aria-live="off">FEED FROZEN<small>Last good frame shown</small></div>
           <div className={`${s.dwarn} ${p.deckWarning ? s.on : ""}`} data-testid="deck-warning" role={p.deckWarning ? "status" : undefined}>
@@ -127,10 +137,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
-        {p.webcamOnly ? <ul className={s.wclist} aria-label={`${p.name}'s cards on the field`} data-testid={`wc-cards-${p.seat}`}>
-          {(Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).filter(([key, cell]) => cell?.card && !isPile(key)).map(([key, cell]) =>
-            <li key={cell!.card!.ref}><button type="button" onClick={() => p.onInspect(cell!.card!)}>{`${ZN[key]}: ${cardName(cell!.card!, p.info(cardCode(cell!.card!)))}`}</button></li>)}
-        </ul> : null}
+        {targeting ? null : cardList}
         <div className={s.fboard}>
         {scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
           title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
@@ -147,7 +154,7 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.projector} />
         </div>
         </div>
-        {!p.webcamOnly && p.hand ? <HandStrip seat={p.seat} name={p.name} hand={p.hand} /> : null}
+        {p.hand ? (p.webcamOnly ? <HandCount seat={p.seat} hand={p.hand} /> : <HandStrip seat={p.seat} name={p.name} hand={p.hand} />) : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>

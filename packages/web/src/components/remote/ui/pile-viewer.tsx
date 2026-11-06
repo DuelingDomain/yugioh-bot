@@ -21,7 +21,8 @@ export const pileCards = (twin: readonly TwinCard[], zone: PileZone): TwinCard[]
  * The owner sees the name of a face-down banished card; the others get a card back (the server never sends them the name).
  * The owner can drag a card from the pile to a zone of the field, or to the hand chip, with the same rules as the field.
  */
-export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: dnd, onOpenCard, onOrder, onName, onRemove, onClose }: {
+export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, onZone, info, drag: dnd, onOpenCard, onOrder, onName, onRemove, onClose }: {
+  /** The virtual field of this seat is hidden: only the hand is a drop target. */ fieldHidden?: boolean;
   seat: number; name: string; mine: boolean; twin: readonly TwinCard[]; zone: PileZone; onZone: (zone: PileZone) => void;
   info: (id: number | undefined) => CardInfo | undefined; drag?: FieldDrag;
   /** Opens the card popup (text, stats and the move buttons) beside the tile. */
@@ -150,7 +151,7 @@ export function PileViewer({ seat, name, mine, twin, zone, onZone, info, drag: d
         <p className={s.dmeta}>Selected: card {at + 1} of {cards.length}</p>
         <NameIt key={previewCard!.ref} onName={(id, nm) => onName!(previewCard!, id, nm)} onRemove={onRemove ? () => onRemove(previewCard!) : undefined} />
       </div> : null}
-      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{onOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? ", drag a card to the field or hand to bring it back" : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
+      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{onOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? `, drag a card to ${fieldHidden ? "the hand" : "the field or hand"} to bring it back` : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
     </div>
     {dnd ? <div className={s.pileHand} data-hand-drop data-testid="pile-hand-drop" aria-hidden="true"><Icon name="hand" />Drop here: to hand</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}

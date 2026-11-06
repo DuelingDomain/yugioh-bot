@@ -825,11 +825,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const gridFormat=room.format?.id??room.state.deckChecks.format.id;
   const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
   useEffect(()=>{
-    publishZoneGrid({ownSeat:seat,format:gridFormat,calibration:watch.calibration,placed:watch.placed,defaultSide:defaultSideFor(phone?'phone':'webcam'),setCalibration:updateCalibration,calibrate:()=>{if(host?.querySelector('video')?.videoWidth)setCalibrating(true);},
+    publishZoneGrid({ownSeat:seat,format:gridFormat,calibration:watch.calibration,placed:watch.placed,calibrationNeeded:watch.calibrationNeeded,defaultSide:defaultSideFor(phone?'phone':'webcam'),setCalibration:updateCalibration,calibrate:()=>{if(host?.querySelector('video')?.videoWidth)setCalibrating(true);},
       tracks:watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>({id:t.id,zone:t.zone,quad:t.card.quad}))});
     // The key stands for the visible cards without republishing on every sample.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[seat,gridFormat,phone,watch.calibration,watch.placed,updateCalibration,gridKey,host,watch.snapshot.tracks.length]);
+  },[seat,gridFormat,phone,watch.calibration,watch.placed,watch.calibrationNeeded,updateCalibration,gridKey,host,watch.snapshot.tracks.length]);
   useEffect(()=>clearZoneGrid,[]);
   // Zone rules (docs/remote-duels/zone-rules.md). Only HARD rules move a card the
   // camera placed: a Field Spell goes to the Field Zone, a Link Monster to the
