@@ -71,16 +71,17 @@ describe("DashboardPage", () => {
     within(standing).getByText("Silver");
     within(standing).getByText("1000");
     expect(readout("Record")).toHaveTextContent("0–0");
-    await screen.findByRole("link", { name: "Challenge someone" });
+    await screen.findByRole("link", { name: "New draft" });
+    expect(screen.queryByRole("link", { name: "Challenge someone" })).not.toBeInTheDocument();
   });
 
   it("shows the same new-player view for a player row with no matches and nothing joined", async () => {
     db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
     const { container } = render(await DashboardPage());
     screen.getByRole("heading", { name: "Your first match puts you on the board" });
-    const primary = await screen.findByRole("link", { name: "Challenge someone" });
+    const primary = await screen.findByRole("link", { name: "New draft" });
     expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
-    expect(primary).toHaveAttribute("href", "/duels/new?challenge=1");
+    expect(primary).toHaveAttribute("href", "/drafts/new");
   });
 
   it("leads the new-player view with what is open, each row linking to its slug", async () => {
