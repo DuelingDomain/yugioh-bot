@@ -910,6 +910,8 @@
 .dglab{display:block;margin-bottom:4px;font:700 10px/12px var(--font-duel-ui),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
 .dgrow{display:flex;flex-wrap:wrap;gap:4px}
 .dgbreak{flex-basis:100%;height:0}
+.dgrow .btn:disabled{opacity:.5;cursor:default;border-color:var(--line2)}
+@media (pointer:coarse){.dgrow .btn.sm,.bbar .btn.sm{height:32px}}
 .btn.dremove{margin-left:auto;color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
 .btn.dremove:hover{border-color:var(--bad,#e5484d)}
 /* Short laptop screens: the art sits beside the name, so the controls fit with no scroll. */

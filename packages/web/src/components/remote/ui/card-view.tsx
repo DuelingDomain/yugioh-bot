@@ -102,19 +102,23 @@ function Group({ label, testid, children }: { label: string; testid?: string; ch
   </div>;
 }
 
+function ZoneCheck({ reason }: { reason: string }) {
+  return <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {reason} The card stays here; move it if the zone is wrong.</p>;
+}
+
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   const addToDeck = subject.notInDecklist === true && a.canAdd;
   const edit = a.edit;
   return <div className={s.dact}>
     {a.materials?.length ? <MaterialList items={a.materials} /> : null}
-    {a.zoneCheck ? <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {a.zoneCheck} The card stays here; move it if the zone is wrong.</p> : null}
-    {addToDeck || a.onActivate || a.onAddToHand || a.onReveal || a.canAttack ? <Group label="Actions">
+    {a.zoneCheck ? <ZoneCheck reason={a.zoneCheck} /> : null}
+    <Group label="Actions">
       {addToDeck ? <button type="button" className={BTN} disabled={a.adding} onClick={a.onAdd}>Add to decklist</button> : null}
       {a.onActivate ? <button type="button" className={BTN} onClick={a.onActivate}>Activate</button> : null}
       {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
       {a.onReveal ? <button type="button" className={BTN} onClick={a.onReveal}>Reveal card</button> : null}
-      {a.canAttack ? <button type="button" className={BTN} onClick={a.onAttack} title={a.attackHint}>Attack from here</button> : null}
-    </Group> : null}
+      <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
+    </Group>
     {edit ? <MoveGroup edit={edit} /> : null}
     <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
@@ -161,9 +165,11 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
           <TierChip tier={subject.tier} />
           {subject.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
           <DeckBadges subject={subject} warning={warning} />
+          {viewOnly && actions.materials?.length ? <span className={s.tier} data-testid="card-material-count">{actions.materials.length} material{actions.materials.length === 1 ? "" : "s"}</span> : null}
         </div>
       </CardText>
-      {!viewOnly && subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
+      {subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
+      {viewOnly && actions.zoneCheck ? <ZoneCheck reason={actions.zoneCheck} /> : null}
     </div>
     <div className={s.bbar} data-testid="card-popover-footer">
       {viewOnly ? <>
