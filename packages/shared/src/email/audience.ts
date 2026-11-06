@@ -50,9 +50,11 @@ export async function discoverEmailAudience(db: Database.Database, clerk: Audien
   }
   // Local historical signups may predate Clerk's waitlist. Clerk candidates retain priority.
   for (const entry of db.prepare<[], { id: number; email: string }>("select id,email from waitlist_signups").all()) {
-    const key = recipientKey(db, entry.email);
+    const email = normalizeJoinEmail(entry.email);
+    if (!email) { exclude("invalid_email"); continue; }
+    const key = recipientKey(db, email);
     if (key && candidates.has(key)) continue;
-    add(entry.email, "waitlist", `signup/${entry.id}`);
+    add(email, "waitlist", `signup/${entry.id}`);
   }
   const recipients: EmailRecipient[] = [];
   // All Clerk calls and validation finish before this single write transaction. Repeated discovery is idempotent.

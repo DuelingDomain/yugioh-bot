@@ -464,3 +464,39 @@ it("adds safe_rejections to an existing outbox and preserves counts on repeated 
     expect(db.prepare("select safe_rejections from release_email_deliveries").get()).toEqual({ safe_rejections: 3 });
   } finally { db.close(); }
 });
+
+it.each(["x,a@b.com", "y,a@b.com", "z<a@b.com", "Name <a@b.com>", "a@b.com,b@b.com", "Group:a@b.com;"])("rejects ambiguous recipient %s before SMTP transport", async address => {
+  const { createSmtpProvider } = await import("../src/email/provider.js");
+  const sendMail = vi.fn(async () => ({ messageId: "must-not-send" }));
+  const provider = createSmtpProvider({ host: "fake", user: "fake", password: "fake", transport: { sendMail, close: () => {} } });
+  await expect(provider.send(JSON.stringify({ to: [address] }))).rejects.toMatchObject({ code: "rejected", permanent: true });
+  expect(sendMail).not.toHaveBeenCalled();
+});
+
+it("restricts public join addresses to dot-separated RFC atoms", async () => {
+  const { normalizeJoinEmail } = await import("../src/util/join-email.js");
+  for (const address of ["x,a@b.com", "y,a@b.com", "z<a@b.com", "a>@b.com", '"a"@b.com', "a(comment)@b.com", ".a@b.com", "a.@b.com", "a..b@b.com", "é@b.com"]) {
+    expect(normalizeJoinEmail(address), address).toBeNull();
+  }
+  expect(normalizeJoinEmail(" O'Hara+news.tag@BÜCHER.TEST ")).toBe("o'hara+news.tag@xn--bcher-kva.test");
+  expect(normalizeJoinEmail("az09!#$%&'*+-/=?^_`{|}~.atom@example.test")).toBe("az09!#$%&'*+-/=?^_`{|}~.atom@example.test");
+});
+
+it("excludes malformed historical and Clerk recipients even when they parse as an unsubscribed inbox", async () => {
+  const { db, email, clerk } = await queuedRecipients(1);
+  try {
+    for (const address of ["victim@example.test", "x,victim@example.test", "y,victim@example.test", "z<victim@example.test"]) {
+      db.prepare("insert into waitlist_signups(email,created_at,source) values(?,'2026-11-05','fixture')").run(address);
+    }
+    email.unsubscribeByToken(db, email.unsubscribeToken(db, "victim@example.test"));
+    const audience = await email.discoverEmailAudience(db, { ...clerk,
+      listAllUsers: async () => [{ id: "invalid-user", primary_email_address_id: "e", email_addresses: [
+        { id: "e", email_address: "u,victim@example.test", verification: { status: "verified" } },
+      ] } as ClerkUserJson],
+      listAllInvitations: async () => [{ id: "invalid-invite", email_address: "i,victim@example.test", status: "pending" }],
+      listAllWaitlistEntries: async status => status === "pending" ? [{ id: "invalid-waitlist", email_address: "w,victim@example.test", status: "pending" }] : [],
+    });
+    expect(audience.recipients.map(recipient => recipient.email)).toEqual(["recipient1@example.test"]);
+    expect(audience.counts.excluded).toEqual(expect.arrayContaining([{ reason: "invalid_email", count: 6 }, { reason: "suppressed", count: 1 }]));
+  } finally { db.close(); }
+});

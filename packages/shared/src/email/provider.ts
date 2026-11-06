@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import addressparser from "nodemailer/lib/addressparser";
 import type { EmailMessage } from "./render.js";
 
 export class EmailProviderError extends Error {
@@ -54,6 +55,8 @@ export function createSmtpProvider(options: { host: string; user: string; passwo
       const message = JSON.parse(body) as EmailMessage;
       // Copy only rendered fields: no CC/BCC, attachments, provider tags or Sent-folder/IMAP writes.
       if (message.to.length !== 1) throw new EmailProviderError("rejected", true);
+      const recipients = addressparser(message.to[0]);
+      if (recipients.length !== 1 || recipients[0].address !== message.to[0]) throw new EmailProviderError("rejected", true);
       try {
         const result = await transport.sendMail({ from: message.from, to: message.to, replyTo: message.reply_to,
           subject: message.subject, html: message.html, text: message.text, headers: message.headers });
