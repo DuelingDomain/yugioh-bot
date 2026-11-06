@@ -88,7 +88,7 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
 export interface FieldTrack {
   id:string; revision?:number; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
   state:'candidate'|'identified'|'prompt'|'dismissed'; bestMatch?:boolean; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
-  /** Id of the track whose card lies on top of this one (hidden, kept on the field). */ under?:string; /** Since when this outline rests still on the mat plane with no hand on it (watcher clock). Absent while it moves or has no box. */ restSince?:number;
+  /** Id of the track whose card lies on top of this one (hidden, kept on the field). */ under?:string; /** Since when this outline rests still on the mat plane with no hand on it (watcher clock). Absent while it moves or has no box. */ restSince?:number; /** The latest clean crop of this box shows a back in its pixels. */ pixelsDown?:boolean;
 }
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
 export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number> }
@@ -157,6 +157,17 @@ const sleeveOnMat=(inside?:number[],halo?:number[])=>{
   if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
   const a=medianColour(inside),b=medianColour(halo);return (Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2]))/3>=PILE_SLEEVE_GAP;
 };
+/** A box under .4 is a back only as a plain sleeve: one colour over most of it (glare on art, an arm or a dark object do not qualify when
+ * they are not flat), clearly unlike the mat around it. Under .25 also a light one: the score that low comes from white sleeves only. */
+const WEAK_BACK_REST_MS=800,WEAK_SLEEVE_GAP=.15,WEAK_SLEEVE_FLAT=.85,WEAK_SLEEVE_NEAR=.12,WEAK_SLEEVE_LIGHT=.5;
+const plainSleeve=(inside:number[]|undefined,halo:number[]|undefined,score:number)=>{
+  if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
+  const a=medianColour(inside),b=medianColour(halo);
+  if((Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2]))/3<WEAK_SLEEVE_GAP)return false;
+  if(score<.25&&(a[0]+a[1]+a[2])/3<WEAK_SLEEVE_LIGHT)return false;
+  let near=0;for(let i=0;i<inside.length;i+=3)if(Math.max(Math.abs(inside[i]-a[0]),Math.abs(inside[i+1]-a[1]),Math.abs(inside[i+2]-a[2]))<=WEAK_SLEEVE_NEAR)near++;
+  return near*3/inside.length>=WEAK_SLEEVE_FLAT;
+};
 const publicPile=(zone:string):zone is 'GY'|'BANISHED'=>zone==='GY'||zone==='BANISHED';
 const fieldSlot=(zone:string)=>/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone);
 const fieldZoneName=(zone:string)=>/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone);
@@ -178,7 +189,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined,lastReadHeld=false;
   /** Scan field: full passes still to run before the sweep, the pile outlines they saw, and when the last sweep finished. */
-  let scanSweep=0,lastScanAt=-Infinity,lastScanBacks:FieldZone[]=[];const scanBacks=new Set<FieldZone>();const scanPiles=new Map<'DECK'|'EXTRA',DetectedQuad>();
+  let scanSweep=0,lastScanAt=-Infinity,lastScanBacks:FieldZone[]=[];const scanBacks=new Map<FieldZone,number>();const scanPiles=new Map<'DECK'|'EXTRA',DetectedQuad>();
   let scanRequested=false,recentMotion:{region:FractionalBox;at:number;since:number}|undefined,lastFullDetectionAt=-Infinity,deckTouchedAt=-Infinity,extraTouchedAt=-Infinity;
   const pileTouches=new Map<FieldZone,number>(),pileDepartures=new Set<string>();
   /** GY/banished cells that show the empty mat (sharp, no hand, no card that still looks like itself), since when. Scan field: the pile cells its passes saw an outline in. */
@@ -958,16 +969,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // Deck/Extra piles follow the same two passes: a stack outline puts the pile on the board, an empty cell takes it off.
       if(detectorRan&&!region&&scanSweep>0){
         for(const [t,c] of matched)if(planeVerdict(c).ok||!!t.restQuad&&!c.kept&&!c.cell)t.scanHit=true;
-        // A back in a field zone is evidence for the board's face check, unless a front in that zone still looks like itself.
+        // A back in a field zone is evidence for the board's face check when both passes show it, unless a front in that zone still looks like itself.
+        const backsNow=new Set<FieldZone>();
         for(const c of cards){
-          if(c.kind!=='face-down'||c.partial||c.covered||!planeVerdict(c).ok||evidence.motion(c)>.025||handNear(evidence,c)||!cardAspect(c))continue;
+          if(c.kind!=='face-down'||c.partial||c.covered||!planeVerdict(c).ok||evidence.motion(c)>.025||handNear(evidence,c)||removalHold(c)||!cardAspect(c))continue;
           const zone=mapFieldZone(c,calibration,cards,options.format).zone,look=evidence.appearance?.(c);
-          if(!fieldSlot(zone)||cellEmpty(evidence,zone)||!sleeveOnMat(look,evidence.halo?.(c)))continue;
+          if(!fieldSlot(zone)||cellEmpty(evidence,zone)||!(c.confidence>=.4?sleeveOnMat(look,evidence.halo?.(c)):plainSleeve(look,evidence.halo?.(c),c.confidence)))continue;
           const crop=evidence.crop?.(c);if(crop&&classifyFaceState(crop,{detectorFaceDownScore:c.confidence}).state==='up')continue;
-          if(!tracks.some(t=>!t.view.removed&&t.view.zone===zone&&!t.view.faceDown&&bound(t)&&matchesLook(t,look)))scanBacks.add(zone);
+          if(!tracks.some(t=>!t.view.removed&&t.view.zone===zone&&!t.view.faceDown&&bound(t)&&matchesLook(t,look)))backsNow.add(zone);
         }
+        for(const zone of backsNow)scanBacks.set(zone,(scanBacks.get(zone)??0)+1);
         if(--scanSweep===0){
-          lastScanAt=sample.at;lastScanBacks=[...scanBacks];scanBacks.clear();
+          lastScanAt=sample.at;lastScanBacks=[...scanBacks].filter(([,passes])=>passes>=2).map(([zone])=>zone);scanBacks.clear();
           for(const t of [...tracks]){
             if(t.view.removed||t.scanHit||t.under||!fieldZone(t.view.zone))continue;
             const phantom=!plausible(t)&&!t.restQuad,spot=plausible(t)?t.view.card:t.restQuad??t.view.card,box=cellOf(t.view.zone);
@@ -1007,7 +1020,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!c) {
           t.previewEligible=false;
           resetFace(t);
-          t.view.visible=false;delete t.view.restSince;
+          t.view.visible=false;delete t.view.restSince;delete t.view.pixelsDown;
           invalidateRead(t);
           t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;if(!t.view.removed&&detectorRan)note(t,'no detector outline this scan');
           // Under: no outline of its own, and the outline of another live card lies over its spot. Kept, hidden, never sent to the hand.
@@ -1098,8 +1111,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if((t.view.state==='candidate'||t.view.faceDown!==(c.kind==='face-down')||bound(t)&&!matchesLook(t,pixels))&&c.confidence>=.4&&!c.partial&&!c.covered&&!blocks(t,c)&&!isCovered(c,cards)){faceState.transitionAt??=sample.at;faceState.outlineAppearance=pixels;}
         // Bound cards need fresh face pixels in either direction, even when a
         // plain sleeve has a weak/wrong detector class. New fronts keep .7.
-        // A weak back (a white sleeve can score .20) counts too once it rests on the mat and its sleeve differs from the mat.
-        const weakBack=c.kind==='face-down'&&!!t.rest?.ok&&!c.partial&&cardAspect(c)&&!cellEmpty(evidence,t.view.zone)&&sleeveOnMat(pixels,evidence.halo?.(c));
+        // A weak back (a white sleeve can score .20) counts too: a plain sleeve at rest for a while, with no hand, blur or moving shadow on it.
+        const weakBack=c.kind==='face-down'&&!!t.rest?.ok&&sample.at-(t.rest.since??sample.at)>=WEAK_BACK_REST_MS&&!c.partial&&cardAspect(c)&&!handNear(evidence,c)&&!removalHold(c)&&!cellEmpty(evidence,t.view.zone)&&plainSleeve(pixels,evidence.halo?.(c),c.confidence);
         const boundOutline=(c.confidence>=.4||weakBack)&&cardAspect(c)&&!!(t.setRecovery||t.binding?.faceDown||bound(t));
         // A new front needs only a still art window, not N stable detector passes.
         const freshFront=t.view.state==='candidate'&&c.kind==='face-up'&&!c.partial&&!c.covered&&!isCovered(c,cards)&&(c.confidence>=.7||frontOutline(c))&&artStill(t,c);
@@ -1108,6 +1121,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           !cards.some(other=>other!==c&&quadIou(c,other)>.1)&&evidence.motion(c)<=.06&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
         const crop=faceClean?evidence.crop?.(c):undefined;
         let observation=crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
+        if(observation.state==='down')t.view.pixelsDown=true;else delete t.view.pixelsDown;
         // Coloured light can leave the pixel classifier undecided on a real
         // front. A steady, confident detector front then overrides a stale
         // face-down state; a confident pixel back still keeps the Set.
@@ -1157,7 +1171,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // Nor on a back: a still face-down outline whose pixels stay undecided (a plain white sleeve) for 600 ms is a
         // Set. On a known face-up card whose own look is gone, that is a flip in place (identity kept privately).
         const backCase=c.kind==='face-down'&&cardAspect(c)&&!c.partial&&!c.covered&&!blocks(t,c)&&!isCovered(c,cards)&&evidence.motion(c)<=.025&&observation.state!=='up'&&
-          (bound(t)&&!t.view.faceDown&&(c.confidence>=.25||weakBack)&&!matchesLook(t,pixels)||t.view.state==='candidate'&&!t.binding&&!t.prompted&&backOutline(c)&&fieldSlot(t.view.zone));
+          (bound(t)&&!t.view.faceDown&&(c.confidence>=.25||weakBack)&&!handNear(evidence,c)&&!removalHold(c)&&!matchesLook(t,pixels)||t.view.state==='candidate'&&!t.binding&&!t.prompted&&backOutline(c)&&fieldSlot(t.view.zone));
         if(face.state==='unknown'&&backCase){
           t.backWaitAt??=sample.at;if(sample.at-t.backWaitAt>=600){face={state:'down',confidence:Math.max(.8,c.confidence)};note(t,`face gate timed out after ${Math.round(sample.at-t.backWaitAt)} ms; detector back ${c.confidence.toFixed(2)}`);}
         }else t.backWaitAt=undefined;

@@ -1196,9 +1196,19 @@ test('a weak white back resting on the mat turns a bound front down; a weak box 
  assert.equal(seen.faceDown,true);assert.equal(seen.visible,true,'a resting weak back is not hidden');assert.equal(typeof seen.restSince,'number');
  r.watcher.scanNow();for(let i=0;i<6;i++)await r.tick(100);
  assert.deepEqual(r.watcher.getSnapshot().lastScanBacks,[flip.track.zone]);r.watcher.dispose();
- const {r:left}=await placed();left.appearanceAt=()=>mat;
- for(let i=0;i<20;i++)await left.tick(100);
- assert.equal(left.events.some(e=>e.type==='flipped'),false,'plain mat under a weak box is no back');left.watcher.dispose();
+ // A back in one Scan pass only is not evidence.
+ const once=(await placed()).r;once.appearanceAt=()=>sleeve;for(let i=0;i<20;i++)await once.tick(100);
+ once.watcher.scanNow();const box=[{...front,kind:'face-down' as const,confidence:.2,cell:true}];
+ for(let i=0;i<6;i++){once.outlines=i===0?box:[];await once.tick(100);}
+ assert.deepEqual(once.watcher.getSnapshot().lastScanBacks??[],[]);once.watcher.dispose();
+ // None of these is a back: a weak box over plain mat, glare on a third of the art, a flat dark object, a printed mat with no empty
+ // baseline, a hand beside the sleeve, a moving shadow over it.
+ const glare=art.map((v,i)=>Math.floor(Math.floor(i/3)/8)<4?.97:v);
+ for(const [name,look,extra] of [['plain mat',mat],['glare',glare],['flat dark object',Array(288).fill(.45)],['printed mat',Array(288).fill(.3)],['hand near',sleeve,(x:ReturnType<typeof fieldRig>)=>{x.skinNearAt=()=>.2;}],['moving shadow',sleeve,(x:ReturnType<typeof fieldRig>)=>{x.shadow={share:.4,changed:.4};}]] as const){
+  const {r:other}=await placed();other.appearanceAt=()=>look as number[];extra?.(other);
+  for(let i=0;i<25;i++)await other.tick(100);
+  assert.equal(other.events.some(e=>e.type==='flipped'),false,name);other.watcher.dispose();
+ }
 });
 
 // Owner S3: a clear white face-down card on the dark mat got no box (the detector scores light sleeves .3-.45,

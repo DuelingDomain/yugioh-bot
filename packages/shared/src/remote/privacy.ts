@@ -20,7 +20,7 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
     if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
   }
   for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
-    delete card.cardId; delete card.passcode; delete card.name; delete card.race;
+    delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch;
   }
   if(next.effectTracking) {
     next.effectTracking.contexts=Object.fromEntries(Object.entries(next.effectTracking.contexts).filter(([seat])=>seats.has(Number(seat))));

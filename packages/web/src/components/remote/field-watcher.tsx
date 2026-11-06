@@ -6,7 +6,8 @@ import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEven
 import {remoteHandReadDecision,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
-import {FIELD_FACE_WAIT_MS,fieldFaceProposal,fieldFaceWitness,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
@@ -153,10 +154,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** The player's Undo owns the cards it touched: the camera does not redo the change until the real card moves. */
   /** Refs the player brought back with Undo while the camera shows no card: only Scan field removes them again. */
   const undoKept=useRef(new Set<string>());
-  /** Refs whose face the player set (flip, Undo), with the face the camera showed then: the board keeps it until the real card turns. Only Scan field overrules. */
-  const faceKept=useRef(new Map<string,boolean|undefined>());
-  useEffect(()=>{undoKept.current.clear();faceKept.current.clear();},[room.slug,seat]);
-  const holdFace=(ref:string)=>{const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);faceKept.current.set(ref,track&&!track.removed?track.faceDown:undefined);};
+  /** The face check. It also keeps the refs whose face the player set (flip, Undo): the board keeps that face until the real card turns. Only Scan field overrules. */
+  const face=useRef(createFieldFaceCheck());
+  useEffect(()=>{undoKept.current.clear();face.current.clear();},[room.slug,seat]);
+  const holdFace=(ref:string)=>{const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);face.current.hold(ref,track&&!track.removed?track.faceDown:undefined);};
   const holdForPlayer=(ref:string)=>{
     holdFace(ref);
     const id=[...bindings.current.entries()].find(([,bound])=>bound===ref)?.[0]??ref,track=watch.getTrack(id);
@@ -422,7 +423,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       let updated:RemoteRoom|null=null;
       const originReturn=!!existing&&['deck','hand','extra','graveyard','banished'].includes(existing.zone)&&existing.zone!==location.zone;
       const atomicReveal=!!existing&&!originReturn&&!existing.faceUp&&!track.faceDown&&!!entry;
-      if(existing&&!originReturn&&existing.faceUp===track.faceDown){updated=await mutate({type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;}
+      if(existing&&!originReturn&&existing.faceUp===track.faceDown){
+        // No write now: the card is in its quiet time, or an Xyz Monster with no clear back. The face check comes back to it.
+        if(!chosen&&!face.current.allows(existing.ref,performance.now())||track.faceDown&&existing.materials?.length&&!fieldStrongBack(track))return;
+        updated=await mutate({type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;
+        face.current.flipped(existing.ref,performance.now());
+      }
       // The resolver has just required a distinct, same-frame witness for every
       // existing copy. Undo's clock estimate rounds HTTP Date up; evidence must
       // use its lower bound so the server never sees a future camera sample.
@@ -867,56 +873,30 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const fixFailed=(key:string,error:unknown)=>{console.info('[remote field] re-sync write skipped',key,error instanceof Error?error.message:error);const seen=resynced.current.get(key);if(seen&&++seen.fails<3)seen.board='';};
   // Face check. A flip event fires once, on the change, and is dropped if its card stays out of sight during the retries. So the
   // board follows the track's face itself, whichever path caused the difference: after 600 ms of still frames, one flip action,
-  // no notice. The player's own flip or Undo holds until the real card turns; Scan field overrules that and does not wait.
-  const faceSeen=useRef(new Map<string,number>()),faceBusy=useRef(false);
-  useEffect(()=>{faceSeen.current.clear();},[room.slug,seat]);
+  // no notice. The rules are in field-face.ts. Holds are in memory: after a reload the board follows the camera again.
+  const faceBusy=useRef(false);
   const faceFixes=(at:number,scan:boolean)=>{
-    const twins=current.current.room.state.seats[seat].twin,all=watch.getTracks(),reading=new Set(placeholders.current.values()),fixes:{track:FieldTrack;card:TwinCard}[]=[];
-    const refOf=(t:FieldTrack)=>bindings.current.get(t.id)??t.id;
-    for(const t of all){
-      if(!fieldFaceWitness(t,at))continue;
-      // Its bound card, or the card in its zone that no other live track owns.
-      const card=twins.find(c=>c.ref===refOf(t)&&publicField(c.zone))??twins.find(c=>publicField(c.zone)&&knownZone(c)===t.zone&&!all.some(o=>o!==t&&!o.removed&&refOf(o)===c.ref));
-      if(!card||reading.has(card.ref)||heldStacks.current.has(card.ref))continue;
-      if(card.faceUp!==t.faceDown){faceSeen.current.delete(card.ref);faceKept.current.delete(card.ref);resynced.current.delete(`flip:${card.ref}:true`);resynced.current.delete(`flip:${card.ref}:false`);continue;}
-      const seen=faceSeen.current.get(card.ref)??at;faceSeen.current.set(card.ref,seen);
-      if(scan)faceKept.current.delete(card.ref);
-      else{
-        if(faceKept.current.has(card.ref)){
-          const held=faceKept.current.get(card.ref);
-          if(held===undefined){faceKept.current.set(card.ref,t.faceDown);continue;}
-          if(held===t.faceDown)continue;
-          faceKept.current.delete(card.ref);
-        }
-        if(at-Math.max(seen,t.restSince!)<FIELD_FACE_WAIT_MS)continue;
-      }
-      fixes.push({track:t,card});
-    }
-    return fixes;
+    const reading=new Set(placeholders.current.values());
+    return face.current.due({at,scan,seat,tracks:watch.getTracks(),twins:current.current.room.state.seats[seat].twin,refOf:t=>bindings.current.get(t.id)??t.id,skip:ref=>reading.has(ref)||heldStacks.current.has(ref),
+      identity:t=>{const entry=t.cardId?entries.current.get(t.cardId):undefined,code=entry&&catalogCardId(entry);return code?{cardId:code,name:entry!.name}:undefined;}});
   };
-  const flipFace=async(act:RoomMutation,track:FieldTrack,card:TwinCard)=>{
-    const entry=track.cardId?entries.current.get(track.cardId):undefined,code=entry&&catalogCardId(entry);
-    const proposal=fieldFaceProposal(card,track,seat,code?{cardId:code,name:entry!.name}:undefined);if(!proposal)return null;
-    const updated=await act(proposal);if(!updated)return updated;
-    bindings.current.set(track.id,card.ref);
-    if(track.id!==card.ref||!track.faceDown)watch.confirm(track.id,track.faceDown?undefined:track.cardId,card.ref,false);
+  const flipFace=async(act:RoomMutation,{track,card,proposal}:FieldFaceFix)=>{
+    const updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,proposal);if(!updated)return updated;
+    if(card.faceUp===track.faceDown)face.current.flipped(card.ref,performance.now());
+    if(!track.faceDown)watch.confirm(track.id,track.cardId,card.ref,false);
     rememberPhysical(card.ref,track.zone);
     return updated;
   };
   const faceCheck=useRef<()=>void>(()=>undefined);
   faceCheck.current=()=>{
     if(faceBusy.current||!live()||calibrationBusy.current||document.hidden)return;
-    const fixes=faceFixes(performance.now(),false).filter(({track,card})=>tryFix(`flip:${card.ref}:${track.faceDown}`));
-    if(!fixes.length)return;
+    const fixes=faceFixes(performance.now(),false);if(!fixes.length)return;
     faceBusy.current=true;
     void queue(async act=>{
       for(const {card:{ref}} of fixes){
         // Earlier work in the queue may have settled it already.
-        const fix=faceFixes(performance.now(),false).find(f=>f.card.ref===ref),key=fixes.find(f=>f.card.ref===ref)!;
-        const tried=`flip:${ref}:${key.track.faceDown}`;
-        // Nothing saved on this board state: the next check may try again.
-        if(!fix){resynced.current.delete(tried);continue;}
-        try{if(!await flipFace(act,fix.track,fix.card))resynced.current.delete(tried);}catch(error){fixFailed(tried,error);}
+        const fix=faceFixes(performance.now(),false).find(f=>f.card.ref===ref);if(!fix)continue;
+        try{await flipFace(act,fix);}catch(error){console.info('[remote field] face check write failed',ref,error instanceof Error?error.message:error);face.current.failed(ref,performance.now());}
       }
     },undefined,false,true).finally(()=>{faceBusy.current=false;});
   };
@@ -932,16 +912,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         try{const updated=await act(proposal);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}return updated;}catch(error){fixFailed(key,error);}
       };
       // Scan field: every board card with a track or a resting back of the other face in its zone turns over (never removed, never to the hand).
+      // A back seen in both passes beats a track that still says up: such a card is never turned up first, and the face check leaves it until that track turns.
       if(manualScan){
-        for(const {track,card} of faceFixes(performance.now(),true)){
-          const key=`flip:${card.ref}:${track.faceDown}`;
-          try{const updated=await flipFace(act,track,card);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}}catch(error){fixFailed(key,error);}
+        const backs=snap.lastScanBacks??[];
+        for(const fix of faceFixes(performance.now(),true)){
+          if(!fix.track.faceDown&&backs.includes(fix.track.zone)){holdFace(fix.card.ref);continue;}
+          try{const updated=await flipFace(act,fix);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}}catch(error){console.info('[remote field] face write failed',fix.card.ref,error instanceof Error?error.message:error);}
         }
-        for(const zone of snap.lastScanBacks??[]){
-          const card=current.current.room.state.seats[seat].twin.find(c=>c.faceUp&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
+        for(const zone of backs){
+          const card=current.current.room.state.seats[seat].twin.find(c=>(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
           const proposal=fieldFaceProposal(card,{faceDown:true,position:'attack'},seat);if(!proposal)continue;
-          // The box overrules a track that still says up: the face check leaves the card until that track turns.
-          if(await write(`flip:${card.ref}:true`,proposal))holdFace(card.ref);
+          const wasUp=card.faceUp;
+          if(!await write(`flip:${card.ref}:true`,proposal))continue;
+          if(wasUp)face.current.flipped(card.ref,performance.now());
+          if(snap.tracks.some(t=>!t.removed&&!t.faceDown&&refOf(t)===card.ref))holdFace(card.ref);
         }
       }
       // Only cards the last full detector pass saw (on CPU it can be seconds old), after they settled.
@@ -949,13 +933,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // 1. A known field card in another zone than the camera shows: move it (zone rules apply).
       for(const t of settled){
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(c=>c.ref===refOf(t));
+        if(!card||!publicField(card.zone)||!t.cardId&&!t.faceDown||keepsManual(card.ref,fieldZoneLocation(t.zone),t.position))continue;
         // A face difference goes through the face check: one flip action, one Undo, not a position change first.
-        if(!card||!publicField(card.zone)||card.faceUp===t.faceDown||!t.cardId&&!t.faceDown||keepsManual(card.ref,fieldZoneLocation(t.zone),t.position))continue;
+        // While the player holds that difference the card can still move, and it keeps its position.
+        const faceDiffers=card.faceUp===t.faceDown;if(faceDiffers&&!face.current.held(card.ref))continue;
         const code=cardCode(card);if(code)await loadCards([code]);
         const projected=projectObserved(t,twins,card,cardInfo(code));if(!projected.zone)continue;
         // A hard-rule fix (Field Spell → FIELD) the player undid is not redone here either.
         if(ruleFixes.current.has(`${card.ref}:${toZone(card.zone,card.slot)}:${projected.zone}`))continue;
-        const location=fieldZoneLocation(projected.zone),position=fieldTwinPosition({...t,zone:projected.zone});
+        const location=fieldZoneLocation(projected.zone),position=faceDiffers?card.position:fieldTwinPosition({...t,zone:projected.zone});
         if(card.zone===location.zone&&card.slot===location.slot&&card.position===position)continue;
         const key=`move:${card.ref}>${location.zone}${location.slot??''}${position}`;if(!tryFix(key))continue;
         await write(key,{type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position});
