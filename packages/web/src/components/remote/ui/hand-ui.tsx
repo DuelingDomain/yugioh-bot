@@ -91,9 +91,11 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const { count, onCount } = hand;
   // The webcam overlay stays out of the feed until there is something to show. Under the board the row is always there, so a card arriving does not move the camera.
   if (hand.overlay && !hand.cards.length && !hand.search && !hand.suggest) return null;
+  const chip = hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
-    {hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null}
+    {hand.overlay ? chip : null}
     <div className={s.handrow}>
+      <div className={s.handmain}>
       <span className={s.hlab}>Revealed in hand</span>
       <ul className={s.hcards} onWheel={event => { event.currentTarget.scrollLeft += event.deltaY; }}>
         {hand.cards.map(card => <li key={card.id} className={fresh.has(card.id) ? s.hfresh : undefined}>
@@ -104,6 +106,9 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
         </li>)}
         {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
       </ul>
+      {/* Floats over this part of the row (see .handmain>.hchip), so it does not move the camera and the hand count stays free. */}
+      {hand.overlay ? null : chip}
+      </div>
       {count !== undefined || onCount ? <span className={s.hcount} data-testid={`hand-count-${seat}`}>
         {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
         <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>

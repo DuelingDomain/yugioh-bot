@@ -1042,6 +1042,15 @@
 .hstrip{flex:none;display:flex;flex-direction:column;gap:6px;min-width:0}
 /* A fixed height: the row is the same with no cards, with cards and with more cards than fit. */
 .handrow{flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;height:37px;padding:2px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.handmain{position:relative;display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;height:100%}
+/* The chip floats over the label and cards of the row. A chip too wide for one line grows upward. Phones use the fixed chip below. */
+@media (min-width:701px){
+  .handmain>.hchip{position:absolute;left:0;bottom:0;z-index:12;box-sizing:border-box;width:max-content;max-width:100%;min-height:100%;gap:4px;padding:2px 6px;background:#1e1408;box-shadow:0 6px 18px rgb(0 0 0/.55)}
+  .handmain>.hchip .hchipl{min-width:0;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .handmain>.hchip .hchipb{max-width:170px;padding:3px 7px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Camera beside the field: the row is too short for the chip, so it grows left over the camera edge and not up over the zones. */
+  @container seat (min-aspect-ratio:1.55){.handmain>.hchip{left:auto;right:0;max-width:calc(100cqw - 120px)}}
+}
 .hlab{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
 .hcards{display:flex;align-items:center;flex:1 1 auto;gap:6px;min-width:0;height:100%;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
 .hcards li{flex:none}
