@@ -1740,7 +1740,7 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
   }finally{await Promise.allSettled([alice.close(),bob.close()]);}
 });
 test('field watcher automatic: tap to identify reads every camera on a click, runs nothing while idle, and a slow computer gets one offer',async({browser})=>{
-  test.setTimeout(240_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449',options={permissions:['camera','microphone'],baseURL:origin,viewport:{width:1920,height:1080}};
+  test.setTimeout(360_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449',options={permissions:['camera','microphone'],baseURL:origin,viewport:{width:1920,height:1080}};
   const alice=await browser.newContext(options),bob=await browser.newContext(options);
   try{
     await authenticatePlayer(alice.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,origin);
@@ -1799,6 +1799,17 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     }
     // The opponent's auto-detect is off, so no outlines came: Alice's own reader answered Bob's click.
     expect(await calls(a,'recognize')).toBeGreaterThanOrEqual(2);
+    const room=()=>alice.request.get(`/api/remote/${slug}`).then(r=>r.json());
+    // Read board on a tap seat places nothing.
+    await a.keyboard.press('Escape');await a.getByTestId('feed-box-0').hover();await a.getByTestId('feed-box-0').getByTestId('freeze-feed').click();await a.getByTestId('feed-box-0').getByTestId('read-board').click();await expect(a.getByTestId('feed-box-0').getByTestId('read-board')).toBeEnabled({timeout:60_000});await a.waitForTimeout(1000);
+    expect((await room()).state.seats[0].twin).toHaveLength(0);await a.getByTestId('feed-box-0').getByTestId('resume-live').click();
+    // Back to Auto-detect with a manual card: the hold survives a reload and the board does not change.
+    const seen=await room();
+    expect((await alice.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:seen.lastSeq,action:{type:'twin.place',actorSeat:0,seat:0,zone:'monster',idempotencyKey:crypto.randomUUID(),card:{ref:'manual-hold',cardId:5318639,name:'Mystical Space Typhoon',slot:3,faceUp:true,position:'attack'}}}})).ok()).toBe(true);
+    await expect.poll(()=>a.evaluate(()=>document.querySelector('[data-testid="feed-box-0"]')!==null)).toBe(true);await a.getByTestId('feed-box-0').hover();await a.getByLabel('Auto-detect cards',{exact:true}).check();await expect(a.getByTestId('sync-board-hold')).toBeVisible();
+    const held=JSON.stringify((await room()).state.seats[0].twin);
+    await a.reload();await a.getByTestId('camera-on-feed').click();await expect(a.getByTestId('sync-board-hold')).toBeVisible({timeout:30_000});
+    await a.waitForTimeout(20_000);expect(JSON.stringify((await room()).state.seats[0].twin)).toBe(held);
   }finally{await Promise.allSettled([alice.close(),bob.close()]);}
 });
 async function measuredFieldChange(page:Page,kind:'move'|'remove') {

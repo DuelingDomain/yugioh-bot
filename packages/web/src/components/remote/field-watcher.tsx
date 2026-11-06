@@ -705,7 +705,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }));
   },[watch.setCalibration,watch.getTrack]);
   // Back to Auto-detect with cards on the board: the board can hold manual work, and a re-sync can remove it. No writes until the player asks.
-  const [syncHold,setSyncHold]=useState(false);
+  const holdKey=`dd-remote-sync-hold:${room.slug}:${seat}`;
+  const [syncHold,setSyncHoldState]=useState(()=>{try{return sessionStorage.getItem(holdKey)==='1';}catch{return false;}});
+  const setSyncHold=useCallback((on:boolean)=>{setSyncHoldState(on);try{if(on)sessionStorage.setItem(holdKey,'1');else sessionStorage.removeItem(holdKey);}catch{/* Memory-only fallback. */}},[holdKey]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded&&!syncHold;tracks.current=watch.snapshot.tracks;
   // Slow computer: one quiet offer of Tap to identify. Only the player changes the mode; the answer is remembered.
   const [tapOffer,setTapOffer]=useState(false),slowWatch=useRef(createSlowWatch());
@@ -713,7 +715,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     saveTapChoice(on?'keep':'switch');setTapOffer(false);
     setSyncHold(on&&!watch.enabled&&current.current.room.state.seats[seat].twin.some(card=>publicField(card.zone)));
     watch.setEnabled(on);
-  },[watch.setEnabled,watch.enabled,seat]);
+  },[watch.setEnabled,watch.enabled,seat,setSyncHold]);
   const answerTapOffer=(choice:TapChoice)=>setDetection(choice==='keep');
   const offerable=watch.enabled&&ownsSource&&hub.cameraOn&&room.status==='active';
   useEffect(()=>{
@@ -839,9 +841,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   useEffect(()=>{
     // Tap to identify: no mat grid goes out, so other players read this camera and do not trust the board's zones.
-    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled?watch.calibration:undefined),...(watch.enabled?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
+    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled&&!syncHold?watch.calibration:undefined),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
-  },[watch.snapshot,watch.calibration,watch.enabled,hub.publishFieldTracks,room.state]);
+  },[watch.snapshot,watch.calibration,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
   const gridFormat=room.format?.id??room.state.deckChecks.format.id;
   const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
@@ -1010,6 +1012,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },undefined,false,true).finally(()=>{resyncing.current=false;if(manualScan)setScanning(false);});
   }
   const resyncRef=useRef(resync);resyncRef.current=resync;
+  // End of the hold: the placements dropped during it go on the board now. Moves and removals wait for the sweep, which is the proof they need.
+  const placeHeldCards=useRef(()=>{});
+  placeHeldCards.current=()=>{
+    enabledRef.current=watch.enabled&&!watch.calibrationNeeded;
+    const seen=watch.getTracks().filter(t=>t.state==='identified'&&t.visible&&!t.removed&&!piles.has(t.zone)&&(t.faceDown||t.cardId));
+    if(seen.length)void queue(async act=>{
+      for(const t of seen){
+        const ref=bindings.current.get(t.id)??t.id,card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+        if(card&&publicField(card.zone)||placeholders.current.has(t.id)||keepsManual(ref,fieldZoneLocation(t.zone),t.position))continue;
+        try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){console.info('[remote field] held card write skipped',t.id,error instanceof Error?error.message:error);}
+      }
+    },undefined,false,true);
+  };
   useEffect(()=>{
     const every=recognition.backend==='webgpu'?4000:8000;
     const timer=setInterval(()=>{if(!document.hidden)resyncRef.current();},every);
@@ -1020,12 +1035,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>clearInterval(scanTimer.current),[]);
   const scanField=useCallback(()=>{
     if(scanTimer.current!==undefined||resyncing.current){setNotice('Board check already running');return;}
+    if(syncHold){setSyncHold(false);placeHeldCards.current();}
     setScanning(true);const asked=performance.now();watch.scanNow?.();
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
       if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
     },100);
-  },[watch.scanNow,watch.getSnapshot]);
+  },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,setDetection]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
@@ -1061,7 +1077,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   return <>
     <style>{readingStyles}</style>
     <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
-      prompts={promptViews}
+      prompts={syncHold?[]:promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);
         const event=activePrompts.find(p=>p.track.id===id),track=watch.getTrack(id);
@@ -1071,9 +1087,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold" data-dock-clear-lp>Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{setSyncHold(false);enabledRef.current=watch.enabled&&!watch.calibrationNeeded;scanField();}}>Sync board to camera</button></span>:tapOffer?<span data-testid="tap-identify-offer" data-dock-clear-lp>This computer is slow for live tracking. Switch to tap-to-identify?<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold" data-dock-clear-lp>Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={scanField}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:undefined}/>
-    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)watch.setEnabled(false);setCalibrating(false);}}/>:null}
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer" data-dock-clear-lp>This computer is slow for live tracking. Switch to tap-to-identify?<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:undefined}/>
+    {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
   </>;
 }
