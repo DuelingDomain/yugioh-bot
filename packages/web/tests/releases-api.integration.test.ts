@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, expect, it, vi } from "vitest";
@@ -18,7 +17,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
   db.exec("insert into users(id,username,display_name) values(1,'owner','Owner'),(2,'member','Member')");
   auth.mockResolvedValue({ user: { id: "1", name: "Owner" } });
   vi.stubEnv("OWNER_USER_IDS", "1"); vi.stubEnv("WEB_URL", "https://app.example.test");
-  vi.stubEnv("RESEND_API_KEY", ""); vi.stubEnv("MAIL_POSTAL_ADDRESS", ""); vi.stubEnv("CLERK_SECRET_KEY", "fake");
+  vi.stubEnv("MAIL_HOST", ""); vi.stubEnv("MAIL_USER", ""); vi.stubEnv("MAIL_PASSWORD", ""); vi.stubEnv("MAIL_POSTAL_ADDRESS", ""); vi.stubEnv("CLERK_SECRET_KEY", "fake");
   const request = (path: string, body: unknown = {}, origin = "https://app.example.test", method = "POST") => new Request(`https://app.example.test${path}`, {
     method, headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body),
   });
@@ -37,7 +36,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     expect(initial.releases.map((r: { version: string }) => r.version)).toEqual(["0.2.2"]); expect(initial.lastSeenVersion).toBeNull();
     expect(initial.releases[0]).toMatchObject({ title: "Dueling Domain v0.2.2", major: false, highlights: expect.any(Array) });
     expect(initial.releases[0].sections.map((s: { kind: string }) => s.kind)).toEqual(["new", "improvements", "cards", "fixes", "howto"]);
-    expect(await (await admin.GET()).json()).toMatchObject({ emailConfigured: false, missingConfig: ["RESEND_API_KEY", "MAIL_POSTAL_ADDRESS"] });
+    expect(await (await admin.GET()).json()).toMatchObject({ emailConfigured: false, missingConfig: ["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD", "MAIL_POSTAL_ADDRESS"] });
     const content = { version: "0.10.0", title: "Dueling Domain v0.10.0", major: true, highlights: ["News"], sections: [{ kind: "new", items: ["Safe <notes>"] }] };
     expect((await admin.POST(request("/api/admin/console/releases", content, "https://evil.test"))).status).toBe(403);
     expect((await admin.POST(request("/api/admin/console/releases", { ...content, highlights: Array(7).fill("Too many") }))).status).toBe(400);
@@ -73,7 +72,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     await publish.POST(request("/publish", { autoEmail: true }), minorParams);
     expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 0 });
     expect((await preview.POST(request("/preview"), minorParams)).status).toBe(503);
-    vi.stubEnv("RESEND_API_KEY", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
+    vi.stubEnv("MAIL_HOST", "smtp.example.test"); vi.stubEnv("MAIL_USER", "fake"); vi.stubEnv("MAIL_PASSWORD", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       if (url.hostname !== "api.clerk.com") throw new Error("No real network permitted");
@@ -88,6 +87,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     const expired = await send.POST(request("/send", { token: expiredPreview.token }), minorParams);
     expect.soft(expired.status).toBe(410); expect.soft(await expired.json()).toEqual({ error: "preview_expired" });
     const prepared = await (await preview.POST(request("/preview"), minorParams)).json();
+    expect(prepared.estimatedMinutes).toBe(1);
     expect(prepared.counts).toEqual({ members: 1, invited: 0, waitlist: 0, total: 1, excluded: [] });
     const purged = await send.POST(request("/send", { token: expiredPreview.token }), minorParams);
     expect.soft(purged.status).toBe(410); expect.soft(await purged.json()).toEqual({ error: "preview_expired" });
@@ -115,18 +115,6 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     const { default: proxy } = await import("../proxy");
     for (const method of ["GET", "POST"]) expect((await proxy(new NextRequest(url, { method }), {} as never))?.status).toBe(200);
     expect((await proxy(new NextRequest("https://app.example.test/unsubscribex"), {} as never))?.status).toBe(307);
-    expect((await proxy(new NextRequest("https://app.example.test/api/webhooks/resend", { method: "POST" }), {} as never))?.status).toBe(200);
-    expect((await proxy(new NextRequest("https://app.example.test/api/webhooks/resend"), {} as never))?.status).toBe(401);
-    const webhook = await import("../app/api/webhooks/resend/route");
-    vi.stubEnv("RESEND_WEBHOOK_SECRET", "whsec_" + Buffer.alloc(32, 4).toString("base64"));
-    const raw = JSON.stringify({ type: "email.delivered", data: { email_id: "fake-unknown" } });
-    expect((await webhook.POST(new Request("https://app.example.test/api/webhooks/resend", { method: "POST", body: raw }))).status).toBe(400);
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = createHmac("sha256", Buffer.alloc(32, 4)).update(`event-web.${timestamp}.${raw}`).digest("base64");
-    const signedRequest = () => new Request("https://app.example.test/api/webhooks/resend", { method: "POST", body: raw,
-      headers: { "svix-id": "event-web", "svix-timestamp": timestamp, "svix-signature": `v1,${signature}` } });
-    expect((await webhook.POST(signedRequest())).status).toBe(200); expect((await webhook.POST(signedRequest())).status).toBe(200);
-    expect(db.prepare("select count(*) n from email_webhook_receipts").get()).toEqual({ n: 1 });
 
   } finally { db.close(); }
 });

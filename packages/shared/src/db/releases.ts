@@ -66,9 +66,6 @@ export function migrateReleases(db: Database.Database): void {
         id integer primary key check(id=1), next_attempt_at integer not null,
         day_started_at integer not null, attempts integer not null, failures integer not null default 0
       );
-      create table if not exists email_webhook_receipts (
-        event_id text primary key not null, received_at integer not null
-      );
     `);
     // Also upgrade a database initialized by the release-storage revision before the email worker was installed.
     const deliveryColumns = db.pragma("table_info(release_email_deliveries)") as { name: string }[];

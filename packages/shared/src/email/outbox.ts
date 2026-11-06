@@ -6,7 +6,7 @@ import { decrypt, encrypt, hash, missingEmailConfig, unsubscribeToken, type Emai
 import { renderReleaseEmail } from "./render.js";
 import { EmailProviderError, type EmailProvider } from "./provider.js";
 
-const RETRY_WINDOW = 23 * 60 * 60_000, LEASE_MS = 60_000, DAY_MS = 86400_000;
+const LEASE_MS = 60_000, DAY_MS = 86400_000, SEND_INTERVAL_MS = 12_000;
 export interface EmailSendState {
   state: "none" | "queued" | "sending" | "done" | "needs_review" | "not_configured";
   queued: number; sent: number; failed: number; total: number; confirmedAt?: string; lastError?: string;
@@ -17,8 +17,8 @@ interface SendRow {
 }
 interface DeliveryRow {
   id: number; send_id: string; recipient_key: string; payload_encrypted: string;
-  idempotency_key: string; status: string; first_attempt_at: number | null;
-  attempts: number; lease_token: string; lease_expires_at: number; budget_reserved_until: number;
+  status: string; first_attempt_at: number | null;
+  attempts: number; lease_token: string; lease_expires_at: number;
 }
 interface FrozenPayload {
   recipient: EmailRecipient; body: string; unsubscribeUrl: string;
@@ -58,18 +58,17 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
   function requireConfig(): void {
     if (!configured()) throw new ReleaseError("not_configured", 503);
   }
-  function messageBody(release: Release, recipient: EmailRecipient, settings: EmailConfig, url: string, sendId: string): string {
-    return JSON.stringify({ ...renderReleaseEmail(release, recipient, settings, url), tags: [
-      { name: "release_send", value: sendId }, { name: "release_recipient", value: recipient.key },
-    ] });
+  function messageBody(release: Release, recipient: EmailRecipient, settings: EmailConfig, url: string): string {
+    return JSON.stringify(renderReleaseEmail(release, recipient, settings, url));
   }
   function insertDeliveries(sendId: string, release: Release, audience: EmailAudience, now: number): void {
     for (const recipient of audience.recipients) {
       const url = new URL("/unsubscribe", config.webUrl); url.searchParams.set("t", unsubscribeToken(db, recipient.email));
       const settings = { from: config.from, replyTo: config.replyTo, postalAddress: config.postalAddress, webUrl: config.webUrl };
-      const body = messageBody(release, recipient, config, url.href, sendId);
+      const body = messageBody(release, recipient, config, url.href);
       const payload: FrozenPayload = { recipient, body, unsubscribeUrl: url.href, settings };
       const suppressed = !!db.prepare("select 1 from email_unsubscribes where recipient_key=?").get(recipient.key);
+      // Legacy idempotency_key is a local audit ID only; SMTP receives no idempotency key.
       db.prepare(`insert into release_email_deliveries(send_id,recipient_key,payload_encrypted,idempotency_key,status,available_at,subject_clerk_id)
         values(?,?,?,?,?,?,?) on conflict(send_id,recipient_key) do nothing`)
         .run(sendId, recipient.key, suppressed ? null : encrypt(payload, config), `release/${sendId}/${recipient.key}`, suppressed ? "suppressed" : "pending", now, recipient.variant === "members" ? recipient.sourceId : null);
@@ -78,7 +77,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
       .run(hash(JSON.stringify(audience.recipients)), JSON.stringify(audience.counts), sendId);
     refresh(sendId);
   }
-  async function preview(releaseId: string, ownerUserId: number, clerk: AudienceClerk): Promise<{ token: string; counts: AudienceCounts; expiresAt: string }> {
+  async function preview(releaseId: string, ownerUserId: number, clerk: AudienceClerk): Promise<{ token: string; counts: AudienceCounts; expiresAt: string; estimatedMinutes: number }> {
     requireConfig();
     const release = publishedRelease(releaseService.get(releaseId));
     if (findSend(releaseId)) throw new ReleaseError("email_already_reserved", 409);
@@ -90,7 +89,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         values(?,?,?,?,?,?,?,?,?)`).run(hash(token), releaseId, ownerUserId, hash(JSON.stringify(release)), hash(JSON.stringify(audience.recipients)),
         JSON.stringify(audience.counts), encrypt(audience, config), expires, now);
     }).immediate();
-    return { token, counts: audience.counts, expiresAt: new Date(expires).toISOString() };
+    return { token, counts: audience.counts, expiresAt: new Date(expires).toISOString(), estimatedMinutes: Math.ceil(audience.counts.total * SEND_INTERVAL_MS / 60_000) };
   }
   async function confirm(releaseId: string, ownerUserId: number, token: string): Promise<EmailSendState> {
     return db.transaction(() => {
@@ -143,77 +142,91 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         where id=? and status='preparing' and lease_token=?`).run(now() + Math.min(3600000, 10000 * 2 ** Math.min(send.attempts, 9)), send.id, send.lease_token);
     }
   }
+  function resetDailyBudget(now: number): void {
+    const day = Math.floor(now / DAY_MS) * DAY_MS;
+    db.prepare(`insert into email_budget(id,next_attempt_at,day_started_at,attempts) values(1,0,?,0)
+      on conflict(id) do update set day_started_at=excluded.day_started_at,attempts=0 where email_budget.day_started_at<excluded.day_started_at`).run(day);
+  }
   function claim(now: number): DeliveryRow | undefined {
     return db.transaction(() => {
-      // Expire unresolved attempts even if provider backoff/daily quota has delayed their next due time.
-      db.prepare(`update release_email_deliveries set status='needs_review',last_error='retry_window_expired',lease_token=null,lease_expires_at=null
-        where status in ('pending','retry','processing') and first_attempt_at<=?
-        and (lease_expires_at is null or lease_expires_at<=?)`).run(now - RETRY_WINDOW, now);
+      // SMTP cannot deduplicate. A durable attempt without a result is NEVER reclaimed for sending.
+      db.prepare(`update release_email_sends set last_error='unknown_outcome' where id in
+        (select send_id from release_email_deliveries where status in ('pending','retry','processing')
+        and first_attempt_at is not null and (lease_expires_at is null or lease_expires_at<=?))`).run(now);
+      db.prepare(`update release_email_deliveries set status='needs_review',last_error='unknown_outcome',lease_token=null,lease_expires_at=null
+        where status in ('pending','retry','processing') and first_attempt_at is not null
+        and (lease_expires_at is null or lease_expires_at<=?)`).run(now);
       db.prepare("delete from release_email_previews where expires_at<=?").run(now);
       db.prepare("update release_email_deliveries set payload_encrypted=null where status='needs_review' and first_attempt_at<?").run(now - 30 * DAY_MS);
-      const day = Math.floor(now / DAY_MS) * DAY_MS;
-      db.prepare(`insert into email_budget(id,next_attempt_at,day_started_at,attempts) values(1,0,?,0)
-        on conflict(id) do update set day_started_at=excluded.day_started_at,attempts=0 where email_budget.day_started_at<excluded.day_started_at`).run(day);
+      resetDailyBudget(now);
       const budget = db.prepare<[], { next_attempt_at: number; attempts: number }>("select * from email_budget where id=1").get()!;
       if (budget.next_attempt_at > now || budget.attempts >= config.dailyLimit) return undefined;
       const row = db.prepare<[number, number], DeliveryRow>(`select * from release_email_deliveries where
         ((status in ('pending','retry') and available_at<=?) or (status='processing' and lease_expires_at<=?))
-        and payload_encrypted is not null order by id limit 1`).get(now, now);
+        and first_attempt_at is null and payload_encrypted is not null order by id limit 1`).get(now, now);
       if (!row) return undefined;
       const lease = randomUUID();
-      db.prepare("update release_email_deliveries set status='processing',attempts=attempts+1,lease_token=?,lease_expires_at=? where id=?").run(lease, now + LEASE_MS, row.id);
-      db.prepare("update email_budget set next_attempt_at=?,attempts=attempts+1 where id=1").run(now + 1000);
-      return { ...row, status: "processing", attempts: row.attempts + 1, lease_token: lease, lease_expires_at: now + LEASE_MS, budget_reserved_until: now + 1000 };
+      db.prepare("update release_email_deliveries set status='processing',lease_token=?,lease_expires_at=? where id=?").run(lease, now + LEASE_MS, row.id);
+      return { ...row, status: "processing", lease_token: lease, lease_expires_at: now + LEASE_MS };
     }).immediate();
   }
-  function finish(row: DeliveryRow, status: string, error: string, now: number, clearPayload = true): void {
-    db.prepare(`update release_email_deliveries set status=?,last_error=?,payload_encrypted=case when ? then null else payload_encrypted end,
-      lease_token=null,lease_expires_at=null where id=? and status='processing' and lease_token=?`)
-      .run(status, error, clearPayload ? 1 : 0, row.id, row.lease_token);
-    refresh(row.send_id);
+  function finish(row: DeliveryRow, status: string, error: string, clearPayload = true): void {
+    db.transaction(() => {
+      const changed = db.prepare(`update release_email_deliveries set status=?,last_error=?,payload_encrypted=case when ? then null else payload_encrypted end,
+        lease_token=null,lease_expires_at=null where id=? and status='processing' and lease_token=?`)
+        .run(status, error, clearPayload ? 1 : 0, row.id, row.lease_token);
+      if (changed.changes && status === "needs_review") db.prepare("update release_email_sends set last_error=? where id=?").run(error, row.send_id);
+      refresh(row.send_id);
+    }).immediate();
   }
   async function drain(options: { clerk: AudienceClerk; provider: EmailProvider; now?: () => number }): Promise<void> {
     if (!configured()) return;
+    // WAL/NORMAL can lose a committed attempt on power loss. Sync every email-writer commit before SMTP.
+    db.pragma("synchronous = FULL");
     const now = options.now ?? Date.now;
     await prepareAutomatic(options.clerk, now);
     let audience: EmailAudience | undefined;
-    // Claims reserve the shared 1 request/second budget. Each tick processes at most ten rows.
+    // Dispatch reserves the persisted 12-second spacing and daily cap. Each tick processes at most ten rows.
     for (let n = 0; n < 10; n++) {
       const row = claim(now()); if (!row) break;
       try {
         if (db.prepare("select 1 from email_unsubscribes where recipient_key=?").get(row.recipient_key)
           || !db.prepare("select 1 from email_consents where recipient_key=?").get(row.recipient_key)) {
-          finish(row, "suppressed", "suppressed", now()); continue;
+          finish(row, "suppressed", "suppressed"); continue;
         }
         let payload = decrypt<FrozenPayload>(row.payload_encrypted, config);
         if (row.first_attempt_at === null) {
           audience ??= await renewingLease("release_email_deliveries", row.id, row.lease_token, () => discoverEmailAudience(db, options.clerk, now()), now);
           const current = audience.recipients.find(r => r.key === row.recipient_key);
-          if (!current) { finish(row, "suppressed", "ineligible", now()); continue; }
+          if (!current) { finish(row, "suppressed", "ineligible"); continue; }
           // An account wins over an old invite. Expired/revoked/replaced tickets lose the invite CTA before the first attempt.
           const recipient = { ...current, inviteUrl: current.inviteUrl === payload.recipient.inviteUrl ? current.inviteUrl : null };
           const release = JSON.parse(db.prepare<[string], { release_json: string }>("select release_json from release_email_sends where id=?").get(row.send_id)!.release_json) as Release;
-          payload = { ...payload, recipient, body: messageBody(release, recipient, { ...config, ...payload.settings }, payload.unsubscribeUrl, row.send_id) };
+          payload = { ...payload, recipient, body: messageBody(release, recipient, { ...config, ...payload.settings }, payload.unsubscribeUrl) };
         }
         const started = db.transaction(() => {
           // Fence immediately before network I/O, and recheck suppression after asynchronous discovery.
           if (db.prepare("select 1 from email_unsubscribes where recipient_key=?").get(row.recipient_key)) return false;
-          const budget = db.prepare<[], { next_attempt_at: number }>("select next_attempt_at from email_budget where id=1").get()!;
-          // Our claim reserved one second. A newer future deadline can pause work while discovery awaits Clerk.
-          if (budget.next_attempt_at > row.budget_reserved_until && budget.next_attempt_at > now()) {
-            db.prepare(`update release_email_deliveries set status='retry',attempts=max(0,attempts-1),available_at=?,lease_token=null,lease_expires_at=null
+          const at = now();
+          resetDailyBudget(at); // Discovery may have crossed UTC midnight.
+          const budget = db.prepare<[], { next_attempt_at: number; attempts: number; day_started_at: number }>("select * from email_budget where id=1").get()!;
+          if (budget.next_attempt_at > at || budget.attempts >= config.dailyLimit) {
+            const available = Math.max(budget.next_attempt_at, budget.attempts >= config.dailyLimit ? budget.day_started_at + DAY_MS : at);
+            db.prepare(`update release_email_deliveries set status='retry',available_at=?,lease_token=null,lease_expires_at=null
               where id=? and status='processing' and lease_token=? and lease_expires_at>?`)
-              .run(budget.next_attempt_at, row.id, row.lease_token, now());
+              .run(available, row.id, row.lease_token, at);
             refresh(row.send_id);
             return false;
           }
-          return db.prepare(`update release_email_deliveries set first_attempt_at=coalesce(first_attempt_at,?),payload_encrypted=?,subject_clerk_id=?
-            where id=? and status='processing' and lease_token=? and lease_expires_at>? and (first_attempt_at is null or first_attempt_at>?)`)
-            .run(now(), encrypt(payload, config), payload.recipient.variant === "members" ? payload.recipient.sourceId : null, row.id, row.lease_token, now(), now() - RETRY_WINDOW).changes > 0;
+          const marked = db.prepare(`update release_email_deliveries set first_attempt_at=?,attempts=attempts+1,payload_encrypted=?,subject_clerk_id=?
+            where id=? and status='processing' and lease_token=? and lease_expires_at>? and first_attempt_at is null`)
+            .run(at, encrypt(payload, config), payload.recipient.variant === "members" ? payload.recipient.sourceId : null, row.id, row.lease_token, at).changes > 0;
+          if (marked) db.prepare("update email_budget set next_attempt_at=?,attempts=attempts+1 where id=1").run(at + SEND_INTERVAL_MS);
+          return marked;
         }).immediate();
         if (!started) continue;
-        row.first_attempt_at ??= now();
-        const accepted = await options.provider.send(payload.body, row.idempotency_key);
+        row.first_attempt_at = now();
+        const accepted = await options.provider.send(payload.body);
         db.transaction(() => {
           const acceptedRow = db.prepare(`update release_email_deliveries set status='accepted',provider_id=?,accepted_at=?,payload_encrypted=null,subject_clerk_id=null,
             lease_token=null,lease_expires_at=null,last_error=null where id=? and status='processing' and lease_token=?`)
@@ -221,23 +234,25 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
           if (!acceptedRow.changes) return;
           db.prepare("update release_email_sends set last_error=null where id=?").run(row.send_id);
           db.prepare("update email_budget set failures=0 where id=1").run();
-          if (accepted.retryAfterMs) db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?) where id=1").run(now() + accepted.retryAfterMs);
           refresh(row.send_id);
         }).immediate();
       } catch (error) {
         const providerError = error instanceof EmailProviderError ? error : undefined;
-        const configurationError = providerError?.code === "provider_auth" || providerError?.code === "provider_domain";
-        const code = configurationError ? providerError.code : providerError && !providerError.permanent ? "provider_unavailable" : providerError?.code ?? "audience_or_storage_unavailable";
-        if (providerError?.code === "idempotency_conflict" || (row.first_attempt_at !== null && now() - row.first_attempt_at >= RETRY_WINDOW)) {
-          finish(row, "needs_review", code, now(), false);
-        } else if (providerError?.permanent && !configurationError) {
-          finish(row, "failed", code, now());
+        const unknownOutcome = row.first_attempt_at !== null && (!providerError || providerError.code === "unknown_outcome");
+        const code = unknownOutcome ? "unknown_outcome" : providerError?.code === "provider_auth" || providerError?.code === "provider_policy"
+          ? providerError.code : providerError && !providerError.permanent ? "provider_unavailable" : providerError?.code ?? "audience_or_storage_unavailable";
+        if (unknownOutcome) {
+          finish(row, "needs_review", code, false);
+        } else if (providerError?.permanent) {
+          finish(row, "failed", code);
         } else {
           db.transaction(() => {
             const failures = db.prepare<[], { failures: number }>("select failures from email_budget where id=1").get()!.failures;
-            const delay = Math.max(configurationError ? 3600000 : Math.min(3600000, 1000 * 2 ** Math.min(failures + 1, 12) + Math.floor(Math.random() * 1000)), providerError?.retryAfterMs ?? 0);
-            const retried = db.prepare(`update release_email_deliveries set status='retry',attempts=max(0,attempts-1),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
-              where id=? and status='processing' and lease_token=?`).run(now() + delay, code, row.id, row.lease_token);
+            const delay = Math.max(code === "provider_auth" || code === "provider_policy" ? 3600000
+              : Math.min(3600000, SEND_INTERVAL_MS * 2 ** Math.min(failures, 9)), providerError?.retryAfterMs ?? 0);
+            // An explicit SMTP rejection/setup failure proves no delivery. Clear the attempt marker atomically with the pause.
+            const retried = db.prepare(`update release_email_deliveries set status='retry',first_attempt_at=null,attempts=max(0,attempts-?),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
+              where id=? and status='processing' and lease_token=?`).run(row.first_attempt_at !== null ? 1 : 0, now() + delay, code, row.id, row.lease_token);
             if (!retried.changes) return;
             db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
             db.prepare("update release_email_sends set last_error=? where id=?").run(code, row.send_id);
