@@ -738,6 +738,18 @@ it('owner M3: candidate choices follow the physical row without projecting spell
  expect(fieldCandidateFitsZone('S3',{type:'Spell Card',race:'Field'})).toBe(false);
  expect(fieldCandidateFitsZone('FIELD',{type:'Spell Card',race:'Field'})).toBe(true);
 });
+it('the board follows a resting track of the other face with one flip; a weak or moving track does not speak',async()=>{
+ const {fieldFaceProposal,fieldFaceWitness}=await import('../src/lib/remote/field-proposals');
+ const at=10_000,down={state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:at-100,restSince:at-700} as any;
+ expect(fieldFaceWitness(down,at)).toBe(true);
+ for(const other of [{restSince:undefined},{removed:true},{under:'top'},{zone:'GY'},{state:'candidate'},{lastSeen:at-2000},{faceDown:false}])expect(fieldFaceWitness({...down,...other},at)).toBe(false);
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:true},down,0)).toEqual({type:'twin.flip',source:'auto',actorSeat:0,seat:0,cardRef:'apophis',faceUp:false,position:'attack'});
+ expect(fieldFaceProposal({ref:'set',zone:'monster',faceUp:true},down,0)?.position).toBe('defense');
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},down,0)).toBeUndefined();
+ const up={...down,faceDown:false,cardId:'a'};
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},up,0)).toBeUndefined();
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},up,0,{cardId:89194033,name:'Apophis'})).toMatchObject({faceUp:true,cardId:89194033,name:'Apophis',source:'auto'});
+});
 it('camera writes retry with the same action key and expose a final failure',async()=>{
  const {retryFieldMutation}=await import('../src/lib/remote/field-proposals');
  const proposal={type:'twin.flip',actorSeat:0,seat:0,cardRef:'mark',faceUp:true} as const,room={lastSeq:2} as any;

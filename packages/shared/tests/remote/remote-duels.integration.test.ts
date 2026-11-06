@@ -2197,6 +2197,11 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const legacySet=ygoModule.reduce(revealed,remoteActionSchema.parse({type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:false,idempotencyKey:'historic-set',at:serial}),{replay:true,twinPlacementGuard:1});
   expect(legacySet.seats[0].twin[0].publicIdentity).toBeUndefined();
   reduce({type:'undo',targetActionId:actionId});expect(state.seats[0].twin).toEqual(before.seats[0].twin);
+  // The camera sees it turned face-down: the opponent sees a plain Set, the owner keeps the name.
+  state=structuredClone(revealed);reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false,source:'auto',position:'defense'});
+  expect(state.seats[0].twin[0]).toMatchObject({faceUp:false,cardId:46986414,name:'Dark Magician'});expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();
+  expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].name).toBeUndefined();
+  expect(projectRemoteState(state,new Set([1])).deckChecks.instances.filter(i=>i.seat===0)).toEqual([]);
   state=revealed;reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false});expect(state.seats[0].twin[0].publicIdentity).toBe(true);
   const publicSet=structuredClone(state);reduce({type:'twin.move',seat:0,cardRef:'set',zone:'hand'});
   expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();

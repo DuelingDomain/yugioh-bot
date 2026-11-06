@@ -218,10 +218,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
       const fieldFaceState=!context?.replay||context.fieldFaceState===1;
-      // Turning over the same field card does not erase its publicly shown identity.
+      // A player who turns over the same field card by hand does not erase its publicly shown identity.
+      // The camera seeing a card turned face-down makes it a plain Set for the opponent. Earlier face-down flips carry no source, so replays stay the same.
+      const cameraSet = action.type === "twin.flip" && !action.faceUp && action.source === "auto";
       const settingInPlace = action.type === "twin.flip" ? !action.faceUp : action.type === "twin.move" &&
         action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot;
-      if (fieldFaceState && settingInPlace && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
+      if (fieldFaceState && settingInPlace && !cameraSet && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
       if (action.type === "twin.move") {
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
@@ -242,7 +244,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       if (action.type === "twin.flip") {
         card.faceUp = action.faceUp;
-        if(!fieldFaceState&&!action.faceUp)delete card.publicIdentity;
+        if((!fieldFaceState||cameraSet)&&!action.faceUp)delete card.publicIdentity;
         if(action.position!==undefined)card.position=action.position;
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }

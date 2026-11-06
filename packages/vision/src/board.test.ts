@@ -1173,6 +1173,34 @@ test('a removal hold for a hand, arm or moving shadow is local to the cards it c
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===leftId));assert.ok(r.at-after<=1500,`left after ${r.at-after} ms`);r.watcher.dispose();
 });
 
+// Owner S4/S3 (Apophis, plain white sleeve, back .20): the track stayed up or hid, so the board never got a flip. A weak back
+// that rests on the mat and shows a sleeve unlike the mat counts: the front turns down, the track stays visible with a rest
+// time for the board, and Scan field reports the box. The same weak box over plain mat (a card that left) is no back.
+test('a weak white back resting on the mat turns a bound front down; a weak box over plain mat does not',async()=>{
+ const undecided=()=>{const w=96,h=140,d=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const e=Math.exp(-(((x-48)/20)**2+((y-70)/28)**2));d.set([150+60*e,150,150-60*e,255],(y*w+x)*4);}return {width:w,height:h,data:d};};
+ const front=card(.43,.6,.1,.2),art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),sleeve=Array(288).fill(.92),mat=Array(288).fill(.2);
+ const placed=async()=>{
+  const r=fieldRig('sure',20,undefined,{width:160,height:90});
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+  r.outlines=[front];r.appearanceAt=()=>art;for(let i=0;i<12;i++)await r.tick(100);
+  const {id,zone}=r.events.find(e=>e.type==='placed')!.track;r.watcher.confirm(id,'A');r.known=[{id,zone,cardId:'A',faceDown:false}];r.events.length=0;
+  r.cropAt=undecided;r.outlines=[{...front,kind:'face-down',confidence:.2,cell:true}];
+  return {r,id};
+ };
+ const {r,id}=await placed();r.appearanceAt=()=>sleeve;
+ for(let i=0;i<20&&!r.events.some(e=>e.type==='flipped');i++)await r.tick(100);
+ const flip=r.events.find(e=>e.type==='flipped');assert.ok(flip,JSON.stringify(r.watcher.getSnapshot().debug?.reasons));
+ assert.equal(flip.track.id,id);assert.equal(flip.track.faceDown,true);
+ await r.tick(100);await r.tick(100);
+ const seen=r.watcher.getSnapshot().tracks.find(t=>t.id===id)!;
+ assert.equal(seen.faceDown,true);assert.equal(seen.visible,true,'a resting weak back is not hidden');assert.equal(typeof seen.restSince,'number');
+ r.watcher.scanNow();for(let i=0;i<6;i++)await r.tick(100);
+ assert.deepEqual(r.watcher.getSnapshot().lastScanBacks,[flip.track.zone]);r.watcher.dispose();
+ const {r:left}=await placed();left.appearanceAt=()=>mat;
+ for(let i=0;i<20;i++)await left.tick(100);
+ assert.equal(left.events.some(e=>e.type==='flipped'),false,'plain mat under a weak box is no back');left.watcher.dispose();
+});
+
 // Owner S3: a clear white face-down card on the dark mat got no box (the detector scores light sleeves .3-.45,
 // below its .4 floor). In a calibrated field cell a weak back counts when its sleeve differs from the mat.
 test('a low-score white back in an empty field cell is placed as a Set; the same score on plain mat is not',async()=>{

@@ -30,6 +30,22 @@ export function distinctFieldQuads(a:readonly {x:number;y:number}[],b:readonly {
 export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'position'>):FieldTrack['position'] {
   return track.faceDown&&/^M[1-5]$|^EMZ[12]$/.test(track.zone)?'defense':track.faceDown&&/^S[1-5]$|^FIELD$/.test(track.zone)?'attack':track.position;
 }
+/** A board card and its track may disagree on face this long, on still frames, before the board follows the track. */
+export const FIELD_FACE_WAIT_MS=600;
+/** A track that speaks for the face of its board card: settled on a field zone, on a box that rests on the mat now. A weak box counts; a front needs its read. */
+export function fieldFaceWitness(track:FieldTrack,at:number):boolean {
+  return track.state==='identified'&&!track.removed&&!track.under&&track.restSince!==undefined&&at-track.lastSeen<=1500&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(track.zone)&&(track.faceDown||!!track.cardId);
+}
+/**
+ * One action turns the card over in place: never a removal, never the hand. A face-down flip keeps the name for the owner (the
+ * server hides it from the opponent). A face-up flip needs the fresh read of the card. Undefined when the faces agree.
+ */
+export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+  if(card.faceUp!==track.faceDown)return;
+  const base={type:'twin.flip' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref};
+  if(track.faceDown)return {...base,faceUp:false,position:['monster','extra-monster'].includes(card.zone)?'defense':'attack'};
+  return identity?{...base,faceUp:true,position:track.position,cardId:identity.cardId,name:identity.name,...(track.bestMatch?{bestMatch:true}:{})}:undefined;
+}
 /** A new placement records the sighting atomically, so one Undo removes both. */
 export function fieldPlacementProposals({track,seat,cardId,name,existing=false,fromRef,copyProof,summon}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;fromRef?:string;copyProof?:{simultaneousQuads:number;at:number};summon?:{kind:RemoteSummonKind;materialRefs:string[]}}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
