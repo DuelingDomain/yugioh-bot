@@ -1319,9 +1319,13 @@ test.describe("remote duels, spectators", () => {
       await expect.poll(async () => await lost(c).count() + await lost(secondTab).count(), { timeout: 40_000, intervals: [500] }).toBe(1);
       const firstLost = await lost(c).count() === 1;
       await expect((firstLost ? c : secondTab).getByTestId("spectator-note")).toContainText("another tab");
+      // "Try again" takes the video back, and the other tab then shows the same note. The dev reload above can turn the players' cameras off, so this checks the connection, not frames.
+      const [loser, winner] = firstLost ? [c, secondTab] : [secondTab, c];
+      await lost(loser).click();
+      await expect(lost(loser)).toHaveCount(0, { timeout: 20_000 });
+      await expect(lost(winner)).toBeVisible({ timeout: 20_000 });
       await secondTab.close();
-      if (firstLost) await lost(c).click();
-      await expect.poll(frames, { timeout: 40_000, intervals: [1000] }).toBeGreaterThan(0);
+      if (!firstLost) { await lost(c).click(); await expect(lost(c)).toHaveCount(0, { timeout: 20_000 }); }
       // Stop watching ends the video at once, not at the next sweep.
       const daveTab = await dave!.newPage();
       await daveTab.goto(`/duels/remote/${slug}`);
