@@ -114,7 +114,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
   async function renewingLease<T>(table: "release_email_sends" | "release_email_deliveries", id: string | number, token: string,
     work: () => Promise<T>, now: () => number): Promise<T> {
     const renew = () => db.prepare(`update ${table} set lease_expires_at=? where id=? and lease_token=?`).run(now() + LEASE_MS, id, token);
-    // Paginated discovery may take minutes. Renew while it runs, then renew once more under the same fencing token.
+    // Discovery and SMTP may outlast a lease. Renew while they run, then once more under the same fencing token.
     const timer = setInterval(() => { try { renew(); } catch { /* The final fenced write fails closed. */ } }, LEASE_MS / 3);
     timer.unref();
     try { const result = await work(); renew(); return result; }
@@ -227,7 +227,7 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         }).immediate();
         if (!started) continue;
         row.first_attempt_at = now();
-        const accepted = await options.provider.send(payload.body);
+        const accepted = await renewingLease("release_email_deliveries", row.id, row.lease_token, () => options.provider.send(payload.body), now);
         db.transaction(() => {
           const acceptedRow = db.prepare(`update release_email_deliveries set status='accepted',provider_id=?,accepted_at=?,payload_encrypted=null,subject_clerk_id=null,
             lease_token=null,lease_expires_at=null,last_error=null where id=? and status='processing' and lease_token=?`)

@@ -500,3 +500,31 @@ it("excludes malformed historical and Clerk recipients even when they parse as a
     expect(audience.counts.excluded).toEqual(expect.arrayContaining([{ reason: "invalid_email", count: 6 }, { reason: "suppressed", count: 1 }]));
   } finally { db.close(); }
 });
+
+it("renews the delivery lease during a slow send so another connection cannot quarantine it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "release-email-lease-"));
+  const path = join(directory, "test.sqlite");
+  const { db, email, config, clerk, outbox, release } = await queuedRecipients(1, path);
+  const observer = openDatabase(path);
+  let unblock!: () => void, entered!: () => void, calls = 0;
+  const sending = new Promise<void>(resolve => { entered = resolve; });
+  const blocked = new Promise<void>(resolve => { unblock = resolve; });
+  vi.useFakeTimers();
+  const draining = outbox.drain({ clerk, provider: { send: async () => {
+    calls++; entered(); await blocked; return { id: "slow-send-accepted" };
+  } } });
+  try {
+    await sending;
+    await vi.advanceTimersByTimeAsync(61000);
+    const processing = db.prepare<[], { status: string; lease_expires_at: number }>("select * from release_email_deliveries").get()!;
+    expect(processing.lease_expires_at).toBeGreaterThan(Date.now());
+    await email.createReleaseEmailOutbox(observer, config).drain({ clerk, provider: { send: async () => { calls++; return { id: "must-not-replay" }; } } });
+    expect(observer.prepare("select * from release_email_deliveries").get()).toEqual(processing);
+    unblock(); await draining;
+    expect(calls).toBe(1);
+    expect(db.prepare("select status,provider_id from release_email_deliveries").get()).toEqual({ status: "accepted", provider_id: "slow-send-accepted" });
+    expect(outbox.state(release.id)).toMatchObject({ state: "done", sent: 1 });
+  } finally {
+    unblock(); await draining; vi.useRealTimers(); observer.close(); db.close(); rmSync(directory, { recursive: true, force: true });
+  }
+});
