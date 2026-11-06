@@ -132,9 +132,7 @@
 .sundo .sul{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sundo:hover:not(:disabled){background:var(--gold);color:#1b1204}
 .sundo:disabled{border-color:var(--line2);background:none;color:var(--ink3);font-weight:600;cursor:default}
-.cundo{border-color:var(--gold);color:var(--gold-ink)}
-.cundo:hover{background:var(--gold);color:#1b1204}
-.cundo.cblocked{border-color:var(--line2);color:var(--ink3)}.cundo.cblocked:hover{background:transparent;color:var(--ink3)}
+.btn.cblocked{color:var(--ink3)}.btn.cblocked:hover{border-color:var(--line2)}
 .cureason{display:block;flex-basis:100%;color:var(--ink3);font-size:11.5px;line-height:1.35;margin-top:-2px}
 .pback{display:inline-flex;align-items:center;gap:6px;flex:none;height:40px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);background:var(--p0);color:var(--gold-ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
 .pback span{font-size:10px}
@@ -908,7 +906,24 @@
 .effectPicker select{max-width:100%;background:var(--p0);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:4px 6px;font-size:13px}
 .fact select{max-width:220px;background:var(--p0);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:4px 6px;font-size:13px}
 @media (max-width:700px){.fpop{right:8px;left:8px;transform:none;width:auto;bottom:140px}}
-.dedit{display:flex;flex-wrap:wrap;gap:6px;flex-basis:100%}
+.dgrp{flex-basis:100%;min-width:0}
+.dglab{display:block;margin-bottom:4px;font:700 10px/12px var(--font-duel-ui),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
+.dgrow{display:flex;flex-wrap:wrap;gap:4px}
+.dgbreak{flex-basis:100%;height:0}
+.btn.dremove{margin-left:auto;color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
+.btn.dremove:hover{border-color:var(--bad,#e5484d)}
+/* Short laptop screens: the art sits beside the name, so the controls fit with no scroll. */
+@media (max-height:850px) and (min-width:701px){
+  .dhead{display:grid;grid-template-columns:104px minmax(0,1fr);gap:12px;align-items:start}
+  .dhead .dart{width:100%;margin:0}
+  .dhead .dname{font-size:18px}
+  .dhead .dmeta{margin:2px 0 6px;font-size:12.5px}
+  .dhead .dstat{font-size:18px;margin-bottom:0}
+  .insp .dtxt{margin:8px 0 0;font-size:13px;line-height:1.35;max-height:96px;overflow:auto}
+  .insp .dsrc{margin-top:8px;padding:0;border:0;background:none;font-size:12px;color:var(--ink3)}
+  .insp .dchk{margin-top:6px;padding:0;border:0;background:none}
+  .insp .dact{margin-top:8px}
+}
 
 .effectControls { position: absolute; top: 6px; right: 18px; z-index: 12; max-width: min(560px, calc(100% - 36px)); max-height: 30vh; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--p1); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--ink2); font-size: 13px; }
 .effectControls > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
