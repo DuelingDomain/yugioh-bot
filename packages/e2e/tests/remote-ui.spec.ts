@@ -461,7 +461,11 @@ test.describe("remote lobby camera step", () => {
     const video = page.getByTestId("lobby-cam-video");
     await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.videoWidth > 0 && !el.paused)).toBe(true);
     const lock = page.getByTestId('camera-lock'), toggle = lock.getByRole('button', { name: 'Camera lock', exact: true });
-    await expect(lock).toContainText('Locked:', { timeout: 30_000 });
+    // Next dev compiles during this step. A main-thread stall over the 1.5 s check keeps auto, so retry with Re-lock as a player does. A camera that cannot lock still fails here.
+    await expect(async () => {
+      if ((await lock.textContent())?.includes('auto kept')) await lock.getByRole('button', { name: 'Re-lock' }).click();
+      await expect(lock).toContainText('Locked:', { timeout: 5_000 });
+    }).toPass({ timeout: 60_000 });
     // A tab switch and a cancelled leave must keep the current lock.
     await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', { configurable: true, value: true });
@@ -509,7 +513,7 @@ test.describe("remote lobby camera step", () => {
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
         await page.setViewportSize({width,height}); await page.getByTestId('camera-settings').click();
-        await expect(lock).toContainText('Not supported by this browser or camera');
+        await expect(lock).toContainText('Camera lock not supported — auto kept');
         await expect(toggle).toContainText('On (not supported)');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();

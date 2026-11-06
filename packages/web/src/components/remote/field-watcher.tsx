@@ -398,7 +398,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       missingSince.current.set(stale.ref,absentAt);
       if(performance.now()-absentAt<2000){
         const key=`stale:${event.track.id}`;
-        if(!departureTimers.current.has(key))departureTimers.current.set(key,setTimeout(()=>{
+        // The latest apply replaces the wait: a player who corrects a choice during it keeps the correction.
+        const waiting=departureTimers.current.get(key);if(waiting)clearTimeout(waiting);
+        departureTimers.current.set(key,setTimeout(()=>{
           departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt),event,humanChoice);
         },Math.max(1,2000-(performance.now()-absentAt))));
         return;

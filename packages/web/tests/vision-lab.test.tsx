@@ -960,10 +960,10 @@ describe('typed watcher zone projection',()=>{
  });
  it('keeps a prompt choice through the wait for a stale occupant to leave',async()=>{
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{
-   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'new-s4',zone:'S4',cardId:undefined,state:'prompt'});await fixture.emit({type:'prompt',result:{...result,candidates:[{cardId:cards[2].cardId,score:.99}]}});
-   fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2),{timeout:4000});
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'new-s4',zone:'S4',cardId:undefined,state:'prompt'});await fixture.emit({type:'prompt',result:{...result,candidates:[{cardId:cards[2].cardId,score:.99},{cardId:cards[3].cardId,score:.98}]}});
+   fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn/i}));await waitFor(()=>expect(screen.getByRole('button',{name:/Pot of Greed/i})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/Pot of Greed/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2),{timeout:4000});
    expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place','twin.move','twin.place']);
-   expect(fixture.room().state.seats[0].twin).toEqual(expect.arrayContaining([expect.objectContaining({ref:'physical-typed',zone:'hand'}),expect.objectContaining({ref:'new-s4',cardId:83764718,zone:'spell-trap',slot:4})]));
+   expect(fixture.room().state.seats[0].twin).toEqual(expect.arrayContaining([expect.objectContaining({ref:'physical-typed',zone:'hand'}),expect.objectContaining({ref:'new-s4',cardId:55144522,zone:'spell-trap',slot:4})]));
   }finally{fixture.dispose();}
  });
  it.each(['prompt','automatic'] as const)('reuses an unread restart reservation without simultaneous second-copy proof via %s',async mode=>{

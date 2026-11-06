@@ -171,7 +171,13 @@ it("clears presence when the account is deleted", async () => {
 it('vision feedback keeps consent default-off, checks origin and protects review and crop routes', async()=>{
   const {GET,PATCH,DELETE:deleteOwn}=await import('../app/api/remote-vision/feedback/route');
   const {GET:closedReview}=await import('../app/api/admin/console/vision/route');
-  vi.stubEnv('DISCORD_GUILD_ID','g');vi.stubEnv('REMOTE_DUELS','0');expect((await GET()).status).toBe(404);expect((await closedReview()).status).toBe(404);
+  vi.stubEnv('DISCORD_GUILD_ID','g');const {GET:closedLearning}=await import('../app/api/remote-vision/learning/route');
+  const closedPatch=(body:unknown)=>PATCH(new Request('https://app.example.test/api/remote-vision/feedback',{method:'PATCH',headers:{origin:'https://app.example.test','content-type':'application/json'},body:JSON.stringify(body)}));
+  vi.stubEnv('REMOTE_DUELS','0');expect((await GET()).status).toBe(404);expect((await closedReview()).status).toBe(404);expect((await closedLearning()).status).toBe(404);
+  expect((await closedPatch({enabled:true})).status).toBe(404);expect((await closedPatch({asked:true})).status).toBe(404);
+  auth.mockResolvedValue({user:{id:'3',name:'Bo'}});expect((await closedPatch({enabled:false})).status).toBe(200);
+  expect((await deleteOwn(new Request('https://app.example.test/api/remote-vision/feedback',{method:'DELETE',headers:{origin:'https://app.example.test'}}))).status).toBe(200);
+  auth.mockResolvedValue({user:{id:'1',name:'Operator'}});
   vi.stubEnv('REMOTE_DUELS','1');vi.stubEnv('REMOTE_DUELS_USERS','2');expect((await GET()).status).toBe(404);expect((await closedReview()).status).toBe(404);
   vi.stubEnv('REMOTE_DUELS_USERS','*');
   expect(await (await GET()).json()).toMatchObject({enabled:true,isAdmin:true,askedAt:null});

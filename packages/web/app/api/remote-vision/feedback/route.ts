@@ -1,4 +1,5 @@
 import { requireRemoteActor } from '@/lib/remote-duels';
+import { requireWebAccess } from '@/lib/web-access';
 import { readJsonBody } from '@/lib/bug-reports/read-body';
 import { feedbackJson,feedbackOrigin,feedbackService,validFeedbackIndex } from '@/lib/vision-feedback';
 export const runtime='nodejs';
@@ -8,16 +9,20 @@ export async function GET() {
   return feedbackJson(feedbackService().preference(actor.userId));
 }
 export async function PATCH(request:Request) {
-  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
+  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
   if(!feedbackOrigin(request))return feedbackJson({error:'invalid_origin'},403);
   const input=await readJsonBody(request,1024);if(!input.ok)return input.response;
   const value=input.value;
+  // A user who lost Remote Duels access can still turn sharing off. Everything else needs that access.
+  if(value&&typeof value==='object'&&Object.keys(value).length===1&&'enabled'in value&&value.enabled===false)return feedbackJson(feedbackService().setPreference(actor.userId,false));
+  const remote=await requireRemoteActor();if(!remote.ok)return remote.response;
   if(value && typeof value==='object' && Object.keys(value).length===1 && 'asked' in value && value.asked===true)return feedbackJson(feedbackService().markAsked(actor.userId));
   if(!value||typeof value!=='object'||Object.keys(value).length!==1||!('enabled'in value)||typeof value.enabled!=='boolean')return feedbackJson({error:'invalid_request'},400);
   return feedbackJson(feedbackService().setPreference(actor.userId,value.enabled));
 }
+/** A user who lost Remote Duels access can still delete their own samples. */
 export async function DELETE(request:Request) {
-  const actor=await requireRemoteActor();if(!actor.ok)return actor.response;
+  const actor=await requireWebAccess();if(!actor.ok)return actor.response;
   if(!feedbackOrigin(request))return feedbackJson({error:'invalid_origin'},403);
   return feedbackJson({deleted:feedbackService().deleteForUser(actor.userId)});
 }
