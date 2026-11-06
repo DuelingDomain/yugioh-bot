@@ -18,11 +18,13 @@ function classify(error: unknown): EmailProviderError {
   const status = err?.responseCode ?? 0, command = err?.command ?? "";
   // Inspect details only for classification; never persist SMTP text or private values.
   if (status === 535 || (err?.code === "EAUTH" && !(status >= 400 && status < 500))) return new EmailProviderError("provider_auth");
-  if (status >= 400 && status < 500) return new EmailProviderError("rate_limited", false, 0, true);
+  if (status >= 400 && status < 500) return new EmailProviderError("rate_limited", false, 0,
+    status !== 421 && /^(?:RCPT TO|MAIL FROM|DATA)\b/i.test(command));
   if (status >= 500 && status < 600) {
     const response = (err?.response ?? err?.message ?? "").replace(/[^\s<>@]+@[^\s<>@]+/g, "");
-    const addressFailure = /\b5\.1\.\d+\b/.test(response) || /\b(?:user unknown|no such user|does not exist)\b/i.test(response);
-    if (/^RCPT TO\b/i.test(command) && addressFailure && !/\b5\.7\.\d+\b/.test(response)) return new EmailProviderError("rejected", true, 0, true);
+    const addressFailure = /^\d{3}[ -]5\.1\.(?:1|2|3|6|10)\b/.test(response) || /\b(?:user unknown|no such user|does not exist)\b/i.test(response);
+    const senderFailure = /\bsender\b/i.test(response);
+    if (/^RCPT TO\b/i.test(command) && addressFailure && !senderFailure && !/\b5\.7\.\d+\b/.test(response)) return new EmailProviderError("rejected", true, 0, true);
     return new EmailProviderError("provider_policy", false, 0, true);
   }
   // In the pinned pool implementation this error is emitted only for a close before any message bytes
