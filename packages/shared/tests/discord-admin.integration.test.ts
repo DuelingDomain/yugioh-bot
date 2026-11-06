@@ -80,12 +80,12 @@ describe("shared Discord administration with SQLite", () => {
     ["creator:missing", "Creator link (closed or full)"],
     ["creator:123456789012", "Creator link (closed or full)"],
   ])("keeps the %s request origin and survey through Clerk binding and dedupe", async (source, where) => {
-    createWaitlistService(db).join(email, { source, heardFrom: "friend", heardFromDetail: "Ask player@example.test" });
+    createWaitlistService(db).join(email, { source, heardFrom: "friend", heardFromDetail: "Ask player@example.test https://evil.example/a-b" });
     await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
     const [row] = claimOutbox(db, 10);
     expect(JSON.parse(row.payload_json).embeds[0]).toMatchObject({ title: "Waitlist request: needs your decision", fields: [
       { name: "Email", value: "`p***@example.test`" }, { name: "Where", value: where },
-      { name: "Heard from", value: "A friend · Ask \\[email hidden\\]" },
+      { name: "Heard from", value: "A friend · Ask \\[email hidden\\] https\\:\\/\\/evil.example/a-b" },
     ] });
     expect(row.payload_json).not.toContain(email);
     expect(db.prepare("select count(*) as n from discord_outbox").get()).toEqual({ n: 1 });
