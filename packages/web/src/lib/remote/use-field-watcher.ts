@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { readTapChoice } from './tap-offer';
 import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
@@ -106,7 +107,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!(hasCalibration&&placed);
   useEffect(()=>{
     const value=readSaved(options.seatKey,options.deviceKey,options.deviceLabel),record=loadFieldCalibrationRecord(options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize);
-    setOn(value.enabled!==false);
+    // The player's answer holds on every seat and camera. With no answer, the saved record decides; the default is Auto-detect.
+    const choice=readTapChoice();setOn(choice?choice==='keep':value.enabled!==false);
     setGrid(record.calibration);setPlaced(record.placed);setAspectChanged(!!record.aspectChanged);
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize?.width,options.captureSize?.height]);

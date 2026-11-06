@@ -57,6 +57,8 @@ type Hub = {
   trackedBacks(seat:number):FieldBack[];
   subscribeFieldBacks(listener:()=>void):()=>void;
   publishFieldTracks(message:RemoteFieldTracks):void;
+  /** This seat's player uses Tap to identify. */
+  tapMode(seat:number):boolean;
   /** Reads the card at a normalized point of a seat's feed. */
   read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[],force?:boolean): Promise<ReadResult>;
   /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
@@ -71,11 +73,15 @@ type Hub = {
 const emptyBacks:FieldBack[]=[];
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
-  trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,
+  trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,tapMode:()=>false,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
+export function useTapSeat(seat:number){
+  const {tapMode,subscribeFieldBacks}=useVideoHub();
+  return useSyncExternalStore(subscribeFieldBacks,()=>tapMode(seat),()=>false);
+}
 /** Back markers never participate in the public identity/click cache. */
 export function useFieldBacks(seat:number){
   const {trackedBacks,subscribeFieldBacks}=useVideoHub();
@@ -131,6 +137,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   },[controller,mySeat]);
   const trackedAt=useCallback((seat:number,x:number,y:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.hit(seat,x,y):undefined):controller?.trackedAt(seat,x,y),[controller,mySeat,solo]);
   const trackedCalibration=useCallback((seat:number)=>solo&&seat===mySeat?localTracks.current.calibration(seat):controller?.trackedCalibration(seat),[controller,mySeat,solo]);
+  const tapMode=useCallback((seat:number)=>solo&&seat===mySeat?localTracks.current.tap(seat):controller?.trackedTap(seat)??false,[controller,mySeat,solo]);
   const trackedCards=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.snapshot(seat):[]):controller?.trackedCards(seat)??[],[controller,mySeat,solo]);
   const trackedBacks=useCallback((seat:number)=>solo&&seat===mySeat?(localRef.current?localTracks.current.backs(seat):emptyBacks):controller?.trackedBacks(seat)??emptyBacks,[controller,mySeat,solo]);
   const subscribeFieldBacks=useCallback((listener:()=>void)=>solo?localTracks.current.subscribe(listener):controller?.subscribeFieldTracks(listener)??(()=>undefined),[controller,solo]);
@@ -300,8 +307,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks,
+    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, cameraLock]);
+  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, tapMode, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, cameraLock]);
   return <Ctx value={value}>{children}</Ctx>;
 }

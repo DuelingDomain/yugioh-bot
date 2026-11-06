@@ -26,7 +26,7 @@ export function trackedRereadTarget(ref:string,cards:readonly RemoteFieldCard[],
 }
 /** Full replacement snapshots, read synchronously without React renders or any inference. */
 export class FieldTrackCache {
-  private seats=new Map<number,{at:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration}>();
+  private seats=new Map<number,{at:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration;tap:boolean}>();
   private listeners=new Set<()=>void>();
   private timer:ReturnType<typeof setTimeout>|undefined;
   subscribe=(listener:()=>void)=>{this.listeners.add(listener);this.scheduleExpiry();return()=>{this.listeners.delete(listener);if(!this.listeners.size){clearTimeout(this.timer);this.timer=undefined;}};};
@@ -43,7 +43,7 @@ export class FieldTrackCache {
     let calibration:FieldCalibration|undefined;
     try{if(parsed.data.calibration)calibration=flattenFieldCalibration(createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing,parsed.data.calibration.zones));}catch{return false;}
     const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
-    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration});
+    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration,tap:parsed.data.mode==='tap'});
     for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
     this.notify();return true;
   }
@@ -53,6 +53,7 @@ export class FieldTrackCache {
   snapshot(seat:number):RemoteFieldCard[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.cards:emptyCards;}
   backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.backs:emptyBacks;}
   calibration(seat:number):FieldCalibration|undefined {const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.calibration:undefined;}
+  tap(seat:number):boolean {const value=this.seats.get(seat);return !!value&&this.now()-value.at<=3000&&value.tap;}
   clear(seat?:number){if(seat===undefined)this.seats.clear();else this.seats.delete(seat);this.notify();}
   retain(seats:Set<number>){for(const seat of this.seats.keys())if(!seats.has(seat))this.seats.delete(seat);this.notify();}
 }

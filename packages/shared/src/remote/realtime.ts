@@ -24,7 +24,7 @@ export const remoteFieldTracksSchema=z.strictObject({type:z.literal('field.track
 })).max(22).optional(),calibration:z.strictObject({
   version:z.literal(1),layout:z.literal(3).optional(),zoneSpacing:z.number().min(.85).max(1.4).optional(),zones:z.record(z.string().max(12),z.strictObject({x:z.number().min(-.5).max(1.5),y:z.number().min(-.5).max(1.5),w:z.number().min(.03).max(2),h:z.number().min(.03).max(2)})).refine(o=>Object.keys(o).length<=17).optional(),corners:z.array(normalizedPoint).length(4),
   orientation:z.strictObject({playerSide:z.enum(['bottom','left','top','right']),mirrored:z.boolean()}),
-}).optional()});
+}).optional(),mode:z.literal('tap').optional()});
 export type RemoteFieldTracks=z.infer<typeof remoteFieldTracksSchema>;
 export type RemoteFieldCard=RemoteFieldTracks['cards'][number];
 export type RemoteDataPayload = { slug: string; fromSeat: number; message: RemoteDataMessage };

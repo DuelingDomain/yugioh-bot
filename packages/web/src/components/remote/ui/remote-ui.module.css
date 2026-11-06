@@ -784,6 +784,7 @@
 .fzchip .ic{width:13px;height:13px}
 .fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
+.fzbtn:disabled{opacity:.5;cursor:default;border-color:var(--line2);color:var(--ink2)}
 /* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
 /* One row under the video box: it never covers the video and never wraps. Labels drop out (icons stay, with a title) when the row is narrow. */
 .camsel{flex:none;width:100%;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:28px}

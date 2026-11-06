@@ -45,12 +45,23 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
     const dy = Math.min(Math.max(my, bounds.top + 4 - box.top), bounds.bottom - 4 - box.bottom) + base.dy;
     return { dx, dy };
   };
+  // A quiet notice in the stack must not cover the LP buttons. It moves above them, or else beside them. Only for marked content; the position the person chose stays saved.
+  const clearLp = (next: Offset, base: Offset): Offset => {
+    const node = root.current; const area = node?.parentElement; if (!node?.querySelector("[data-dock-clear-lp]") || !area) return next;
+    const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect(); if (!lp?.width) return next;
+    const box = node.getBoundingClientRect(); const bounds = area.getBoundingClientRect();
+    const left = box.left + next.dx - base.dx, right = box.right + next.dx - base.dx, top = box.top + next.dy - base.dy, bottom = box.bottom + next.dy - base.dy;
+    if (left >= lp.right || right <= lp.left || top >= lp.bottom || bottom <= lp.top) return next;
+    const up = bottom - lp.top + 4; if (top - up >= bounds.top + 4) return { dx: next.dx, dy: next.dy - up };
+    const aside = right - lp.left + 4; if (left - aside >= bounds.left + 4) return { dx: next.dx - aside, dy: next.dy };
+    return next;
+  };
   // Runs before paint when the content, the view or the seat size changes: a new anchor loads its own offset, and the header never leaves the seat.
   const place = useRef(() => {}); place.current = () => {
     const node = root.current; if (!node || drag.current) return;
     const now = anchorOf(node); if (anchor.current !== now) { anchor.current = now; wanted.current = readOffset(seat, now); }
     if (getComputedStyle(node).display === "none") { setOffset(old => old.dx === wanted.current.dx && old.dy === wanted.current.dy ? old : wanted.current); return; }
-    const next = clamp(wanted.current, shown.current);
+    const next = clearLp(clamp(wanted.current, shown.current), shown.current);
     setOffset(old => Math.abs(old.dx - next.dx) < .5 && Math.abs(old.dy - next.dy) < .5 ? old : next);
   };
   useLayoutEffect(() => { place.current(); }, [count, open, view, seat]);

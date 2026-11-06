@@ -12,6 +12,7 @@ export type { PeekOptions, PeekResult, ReadAllOptions, BoardResult, BoardCard, B
 export type { FeedbackSource } from './client';
 
 export {createOwnFeedBuffer} from './frame-buffer';
+export {fieldPacerDevice} from './field-pacer';
 export {toRemoteRecognitionResult} from './remote-result';
 export {catalogCardId,isPhysicalEntry,filterPhysicalIndex,PHYSICAL_INDEX_POLICY} from './physical-index';
 export {replayTier} from './decision';

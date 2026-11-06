@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { SheetSelect, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
+import { useCardDetection } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { ThemedSelect } from "@/components/ui/themed-select";
 
@@ -28,6 +29,19 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label }))}
       onChange={setRecognitionMode} />
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hint}</p>
+  </div>;
+}
+
+/** "Card detection: Auto-detect / Tap to identify" in the table's camera menu. The same state and saved answer as the Auto-detect checkbox. */
+export function CardDetectionSetting() {
+  const detection = useCardDetection();
+  const hintId = useId();
+  if (!detection) return null;
+  return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
+    <SheetSelect label="Card detection" value={detection.autoDetect ? "auto" : "tap"} testId="card-detection" describedBy={hintId} compact
+      choices={[{ value: "auto", label: "Auto-detect" }, { value: "tap", label: "Tap to identify" }]}
+      onChange={value => detection.set(value === "auto")} />
+    <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{detection.autoDetect ? "Watches the field and keeps the board up to date." : "Click a card in any camera to read it. Uses the processor only when you click."}</p>
   </div>;
 }
 

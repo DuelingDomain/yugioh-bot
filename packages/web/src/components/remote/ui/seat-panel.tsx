@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { ScanLine } from "lucide-react";
-import { useFieldScan, useMissingPiles } from "@/lib/remote/zone-grid";
+import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
@@ -68,6 +68,8 @@ export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
   const fieldView = fieldViewPref && !p.webcamOnly;
   const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat);
+  // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
+  const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
   const targeting = !!p.webcamOnly && p.picking && !p.eliminated;
   const listed = p.webcamOnly ? (Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).flatMap(([key, cell]) =>
@@ -142,8 +144,8 @@ export function SeatPanel(p: SeatPanelProps) {
         {scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
           title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
           <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
-          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
+        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan || tapHere ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
