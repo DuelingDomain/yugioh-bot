@@ -47,6 +47,10 @@ export type ThemedSelectProps<T extends string | number | boolean> = {
   prefix?: string;
   placeholder?: string;
   title?: string;
+  /** Call `onChange` even when the choice already shown is picked, such as when that choice is a guess that the person confirms. */
+  saveSame?: boolean;
+  /** After a mouse or touch pick the button gives up focus, so page-wide letter shortcuts work at once. Keyboard use keeps the focus. */
+  releaseFocusOnPick?: boolean;
 };
 
 const SHEET_QUERY = "(max-width: 639px)";
@@ -75,6 +79,8 @@ function useSheetMode(): boolean {
  * so Escape closes the list first and stops there: it never also backs out of a prompt, a pin or a drawer behind it.
  */
 const openLists: (() => void)[] = [];
+/** True while a themed list is open. A press outside it only closes it, so a surface that acts on a press can ignore that press. Read it before the document's capture phase. */
+export const isThemedListOpen = () => openLists.length > 0;
 if (typeof window !== "undefined") {
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || event.isComposing || openLists.length === 0) return;
@@ -100,7 +106,7 @@ function holdsFixedChildren(el: Element): boolean {
 function listHost(trigger: Element | null): Element {
   // A `popover` element sits in the top layer, above everything on the page: a list drawn on the page would open behind it,
   // and a press on that list would light-dismiss the popover. The list goes inside the popover.
-  // The popover is not checked with holdsFixedChildren: it is the top-layer host itself, and the lists here (the camera "More" menu)
+  // The popover is not checked with holdsFixedChildren: it is the top-layer host itself, and the lists here (the camera "Settings" menu)
   // have no transform on it. A popover that gets a transform needs the list placed against its rect.
   const popover = trigger?.closest("[popover]") ?? null;
   try { if (popover && popover.matches(":popover-open")) return popover; } catch { /* No :popover-open support: draw on the page. */ }
@@ -121,7 +127,7 @@ const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boo
  */
 export function ThemedSelect<T extends string | number | boolean>({
   label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy, testId, ariaLabel, id, font = "duel",
-  variant = "sheet", wide = false, prefix, placeholder = "", title,
+  variant = "sheet", wide = false, prefix, placeholder = "", title, saveSame = false, releaseFocusOnPick = false,
 }: ThemedSelectProps<T>) {
   const uid = useId();
   const labelId = `${uid}-label`;
@@ -176,13 +182,14 @@ export function ThemedSelect<T extends string | number | boolean>({
     setInheritedFont(font === "inherit" && triggerRef.current ? getComputedStyle(triggerRef.current).fontFamily : undefined);
     setOpen(true);
   }, [choices.length, disabled, edge, enabled, font, selectedIndex]);
-  const commit = useCallback((index: number) => {
+  const commit = useCallback((index: number, release = false) => {
     if (!enabled(index)) return;
     const choice = choices[index];
-    if (choice.value !== value) onChange?.(choice.value);
+    if (choice.value !== value || saveSame) onChange?.(choice.value);
     close();
-    triggerRef.current?.focus({ preventScroll: true });
-  }, [choices, close, enabled, onChange, value]);
+    if (release) triggerRef.current?.blur();
+    else triggerRef.current?.focus({ preventScroll: true });
+  }, [choices, close, enabled, onChange, saveSame, value]);
 
   // The list never outlives the button, or a disabled state.
   useEffect(() => { if (disabled) close(); }, [disabled, close]);
@@ -335,7 +342,7 @@ export function ThemedSelect<T extends string | number | boolean>({
                 aria-selected={index === selectedIndex} aria-disabled={choice.disabled || undefined}
                 data-active={index === active} data-value={String(choice.value)}
                 onPointerMove={() => { if (!choice.disabled && index !== active) setActive(index); }}
-                onClick={() => commit(index)}>
+                onClick={(event) => commit(index, releaseFocusOnPick && event.detail > 0)}>
                 {choice.icon ? <span className={styles.oIcon} aria-hidden="true">{choice.icon}</span> : null}
                 <span className={styles.oText}>
                   <span className={styles.oLabel}>{choice.label}</span>
@@ -366,8 +373,8 @@ export function ThemedSelect<T extends string | number | boolean>({
         aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
         aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : labelId} aria-describedby={describedBy}
         data-testid={testId ? `${testId}-trigger` : undefined}
-        onClick={() => {
-          if (open) { close(); return; }
+        onClick={(event) => {
+          if (open) { close(); if (releaseFocusOnPick && event.detail > 0) triggerRef.current?.blur(); return; }
           // Safari does not focus a button on a mouse click; the keys and the blur close need that focus.
           triggerRef.current?.focus({ preventScroll: true });
           openList();

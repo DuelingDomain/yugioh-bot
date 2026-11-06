@@ -6,6 +6,8 @@ import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
 type Offset = { dx: number; dy: number };
+/** With less room than this, a card choice shrinks and its text scrolls. */
+const TIGHT_ROOM = 250;
 // One saved offset per anchor: an offset from the top of the seat means nothing from its bottom. The CSS names the anchor in --dock-anchor.
 const KEY = (seat: number, anchor: string) => `dd-remote-notify-pos2:${seat}:${anchor}`;
 const anchorOf = (node: HTMLElement) => getComputedStyle(node).getPropertyValue("--dock-anchor").trim() || "top";
@@ -45,14 +47,24 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
     const dy = Math.min(Math.max(my, bounds.top + 4 - box.top), bounds.bottom - 4 - box.bottom) + base.dy;
     return { dx, dy };
   };
-  // The stack must not cover the LP buttons. It moves above them, or else beside them. The position the person chose stays saved.
+  const headBottom = (area: HTMLElement) => area.querySelector("header")?.getBoundingClientRect().bottom ?? area.getBoundingClientRect().top;
+  // The tallest the stack can be with the seat header and the LP buttons clear. It depends only on the seat and the stack width, so a resize cannot make it flip.
+  const fitRoom = (node: HTMLElement, area: HTMLElement) => {
+    const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect();
+    if (!lp?.width) { node.style.removeProperty("--dock-room"); node.removeAttribute("data-tight"); return; }
+    const bounds = area.getBoundingClientRect(); const head = headBottom(area);
+    const beside = lp.left - bounds.left - 8 >= node.getBoundingClientRect().width;
+    const room = Math.floor(beside ? bounds.bottom - 8 - head - 4 : lp.top - head - 8);
+    node.style.setProperty("--dock-room", `${Math.max(120, room)}px`); node.toggleAttribute("data-tight", room < TIGHT_ROOM);
+  };
+  // The stack must not cover the LP buttons or the seat header. It moves above the buttons, or else beside them. The position the person chose stays saved.
   const clearLp = (next: Offset, base: Offset): Offset => {
     const node = root.current; const area = node?.parentElement; if (!node || !area) return next;
     const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect(); if (!lp?.width) return next;
     const box = node.getBoundingClientRect(); const bounds = area.getBoundingClientRect();
     const left = box.left + next.dx - base.dx, right = box.right + next.dx - base.dx, top = box.top + next.dy - base.dy, bottom = box.bottom + next.dy - base.dy;
     if (left >= lp.right || right <= lp.left || top >= lp.bottom || bottom <= lp.top) return next;
-    const up = bottom - lp.top + 4; if (top - up >= bounds.top + 4) return { dx: next.dx, dy: next.dy - up };
+    const up = bottom - lp.top + 4; if (top - up >= headBottom(area) + 2) return { dx: next.dx, dy: next.dy - up };
     const aside = right - lp.left + 4; if (left - aside >= bounds.left + 4) return { dx: next.dx - aside, dy: next.dy };
     return next;
   };
@@ -61,6 +73,7 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
     const node = root.current; if (!node || drag.current) return;
     const now = anchorOf(node); if (anchor.current !== now) { anchor.current = now; wanted.current = readOffset(seat, now); }
     if (getComputedStyle(node).display === "none") { setOffset(old => old.dx === wanted.current.dx && old.dy === wanted.current.dy ? old : wanted.current); return; }
+    if (node.parentElement) fitRoom(node, node.parentElement);
     const next = clearLp(clamp(wanted.current, shown.current), shown.current);
     setOffset(old => Math.abs(old.dx - next.dx) < .5 && Math.abs(old.dy - next.dy) < .5 ? old : next);
   };

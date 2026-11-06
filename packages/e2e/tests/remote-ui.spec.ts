@@ -663,14 +663,14 @@ test.describe("remote lobby camera step", () => {
       const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
-        await page.setViewportSize({width,height}); await page.getByTestId('camera-more').click();
+        await page.setViewportSize({width,height}); await page.getByTestId('camera-settings').click();
         await expect(lock).toContainText('Not supported by this browser or camera');
         await expect(toggle).toContainText('On (not supported)');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
-        const more = await page.getByTestId('camera-more').boundingBox(); expect(more!.width).toBeGreaterThan(40);
-        expect(await page.getByTestId('camera-more').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
+        const more = await page.getByTestId('camera-settings').boundingBox(); expect(more!.width).toBeGreaterThan(40);
+        expect(await page.getByTestId('camera-settings').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }
@@ -875,7 +875,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.getByTestId("camera-on-feed").click();
     await expect(page.locator('[data-testid="feed-0"] video')).toBeAttached({ timeout: 60_000 });
     await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    // A press on the camera only closes the orientation list: no read starts. Yes then confirms, and a pick from the list reads nothing either.
+    const orientation = page.getByTestId("camera-orientation-trigger"), camera = (await page.getByTestId("feed-0").boundingBox())!;
+    await orientation.click(); await page.mouse.click(camera.x + camera.width * .75, camera.y + camera.height * .7);
+    await expect(orientation).toHaveAttribute("aria-expanded", "false");
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
+    await orientation.click(); await page.getByRole("option", { name: "Camera faces me" }).click(); await expect(orientation).not.toBeFocused();
+    await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
     await page.getByTestId("view-webcam").click();
     await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
@@ -1775,8 +1781,8 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
     expect(await boxes()).toEqual(shown);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
-    // Bob changes the mode in the More menu; the checkbox follows.
-    await b.getByTestId('camera-more').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
+    // Bob changes the mode in the Settings menu; the checkbox follows.
+    await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
     await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
@@ -1807,7 +1813,7 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const identifiedBefore=(await room()).events.filter((e:any)=>e.action.type==='card.identified').length;
     await a.keyboard.press('Escape');await a.evaluate(async()=>{const camera=(window as any).fieldTest;await camera.texture();camera.back('#1e3cbe');});await a.waitForTimeout(500);
     const recalled=calls(a,'detect').then(n=>n+1);await clickCard(a);
-    await expect(a.getByTestId('card-last-read')).toHaveText('Last read here',{timeout:30_000});await expect(a.getByTestId('card-popover')).toHaveAttribute('aria-label',seenCard);
+    await expect(a.getByTestId('card-last-read')).toContainText('Last read here, may have changed',{timeout:30_000});await expect(a.getByTestId('card-read-again')).toBeVisible();await expect(a.getByTestId('card-popover')).toHaveAttribute('aria-label',seenCard);
     expect(await calls(a,'detect')).toBe(await recalled);
     await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toBeVisible();await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
     await expect(b.getByTestId('card-last-read')).toHaveCount(0);await a.waitForTimeout(1000);

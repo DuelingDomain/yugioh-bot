@@ -21,7 +21,7 @@ export type Subject = {
   /** How sure the reader was when it named this card (feed reads only). */
   tier?: Tier; covered?: boolean; bestMatch?:boolean; revealed?:boolean;
   /** From this browser's Tap to identify memory: only this player sees it, and it offers only "Wrong card?". */
-  remembered?: boolean;
+  remembered?: boolean; rememberedAt?: number;
 };
 
 function Art({ id }: { id: number }) {
@@ -68,6 +68,8 @@ export type CardActions = {
   canAttack: boolean; attackHint: string; onAttack: () => void;
   onActivate?: () => void; onReveal?: () => void;
   onWrong?: () => void; onPin?: () => void;
+  /** A remembered card: read the camera again. */
+  onReadAgain?: () => void;
   /** Opens the card search; the chosen card goes to the hand (hand.add). */
   onAddToHand?: () => void;
   /** Opens the deck warning layer. Set only when this card's seat has a live warning. */
@@ -95,6 +97,7 @@ function MaterialList({ items }: { items: CardMaterial[] }) {
 }
 
 const BTN = `${s.btn} ${s.sm} ${s.q}`;
+const readAge = (at = Date.now()) => { const minutes = Math.floor((Date.now() - at) / 60_000); return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`; };
 
 /** One titled group of controls. The small label gives the context, so the buttons can stay short. */
 function Group({ label, testid, children }: { label: string; testid?: string; children: ReactNode }) {
@@ -165,7 +168,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
       <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
         <div className={s.bchips}>
           <TierChip tier={subject.tier} />
-          {subject.remembered ? <span className={s.tier} data-testid="card-last-read">Last read here</span> : null}
+          {subject.remembered ? <span className={s.tier} data-testid="card-last-read">Last read here, may have changed · {readAge(subject.rememberedAt)}</span> : null}
           {subject.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
           <DeckBadges subject={subject} warning={warning} />
           {viewOnly && actions.materials?.length ? <span className={s.tier} data-testid="card-material-count">{actions.materials.length} material{actions.materials.length === 1 ? "" : "s"}</span> : null}
@@ -176,6 +179,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
     </div>
     <div className={s.bbar} data-testid="card-popover-footer">
       {viewOnly ? <>
+        {actions.onReadAgain ? <button type="button" className={BTN} onClick={actions.onReadAgain} data-testid="card-read-again">Read again</button> : null}
         {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}
         {actions.onPin ? <button type="button" className={BTN} onClick={actions.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
       </> : <Actions a={actions} subject={subject} />}
