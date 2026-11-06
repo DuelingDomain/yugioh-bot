@@ -90,7 +90,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** A click that found no outlined card. The table reads at that point. */
   onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
   /** A click found no card (live or on a frozen frame). The table clears its mark. */
-  onMiss: (seat: number) => void;
+  onMiss: (seat: number, point?: { x: number; y: number }) => void;
   /** The "Search card" link on the no-card note: opens the popup for a manual search at that point. */
   onSearch: (seat: number, start: FeedStart) => void;
   onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
@@ -310,7 +310,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     if (!frozen || frozen.status === "detecting" || !frozen.pending || !box) return;
     const p = frozen.pending; setFrozenState(f => f && { ...f, pending: null });
     const hit = hitTest(frozen.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
+    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else { onMiss(seat, p); showMiss(p); }
   }, [frozen, box, choose, onPoint, seat, around, feedRect]);
 
   /**
@@ -337,7 +337,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     const frame = frames[0] ? { w: frames[0].width, h: frames[0].height } : { w: box.width, h: box.height };
     const cards = readableCards(toFeedCards(found.cards), frame);
     const hit = hitTest(cards, p, { w: box.width, h: box.height });
-    if (!hit) { onMiss(seat); showMiss(p); return; }
+    if (!hit) { onMiss(seat, p); showMiss(p); return; }
     flashQuad(hit.quad);
     onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length,copyWitnesses:matches=>copyWitnesses(hit,cards,hub.trackedCards(seat),frames[0],matches),capturedAt:performance.now(),anchor: anchorOf(hit.quad), feed, frames, live: true });
   }
@@ -359,7 +359,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
     const hit = hitTest(f.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else { onMiss(seat); showMiss(p); }
+    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else { onMiss(seat, p); showMiss(p); }
   }
   function move(event: ReactPointerEvent<HTMLDivElement>) {
     if(phonePointerHandled.current && event.buttons!==0)return;

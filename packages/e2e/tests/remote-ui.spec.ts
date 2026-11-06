@@ -1801,6 +1801,18 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     // The opponent's auto-detect is off, so no outlines came: Alice's own reader answered Bob's click.
     expect(await calls(a,'recognize')).toBeGreaterThanOrEqual(2);
     const room=()=>alice.request.get(`/api/remote/${slug}`).then(r=>r.json());
+    // The card turns face down: Alice's click names it from her own memory, and the table hears nothing of it.
+    const seenCard=(await a.getByTestId('card-popover').getAttribute('aria-label'))!;await expect(a.getByTestId('card-last-read')).toHaveCount(0);
+    const actionPosts:string[]=[];a.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/actions'))actionPosts.push(r.url());});
+    const identifiedBefore=(await room()).events.filter((e:any)=>e.action.type==='card.identified').length;
+    await a.keyboard.press('Escape');await a.evaluate(async()=>{const camera=(window as any).fieldTest;await camera.texture();camera.back('#1e3cbe');});await a.waitForTimeout(500);
+    const recalled=calls(a,'detect').then(n=>n+1);await clickCard(a);
+    await expect(a.getByTestId('card-last-read')).toHaveText('Last read here',{timeout:30_000});await expect(a.getByTestId('card-popover')).toHaveAttribute('aria-label',seenCard);
+    expect(await calls(a,'detect')).toBe(await recalled);
+    await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toBeVisible();await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
+    await expect(b.getByTestId('card-last-read')).toHaveCount(0);await a.waitForTimeout(1000);
+    expect(actionPosts).toEqual([]);const after=await room();expect(after.state.seats[0].twin).toHaveLength(0);expect(after.events.filter((e:any)=>e.action.type==='card.identified')).toHaveLength(identifiedBefore);
+    await a.evaluate(async()=>{const camera=(window as any).fieldTest;await camera.texture(false);camera.back('');});
     // Read board on a tap seat places nothing.
     await a.keyboard.press('Escape');await a.getByTestId('feed-box-0').hover();await a.getByTestId('feed-box-0').getByTestId('freeze-feed').click();await a.getByTestId('feed-box-0').getByTestId('read-board').click();await expect(a.getByTestId('feed-box-0').getByTestId('read-board')).toBeEnabled({timeout:60_000});await a.waitForTimeout(1000);
     expect((await room()).state.seats[0].twin).toHaveLength(0);await a.getByTestId('feed-box-0').getByTestId('resume-live').click();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { ZoneKey } from "./model";
 import { cardArt, isLinkInfo, isMonsterInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
@@ -9,13 +9,19 @@ import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
 import { cardTypeLine } from "@/lib/remote/field-legality";
 
+/** Where the person opened this card. A camera click only looks at the card; the board, a pile and the hand keep their controls. */
+export type CardSource = "camera" | "board" | "pile" | "hand";
+
 /** One card the table is looking at: from a feed click, the field, or the tray. */
 export type Subject = {
+  from: CardSource;
   cardId: number; seat: number; ref?: string; name?: string;
   /** null = no decklist to compare with. */
   notInDecklist: boolean | null; addErrors: string[]; via: string;
   /** How sure the reader was when it named this card (feed reads only). */
   tier?: Tier; covered?: boolean; bestMatch?:boolean; revealed?:boolean;
+  /** From this browser's Tap to identify memory: only this player sees it, and it offers only "Wrong card?". */
+  remembered?: boolean;
 };
 
 function Art({ id }: { id: number }) {
@@ -88,43 +94,62 @@ function MaterialList({ items }: { items: CardMaterial[] }) {
   </div>;
 }
 
-function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
-  return <div className={s.dact}>
-    {a.materials?.length ? <MaterialList items={a.materials} /> : null}
-    {a.zoneCheck ? <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {a.zoneCheck} The card stays here; move it if the zone is wrong.</p> : null}
-    {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
-    {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}
-    {a.onAddToHand ? <button type="button" className={s.btn} onClick={a.onAddToHand} data-testid="add-to-hand"><Icon name="hand" />Add card to hand{"\u2026"}</button> : null}
-    {a.onReveal ? <button type="button" className={s.btn} onClick={a.onReveal}>Reveal card</button> : null}
-    <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
-    {a.onFlag ? <button type="button" className={`${s.btn} ${s.q}`} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
-    {a.edit ? <CardEditRow edit={a.edit} /> : null}
-    {a.undo ? <>
-      <button type="button" className={`${s.btn} ${s.cundo} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
-        onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}><Icon name="undo" />Undo last change to this card</button>
-      {a.undo.reason ? <small className={s.cureason} id="card-undo-reason" data-testid="card-undo-reason">{a.undo.reason}</small> : null}
-    </> : null}
-    {a.onWrong ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onWrong}>Wrong card?</button> : null}
-    {a.onPin ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onPin} data-testid="pin-inspector"><Icon name="card" />Pin to inspector</button> : null}
+const BTN = `${s.btn} ${s.sm} ${s.q}`;
+
+/** One titled group of controls. The small label gives the context, so the buttons can stay short. */
+function Group({ label, testid, children }: { label: string; testid?: string; children: ReactNode }) {
+  return <div className={s.dgrp} role="group" aria-label={label} data-testid={testid}>
+    <span className={s.dglab} aria-hidden="true">{label}</span>
+    <div className={s.dgrow}>{children}</div>
   </div>;
 }
 
-const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monster", label: "To monster zone" }, { zone: "extra-monster", label: "To Extra Monster Zone", mr5: true }, { zone: "spell-trap", label: "To Spell/Trap zone" },
-  { zone: "pendulum", label: "To Pendulum Zone", mr5: true }, { zone: "graveyard", label: "To graveyard" }, { zone: "banished", label: "Banish" }, { zone: "hand", label: "To hand" }];
-/** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
-function CardEditRow({ edit }: { edit: CardEdit }) {
-  return <div className={s.dedit} role="group" aria-label="Fix this card on the virtual field" data-testid="card-edit">
-    {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
-    {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
-      return <button type="button" key={label} className={`${s.btn} ${s.sm} ${s.q}`} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button>
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
-    {edit.equip ? <label className={z.equipPick}>Equipped to
-      <select value={edit.equip.current ?? ""} onChange={event => edit.equip!.onEquip(event.target.value || null)} data-testid="card-equip">
-        <option value="">No monster</option>
-        {edit.equip.options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
-      </select></label> : null}
+function ZoneCheck({ reason }: { reason: string }) {
+  return <p className={z.reason} data-testid="zone-check-reason"><b>Check zone?</b> {reason} The card stays here; move it if the zone is wrong.</p>;
+}
+
+function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
+  const addToDeck = subject.notInDecklist === true && a.canAdd;
+  const edit = a.edit;
+  return <div className={s.dact}>
+    {a.materials?.length ? <MaterialList items={a.materials} /> : null}
+    {a.zoneCheck ? <ZoneCheck reason={a.zoneCheck} /> : null}
+    <Group label="Actions">
+      {addToDeck ? <button type="button" className={BTN} disabled={a.adding} onClick={a.onAdd}>Add to decklist</button> : null}
+      {a.onActivate ? <button type="button" className={BTN} onClick={a.onActivate}>Activate</button> : null}
+      {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
+      {a.onReveal ? <button type="button" className={BTN} onClick={a.onReveal}>Reveal card</button> : null}
+      <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
+    </Group>
+    {edit ? <MoveGroup edit={edit} /> : null}
+    <Group label="Card">
+      {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
+      {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
+        onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
+      {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}
+      {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
+      {a.onFlag ? <button type="button" className={BTN} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
+      {a.undo?.reason ? <small className={s.cureason} id="card-undo-reason" data-testid="card-undo-reason">{a.undo.reason}</small> : null}
+      {edit?.equip ? <label className={z.equipPick}>Equipped to
+        <select value={edit.equip.current ?? ""} onChange={event => edit.equip!.onEquip(event.target.value || null)} data-testid="card-equip">
+          <option value="">No monster</option>
+          {edit.equip.options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </select></label> : null}
+    </Group>
   </div>;
+}
+
+const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monster", label: "Monster" }, { zone: "extra-monster", label: "Extra Monster", mr5: true }, { zone: "spell-trap", label: "Spell/Trap" },
+  { zone: "pendulum", label: "Pendulum", mr5: true }, { zone: "hand", label: "Hand" }, { zone: "graveyard", label: "Graveyard" }, { zone: "banished", label: "Banish" }];
+/** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
+function MoveGroup({ edit }: { edit: CardEdit }) {
+  return <Group label="Move to" testid="card-edit">
+    {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={BTN} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
+    <i className={s.dgbreak} />
+    {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
+      return <button type="button" key={label} className={BTN} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
+    <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
+  </Group>;
 }
 
 /** The identified card, large, beside the card that was clicked on a feed. Same layout as the tray, so the two swap without a jump. */
@@ -132,6 +157,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
   subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
 }) {
   const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
+  const viewOnly = subject.from === "camera";
   return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={s.bigCard}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
     <BigArt id={subject.cardId} label={name} />
@@ -139,13 +165,21 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
       <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
         <div className={s.bchips}>
           <TierChip tier={subject.tier} />
+          {subject.remembered ? <span className={s.tier} data-testid="card-last-read">Last read here</span> : null}
           {subject.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
           <DeckBadges subject={subject} warning={warning} />
+          {viewOnly && actions.materials?.length ? <span className={s.tier} data-testid="card-material-count">{actions.materials.length} material{actions.materials.length === 1 ? "" : "s"}</span> : null}
         </div>
       </CardText>
       {subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
+      {viewOnly && actions.zoneCheck ? <ZoneCheck reason={actions.zoneCheck} /> : null}
     </div>
-    <div className={s.bbar}><Actions a={actions} subject={subject} /></div>
+    <div className={s.bbar} data-testid="card-popover-footer">
+      {viewOnly ? <>
+        {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}
+        {actions.onPin ? <button type="button" className={BTN} onClick={actions.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
+      </> : <Actions a={actions} subject={subject} />}
+    </div>
   </PopupFrame>;
 }
 
@@ -163,10 +197,14 @@ export function InspectorBody({ subject, info, warning, actions, sourceLine }: {
   </div>;
   const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
   return <div data-testid="inspector-body">
-    <Art id={subject.cardId} />
-    <h3 className={s.dname} style={{ margin: 0 }}>{name}</h3>
-    <p className={s.dmeta}>{info || !status.failed ? meta(info) : "Could not load this card."}{!info && status.failed ? <> <button type="button" className={`${s.btn} ${s.sm}`} onClick={status.retry}>Try again</button></> : null}</p>
-    <Stats info={info} />
+    <div className={s.dhead}>
+      <Art id={subject.cardId} />
+      <div>
+        <h3 className={s.dname} style={{ margin: 0 }}>{name}</h3>
+        <p className={s.dmeta}>{info || !status.failed ? meta(info) : "Could not load this card."}{!info && status.failed ? <> <button type="button" className={`${s.btn} ${s.sm}`} onClick={status.retry}>Try again</button></> : null}</p>
+        <Stats info={info} />
+      </div>
+    </div>
     {info?.effectText ? <p className={s.dtxt}>{info.effectText}</p> : null}
     <div className={s.dsrc}>{sourceLine}</div>
     <div className={`${s.dchk} ${subject.notInDecklist ? s.bad : s.ok}`}>

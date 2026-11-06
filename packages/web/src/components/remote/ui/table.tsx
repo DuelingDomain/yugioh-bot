@@ -6,7 +6,7 @@ import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestion
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
-import { CardPopover, InspectorBody, type CardActions, type CardEdit, type Subject } from "./card-view";
+import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
@@ -32,6 +32,7 @@ import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
 import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
+import { tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { takeCameraReady } from "./camera-choice";
@@ -71,7 +72,9 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
 
-type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number; guesses?: Guess[]; bestMatch?: boolean };
+type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number; guesses?: Guess[]; bestMatch?: boolean;
+  /** Tap to identify: the spot of this click in the local memory. */ spot?: TapSpot;
+  /** The open card comes from the local memory, so a correction stays in this browser too. */ hidden?: boolean };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -360,9 +363,25 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     void hub.recordFeedback(token, cardId, source).then(result => { if (result.ok && R.current.feedbackAdmin) toast("Saved to the training set"); else if (result.note) toast(result.note); });
   }, [hub, toast]);
 
+  const tapMemory = (seat: number) => tapMemoryFor(R.current.room.slug, seat, (R.current.room.format?.id ?? R.current.state.deckChecks.format.id) as FieldFormat, hub);
+  /** A card from the local memory: local state only. No action, no data message, no board change, and no tag for the other players. */
+  const showRemembered = (seat: number, card: { cardId: number; name?: string }, at: PopAt) => {
+    setTray(null); layers.close("tray");
+    setSubject({ from: "camera", remembered: true, cardId: card.cardId, seat, name: card.name, notInDecklist: flagFor(seat, card.cardId), addErrors: [], via: "memory" });
+    setPopAt(at); layers.open("card");
+  };
+  /** Tap to identify: opens what this browser remembers at the spot of a card that shows no face now. */
+  const recallCard = (seat: number, x: number, y: number, quad: ReadCtx["quad"], at: PopAt) => {
+    const memory = tapMemory(seat), spot = memory?.spot(x, y, quad), entry = spot && memory?.recall(spot);
+    if (!entry) return false;
+    ctx.current = { seat, x, y, ...(quad ? { quad } : {}), at, id: ++readCounter.current, spot, hidden: true };
+    showRemembered(seat, entry, at); return true;
+  };
+
   const identify = useCallback(async (pick: Pick, source: "click" | "auto" | "voice" | "typed") => {
     const at = ctx.current; if (!at) return;
     const { seat } = at;
+    if (at.hidden) { if (at.spot) tapMemory(seat)?.remember(at.spot, pick); showRemembered(seat, pick, at.at); return; }
     const zoneGrid = currentZoneGrid();
     // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
     // The table refused the card (for example it closed meanwhile). Say so: a popup that only vanishes looks like a bug.
@@ -400,10 +419,13 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     });
     const {updated,owns,ref}=outcome;
     if (!updated) { bail(); return; }
+    // A voice name with no open search is not an answer to this click.
+    if (at.spot && (source !== "voice" || R.current.layer === "tray")) tapMemory(seat)?.remember(at.spot, pick);
     if(owns&&ref)setFresh(ref);
     saveSample(at.token, pick.cardId, pick.feedback);
     const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
-    setSubject({ cardId: pick.cardId, seat, ...(at.bestMatch ? { bestMatch: true } : at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
+    // The answer to a read or a search: it only shows the card. Its controls are on the board, or one step away in the inspector.
+    setSubject({ from: at.from ?? "camera", cardId: pick.cardId, seat, ...(at.bestMatch ? { bestMatch: true } : at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
     const not = identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
     // One outline per card, and one active selection at a time: a new read replaces the older outlines on this feed.
@@ -413,7 +435,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     const expire = () => { if (popupHeld.current === seat) { setTimeout(expire, 2000); return; } setMarks(all => (all[seat] ?? []).some(mark => mark.id === markId) ? { ...all, [seat]: (all[seat] ?? []).filter(mark => mark.id !== markId) } : all); };
     setTimeout(expire, MARK_LIFE_MS);
     setPopAt(at.at); layers.open("card");
-    if(ctx.current) delete ctx.current.cardRef;
+    if(ctx.current) { delete ctx.current.cardRef; delete ctx.current.from; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctl.transaction, layers, hub, saveSample, toast]);
 
@@ -453,19 +475,22 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const abortRead = useCallback((_seat: number, id: number) => { if (readCounter.current === id) cancelRead(); }, [cancelRead]);
 
   /** A click found no card. Nothing opened for it; the feed shows a small "No card here" note. */
-  const noCard = useCallback((seat: number) => {
+  const noCard = useCallback((seat: number, point?: { x: number; y: number }) => {
+    const memory = point ? tapMemory(seat) : null; if (memory && point) memory.forget(memory.spot(point.x, point.y));
     if (ctx.current?.seat === seat) delete ctx.current.cardRef;
     cancelRead(); readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers]);
+  }, [layers, hub]);
   /** "Search card" on that note: the popup with only the search box, at the click. */
   const searchHere = useCallback((seat: number, start: FeedStart) => {
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
-    ctx.current = { seat, x: start.x, y: start.y, at, id };
+    const spot = tapMemory(seat)?.spot(start.x, start.y);
+    ctx.current = { seat, x: start.x, y: start.y, at, id, ...(spot ? { spot } : {}) };
     setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: `Search for the card${sayItsName}.`, reader: "none", at });
     layers.open("tray");
-  }, [layers, name]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layers, name, hub]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
     // An older read with its own mark is stopped. A click still at its first step is this read, so only its mark goes.
@@ -484,15 +509,17 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
         ctx.current={seat,x,y,quad:hit.quad,at:{anchor:hit.anchor,feed:hit.feed},id:++readCounter.current};
         return;
       }
+      if ((!extra?.live || readCounter.current === beginId.current) && recallCard(seat, x, y, hit.quad, { anchor: hit.anchor, feed: hit.feed })) return;
       toast(origins.length ? origins.map(o=>"Face-down · Set by "+o.source.name).join("; ") : "Face-down card"); layers.close(); return;
     }
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
     const at: PopAt = { anchor: extra?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
-    ctx.current = { seat, x, y, quad: hit?.quad, copyWitnesses:hit?.copyWitnesses,capturedAt:hit?.capturedAt,at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
+    const spot = tapMemory(seat)?.spot(x, y, hit?.quad);
+    ctx.current = { seat, x, y, quad: hit?.quad, ...(spot ? { spot } : {}), copyWitnesses:hit?.copyWitnesses,capturedAt:hit?.capturedAt,at, id,...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}),ref:found?.ref??hit?.cached?.ref,frozenFrame:hit?.frozenFrame, ...(hit?.covered ? { covered: true } : {}) };
     if(cached){
-      setTray(null);setSubject({cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,bestMatch:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch,tier:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch?'not sure':'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
+      setTray(null);setSubject({from:'camera',cardId:cached.cardId,seat,ref:cached.ref,name:cached.name,bestMatch:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch,tier:state.seats[seat].twin.find(c=>c.ref===cached.ref)?.bestMatch?'not sure':'sure',notInDecklist:flagFor(seat,cached.cardId),addErrors:[],via:'tracked'});
       setSelected({seat,ref:cached.ref});setPopAt(at);layers.open('card');return;
     }
     if (extra?.live) beginId.current = id;
@@ -520,6 +547,10 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     if (ctx.current && ctx.current.id === id) { if (result.tier) ctx.current.tier = result.tier; ctx.current.token = result.aiToken; ctx.current.guesses = result.guesses; }
     const clear = isClearRead(result);
     if (clear && ctx.current && ctx.current.id === id) ctx.current.bestMatch = true;
+    // The reader saw a back or found no real match (a plain sleeve reads as a poor match): the card this browser saw here, if any.
+    if (!clear && !found?.force && !hit?.covered && !result.covered && result.reader === "vision" && (result.faceDown || !result.guesses.length || result.tier === "low match") && recallCard(seat, x, y, hit?.quad, at)) {
+      reticle(seat, null, rid); inFlight.current = null; return;
+    }
     // "Wrong card?" always asks: an own webcam read can return the same wrong card as sure.
     if ((result.tier === "sure" || clear) && top && result.reader === "vision" && !hit?.covered && !result.covered && !found?.force) {
       await loadCards([top.cardId]);
@@ -539,8 +570,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     ask({ status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(best ? { best: true } : {}), ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name, toast]);
-  const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
-  useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); } }, [layers.layer, tray]);
+  const closeTray = () => { if(ctx.current) { delete ctx.current.cardRef; delete ctx.current.from; } readCounter.current++; setTray(null); layers.close("tray"); };
+  useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) { delete ctx.current.cardRef; delete ctx.current.from; } readCounter.current++; setTray(null); } }, [layers.layer, tray]);
   // Esc stops a read in progress.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") cancelRead(); };
@@ -955,7 +986,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
   useEffect(() => { if (knownIds) void loadCards(knownIds.split(",").map(Number)).then(() => setNames(n => n + 1)); }, [knownIds]);
   const openKnown = (seat: number, card: KnownHandCard) => {
-    setSubject({ cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
+    setSubject({ from: "hand", cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     layers.open("insp");
   };
   // A camera read without a search arrives as a local browser event. The owner decides; nothing is sent before a choice.
@@ -1047,7 +1078,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
       // A read accepted at once keeps its other guesses, so a wrong one costs no more than the tray did.
       const guesses=(same?.guesses??[]).filter(g=>g.cardId!==subject.cardId);
-      ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(same?.token!==undefined?{token:same.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
+      ctx.current={from:subject.from,seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(same?.token!==undefined?{token:same.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{}),...(subject.from==="camera"&&same?.spot?{spot:same.spot}:{}),...(subject.remembered?{hidden:true}:{})};
       layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(same?.token!==undefined?{aiToken:same.token}:{}) }); layers.open("tray"); },
     onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
@@ -1081,6 +1112,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
   };
+  /** A remembered card is known to this browser only, so it offers nothing that would tell the table. */
+  const shownActions: CardActions = subject?.remembered ? { canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined, onWrong: actions.onWrong } : actions;
   /** "Equipped to" choices: every monster on any field. One twin.equip action, one Undo. */
   function equipChoice(seat: number, card: TwinCard): NonNullable<CardEdit["equip"]> {
     const options = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => c.zone === "monster" || c.zone === "extra-monster").map(c => ({
@@ -1091,17 +1124,17 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       onEquip: key => { const [target, ref] = key ? [Number(key.split(":")[0]), key.slice(key.indexOf(":") + 1)] : [];
         void act({ type: "twin.equip", actorSeat: solo ? seat : mySeat, seat, cardRef: card.ref, target: key ? { seat: target!, ref: ref! } : null }); } };
   }
-  const openSubject = (card: TwinCard, fromField = true, anchor?: Rect) => {
+  const openSubject = (card: TwinCard, from: Exclude<CardSource, "hand"> = "board", anchor?: Rect) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card);
     // Your own card with no name still gets its actions (move, flip, Graveyard, Wrong card?). cardId 0 = not identified.
-    if (!id && !((solo || seat === mySeat) && fromField && !anchor)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
-    setSubject({ cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id ? flagFor(seat, id) : null, addErrors: [], via: "field" });
+    if (!id && !((solo || seat === mySeat) && from === "board" && !anchor)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
+    setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id ? flagFor(seat, id) : null, addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref });
     // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
-    if (anchor) { setPopAt({ anchor, feed: null }); layers.open("card"); } else if (fromField) layers.open("insp");
+    if (anchor) { setPopAt({ anchor, feed: null }); layers.open("card"); } else if (from === "board") layers.open("insp");
   };
   // ---- Graveyard and Banished piles ----
   const [pile, setPile] = useState<{ seat: number; zone: PileZone } | null>(null);
@@ -1169,13 +1202,15 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     const card = twinAtPoint(seat, at.x, at.y);
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {
-      cancelRead(); openSubject(card, false, at.anchor);
+      cancelRead(); openSubject(card, "camera", at.anchor);
       ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
       return true;
     }
     if (!webcamOnly) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
-    if (card.faceUp) return false;
+    // A Set card this browser remembers takes the click read, which ends in the local popup. No name shows until then.
+    const memory = tapMemory(seat);
+    if (card.faceUp || memory?.recall(memory.spot(at.x, at.y))) return false;
     cancelRead(); toast("Set card"); layers.close(); return true;
   };
   /** While a target is picked for an attack: a click on a monster of another seat declares it. */
@@ -1190,7 +1225,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const openCardActions = (card: TwinCard): boolean => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     if (!cardCode(card) && !card.faceUp && !(solo || seat === mySeat)) { toast("Set card"); return true; }
-    openSubject(card, true); return true;
+    openSubject(card, "board"); return true;
   };
   /** The feed handler runs first and the table handler after it, in the same event. This tells the table handler what the feed did. */
   const feedMenu = useRef(false);
@@ -1269,7 +1304,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
-      <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={actions}
+      <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
     </InspectorDrawer>
     <DeckFlagPopover open={layers.layer === "flag"} flag={deckFlag(room, flagSeat)} instances={room.state.deckChecks?.instances ?? []} canMerge={live && (solo || flagSeat === mySeat)} busy={!live}
@@ -1279,13 +1314,13 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
-      onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()}
+      onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
         onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),
         onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
       } : {})} /> : null}
-    {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
+    {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={shownActions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={voiceRecognition ? () => toast("Say the card name, or “number two”.") : undefined}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
