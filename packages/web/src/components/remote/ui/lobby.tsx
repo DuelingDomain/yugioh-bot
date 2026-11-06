@@ -101,9 +101,11 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
     } catch { /* storage may be blocked */ }
   }, [room.slug]);
   const current = room.format ?? normalizeRemoteFormat();
-  const [format, setFormat] = useState<string>(current.id);
+  const [formatDraft, setFormat] = useState<string>(current.id);
   // The open formats, and the format of an older room, which that room keeps until the host changes it.
   const formatChoices = REMOTE_FORMATS.filter(item => REMOTE_OPEN_FORMATS.includes(item.value) || item.value === current.id);
+  // Another tab can change the room's format and take the draft off the list. The room's format then applies.
+  const format = formatChoices.some(choice => choice.value === formatDraft) ? formatDraft : current.id;
   const [bestOf, setBestOf] = useState<string>(String(room.bestOf ?? room.state.match?.bestOf ?? 1));
   const [banlist, setBanlist] = useState(current.settings.banlist);
   const [points, setPoints] = useState(current.settings.genesys?.pointCap ?? 100);
