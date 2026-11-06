@@ -99,6 +99,36 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
  }finally{watcher.dispose();}
 });
 
+test('CPU budget, 1.2 s detector: a flip in place settles soon and a Set moved after 7 s still keeps its id',async()=>{
+ let at=0,down=false,x=.3,moving=0,dirty=0,motion=0,passes=0,passAt=0,oldest=0;
+ const back=image(()=>[15,15,15]),events:FieldEvent[]=[];
+ const outline=():DetectedQuad=>{const w=down?.2*176/120:.2,h=down?.2*120/176:.2;
+  return {kind:down?'face-down':'face-up',confidence:down?.74:.99,partial:false,quad:[{x:x-w/2,y:.4-h/2},{x:x+w/2,y:.4-h/2},{x:x+w/2,y:.4+h/2},{x:x-w/2,y:.4+h/2}]};};
+ const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,
+  buffer:{sample:async()=>({frame:{width:120,height:176,data:front.data} as ImageData,at})},clone:async f=>f,
+  analyze:()=>({crop:()=>down?back:front,motion:()=>motion,sharpness:()=>20,appearance:()=>Array(288).fill(down?.6:.05),scene:{moving,sinceMark:dirty,mark(){dirty=0;}}}),
+  recognizer:{detectorBackend:'wasm',detectCards:async()=>{passes++;passAt=at;at+=1200;return [outline()];},recognize:async()=>({candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{fallback:false,covered:false,partial:false,faceDown:false},timingsMs:{embed:20,search:1,total:21},backend:'wasm'}) as RecognitionResult}});
+ watcher.subscribe(e=>{events.push(e);if(e.type==='placed')watcher.confirm(e.track.id,e.track.cardId,'ref-1',false);});
+ const until=async(ms:number,done:()=>boolean)=>{const end=at+ms;while(at<end&&!done()){at+=100;await watcher.tick();await Promise.resolve();const live=watcher.getSnapshot().tracks.find(t=>!t.removed);if(live)oldest=Math.max(oldest,at-live.lastSeen);}return done();};
+ const change=async(apply:()=>void)=>{moving=dirty=30;motion=.2;at+=100;await watcher.tick();apply();dirty=30;at+=100;await watcher.tick();moving=0;motion=0;dirty=30;};
+ try{
+  dirty=30;assert.ok(await until(10_000,()=>events.some(e=>e.type==='placed')),'the card is placed');
+  await until(1500,()=>false);passes=0;await until(7000,()=>false);
+  assert.ok(passes<=3,`a still card ran ${passes} passes in 7 s`);
+  const flipAt=at;await change(()=>{down=true;});
+  assert.ok(await until(6000,()=>events.some(e=>e.type==='flipped'&&e.track.faceDown)),'the flip settles');
+  assert.ok(at-flipAt<=3400,`flip took ${at-flipAt} ms`);
+  await until(1500,()=>false);const set=watcher.getSnapshot().tracks.find(t=>!t.removed)!;
+  assert.ok(set.restSince!==undefined&&at-set.lastSeen<=1500,'a flipped card can speak for its face');
+  oldest=0;await until(7000,()=>false);assert.ok(oldest<=1500,`a still Set went unseen for ${oldest} ms`);
+  // The move starts long after the last pass: only the still check can vouch for the card.
+  assert.ok(await until(4000,()=>at-passAt>=3000));events.length=0;await change(()=>{x=.7;});
+  assert.ok(await until(6000,()=>events.some(e=>e.type==='moved')),`the Set moves (${events.map(e=>e.type)})`);
+  const after=watcher.getSnapshot().tracks.filter(t=>!t.removed);
+  assert.equal(after.length,1);assert.equal(after[0].id,set.id);assert.equal(events.some(e=>e.type==='removed'),false);
+ }finally{watcher.dispose();}
+});
+
 test('a fresh low-confidence reveal can ask again without a retry loop',async()=>{
  let at=0,down=false,reads=0;
  const back=image(()=>[15,15,15]),events:FieldEvent[]=[];

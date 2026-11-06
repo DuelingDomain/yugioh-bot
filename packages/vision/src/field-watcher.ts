@@ -189,7 +189,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean;appearance?:number[];look?:number[];keptAt:number;backs:number}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   // CPU budget (WASM only; see field-pacer.ts): pacing is set on each tick from the frame's own scene evidence.
-  const pacer=createFieldPacer(fieldPacerDevice(),now());let pacing=false,pacedStill=false,lastShadowPassAt=-Infinity,budgetWaitAt=-Infinity;
+  const pacer=createFieldPacer(fieldPacerDevice(),now());let pacing=false,pacedStill=false,lastShadowPassAt=-Infinity,budgetWaitAt=-Infinity,lastSceneChangeAt=-Infinity,forcePass=false;
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined,lastReadHeld=false;
   /** Scan field: full passes still to run before the sweep, the pile outlines they saw, and when the last sweep finished. */
@@ -450,7 +450,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   function resetFace(t:InternalTrack){if(t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined)count(t,'faceResets');t.face?.gate.reset();t.face?.setGate?.reset();if(t.face){t.face.pendingAt=undefined;t.face.transitionAt=undefined;t.face.outlineAppearance=undefined;}}
   function resetAbsence(t:InternalTrack,preserveWindow=false){t.missingSamples=0;t.missingAt=undefined;if(!preserveWindow)t.clearWindowAt=undefined;}
-  function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;for(const t of tracks){resetFace(t);t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
+  function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;if(!preserveVisibility)forcePass=true;for(const t of tracks){resetFace(t);t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
   const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===options.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
@@ -514,8 +514,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   /** A placement, read, pose or removal is in progress: the watcher needs fresh detector outlines. */
   const settlingNow=()=>[...piles.values()].some(p=>!p.down&&now()-p.firstSeen<1500)||Boolean(reading)||tracks.some(t=>(t.face?.pendingAt!==undefined&&now()-t.face.pendingAt<1500)||t.pose||t.read||(t.view.state==='candidate'&&(t.view.card.confidence>=.7||backOutline(t.view.card))&&!t.view.card.partial&&!t.view.card.covered&&now()-t.view.firstSeen<2500)||(t.view.state==='identified'&&!t.view.removed&&((t.missed&&now()-t.view.lastSeen<removalMs+1500)||(t.missingSamples>0&&now()-(t.clearWindowAt??now())<removalMs+1500)||(t.announced&&t.moveAt!==undefined&&now()-t.moveAt<1500&&(distance(t.announced,t.view.card)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==t.position)))));
-  /** Work that a still frame cannot finish: it keeps detector passes coming (in budget). A stuck candidate counts for 8 s only. */
-  const pacingPending=(at:number)=>settlingNow()||heldReader.hasVisibleCard()||tracks.some(t=>!t.view.removed&&t.view.state!=='dismissed'&&(t.needsRead||!!t.read||(t.fullMisses??0)>0||t.view.state==='candidate'&&at-t.view.firstSeen<8000))||[...pilePresence.values()].some(p=>p.present&&p.misses>0&&p.misses<3)||[...twinMisses.values()].some(m=>m.misses<2);
+  /** Work that a still frame cannot finish: it keeps detector passes coming (in budget). A stuck candidate or flip counts for some seconds only. */
+  const pacingPending=(at:number)=>settlingNow()||heldReader.hasVisibleCard()||tracks.some(t=>!t.view.removed&&t.view.state!=='dismissed'&&(t.needsRead||!!t.read||(t.fullMisses??0)>0||t.view.state==='candidate'&&at-t.view.firstSeen<8000||(t.face?.pendingAt!==undefined&&at-t.face.pendingAt<8000)||t.view.state==='identified'&&at-lastSceneChangeAt<8000&&(t.view.faceDown!==(t.view.card.kind==='face-down')||!!t.rest&&!t.rest.ok)))||[...pilePresence.values()].some(p=>p.present&&p.misses>0&&p.misses<3)||[...twinMisses.values()].some(m=>m.misses<2);
   async function tick() {
     if(disposed||inFlight)return;
     if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
@@ -566,8 +566,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       pacing=!!scene&&options.recognizer.detectorBackend!=='webgpu';
       const urgentScan=scanRequested||scanFollowUp;
       const sceneMoving=pacing&&scene!.moving>0,sceneDirty=pacing&&scene!.sinceMark>0;
-      if(sceneMoving)pacer.changed(sample.at);
-      const pacedPending=pacing&&pacingPending(sample.at),handOnly=sceneMoving&&!pacedPending;
+      if(sceneMoving)pacer.changed(sample.at);if(sceneMoving||sceneDirty)lastSceneChangeAt=sample.at;
+      const pacedPending=pacing&&(forcePass||pacingPending(sample.at)),handOnly=sceneMoving&&!pacedPending;
       pacedStill=pacing&&!sceneMoving&&!sceneDirty&&!pacedPending;
       // Paced: a still scene waits for the slow timer. A changed one takes one full pass as soon as it stops moving, so the
       // detector always has the final scene. A settling card (rest test, read, removal check) needs samples soon, so it takes
@@ -635,6 +635,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         for(const t of tracks){
           t.view.visible=!!t.view.visible&&t.view.state==='identified'&&!t.view.removed&&evidence.motion(t.view.card)<=.025&&matchesLook(t,evidence.appearance?.(t.view.card));
           if(!t.view.visible){resetFace(t);t.missed=true;t.stableSince=NaN;t.observations=0;}
+          // No change in the scene and the same look: the card lies there, so a later move or flip counts from now.
+          else if(pacedStill)t.view.lastSeen=sample.at;
         }
         return;
       }
@@ -677,7 +679,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
       }else{
       if(!fullDue&&pixelBurst()&&sample.at-lastDetectionAt<(options.recognizer.detectorBackend==='webgpu'?Math.max(100,metrics.intervalMs):100))return;
-      if(pacing&&!urgentScan&&!pacer.allow(sample.at,handOnly)){debugPath('budget wait',sample.at);budgetWaitAt=sample.at;return;}
+      if(pacing&&!urgentScan&&!pacer.allow(sample.at,handOnly)){debugPath('budget wait',sample.at);if(!handOnly)budgetWaitAt=sample.at;return;}
       detectorRan=true;
       detectFrame=await clone(current);
       // Discover new outlines in the recent motion crop, including all live
@@ -695,7 +697,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // Known cards keep weaker outlines (hysteresis, shadow-lifted pass); kept outlines never start a card.
       const keep=keepOutlines(),pileQuads=pileCells(),slotQuads=fieldCells().filter(c=>fieldZoneName(c.zone)).map(c=>cellQuad(c).quad).slice(0,20);
       // CPU: on a dim mat darkShare is always high, so one lost card doubled every pass. A second pass needs a measured shadow, or waits 3 s.
-      const shadowPass=!pacing||shadowShare>=.03||sample.at-lastShadowPassAt>=SHADOW_PASS_EVERY_MS;if(pacing&&shadowPass)lastShadowPassAt=sample.at;
+      const shadowPass=!pacing||urgentScan||scanSweep>0||shadowShare>=.03||sample.at-lastShadowPassAt>=SHADOW_PASS_EVERY_MS;if(pacing&&shadowPass)lastShadowPassAt=sample.at;
       const detectOpts=(r?:FractionalBox)=>r||keep.length||pileQuads.length||slotQuads.length?{...(shadowPass?{}:{shadowPass:false}),...(r?{region:r}:{}),...(keep.length?{keep}:{}),...(pileQuads.length?{piles:pileQuads.map(p=>p.quad)}:{}),...(slotQuads.length?{cells:slotQuads}:{})}:undefined;
       detected=await options.recognizer.detectCards(detectFrame,detectOpts(region));
       // A crop changes the detector's context. In particular, a plain sleeve
@@ -725,7 +727,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const cellArea=zoneArea(),cellSized=(c:DetectedQuad)=>{if(!cellArea)return false;const b=boundsOf(c.quad);return b.w*b.h>=cellArea*.25&&b.w*b.h<=cellArea*1.3;};
       detected=detected.filter(c=>!c.cell||c.confidence>=CARD_DETECTOR.minConfidence||cellSized(c)&&planeVerdict(c).ok&&sleeveOnMat(evidence.appearance?.(c),evidence.halo?.(c)));
       // Scan field runs two full passes back to back: two misses remove a card at once.
-      if(!region){lastFullDetectionAt=sample.at;evidence.scene?.mark();if(scanRequested)scanFollowUp=true;else scanFollowUp=false;scanRequested=false;}
+      if(!region){lastFullDetectionAt=sample.at;forcePass=false;evidence.scene?.mark();if(scanRequested)scanFollowUp=true;else scanFollowUp=false;scanRequested=false;}
       // "Out of view is gone" for piles: a GY, Banished, Deck or Extra cell with
       // no outline in 2 full scans in a row, and no hand over it, is missing.
       if(!region&&calibration)for(const cell of fieldZoneCells(options.format,calibration.zoneSpacing,calibration.zones))if(['GY','BANISHED','DECK','EXTRA'].includes(cell.zone)){
@@ -918,7 +920,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(detectorRan&&!region){
         const seen=cards.some(c=>fieldZone(mapFieldZone(c,calibration,cards,options.format).zone));
         // Evidence must be continuous: a long gap between passes restarts the window.
-        if(seen||blurHold||evidence.motion(mat)>.004||localizedDifference||sample.at-emptyPassAt>Math.max(1000,2*fullEvery)){emptySince=undefined;emptyPasses=0;}
+        if(seen||blurHold||evidence.motion(mat)>.004||localizedDifference||sample.at-emptyPassAt>Math.max(1000,2*fullEvery,pacing?4*Math.max(ema,metrics.detectorMs):0)){emptySince=undefined;emptyPasses=0;}
         if(!seen&&evidence.motion(mat)<=.004&&!localizedDifference){emptySince??=sample.at;emptyPasses++;emptyPassAt=sample.at;}else emptyPassAt=-Infinity;
         if(emptySince!==undefined&&emptyPasses>=3&&sample.at-emptySince>=EMPTY_MAT_MS){
           // A hand resting on a card is not an empty spot: its pixels must read as clear mat.
@@ -1509,7 +1511,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     }
   }
   function schedule() {if(!active)return;clearTimeout(timer);timer=setTimeout(async()=>{const start=now();await tick();if(!active)return;if(wakeQueued){wakeQueued=false;schedule();return;}const wanted=pacing?pacer.tickMs(pacedStill?'still':pixelBurst()?'burst':'active'):Math.min(pixelBurst()?33:66,metrics.intervalMs);scheduleAfter(Math.max(0,wanted-(now()-start)));},0);}
-  function scheduleAfter(delay:number) {if(!active)return;const asked=now();timer=setTimeout(()=>{pacer.late(now()-asked-delay);schedule();},delay);}
+  function scheduleAfter(delay:number) {if(!active)return;const asked=now(),wasHidden=hidden();timer=setTimeout(()=>{if(!wasHidden&&!hidden())pacer.late(now()-asked-delay);schedule();},delay);}
   function stop() {active=false;epoch++;heldReader.reset();clearTimeout(timer);interruptWindow();piles.clear();status='stopped';notify();}
   return {
     tick,
