@@ -3,6 +3,8 @@ import {remoteFieldTracksSchema,type RemoteFieldTracks,type RemoteFieldCard,type
 import type {FieldSnapshot,KnownFieldCard,FieldCalibration} from '@yugidraft/vision';
 import {catalogCardId,createFieldCalibration,flattenFieldCalibration} from '@yugidraft/vision';
 export const FIELD_TRACKS_TOPIC='remote.field-tracks.v1';
+/** Set card outlines, sent to seated players only: a back's ref can hold the card id, and hidden spectators receive all room-wide data. */
+export const FIELD_BACKS_TOPIC='remote.field-backs.v1';
 const emptyCards:RemoteFieldCard[]=[];
 /** One shared empty list: a store snapshot must be the same object on every read. */
 export const emptyBacks:FieldBack[]=[];
@@ -26,7 +28,7 @@ export function trackedRereadTarget(ref:string,cards:readonly RemoteFieldCard[],
 }
 /** Full replacement snapshots, read synchronously without React renders or any inference. */
 export class FieldTrackCache {
-  private seats=new Map<number,{at:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration;tap:boolean}>();
+  private seats=new Map<number,{at:number;backsAt:number;cards:RemoteFieldCard[];backs:FieldBack[];calibration?:FieldCalibration;tap:boolean}>();
   private listeners=new Set<()=>void>();
   private timer:ReturnType<typeof setTimeout>|undefined;
   subscribe=(listener:()=>void)=>{this.listeners.add(listener);this.scheduleExpiry();return()=>{this.listeners.delete(listener);if(!this.listeners.size){clearTimeout(this.timer);this.timer=undefined;}};};
@@ -34,24 +36,35 @@ export class FieldTrackCache {
   private scheduleExpiry(){
     clearTimeout(this.timer);this.timer=undefined;
     if(!this.listeners.size)return;
-    const remaining=[...this.seats.values()].filter(v=>v.backs.length&&this.now()-v.at<=3000).map(v=>3001-(this.now()-v.at));
+    const remaining=[...this.seats.values()].filter(v=>v.backs.length&&this.now()-v.backsAt<=3000).map(v=>3001-(this.now()-v.backsAt));
     if(remaining.length)this.timer=setTimeout(()=>{this.timer=undefined;this.notify();},Math.max(1,Math.min(...remaining)));
   }
   constructor(private now=()=>performance.now()){}
-  receive(seat:number,input:unknown){
+  /** keepBacks: from a peer, whose outlines arrive by FIELD_BACKS_TOPIC, so a message with no backs does not clear them. */
+  receive(seat:number,input:unknown,options?:{keepBacks?:boolean}){
     const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
     let calibration:FieldCalibration|undefined;
     try{if(parsed.data.calibration)calibration=flattenFieldCalibration(createFieldCalibration(parsed.data.calibration.corners,parsed.data.calibration.orientation,parsed.data.calibration.zoneSpacing,parsed.data.calibration.zones));}catch{return false;}
-    const previous=this.seats.get(seat)?.backs??[],backs=parsed.data.backs??[];
-    this.seats.set(seat,{at:this.now(),cards:parsed.data.cards,backs,calibration,tap:parsed.data.mode==='tap'});
-    for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
+    const old=this.seats.get(seat),previous=old?.backs??[],keep=options?.keepBacks&&!parsed.data.backs,backs=keep?previous:parsed.data.backs??[];
+    this.seats.set(seat,{at:this.now(),backsAt:keep?old?.backsAt??this.now():this.now(),cards:parsed.data.cards,backs,calibration,tap:parsed.data.mode==='tap'});
+    this.markBacks(seat,previous,backs);
     this.notify();return true;
+  }
+  receiveBacks(seat:number,input:unknown){
+    const parsed=remoteFieldTracksSchema.safeParse(input);if(!Number.isInteger(seat)||seat<0||seat>3||!parsed.success)return false;
+    const old=this.seats.get(seat),previous=old?.backs??[],backs=parsed.data.backs??[];
+    this.seats.set(seat,{...(old??{at:-Infinity,cards:emptyCards,tap:false}),backsAt:this.now(),backs});
+    this.markBacks(seat,previous,backs);
+    this.notify();return true;
+  }
+  private markBacks(seat:number,previous:FieldBack[],backs:FieldBack[]){
+    for(const ref of new Set([...previous,...backs].map(b=>b.ref)))markBackTiming(ref,backs.some(b=>b.ref===ref)?'tracksReceived':'tracksCleared',{seat});
   }
   hit(seat:number,x:number,y:number):RemoteFieldCard|undefined {
     return hitTrackedCards(this.snapshot(seat),x,y);
   }
   snapshot(seat:number):RemoteFieldCard[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.cards:emptyCards;}
-  backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.backs:emptyBacks;}
+  backs(seat:number):FieldBack[]{const value=this.seats.get(seat);return value&&this.now()-value.backsAt<=3000?value.backs:emptyBacks;}
   calibration(seat:number):FieldCalibration|undefined {const value=this.seats.get(seat);return value&&this.now()-value.at<=3000?value.calibration:undefined;}
   tap(seat:number):boolean {const value=this.seats.get(seat);return !!value&&this.now()-value.at<=3000&&value.tap;}
   clear(seat?:number){if(seat===undefined)this.seats.clear();else this.seats.delete(seat);this.notify();}

@@ -1228,6 +1228,17 @@ test.describe("remote duels, spectators", () => {
       c.on("request", request => { if (/\.onnx|ort-wasm|\/vision|remote-vision/.test(request.url())) readerFiles.push(request.url()); });
       c.on("worker", worker => workers.push(worker.url()));
       await fakeCamera(a, "16:9"); await fakeCamera(b, "16:9");
+      // Reads the raw LiveKit data each browser receives, before any page code can filter it.
+      for (const page of [b, c]) await page.addInitScript(() => {
+        const w = window as unknown as { __lkData: string };
+        w.__lkData = "";
+        const listen = (channel: RTCDataChannel) => channel.addEventListener("message", event => { if (event.data instanceof ArrayBuffer) w.__lkData += new TextDecoder("utf-8", { fatal: false }).decode(event.data); });
+        const Native = window.RTCPeerConnection;
+        window.RTCPeerConnection = class extends Native {
+          constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) { super(...args); this.addEventListener("datachannel", event => listen(event.channel)); }
+          override createDataChannel(...args: Parameters<RTCPeerConnection["createDataChannel"]>) { const channel = super.createDataChannel(...args); listen(channel); return channel; }
+        };
+      });
       for (const page of [a, b]) await page.addInitScript(() => {
         const asked = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
         navigator.mediaDevices.getUserMedia = async constraints => {
@@ -1262,6 +1273,19 @@ test.describe("remote duels, spectators", () => {
       await expect.poll(() => audioIn(voiceRoom), { timeout: 5000, intervals: [100] }).toEqual(["remote-user-102"]);
       await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
       expect(await audioIn(tableRoom)).toEqual([]);
+      // A Set card outline holds the id in its ref: the opponent receives it, the spectator's raw data does not.
+      await a.evaluate(() => {
+        const quad = [{ x: .2, y: .2 }, { x: .4, y: .2 }, { x: .4, y: .5 }, { x: .2, y: .5 }];
+        const element = document.querySelector('[data-testid="feed-0"]')!, key = Object.keys(element).find(name => name.startsWith("__reactFiber$"))!;
+        type Fiber = { return?: Fiber; memoizedProps?: { value?: { publishFieldTracks?: (message: unknown) => void } } };
+        let fiber = (element as unknown as Record<string, Fiber>)[key];
+        while (fiber && !fiber.memoizedProps?.value?.publishFieldTracks) fiber = fiber.return!;
+        fiber.memoizedProps!.value!.publishFieldTracks!({ type: "field.tracks", cards: [{ ref: "shown", cardId: 900000001, name: "Origin fixture 1", quad }], backs: [{ ref: "c0-53582587-set", zone: "S1", quad }] });
+      });
+      const rawData = (page: Page) => page.evaluate(() => (window as unknown as { __lkData: string }).__lkData);
+      await expect.poll(() => rawData(c), { timeout: 15_000 }).toContain("Origin fixture 1");
+      await expect.poll(() => rawData(b), { timeout: 15_000 }).toContain("c0-53582587-set");
+      for (const secret of ["c0-53582587", "53582587", "backs"]) expect(await rawData(c), secret).not.toContain(secret);
       await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
       await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
       await expect(c.getByTestId("lp-value-0")).toHaveText("7900");

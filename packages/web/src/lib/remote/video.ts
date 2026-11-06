@@ -8,7 +8,7 @@ import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
-import {FieldTrackCache,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
+import {FieldTrackCache,FIELD_BACKS_TOPIC,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
@@ -39,6 +39,7 @@ export class RemoteVideo {
   private closed = false;
   private pagehide = () => { void this.voice.stop(); void this.room.disconnect().catch(error => this.fail(error)); };
   private fieldTracks=new FieldTrackCache();
+  private backsSent=false;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
@@ -80,7 +81,8 @@ export class RemoteVideo {
       if (from === undefined) return;
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
-        if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value);return;}
+        if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value,{keepBacks:true});return;}
+        if(topic===FIELD_BACKS_TOPIC){this.fieldTracks.receiveBacks(from,value);return;}
         if(!this.channel)return;
         if (topic === PENDING_TOPIC) this.channel.announce(from, value.requestId, value.feedOwnerSeat);
         else if (topic === RECOGNITION_TOPIC) void this.channel.receive(from, value).catch(error => this.fail(error));
@@ -99,7 +101,7 @@ export class RemoteVideo {
   private seatOf(participant: { identity: string; metadata?: string }) {
     return participantSeat(participant.identity, participant.metadata, this.options.guildId, this.options.slug, this.options.members);
   }
-  setMembers(members: VideoMember[]) { this.options.members = members; this.sync(); }
+  setMembers(members: VideoMember[]) { this.options.members = members; this.voice.sync(); }
   private sync() {
     const feeds: VideoFeed[] = [];
     const local = this.room.localParticipant;
@@ -283,12 +285,19 @@ export class RemoteVideo {
   async publishFieldTracks(message:RemoteFieldTracks) {
     if(this.room.state!==ConnectionState.Connected)return;
     this.fieldTracks.receive(this.options.seat,message);
-    let bytes=new TextEncoder().encode(JSON.stringify(message));
+    // Room wide means spectators too, so Set card outlines never go in this message.
+    const {backs,...open}=message;
+    let bytes=new TextEncoder().encode(JSON.stringify(open));
     // Long names are already in the public twin state; retain every quad within
     // the same small packet budget used by recognition messages.
-    if(bytes.byteLength>8192)bytes=new TextEncoder().encode(JSON.stringify({...message,cards:message.cards.map(({name:_,...card})=>card)}));
+    if(bytes.byteLength>8192)bytes=new TextEncoder().encode(JSON.stringify({...open,cards:open.cards.map(({name:_,...card})=>card)}));
     if(bytes.byteLength>8192)throw new Error('Field snapshot is too large');
     await this.room.localParticipant.publishData(bytes,{reliable:true,topic:FIELD_TRACKS_TOPIC});
+    // The field watcher sends again each second, so a player who joins or reloads has the outlines within a second. An empty list clears them.
+    const seated=this.options.members.flatMap(p=>p.userId!==null&&p.seat!==this.options.seat?[`remote-user-${p.userId}`]:[]);
+    if(!seated.length||(!backs?.length&&!this.backsSent))return;
+    this.backsSent=!!backs?.length;
+    await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({type:'field.tracks',cards:[],backs:backs??[]})),{reliable:true,topic:FIELD_BACKS_TOPIC,destinationIdentities:seated});
   }
   requestRecognition(seat: number, x = 0.5, y = 0.5, force=false) {
     if (!this.channel || this.room.state !== ConnectionState.Connected) return Promise.reject(new Error("Connect table video first"));

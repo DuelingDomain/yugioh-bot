@@ -273,16 +273,16 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       return { slug: row.slug, status: row.status, solo: !!row.solo, lastEventAt: row.last_event_at, seat: seat?.seat ?? null, displayName: seat?.displayName ?? "Spectator" };
     },
     /**
-     * Who may hold LiveKit media now, for public tables that are live or ended in the last 15 minutes: the seated users and the live spectator slots.
-     * A private table never has spectators, so it is not here.
+     * Who may hold LiveKit media now, for non-solo tables that are live or ended in the last 15 minutes: the seated users and the live spectator slots.
+     * A private table has no slots, but a player who leaves its lobby must still lose the rooms.
      */
     mediaRosters(now = Date.now(), slug?: string): { slug: string; seated: number[]; slots: number[] }[] {
-      const rows = db.prepare(`select id,slug,status from remote_tables where solo=0 and visibility='public' and (status!='ended' or ended_at>?)${slug ? " and slug=?" : ""}`)
-        .all(...(slug ? [now - 15 * 60_000, slug] : [now - 15 * 60_000])) as { id: number; slug: string; status: string }[];
+      const rows = db.prepare(`select id,slug,status,visibility from remote_tables where solo=0 and (status!='ended' or ended_at>?)${slug ? " and slug=?" : ""}`)
+        .all(...(slug ? [now - 15 * 60_000, slug] : [now - 15 * 60_000])) as { id: number; slug: string; status: string; visibility: string }[];
       return rows.map(row => ({
         slug: row.slug,
         seated: (db.prepare("select user_id from remote_seats where table_id=?").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
-        slots: row.status === "ended" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id),
+        slots: row.status === "ended" || row.visibility !== "public" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id),
       }));
     },
     list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {

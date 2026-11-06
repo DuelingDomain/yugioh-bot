@@ -6,7 +6,7 @@ import { participantSeat, type VideoMember } from "./video-protocol";
  * no microphone is ever published there. It follows the table video connection, and comes back by itself after a lost connection.
  */
 export class RemoteVoice {
-  private room = new Room({ adaptiveStream: false, dynacast: false, stopLocalTrackOnUnpublish: false, disconnectOnPageLeave: false });
+  private room = new Room({ adaptiveStream: false, dynacast: false, stopLocalTrackOnUnpublish: true, disconnectOnPageLeave: false });
   private wanted = false;
   private microphone = false;
   private starting = false;
@@ -15,6 +15,8 @@ export class RemoteVoice {
   constructor(private options: { slug: () => string; guildId: () => string; members: () => VideoMember[]; changed: () => void; failed: (error: unknown) => void }) {
     const sync = () => this.sync();
     for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.ParticipantMetadataChanged]) this.room.on(event, sync);
+    // A mute during Reconnecting did not reach the track.
+    this.room.on(RoomEvent.Reconnected, () => { void this.room.localParticipant.setMicrophoneEnabled(this.microphone).catch(error => this.options.failed(error)); });
     // Two tabs of one player would remove each other for ever, so the tab that lost stays out.
     this.room.on(RoomEvent.Disconnected, reason => { if (this.wanted && reason !== DisconnectReason.DUPLICATE_IDENTITY) this.later(); });
   }
@@ -22,7 +24,7 @@ export class RemoteVoice {
     return participantSeat(participant.identity, participant.metadata, this.options.guildId(), this.options.slug(), this.options.members());
   }
   /** Never subscribe to an unknown identity or to anything but a microphone. */
-  private sync() {
+  sync() {
     for (const participant of this.room.remoteParticipants.values()) {
       const seated = this.seatOf(participant) !== undefined;
       for (const publication of participant.trackPublications.values()) {
