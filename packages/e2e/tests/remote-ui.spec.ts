@@ -313,8 +313,8 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.locator('[data-testid="feed-1"] [data-testid="zone-grid"]')).toHaveCount(0);
   });
 
-  // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat. Genesys has none.
-  test("virtual field shows Extra Monster Zones and Pendulum labels, and hides them for Genesys", async ({ page, context }) => {
+  // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat.
+  test("virtual field shows Extra Monster Zones and Pendulum labels", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
     const path = `/api/remote/${slug}`;
     const act = async (action: Record<string, unknown>) => {
@@ -340,15 +340,6 @@ test.describe("remote duels screen, solo", () => {
     await expect(field.locator('[data-zone="s1"]')).toContainText("PZ");
     await expect(field.locator('[data-zone="ex"]')).toContainText(/EXTRA/);
     await shot(page, "field-emz-1v1");
-    // Genesys: no Extra Monster Zones and no Pendulum label.
-    const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true, format: "genesys" } });
-    expect(created.status()).toBe(201); const genesys = await created.json();
-    await context.request.post(`/api/remote/${genesys.slug}/ready`, { data: { ready: true } });
-    expect((await context.request.post(`/api/remote/${genesys.slug}/start`, { data: {} })).status()).toBe(200);
-    await page.goto(`/duels/remote/${genesys.slug}`);
-    await expect(page.getByTestId("field-0")).toBeVisible();
-    await expect(page.getByTestId("field-0").locator('[data-zone="e1"]')).toHaveCount(0);
-    await expect(page.getByTestId("field-0").locator('[data-zone="s1"]')).not.toContainText("PZ");
   });
 
   // The feed box takes the camera's real shape, the camera row sits under it, and the virtual field is smaller.
@@ -930,9 +921,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.reload();
     await expect(page.getByRole("radio", { name: "Remote Duel" })).toBeChecked();
     await expect(page.getByTestId("remote-setup")).toBeVisible();
-    // The same duel type and Genesys controls as Online, and the rule on by default.
-    await expect(page.getByRole("radiogroup", { name: "Duel type" })).toBeVisible();
-    await expect(page.getByTestId("genesys-toggle")).toBeVisible();
+    // Remote offers only Advanced for now, with no format choice, and the rule on by default.
+    await expect(page.getByTestId("remote-format")).toHaveText(/Advanced/);
+    await expect(page.getByRole("radiogroup", { name: "Duel type" })).toHaveCount(0);
+    await expect(page.getByTestId("genesys-toggle")).toHaveCount(0);
     await expect(page.getByTestId("create-show-set")).toBeChecked();
     await onlineRadio(page).click();
     await expect(page).toHaveURL(/\/duels\/new$/);

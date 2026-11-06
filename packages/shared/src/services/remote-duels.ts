@@ -2,7 +2,7 @@ import type { RemoteRevealedHand } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomUUID } from "node:crypto";
-import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
+import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
@@ -31,8 +31,12 @@ const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempo
     (seats.find(s => s.seat === message.seat)?.displayName ?? "Seat " + (message.seat + 1)) + message.text) } : {}) });
 
 /** All writes serialize through BEGIN IMMEDIATE; a successful return is already committed. */
-export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string } = {}) {
+export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string; openFormats?: readonly string[] } = {}) {
   const deckRules = createRemoteDeckRules(db, options.dataDirectory);
+  const openFormats = options.openFormats ?? REMOTE_OPEN_FORMATS;
+  /** A room can stay on the format it already has. Only a change to a format that is not open is refused. */
+  const assertFormatOpen = (id: unknown, current?: string) =>
+    remoteAssert(id === undefined || id === current || openFormats.includes(id as string), "This duel format is not open for Remote Duels yet");
   const transaction = <T>(work: () => T): T => db.transaction(work).immediate();
   function load(slug: string, guildId: string): Row {
     const row = db.prepare("select *,json_extract(state_json,'$.match.bestOf') as best_of,json_extract(state_json,'$.revealedHand') as revealed_hand from remote_tables where slug=? and guild_id=?").get(slug, guildId) as Row | undefined;
@@ -147,6 +151,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const displayName = name(input.displayName);
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
         const slug = generateWebSlug();
+        assertFormatOpen(input.format);
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules,input.seatCount);
         const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
@@ -171,6 +176,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(input.showCardsSetFromDeck === undefined || typeof input.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
+        assertFormatOpen(input.format, format(row).id);
         const chosenFormat = input.format === undefined && input.rules === undefined ? format(row) : normalizeRemoteFormat(input.format ?? format(row).id, input.rules,row.seat_count);
         const state = applyRemoteFormat(readState(row), chosenFormat);
         if (input.bestOf !== undefined) state.match = initialRemoteMatch(row.seat_count, input.bestOf);

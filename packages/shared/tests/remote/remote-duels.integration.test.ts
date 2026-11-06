@@ -95,7 +95,7 @@ writeFileSync(join(deckData, "strings.conf"), "");
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
 function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true) {
   const { db, users } = setup();
-  const service = createRemoteDuelService(db, { dataDirectory: deckData });
+  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"] });
   let room = service.create({ guildId: "g", userId: users[0], displayName: "Sulman", gameId: "ygo", seatCount: 2, solo, format }, 2000);
   const decks = createSavedDeckService(db, new Map());
   const save = (main = Array.from({ length: format.includes("domain") ? 60 : 40 }, (_, i) => i + 1), extra: number[] = [], owner = users[0]) =>

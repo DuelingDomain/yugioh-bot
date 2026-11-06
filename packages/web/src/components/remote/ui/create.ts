@@ -8,7 +8,7 @@ export const remoteTableHref = (slug: string) => `/duels/remote/${slug}`;
 export const REMOTE_SEAT_CHOICES: readonly Choice<number>[] = [{ value: 2, label: "1v1" }, { value: 3, label: "3-way" }, { value: 4, label: "4-way" }];
 
 /** Remote format ids. They are the duel type of the create screen plus the Genesys toggle. */
-const REMOTE_FORMAT_NAMES: Record<string, string> = { normal: "Standard duel", domain: "Domain", genesys: "Genesys", "genesys-domain": "Genesys Domain" };
+const REMOTE_FORMAT_NAMES: Record<string, string> = { normal: "Advanced", domain: "Domain", genesys: "Genesys", "genesys-domain": "Genesys Domain" };
 export const remoteFormatId = (domain: boolean, genesys: boolean) => `${genesys ? "genesys" : ""}${genesys && domain ? "-" : ""}${domain ? "domain" : ""}` || "normal";
 export const remoteFormatName = (id: string | undefined) => REMOTE_FORMAT_NAMES[id ?? "normal"] ?? "Advanced";
 
