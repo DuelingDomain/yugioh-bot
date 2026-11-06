@@ -1,4 +1,6 @@
 import localFont from "next/font/local";
+import "./fonts-ext.css";
+import styles from "./fonts.module.css";
 
 // Solid Vision type system (3D mode). Each loader exposes one CSS variable; SolidRoom puts `solidFontClasses`
 // on its root, and on any portal that renders outside it, so every solid module can read the variables.
@@ -14,7 +16,7 @@ const svUi = localFont({
     { path: "../../../lib/fonts/barlow-semi-condensed-600-latin.woff2", weight: "600", style: "normal" },
   ],
   display: "swap",
-  variable: "--sv-font",
+  variable: "--sv-font-base",
 });
 
 const svNum = localFont({
@@ -24,7 +26,7 @@ const svNum = localFont({
     { path: "../../../lib/fonts/barlow-condensed-500-latin.woff2", weight: "500", style: "normal" },
   ],
   display: "swap",
-  variable: "--sv-font-num",
+  variable: "--sv-font-num-base",
 });
 
-export const solidFontClasses = `${svUi.variable} ${svNum.variable}`;
+export const solidFontClasses = `${svUi.variable} ${svNum.variable} ${styles.fonts}`;

@@ -1,4 +1,6 @@
 import localFont from "next/font/local";
+import "./fonts-ext.css";
+import styles from "./fonts.module.css";
 
 // Match Sheet type system. Each loader exposes one CSS variable; the duel shell
 // root (and any portal that renders outside it) adds `duelFontClasses` so every
@@ -13,7 +15,7 @@ const duelUi = localFont({
   weight: "1 1000",
   style: "normal",
   display: "swap",
-  variable: "--font-duel-ui",
+  variable: "--font-duel-ui-base",
 });
 
 const duelNum = localFont({
@@ -21,7 +23,7 @@ const duelNum = localFont({
   weight: "1 1000",
   style: "normal",
   display: "swap",
-  variable: "--font-duel-num",
+  variable: "--font-duel-num-base",
 });
 
 const duelInk = localFont({
@@ -30,7 +32,7 @@ const duelInk = localFont({
   style: "italic",
   adjustFontFallback: "Times New Roman",
   display: "swap",
-  variable: "--font-duel-ink",
+  variable: "--font-duel-ink-base",
 });
 
 const duelDisplay = localFont({
@@ -38,7 +40,7 @@ const duelDisplay = localFont({
   weight: "200 800",
   style: "normal",
   display: "swap",
-  variable: "--font-duel-display",
+  variable: "--font-duel-display-base",
 });
 
-export const duelFontClasses = `${duelUi.variable} ${duelNum.variable} ${duelInk.variable} ${duelDisplay.variable}`;
+export const duelFontClasses = `${duelUi.variable} ${duelNum.variable} ${duelInk.variable} ${duelDisplay.variable} ${styles.fonts}`;

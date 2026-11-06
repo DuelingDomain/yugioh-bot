@@ -1,0 +1,6 @@
+.fonts {
+  --font-duel-ui: "Duel UI Ext", var(--font-duel-ui-base);
+  --font-duel-num: "Duel Numerals Ext", var(--font-duel-num-base);
+  --font-duel-ink: "Duel Ink Ext", var(--font-duel-ink-base);
+  --font-duel-display: "Duel Display Ext", var(--font-duel-display-base);
+}
