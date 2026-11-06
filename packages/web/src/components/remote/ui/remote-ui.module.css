@@ -1054,12 +1054,17 @@
   @container seat (min-width:640px) and (max-aspect-ratio:1.55){
     .handmain:has(>.hchip)>.hlab{display:none}
     .handmain:has(>.hchip)>.hcards{flex:0 0 60px}
-    .handmain>.hchip{position:static;order:-1;flex:1 1 auto;flex-wrap:nowrap;width:auto;min-width:0}
+    .handmain>.hchip{position:static;order:-1;flex:1 1 auto;flex-wrap:nowrap;width:auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .handmain>.hchip>*{flex:none}
-    .handmain>.hchip>.hchipl{flex:0 1 auto}
+    /* Long names shorten, the label first: "Other…" and dismiss stay in the chip. */
+    .handmain>.hchip>.hchipl{flex:0 100 auto;min-width:60px}
+    .handmain>.hchip>.hchipb:not(.hchipo){flex:0 1 auto;min-width:48px}
   }
   /* Camera beside the field: the row is short, so the chip sits beside it over the bottom of the camera. It covers no zone and no revealed card. */
-  @container seat (min-aspect-ratio:1.55){.handmain>.hchip{left:auto;right:calc(100% + 8px);max-width:calc((100cqw - 26px) * .63)}}
+  @container seat (min-aspect-ratio:1.55){
+    .handmain>.hchip{left:auto;right:calc(100% + 8px);max-width:calc((100cqw - 26px) * .63)}
+    .seat[data-view="field"] .handmain>.hchip{max-width:calc((100cqw - 26px) * .37)}
+  }
 }
 .hlab{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
 .hcards{display:flex;align-items:center;flex:1 1 auto;gap:6px;min-width:0;height:100%;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}

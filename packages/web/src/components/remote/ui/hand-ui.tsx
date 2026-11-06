@@ -49,7 +49,7 @@ export function HandChip({ search }: { search: NonNullable<HandProps["search"]> 
   }, [search]);
   return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add to hand, from ${search.by.name}`} data-testid="hand-chip">
     <span className={s.hchipl}>Add to hand</span>
-    {shown.map(card => <button type="button" key={card.cardId} className={s.hchipb} onClick={() => search.onPick(card)} data-testid="hand-chip-card">{card.name}</button>)}
+    {shown.map(card => <button type="button" key={card.cardId} className={s.hchipb} onClick={() => search.onPick(card)} title={card.name} data-testid="hand-chip-card">{card.name}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={search.onOther} data-testid="hand-chip-other">Other{"…"}</button>
     <button type="button" className={s.hchipx} onClick={search.onDismiss} aria-label="Dismiss add to hand" title="Dismiss (Esc)"><Icon name="x" /></button>
   </div>;
