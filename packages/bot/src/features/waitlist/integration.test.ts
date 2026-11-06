@@ -174,6 +174,19 @@ const edits = (f: Awaited<ReturnType<typeof fixture>>) => f.requests.filter(r =>
 const clerkDecisions = (f: Awaited<ReturnType<typeof fixture>>) => f.requests.filter(r => r.method === "POST" && r.path.startsWith("/v1/waitlist_entries/"));
 const replyText = (replies: { body: any }[]) => replies.map(r => r.body?.content ?? r.body?.data?.content ?? "").join(" ");
 
+it.each([1, 500])("uses the full Clerk queue count and only a known distinct position with %s older entries", async older => {
+  const f = await fixture();
+  f.enqueue();
+  for (let i = 0; i < older; i++) f.entries.unshift({ id: `wle_old_${i}`, email_address: `older${i}@example.com`, status: "pending", created_at: Date.now() - 60_000 });
+  f.entries.push({ id: "wle_newer", email_address: "newer@example.com", status: "pending", created_at: Date.now() });
+  await f.start(createWaitlistFeature({ backend: f.backend }));
+  await expect.poll(() => posts(f).length).toBe(1);
+  const fields = posts(f)[0].body.embeds[0].fields;
+  expect(fields).toContainEqual({ name: "Still waiting", value: String(older + 2), inline: true });
+  if (older < 500) expect(fields).toContainEqual({ name: "Place in line", value: String(older + 1), inline: true });
+  else expect(fields.some((field: any) => field.name === "Place in line")).toBe(false);
+});
+
 it.each([false, true])("posts waitlist and signup embeds with the email flag %s and no signup buttons", async fullEmail => {
   const f = await fixture();
   vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", fullEmail ? "1" : "0");
@@ -188,16 +201,20 @@ it.each([false, true])("posts waitlist and signup embeds with the email flag %s 
   expect(JSON.stringify(signup.body)).toContain(fullEmail ? "newuser@example.com" : "n***@example.com");
   if (!fullEmail) expect(JSON.stringify(posts(f))).not.toContain("member@example.com");
   expect(pending.body.embeds[0].fields).toEqual(expect.arrayContaining([
-    expect.objectContaining({ name: "Source" }), expect.objectContaining({ name: "When", value: expect.stringContaining("<t:") }),
-    { name: "Position", value: "1", inline: true }, { name: "Pending", value: "1", inline: true },
+    { name: "Where", value: "Clerk: added directly to the waitlist in Clerk" }, expect.objectContaining({ name: "When", value: expect.stringContaining("<t:") }),
+    { name: "Still waiting", value: "1", inline: true },
   ]));
+  expect(pending.body.embeds[0].title).toBe("Waitlist request: needs your decision");
+  expect(pending.body.embeds[0].fields.some((field: any) => field.name === "Place in line")).toBe(false);
+  expect(signup.body.embeds[0].title).toBe("New account created");
   expect(pending.body.components[0].components.map((button: any) => button.label)).toEqual(["Approve", "Reject"]);
   expect(signup.body.components).toEqual([]);
   expect(signup.body.embeds[0].fields).toEqual(expect.arrayContaining([
-    { name: "Creator invite", value: "Kaiba Plays · Launch crew \\(Friends\\)" },
+    { name: "Where", value: "Creator link: Kaiba Plays · Launch crew" },
     { name: "Heard from", value: "YouTube · Launch video" },
   ]));
   for (const post of posts(f)) expect(post.body).toMatchObject({ enforce_nonce: true, nonce: expect.any(String), allowed_mentions: { parse: [] } });
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
   expect(f.db.prepare("select status,payload_json from discord_outbox").all()).toEqual([
     { status: "posted", payload_json: null }, { status: "posted", payload_json: null },
   ]);
@@ -328,6 +345,7 @@ it("approves by exact email or ID and refuses partial matches", async () => {
   expect(replyText(await f.dispatch(feature, { action: "approve", entry: "MEMBER@example.com" }))).toContain("Approved");
   expect(replyText(await f.dispatch(feature, { action: "reject", entry: "wle_id" }))).toContain("Rejected");
   expect(clerkDecisions(f).map(r => r.path)).toEqual(["/v1/waitlist_entries/wle_email/invite", "/v1/waitlist_entries/wle_id/reject"]);
+
 });
 
 it("re-checks admin access on stale alert and pagination buttons and refuses other guilds and DMs", async () => {
@@ -412,7 +430,7 @@ it("delivers masked alerts with a known pending count during a Clerk outage", as
   const feature = createWaitlistFeature({ backend: f.backend });
   await f.start(feature);
   await expect.poll(() => posts(f).length).toBe(1);
-  expect(posts(f)[0].body.embeds[0].fields).toContainEqual({ name: "Pending (known)", value: "1", inline: true });
+  expect(posts(f)[0].body.embeds[0].fields).toContainEqual({ name: "Still waiting (known locally)", value: "1", inline: true });
   expect(posts(f)[0].body.components[0].components).toHaveLength(2);
   const replies = await f.dispatch(feature);
   expect(replyText(replies)).toContain("could not be completed");

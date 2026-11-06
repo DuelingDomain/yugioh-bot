@@ -56,7 +56,7 @@ describe("waitlist", () => {
     expect(createWaitlistService(db).join("player@example.test")).toEqual({ status: "joined" });
     expect(createWaitlistService(db).join(" PLAYER@EXAMPLE.TEST ")).toEqual({ status: "exists" });
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body)).embeds[0].fields[1].value).toBe("marketing waitlist");
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body)).embeds[0].fields[1].value).toBe("Website: join form");
     await Promise.resolve();
   });
 
@@ -67,7 +67,7 @@ describe("waitlist", () => {
     createWaitlistService(db).join("player@example.test", { source: "app-not-invited" });
     createWaitlistService(db).join("other@example.test", { source: "@everyone" });
     const messages = fetcher.mock.calls.map(([, options]) => JSON.parse(String(options!.body)));
-    expect(messages.map(message => message.embeds[0].fields[1].value)).toEqual(["app waitlist", "marketing waitlist"]);
+    expect(messages.map(message => message.embeds[0].fields[1].value)).toEqual(["App: tried to sign in without an invite, then joined the waitlist", "Website: join form"]);
     expect(JSON.stringify(messages)).not.toContain("@everyone");
     await Promise.resolve();
   });

@@ -15,7 +15,7 @@ let notifyJoinRequest: typeof import("../../src/notify/join-request.js").notifyJ
 
 let db: Database.Database;
 let fetcher: ReturnType<typeof vi.fn<typeof fetch>>;
-const notice = { email: "player@example.test", source: "marketing waitlist" as const, createdAt: "2026-10-11T12:00:00.000Z" };
+const notice = { email: "player@example.test", source: "form" as const, createdAt: "2026-10-11T12:00:00.000Z" };
 const webhook = "https://discord.example.test/webhook-placeholder";
 function payload() { return JSON.parse(String(fetcher.mock.calls[0][1]?.body)); }
 function claims() { return db.prepare("select * from join_request_notifications").all(); }
@@ -56,8 +56,8 @@ describe("join request notifications", () => {
     expect(fetcher.mock.calls[0][1]).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json" }, signal: expect.any(AbortSignal) });
     expect(payload()).toEqual({
       allowed_mentions: { parse: [] },
-      embeds: [{ title: "New join request", url: "https://dashboard.clerk.com/", timestamp: notice.createdAt,
-        fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Source", value: "marketing waitlist" }] }],
+      embeds: [{ title: "Waitlist request: needs your decision", url: "https://dashboard.clerk.com/", timestamp: notice.createdAt,
+        fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Where", value: "Website: join form" }] }],
     });
     expect(JSON.stringify(payload())).not.toContain(notice.email);
     expect(claims()).toEqual([{ kind: "join", subject_hash: createHash("sha256").update("email:player@example.test").digest("hex"), attempted_at: expect.any(String) }]);
@@ -76,7 +76,7 @@ describe("join request notifications", () => {
     await notifyJoinRequest(db, notice);
     await notifyJoinRequest(db, { ...notice, source: "sign-up" });
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(payload().embeds[0].title).toBe("New user sign-up");
+    expect(payload().embeds[0].title).toBe("New account created");
     expect(claims()).toEqual([expect.objectContaining({ kind: "signup" })]);
   });
 
@@ -143,7 +143,7 @@ describe("join request notifications", () => {
     await Promise.all([
       notifyJoinRequest(db, notice),
       notifyJoinRequest(db, { ...notice, email: " PLAYER@EXAMPLE.TEST ", source: "Clerk waitlist" }),
-      notifyJoinRequest(db, { ...notice, source: "app waitlist" }),
+      notifyJoinRequest(db, { ...notice, source: "app-not-invited" }),
     ]);
     migrate(db);
     await notifyJoinRequest(db, notice);

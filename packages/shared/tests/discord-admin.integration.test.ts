@@ -10,6 +10,7 @@ import { adminAccess, isAdminActor, isModerator, lookupSiteAccount, enqueueOutbo
   recordModAction, addWarning, listWarnings } from "../src/discord-admin/index.js";
 import { decideWaitlistEntry, prepareWaitlistAction } from "../src/services/waitlist-decisions.js";
 import { createWaitlistService } from "../src/services/waitlist.js";
+import { createCreatorAccessService } from "../src/services/creator-access.js";
 import { deleteUserAccount } from "../src/services/account-deletion.js";
 import { notifyJoinRequest } from "../src/notify/join-request.js";
 
@@ -69,6 +70,41 @@ afterEach(() => {
 });
 
 describe("shared Discord administration with SQLite", () => {
+  it.each([
+    ["hero", "Website: join form at the top of the home page"],
+    ["footer", "Website: join form at the bottom of the home page"],
+    ["form", "Website: join form"],
+    ["unknown player@example.test", "Website: join form"],
+    ["app-not-invited", "App: tried to sign in without an invite, then joined the waitlist"],
+    ["creator", "Creator link (closed or full)"],
+    ["creator:missing", "Creator link (closed or full)"],
+    ["creator:123456789012", "Creator link (closed or full)"],
+  ])("keeps the %s request origin and survey through Clerk binding and dedupe", async (source, where) => {
+    createWaitlistService(db).join(email, { source, heardFrom: "friend", heardFromDetail: "Ask player@example.test" });
+    await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
+    const [row] = claimOutbox(db, 10);
+    expect(JSON.parse(row.payload_json).embeds[0]).toMatchObject({ title: "Waitlist request: needs your decision", fields: [
+      { name: "Email", value: "`p***@example.test`" }, { name: "Where", value: where },
+      { name: "Heard from", value: "A friend · Ask \\[email hidden\\]" },
+    ] });
+    expect(row.payload_json).not.toContain(email);
+    expect(db.prepare("select count(*) as n from discord_outbox").get()).toEqual({ n: 1 });
+  });
+
+  it("resolves a closed creator link's name and label without exposing emails or link codes", async () => {
+    const service = createCreatorAccessService(db);
+    const creator = service.createCreator({ name: "Kaiba *Plays*", actorUserId: 1 });
+    const link = service.createLink(creator.id, { label: "Launch-crew player@example.test", maxUses: 3, expiresInDays: 14, actorUserId: 1 })!;
+    await service.revokeLink(creator.id, link.id);
+    createWaitlistService(db).join(email, { source: `creator:${link.code}` });
+    await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
+    const [row] = claimOutbox(db, 1);
+    expect(JSON.parse(row.payload_json).embeds[0].fields).toContainEqual({ name: "Where",
+      value: "Creator link (closed or full): Kaiba \\*Plays\\* · Launch-crew \\[email hidden\\]" });
+    expect(row.payload_json).not.toContain(email);
+    expect(row.payload_json).not.toContain(link.code);
+  });
+
   it("keeps creator context in the existing sign-up alert and redacts emails in attribution text", async () => {
     await notifyJoinRequest(db, { email, subjectId: "user_member", source: "sign-up",
       creatorInvite: { creatorName: "Kaiba *Plays*", kind: "link", linkLabel: "player@example.test", linkType: "Friends" },
@@ -77,7 +113,7 @@ describe("shared Discord administration with SQLite", () => {
     expect(row.kind).toBe("signup_alert");
     expect(row.payload_json).not.toContain(email);
     expect(JSON.parse(row.payload_json)).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ fields: expect.arrayContaining([
-      { name: "Creator invite", value: "Kaiba \\*Plays\\* · \\[email hidden\\] \\(Friends\\)" },
+      { name: "Where", value: "Creator link: Kaiba \\*Plays\\* · \\[email hidden\\]" },
       { name: "Heard from", value: "A friend · Ask \\[email hidden\\]" },
     ]) }] });
   });
@@ -183,6 +219,7 @@ describe("shared Discord administration with SQLite", () => {
 
 describe("one leased Clerk decision for web and Discord", () => {
   it.each(["web", "discord", "admin"] as const)("completes through %s, saves the actor, clears email and queues an edit", async source => {
+    createWaitlistService(db).join(email, { source: "hero" });
     await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
     const [alert] = claimOutbox(db, 1);
     markPosted(db, alert, { messageId: "posted" });
@@ -198,6 +235,10 @@ describe("one leased Clerk decision for web and Discord", () => {
     expect(db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: expect.any(Number) });
     expect((await decide("reject")).status).toBe("already_decided");
     expect(requests).toHaveLength(1);
+    await notifyJoinRequest(db, { email, subjectId: "user_member", source: "sign-up" });
+    const [signup] = claimOutbox(db, 1);
+    expect(JSON.parse(signup.payload_json).embeds[0].fields).toContainEqual({ name: "Where",
+      value: "Waitlist: approved by Owner · Originally: Website: join form at the top of the home page" });
   });
 
   it("refuses a non-owner, including a moderator, before calling Clerk", async () => {
