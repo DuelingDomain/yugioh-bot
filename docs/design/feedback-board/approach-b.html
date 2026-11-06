@@ -1,0 +1,957 @@
+<section class="ws-approach ap-b" id="approach-b" aria-labelledby="apb-title">
+<!--NAME:One pick at a time-->
+<style>
+.ap-b { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.ap-b [hidden] { display: none !important; }
+.ap-b .ws-fig, .ap-b .ws-block { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.ap-b .ws-phone-row { max-width: 100%; }
+.ap-b .ws-phone { max-width: calc(100% - 12px); box-sizing: border-box; }
+.ap-b .apb-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ap-b .apb-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ap-b .apb-i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ap-b .apb-flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 14px; counter-reset: apbf; }
+.ap-b .apb-fn { counter-increment: apbf; position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 6px; align-content: start; min-width: 0; font-size: 14.5px; color: var(--muted); }
+.ap-b .apb-fn::before { content: counter(apbf); font: 500 11px/1 var(--mono); color: var(--gold); }
+.ap-b .apb-fn b { font: 600 20px/1.2 var(--display); color: var(--fg); }
+.ap-b .apb-fn--mid { border-color: var(--accent); }
+.ap-b .apb-fn--end { border-color: var(--good); }
+.ap-b .apb-who { font: 500 11px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg); }
+.ap-b .apb-fn:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -12px; width: 10px; height: 10px; border-top: 2px solid var(--gold); border-right: 2px solid var(--gold); transform: translateY(-50%) rotate(45deg); }
+.ap-b .apb-side-note { margin: 0; padding: 12px 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 14.5px; max-width: 78ch; }
+.ap-b .apb-side-note b { color: var(--fg); font-weight: 600; }
+@media (max-width: 900px) { .ap-b .apb-fn:not(:last-child)::after { display: none; } }
+.ap-b :where(.apb-m h3), .ap-b :where(.apb-m h4), .ap-b :where(.apb-m p), .ap-b :where(.apb-m ul), .ap-b :where(.apb-m ol) { margin: 0; }
+.ap-b :where(.apb-m ul), .ap-b :where(.apb-m ol) { padding: 0; list-style: none; }
+.ap-b :where(.apb-m button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+.ap-b :where(.apb-m input), .ap-b :where(.apb-m select) { font: inherit; }
+.ap-b :where(.apb-m *) { box-sizing: border-box; }
+.ap-b .apb-m button:focus-visible, .ap-b .apb-m input:focus-visible, .ap-b .apb-m select:focus-visible { outline: 2px solid var(--m-pen-ink); outline-offset: 2px; }
+.ap-b .apb-num { font-family: var(--m-num); font-weight: 600; font-variant-numeric: tabular-nums lining-nums; }
+.ap-b .apb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 18px; border-radius: 8px; border: 1px solid var(--m-rule); font: 600 15.5px/1 var(--m-ui); color: var(--m-ink); white-space: nowrap; }
+.ap-b .apb-btn:hover { border-color: var(--m-rule-hi); }
+.ap-b .apb-btn--primary { background: var(--m-pen-fill); border-color: var(--m-pen-fill); }
+.ap-b .apb-btn--primary:hover { background: #6642e0; border-color: #6642e0; }
+.ap-b .apb-btn--quiet { border-color: var(--m-rule-lo); color: var(--m-ink-2); font-weight: 500; }
+.ap-b .apb-btn--big { min-height: 52px; padding: 0 24px; border-radius: 10px; font-size: 16.5px; }
+.ap-b .apb-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border: 1px solid var(--m-rule-lo); border-radius: 999px; font: 500 12.5px/1 var(--m-ui); color: var(--m-ink-2); white-space: nowrap; }
+.ap-b .apb-chip .apb-i { width: 12px; height: 12px; }
+.ap-b .apb-chip--team { border-color: rgb(228 182 79 / .4); background: var(--m-chain-soft); color: var(--m-chain-ink); font-weight: 600; font-size: 11.5px; }
+.ap-b .apb-chip--prog { border-color: rgb(155 126 255 / .45); background: var(--m-pen-soft); color: var(--m-pen-ink); }
+.ap-b .apb-chip--ok { border-color: rgb(134 207 161 / .36); background: var(--m-ok-soft); color: var(--m-ok); }
+.ap-b .apb-chip--wait { border-style: dashed; border-color: var(--m-rule); color: var(--m-ink-2); }
+.ap-b .apb-facedown { display: inline-block; width: 10px; height: 14px; border-radius: 2px; background: var(--m-panel-3); border: 1px solid rgb(181 153 99 / .65); position: relative; flex: none; }
+.ap-b .apb-facedown::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; background: var(--m-gold); transform: translate(-50%, -50%) rotate(45deg); }
+.ap-b .apb-vp { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 56px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--m-rule-lo); color: var(--m-ink-2); }
+.ap-b .apb-vp:hover { border-color: var(--m-rule-hi); color: var(--m-ink); }
+.ap-b .apb-vp::before { content: ""; width: 7px; height: 7px; border-left: 2px solid currentColor; border-top: 2px solid currentColor; border-radius: 1px; margin-top: 3px; transform: rotate(45deg); }
+.ap-b .apb-vp[data-dir="down"]::before { margin-top: -3px; transform: rotate(225deg); }
+.ap-b .apb-vp .apb-vn { font: 600 17px/1 var(--m-num); font-variant-numeric: tabular-nums lining-nums; }
+.ap-b .apb-vp[aria-pressed="true"][data-dir="up"] { background: var(--m-pen-soft); border-color: rgb(155 126 255 / .55); color: var(--m-pen-ink); }
+.ap-b .apb-vp[aria-pressed="true"][data-dir="down"] { background: var(--m-loss-soft); border-color: rgb(228 90 77 / .55); color: var(--m-loss-ink); }
+.ap-b .apb-vp[aria-pressed="true"] .apb-i { stroke-width: 2.6; }
+.ap-b .apb-app { display: grid; grid-template-columns: 216px minmax(0, 1fr); background: var(--m-floor); min-height: 700px; }
+.ap-b .apb-side { background: var(--m-panel); border-right: 1px solid var(--m-rule-lo); display: flex; flex-direction: column; }
+.ap-b .apb-brand { display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 18px; font: 600 16px/1 var(--m-display); border-bottom: 1px solid var(--m-rule-lo); }
+.ap-b .apb-brand em { font-style: normal; color: var(--m-gold); }
+.ap-b .apb-brand svg { width: 20px; height: 20px; fill: var(--m-gold); }
+.ap-b .apb-nav { padding: 10px 12px; display: grid; gap: 2px; }
+.ap-b .apb-nav h4 { font: 500 12.5px/1 var(--m-ui); color: var(--m-ink-3); padding: 14px 12px 6px; }
+.ap-b .apb-navrow { display: flex; align-items: center; gap: 12px; height: 38px; padding: 0 12px; border-radius: 8px; font: 500 14.5px/1 var(--m-ui); color: var(--m-ink-2); position: relative; }
+.ap-b .apb-navrow .apb-i { width: 19px; height: 19px; color: var(--m-ink-3); }
+.ap-b .apb-navrow--on { background: var(--m-pen-soft); color: var(--m-ink); }
+.ap-b .apb-navrow--on .apb-i { color: var(--m-pen-ink); }
+.ap-b .apb-navrow--on::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--m-pen); border-radius: 2px; }
+.ap-b .apb-seat { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--m-rule-lo); display: flex; align-items: center; gap: 10px; font: 500 13px/1.25 var(--m-ui); color: var(--m-ink-3); }
+.ap-b .apb-seat b { display: block; font-weight: 600; font-size: 14.5px; color: var(--m-ink); }
+.ap-b .apb-seat span.apb-ring { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--m-pen); display: grid; place-items: center; font: 600 12px/1 var(--m-ui); color: var(--m-pen-ink); flex: none; }
+.ap-b .apb-main { min-width: 0; display: flex; flex-direction: column; }
+.ap-b .apb-bar { display: flex; align-items: center; gap: 16px; min-height: 68px; padding: 12px 28px; background: var(--m-panel); border-bottom: 1px solid var(--m-rule-lo); }
+.ap-b .apb-bar h3 { font: 600 19px/1.2 var(--m-display); }
+.ap-b .apb-bar p { font-size: 14px; color: var(--m-ink-3); }
+.ap-b .apb-bar .apb-grow { flex: 1; min-width: 0; }
+.ap-b .apb-page { padding: 26px 32px 44px; min-width: 0; }
+.ap-b .apb-board { display: flex; flex-direction: column; align-items: center; gap: 22px; max-width: 800px; margin: 0 auto; }
+.ap-b .apb-board > * { width: 100%; }
+.ap-b .apb-seg { display: inline-flex; width: auto; border: 1px solid var(--m-rule); border-radius: 10px; align-self: center; }
+.ap-b .apb-seg button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; font: 500 14.5px/1 var(--m-ui); color: var(--m-ink-2); }
+.ap-b .apb-seg button + button { border-left: 1px solid var(--m-rule-lo); }
+.ap-b .apb-seg button[aria-pressed="true"] { background: var(--m-pen-soft); color: var(--m-ink); font-weight: 600; }
+.ap-b .apb-seg button[aria-pressed="true"] .apb-i { color: var(--m-pen-ink); }
+.ap-b .apb-board > .apb-seg { order: 0; }
+.ap-b .apb-board[data-mode="cards"] > .apb-deckwrap { order: 1; }
+.ap-b .apb-board[data-mode="cards"] > .apb-shelves { order: 2; }
+.ap-b .apb-board[data-mode="cards"] > .apb-listwrap { display: none; }
+.ap-b .apb-board[data-mode="list"] > .apb-deckwrap { display: none; }
+.ap-b .apb-board[data-mode="list"] > .apb-shelves { order: 1; }
+.ap-b .apb-board[data-mode="list"] > .apb-listwrap { order: 2; }
+.ap-b .apb-deckwrap { display: grid; justify-items: center; gap: 14px; }
+.ap-b .apb-count { display: grid; gap: 8px; justify-items: center; font: 500 14px/1 var(--m-ui); color: var(--m-ink-2); }
+.ap-b .apb-pips { display: flex; gap: 3px; }
+.ap-b .apb-pips i { width: 14px; height: 4px; border-radius: 2px; background: var(--m-rule-lo); transition: background .3s; }
+.ap-b .apb-pips i.is-up { background: var(--m-pen); }
+.ap-b .apb-pips i.is-down { background: var(--m-loss); }
+.ap-b .apb-deck { position: relative; width: 320px; height: 466px; margin: 6px auto 40px; }
+.ap-b .apb-card { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; padding: 26px 26px 22px; border-radius: 16px; border: 1px solid var(--m-rule); background: linear-gradient(165deg, var(--m-panel-3) 0%, var(--m-panel-2) 38%, var(--m-panel) 100%); box-shadow: 0 18px 40px -18px rgb(0 0 0 / .85); transform-origin: 50% 100%; transition: transform .42s cubic-bezier(.2, .8, .2, 1), opacity .3s ease, visibility 0s linear .42s; will-change: transform; }
+.ap-b .apb-card::before { content: ""; position: absolute; inset: 8px; border: 1px solid var(--m-rule-lo); border-radius: 10px; pointer-events: none; }
+.ap-b .apb-card[data-pos="0"] { transform: none; opacity: 1; z-index: 4; visibility: visible; transition-delay: 0s; }
+.ap-b .apb-card[data-pos="1"] { transform: translateY(16px) scale(.945) rotate(-3deg); z-index: 3; visibility: visible; transition-delay: 0s; filter: brightness(.82); }
+.ap-b .apb-card[data-pos="2"] { transform: translateY(30px) scale(.89) rotate(3.6deg); z-index: 2; visibility: visible; transition-delay: 0s; filter: brightness(.66); }
+.ap-b .apb-card[data-pos="3"], .ap-b .apb-card[data-pos="gone"] { transform: translateY(30px) scale(.9); opacity: 0; z-index: 1; visibility: hidden; pointer-events: none; }
+.ap-b .apb-card[data-pos="out-up"] { transform: translate(120%, -30px) rotate(16deg); opacity: 0; z-index: 5; visibility: visible; transition-delay: 0s; }
+.ap-b .apb-card[data-pos="out-down"] { transform: translate(-120%, -30px) rotate(-16deg); opacity: 0; z-index: 5; visibility: visible; transition-delay: 0s; }
+.ap-b .apb-card[data-pos="out-up"] { box-shadow: 0 0 0 2px rgb(155 126 255 / .7), 0 0 36px rgb(155 126 255 / .35); }
+.ap-b .apb-card[data-pos="out-down"] { box-shadow: 0 0 0 2px rgb(228 90 77 / .7), 0 0 36px rgb(228 90 77 / .3); }
+.ap-b .apb-card::after { content: ""; position: absolute; left: 50%; top: 56%; width: 92px; height: 92px; transform: translate(-50%, -50%) rotate(45deg); border: 1px solid rgb(181 153 99 / .3); outline: 1px solid rgb(181 153 99 / .16); outline-offset: -14px; pointer-events: none; }
+.ap-b .apb-cardtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; }
+.ap-b .apb-ctitle { font: 600 25px/1.18 var(--m-display); color: var(--m-ink); position: relative; text-wrap: balance; }
+.ap-b .apb-cpitch { font: 400 16px/1.45 var(--m-ui); color: var(--m-ink-2); position: relative; }
+.ap-b .apb-cfoot { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 10px; position: relative; padding-top: 12px; border-top: 1px solid var(--m-rule-lo); font-size: 13.5px; color: var(--m-ink-3); }
+.ap-b .apb-tally { display: flex; gap: 16px; font: 500 14px/1 var(--m-ui); color: var(--m-ink-2); width: 100%; justify-content: flex-end; }
+.ap-b .apb-tally b { font: 600 36px/1 var(--m-num); color: var(--m-ink); margin-right: 6px; vertical-align: -3px; }
+.ap-b .apb-stamp { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) rotate(-9deg) scale(.7); padding: 6px 16px; border: 2px solid currentColor; border-radius: 8px; font: 800 22px/1 var(--m-display); letter-spacing: .06em; text-transform: uppercase; opacity: 0; transition: opacity .15s, transform .25s cubic-bezier(.2, 1.4, .4, 1); pointer-events: none; background: rgb(5 8 17 / .6); z-index: 2; white-space: nowrap; }
+.ap-b .apb-card[data-pos="out-up"] .apb-stamp, .ap-b .apb-card[data-pos="out-down"] .apb-stamp { opacity: 1; transform: translate(-50%, -50%) rotate(-9deg) scale(1); }
+.ap-b .apb-card[data-pos="out-up"] .apb-stamp { color: var(--m-pen-ink); }
+.ap-b .apb-card[data-pos="out-down"] .apb-stamp { color: var(--m-loss-ink); }
+.ap-b .apb-card[data-pos="out-up"] .apb-stamp::before { content: "Voted up"; }
+.ap-b .apb-card[data-pos="out-down"] .apb-stamp::before { content: "Voted down"; }
+.ap-b .apb-act { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; width: 100%; max-width: 440px; }
+.ap-b .apb-big { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 54px; border-radius: 12px; border: 1px solid var(--m-rule); font: 600 16.5px/1 var(--m-ui); color: var(--m-ink); transition: transform .12s; }
+.ap-b .apb-big:active { transform: scale(.97); }
+.ap-b .apb-big .apb-i { width: 20px; height: 20px; }
+.ap-b .apb-big--up { background: linear-gradient(180deg, #6a48e6, #5733d1); border-color: var(--m-pen); }
+.ap-b .apb-big--up:hover { background: #6642e0; }
+.ap-b .apb-big--down { border-color: rgb(228 90 77 / .65); color: var(--m-loss-ink); }
+.ap-b .apb-big--down:hover { background: var(--m-loss-soft); }
+.ap-b .apb-skip { min-height: 44px; padding: 0 12px; color: var(--m-ink-2); font: 500 14.5px/1 var(--m-ui); border-radius: 8px; }
+.ap-b .apb-skip:hover:not(:disabled) { color: var(--m-ink); text-decoration: underline; }
+.ap-b .apb-skip:disabled { color: var(--m-ink-4); cursor: default; }
+.ap-b .apb-end { display: grid; justify-items: center; gap: 14px; text-align: center; padding: 40px 0 10px; }
+.ap-b .apb-end h3 { font: 600 clamp(22px, 3vw, 28px)/1.2 var(--m-display); }
+.ap-b .apb-end p { color: var(--m-ink-2); }
+.ap-b .apb-end-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.ap-b .apb-shelves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.ap-b .apb-shelf { background: var(--m-panel); border: 1px solid var(--m-rule-lo); border-radius: 12px; min-width: 0; }
+.ap-b .apb-shelf-h { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 16px; font: 600 16px/1 var(--m-display); color: var(--m-ink); }
+.ap-b .apb-shelf-h .apb-num { font-size: 20px; color: var(--m-ink-2); }
+.ap-b .apb-shelf-h .apb-i { margin-left: auto; color: var(--m-ink-3); transition: transform .2s; }
+.ap-b .apb-shelf-h[aria-expanded="true"] .apb-i { transform: rotate(180deg); }
+.ap-b .apb-shelf-body { border-top: 1px solid var(--m-rule); padding: 6px 16px 12px; display: grid; gap: 0; }
+.ap-b .apb-sitem { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--m-rule-lo); }
+.ap-b .apb-sitem:last-child { border-bottom: 0; }
+.ap-b .apb-sitem b { font: 600 15.5px/1.3 var(--m-ui); color: var(--m-ink); }
+.ap-b .apb-smeta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--m-ink-3); }
+.ap-b .apb-wk { font: 600 12.5px/1 var(--m-ui); letter-spacing: .04em; color: var(--m-gold-ink); padding: 10px 0 2px; }
+.ap-b .apb-wk + .apb-wk { padding-top: 4px; }
+.ap-b .apb-quiet { font-size: 14px; color: var(--m-ink-3); padding: 2px 0 8px; }
+.ap-b .apb-ditem { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px 10px; padding: 7px 0; font-size: 14.5px; line-height: 1.4; color: var(--m-ink); }
+.ap-b .apb-ditem::before { content: ""; width: 5px; height: 10px; border-right: 2px solid var(--m-ok); border-bottom: 2px solid var(--m-ok); transform: rotate(40deg); margin: 1px 0 0 6px; }
+.ap-b .apb-ditem small { grid-column: 2; font-size: 12.5px; color: var(--m-ink-3); }
+.ap-b .apb-more-btn { margin-top: 6px; min-height: 40px; padding: 0 4px; font: 500 14px/1 var(--m-ui); color: var(--m-pen-ink); text-align: left; }
+.ap-b .apb-more-btn:hover { text-decoration: underline; }
+.ap-b .apb-list { border-top: 1px solid var(--m-rule-lo); }
+.ap-b .apb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 18px; padding: 14px 6px; border-bottom: 1px solid var(--m-rule-lo); }
+.ap-b .apb-row:hover { border-bottom-color: rgb(198 182 255 / .3); }
+.ap-b .apb-row-t { font: 600 17px/1.3 var(--m-ui); color: var(--m-ink); }
+.ap-b .apb-row-p { font-size: 14.5px; color: var(--m-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-b .apb-row-m { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; color: var(--m-ink-3); }
+.ap-b .apb-row-v { display: flex; gap: 8px; }
+.ap-b .apb-row--mine { background: var(--m-pen-soft); }
+.ap-b .apb-notice { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 20px; border: 1px solid rgb(134 207 161 / .36); background: var(--m-ok-soft); border-radius: 12px; }
+.ap-b .apb-notice .apb-ico { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--m-ok); color: var(--m-ok); }
+.ap-b .apb-notice .apb-ico .apb-i { width: 20px; height: 20px; stroke-width: 2.6; }
+.ap-b .apb-notice h3 { font: 600 17px/1.3 var(--m-ui); }
+.ap-b .apb-notice p { font: italic 400 16px/1.4 var(--m-voice); color: var(--m-ink-2); margin-top: 2px; }
+.ap-b .apb-cols2 { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.ap-b .apb-panel { background: var(--m-panel); border: 1px solid var(--m-rule-lo); border-radius: 12px; padding: 22px; display: grid; gap: 16px; min-width: 0; }
+.ap-b .apb-panel > h3 { font: 600 19px/1.2 var(--m-display); }
+.ap-b .apb-field { display: grid; gap: 6px; }
+.ap-b .apb-field label { font-size: 12.5px; color: var(--m-ink-3); }
+.ap-b .apb-field input, .ap-b .apb-field select { height: 42px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--m-rule-lo); background: var(--m-panel-2); color: var(--m-ink); font-size: 15px; width: 100%; box-sizing: border-box; }
+.ap-b .apb-field input:focus, .ap-b .apb-field select:focus { border-color: var(--m-pen); box-shadow: 0 0 0 3px rgb(155 126 255 / .22); outline: none; }
+.ap-b .apb-field input::placeholder { color: var(--m-ink-3); }
+.ap-b .apb-formmsg { font-size: 14px; color: var(--m-ink-2); min-height: 20px; }
+.ap-b .apb-formmsg[data-tone="warn"] { color: var(--m-warn-ink); }
+.ap-b .apb-mine { display: grid; gap: 0; }
+.ap-b .apb-mine li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--m-rule-lo); }
+.ap-b .apb-mine li:last-child { border-bottom: 0; }
+.ap-b .apb-mine .apb-facedown { margin-top: 1px; width: 20px; height: 28px; border-radius: 3px; }
+.ap-b .apb-mine b { font: 600 16px/1.3 var(--m-ui); }
+.ap-b .apb-mine p { grid-column: 2; font-size: 14px; color: var(--m-ink-2); }
+.ap-b .apb-mine .apb-smeta { grid-column: 2; }
+.ap-b .apb-mine li.is-new { animation: apb-flip .5s cubic-bezier(.2, .8, .2, 1); }
+@keyframes apb-flip { from { opacity: 0; transform: translateY(-10px) rotateX(70deg); } to { opacity: 1; transform: none; } }
+.ap-b .apb-result { background: radial-gradient(900px 420px at 50% -10%, rgb(155 126 255 / .13), transparent 70%), var(--m-ground); padding: 52px 24px 48px; min-height: 640px; box-sizing: border-box; display: grid; justify-items: center; align-content: start; gap: 22px; }
+.ap-b .apb-result-in { width: min(820px, 100%); display: grid; justify-items: center; gap: 22px; text-align: center; }
+.ap-b .apb-wordmark { font: 800 clamp(46px, 7vw, 72px)/1 var(--m-display); letter-spacing: .05em; text-transform: uppercase; color: var(--m-ink); }
+.ap-b .apb-reason { font: italic 400 22px/1.35 var(--m-voice); color: var(--m-ink-2); }
+.ap-b .apb-result-act { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; width: 100%; }
+.ap-b .apb-result-act .apb-btn { min-width: 180px; }
+.ap-b .apb-btn--gold { border-color: var(--m-rule-hi); }
+.ap-b .apb-ask { width: min(560px, 100%); margin-top: 18px; padding-top: 22px; border-top: 1px solid var(--m-rule-lo); display: grid; gap: 12px; text-align: left; }
+.ap-b .apb-ask-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ap-b .apb-ask-head h3 { font: italic 400 19px/1.3 var(--m-voice); color: var(--m-ink-2); }
+.ap-b .apb-ask-card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--m-rule); border-radius: 12px; background: var(--m-panel); }
+.ap-b .apb-ask-card b { font: 600 18px/1.3 var(--m-display); display: block; }
+.ap-b .apb-ask-card p { font-size: 14.5px; color: var(--m-ink-2); margin-top: 2px; }
+.ap-b .apb-ask-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ap-b .apb-ask-row .apb-vp { height: 40px; min-width: 120px; padding: 0 18px; font: 600 15px/1 var(--m-ui); gap: 8px; }
+.ap-b .apb-ask-msg { font-size: 14px; color: var(--m-ink-2); }
+.ap-b .apb-ask-msg:empty { display: none; }
+.ap-b .apb-phone-bar { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--m-rule-lo); background: var(--m-panel); }
+.ap-b .apb-phone-bar h3 { font: 600 17px/1.2 var(--m-display); flex: 1; }
+.ap-b .apb-phone-bar .apb-btn { min-height: 40px; padding: 0 14px; font-size: 14.5px; }
+.ap-b .apb-phone-body { padding: 18px 16px 24px; }
+.ap-b .apb-phone .apb-board { gap: 18px; }
+.ap-b .apb-phone .apb-deck { width: 272px; height: 396px; margin-bottom: 24px; }
+.ap-b .apb-phone .apb-card { padding: 22px 20px 18px; gap: 10px; }
+.ap-b .apb-phone .apb-ctitle { font-size: 21px; }
+.ap-b .apb-phone .apb-cpitch { font-size: 15px; }
+.ap-b .apb-phone .apb-act { gap: 8px; }
+.ap-b .apb-phone .apb-big { min-height: 52px; font-size: 15.5px; gap: 8px; }
+.ap-b .apb-phone .apb-shelves { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ap-b .apb-phone .apb-row { grid-template-columns: minmax(0, 1fr); }
+.ap-b .apb-phone .apb-row-p { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ap-b .apb-phone .apb-vp { height: 40px; min-width: 64px; }
+.ap-b .apb-phone .apb-result { padding: 24px 16px 28px; min-height: 0; gap: 16px; }
+.ap-b .apb-phone .apb-wordmark { font-size: 44px; }
+.ap-b .apb-phone .apb-reason { font-size: 18px; }
+.ap-b .apb-phone .apb-result-act { flex-direction: column; }
+.ap-b .apb-phone .apb-result-act .apb-btn { width: 100%; min-height: 50px; }
+.ap-b .apb-phone .apb-ask-row .apb-vp { flex: 1; }
+.ap-b .apb-phone .apb-seg button { padding: 0 14px; }
+.ap-b .apb-adm { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 760px; background: radial-gradient(900px 500px at 70% -10%, rgba(227, 194, 122, .055), transparent 70%), var(--a-bg); }
+.ap-b .apb-arail { background: var(--a-bg2); border-right: 1px solid var(--a-line); padding: 24px 14px 20px; display: flex; flex-direction: column; gap: 4px; }
+.ap-b .apb-abrand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; font-weight: 600; font-size: 15px; }
+.ap-b .apb-abrand svg { width: 24px; height: 24px; fill: var(--a-gold); flex: none; }
+.ap-b .apb-abrand small { display: block; font: 500 9.5px/1.2 var(--a-mono); letter-spacing: .14em; color: var(--a-t3); }
+.ap-b .apb-anav { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; font-weight: 500; font-size: 15px; color: var(--a-t2); position: relative; }
+.ap-b .apb-anav .apb-i { width: 19px; height: 19px; }
+.ap-b .apb-anav--on { background: var(--a-sel); color: var(--a-t1); }
+.ap-b .apb-anav--on::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--a-gold); border-radius: 2px; }
+.ap-b .apb-anav em { font: 500 11.5px/1 var(--a-mono); font-style: normal; background: var(--a-gold); color: #17130a; padding: 3px 7px; border-radius: 99px; margin-left: auto; }
+.ap-b .apb-amain { padding: 36px 44px 56px; min-width: 0; display: grid; gap: 34px; align-content: start; }
+.ap-b .apb-ahead small { font: 500 11px/1 var(--a-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--a-t3); }
+.ap-b .apb-ahead h3 { font: 600 38px/1.1 var(--a-ui); letter-spacing: -.03em; margin: 8px 0 0; }
+.ap-b .apb-asec { display: grid; gap: 4px; }
+.ap-b .apb-asec > h4 { margin: 0; display: flex; align-items: center; gap: 10px; font: 600 19px/1.2 var(--a-ui); padding-bottom: 10px; border-bottom: 1px solid var(--a-line2); }
+.ap-b .apb-asec > h4 .apb-cnt { font: 500 12px/1 var(--a-mono); color: var(--a-t2); border: 1px solid var(--a-line2); border-radius: 6px; padding: 4px 8px; }
+.ap-b .apb-ascroll { max-height: 276px; overflow-y: auto; }
+.ap-b .apb-alist { margin: 0; padding: 0; list-style: none; }
+.ap-b .apb-ar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 20px; padding: 13px 4px; border-bottom: 1px solid var(--a-line); }
+.ap-b .apb-ar:hover { background: var(--a-hover); }
+.ap-b .apb-ar-t { font-weight: 600; font-size: 15.5px; }
+.ap-b .apb-ar-t code { font: 500 11.5px/1 var(--a-mono); color: var(--a-t3); margin-right: 10px; }
+.ap-b .apb-ar-m { margin-top: 3px; font-size: 13.5px; color: var(--a-t2); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ap-b .apb-ar-m span { white-space: nowrap; }
+.ap-b .apb-ar-act { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ap-b .apb-abtn { min-height: 38px; padding: 0 16px; border-radius: 9px; border: 1px solid var(--a-line2); background: transparent; color: var(--a-t1); font: 500 14px/1 var(--a-ui); cursor: pointer; white-space: nowrap; }
+.ap-b .apb-abtn:hover { background: var(--a-hover); border-color: var(--a-t4); }
+.ap-b .apb-abtn--primary { background: #f3f3f1; border-color: #f3f3f1; color: #0a0a0b; font-weight: 600; }
+.ap-b .apb-abtn--primary:hover { background: #fff; }
+.ap-b .apb-abtn--danger { color: var(--a-crit); border-color: rgba(255, 104, 104, .4); }
+.ap-b .apb-abtn--danger:hover { background: rgba(255, 104, 104, .08); }
+.ap-b .apb-adm .apb-abtn:focus-visible, .ap-b .apb-adm .apb-ainput:focus-visible, .ap-b .apb-adm .apb-rchip:focus-visible, .ap-b .apb-adm .apb-ascroll:focus-visible { outline: 2px solid var(--a-gold); outline-offset: 2px; }
+.ap-b .apb-ainput { height: 38px; width: 230px; box-sizing: border-box; padding: 0 12px; border-radius: 9px; border: 1px solid var(--a-line2); background: var(--a-bg2); color: var(--a-t1); font: 400 14px/1 var(--a-ui); }
+.ap-b .apb-ainput::placeholder { color: var(--a-t3); }
+.ap-b .apb-reasons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.ap-b .apb-reasons small { font: 500 11px/1 var(--a-mono); color: var(--a-t3); letter-spacing: .08em; text-transform: uppercase; margin-right: 4px; }
+.ap-b .apb-rchip { min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--a-line2); background: transparent; color: var(--a-t1); font: 500 13.5px/1 var(--a-ui); cursor: pointer; }
+.ap-b .apb-rchip:hover { border-color: var(--a-gold-dim); background: var(--a-hover); }
+.ap-b .apb-adone { font-size: 14px; color: var(--a-good); }
+.ap-b .apb-adone.is-no { color: var(--a-t2); }
+.ap-b .apb-aempty { padding: 14px 4px; color: var(--a-t3); font-size: 14.5px; }
+.ap-b .apb-toast { position: absolute; left: 50%; bottom: 22px; transform: translate(-50%, 20px); opacity: 0; background: #f3f3f1; color: #0a0a0b; padding: 11px 18px; border-radius: 99px; font: 500 14px/1 var(--a-ui); transition: opacity .2s, transform .25s; pointer-events: none; z-index: 5; white-space: nowrap; max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
+.ap-b .apb-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+.ap-b .apb-adm { position: relative; }
+.ap-b .apb-ar.is-in { animation: apb-in .45s cubic-bezier(.2, .8, .2, 1); }
+@keyframes apb-in { from { opacity: 0; transform: translateX(-24px); background: rgba(227, 194, 122, .18); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .ap-b .apb-card { transition: none; }
+  .ap-b .apb-mine li.is-new, .ap-b .apb-ar.is-in { animation: none; }
+}
+@media (max-width: 460px) {
+  .ap-b .apb-phone .apb-deck { width: 252px; height: 372px; }
+}
+</style>
+<svg class="apb-sprite" width="0" height="0" aria-hidden="true" focusable="false"><symbol id="apb-i-up" viewBox="0 0 24 24"><path d="M9 18v-6H5l7-7 7 7h-4v6H9z"/></symbol><symbol id="apb-i-down" viewBox="0 0 24 24"><path d="M15 6v6h4l-7 7-7-7h4V6h6z"/></symbol><symbol id="apb-i-chev-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol><symbol id="apb-i-chev-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol><symbol id="apb-i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="apb-i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="apb-i-card" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/></symbol><symbol id="apb-i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol><symbol id="apb-i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8V4z"/></symbol><symbol id="apb-i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="apb-i-bulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4"/></symbol><symbol id="apb-i-dash" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></symbol><symbol id="apb-i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></symbol><symbol id="apb-i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol><symbol id="apb-i-trophy" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17M14 14.66V17M18 2H6v7a6 6 0 0 0 12 0V2z"/></symbol><symbol id="apb-i-lib" viewBox="0 0 24 24"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></symbol><symbol id="apb-i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8zM3.3 7 12 12l8.7-5M12 22V12"/></symbol><symbol id="apb-i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="apb-i-bug" viewBox="0 0 24 24"><path d="M8 2l1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9M6 13H2M22 13h-4"/></symbol><symbol id="apb-i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/></symbol><symbol id="apb-i-gem" viewBox="0 0 24 24"><path d="M12 2 22 12 12 22 2 12z"/></symbol></svg>
+<header class="ws-ap-head">
+  <p class="ws-eyebrow">Approach B</p>
+  <h2 class="ws-h2" id="apb-title">One pick at a time</h2>
+  <p class="ws-thesis">A feedback board is a draft pack: one idea in front of you, one vote, then the next.</p>
+  <p class="ws-lede">The board opens on a single idea card. Vote up or down and the next card slides in, the way a draft pick does. See all ideas shows the same ideas as a list. Two slim shelves under the card hold In progress and Done, and that is all the progress there is.</p>
+</header>
+
+<div class="ws-block">
+  <h3 class="ws-h3">The model</h3>
+  <ol class="apb-flow">
+    <li class="apb-fn"><span class="apb-who">Player posts</span><b>Waiting</b>Only the author and the owner see it. Team ideas skip this.</li>
+    <li class="apb-fn"><span class="apb-who">Owner taps Approve</span><b>Open</b>On the board. Players vote up or down, one card at a time or in a list.</li>
+    <li class="apb-fn apb-fn--mid"><span class="apb-who">Owner taps Start</span><b>In progress</b>One chip on a shelf. No steps, dates or percentages.</li>
+    <li class="apb-fn apb-fn--end"><span class="apb-who">Owner taps Done</span><b>Done</b>Everyone who voted up and the author get one notice. The idea moves to the Done shelf.</li>
+  </ol>
+  <p class="apb-side-note"><b>Declined</b> ideas leave the board. The author sees a short reason, picked from a preset or typed as one line.</p>
+  <ul class="ws-list">
+    <li>The deck holds the ideas you have not voted on. A vote slides the next card in; Skip tucks a card to the back.</li>
+    <li>See all ideas lists everything, your votes marked. A vote in either view counts once.</li>
+    <li>Votes toggle: tap the same arrow again to take it back.</li>
+    <li>The owner moves an idea with three taps in the console. Done can carry a one-line note and never needs one.</li>
+  </ul>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Screens</h3>
+  <figure class="ws-fig" id="apb-s1"><div class="ws-screen-scroll"><div class="ws-screen apb-s apb-m"><div class="apb-app"><nav class="apb-side" aria-label="App menu (decoration)" inert>
+  <div class="apb-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#apb-i-gem"/></svg><span>Dueling <em>Domain</em></span></div>
+  <div class="apb-nav"><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-dash"/></svg>Dashboard</div><h4>Compete</h4><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-trophy"/></svg>Tournaments</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-layers"/></svg>Drafts</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-zap"/></svg>Duels</div><h4>Build</h4><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-lib"/></svg>Decks</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-box"/></svg>Cubes</div><h4>Community</h4><div class="apb-navrow apb-navrow--on" aria-current="page"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-bulb"/></svg>Ideas</div></div>
+  <div class="apb-seat"><span class="apb-ring" aria-hidden="true">LU</span><span><b>lumen</b>Gold · 1184</span></div></nav><div class="apb-main">
+  <div class="apb-bar"><div class="apb-grow"><h3>Ideas</h3><p>Vote on what gets built next.</p></div><button type="button" class="apb-btn apb-btn--primary"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button></div>
+  <div class="apb-page"><p class="apb-vh" role="status" aria-live="polite" data-live></p>
+<div class="apb-board" data-apb-board data-mode="cards" data-open-shelves>
+  <div class="apb-seg" role="group" aria-label="View"><button type="button" data-mode="cards" aria-pressed="true"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-card"/></svg>One at a time</button><button type="button" data-mode="list" aria-pressed="false"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-list"/></svg>All ideas <span class="apb-num">17</span></button></div>
+  <div class="apb-deckwrap">
+    <div class="apb-count"><span data-count>15 ideas left to vote on</span><div class="apb-pips" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="apb-deck"><article class="apb-card" data-id="NT-104" data-pos="0">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Separate Standard and Domain ratings</h3>
+  <p class="apb-cpitch">Each format gets its own rating and tier.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">11</b>up</span><span><b data-tally="down">3</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-108" data-pos="1">
+  <div class="apb-cardtop"><span class="apb-chip">Tournaments</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Swiss rounds with a top cut</h3>
+  <p class="apb-cpitch">Play set rounds against equal records, then the top 4 or 8 play on.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">12</b>up</span><span><b data-tally="down">1</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-113" data-pos="2">
+  <div class="apb-cardtop"><span class="apb-chip">Duels</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">A practice bot that plays a real deck</h3>
+  <p class="apb-cpitch">Pick a saved deck for the practice bot to pilot.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">11</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-109" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Community</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Friends and playing now</h3>
+  <p class="apb-cpitch">See who is online or mid-duel, and challenge them in one tap.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">10</b>up</span><span><b data-tally="down">2</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-121" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Duels</span></div>
+  <h3 class="apb-ctitle">Rematch button after a casual duel</h3>
+  <p class="apb-cpitch">One button on the result screen to run it back with the same opponent and decks.</p>
+  <div class="apb-cfoot"><span>Idea by vexmoth</span><span class="apb-tally"><span><b data-tally="up">9</b>up</span><span><b data-tally="down">1</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-110" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Decks &amp; cubes</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Share a deck or cube by link</h3>
+  <p class="apb-cpitch">A read-only page anyone signed in can view and copy.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">9</b>up</span><span><b data-tally="down">1</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-111" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Replays &amp; watching</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Jump in from your own replays</h3>
+  <p class="apb-cpitch">Stop a replay where it went wrong and play it out from there.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">8</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-103" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Placement series</h3>
+  <p class="apb-cpitch">Your first five rated series move your rating faster.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">9</b>up</span><span><b data-tally="down">2</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-105" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Seasons with a soft reset</h3>
+  <p class="apb-cpitch">Every 8 weeks, ratings move halfway back to 1000.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">7</b>up</span><span><b data-tally="down">4</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-106" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Season crest and seat frame</h3>
+  <p class="apb-cpitch">Your best tier becomes a profile crest and a seat frame.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">8</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-107" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Ladder sorted by rating</h3>
+  <p class="apb-cpitch">Sort the leaderboard by rating as well as winnings.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">6</b>up</span><span><b data-tally="down">2</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-114" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">Drafts</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Draft recap</h3>
+  <p class="apb-cpitch">Step through every pack you saw and see who took what you passed.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">7</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-115" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Inbox for challenges, round calls and updates</h3>
+  <p class="apb-cpitch">One place for challenges, round calls, draft starts and news.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">8</b>up</span><span><b data-tally="down">1</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-118" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Readable text everywhere</h3>
+  <p class="apb-cpitch">Nothing in the app smaller than 11px, starting with the duel log.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">6</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-119" data-pos="3">
+  <div class="apb-cardtop"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Clear, consistent format names</h3>
+  <p class="apb-cpitch">Standard, Domain and Genesys read the same on every screen.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">5</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article></div>
+    <div class="apb-act">
+      <button type="button" class="apb-big apb-big--down" data-deck="down"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-down"/></svg>Vote down</button>
+      <button type="button" class="apb-skip" data-skip>Skip</button>
+      <button type="button" class="apb-big apb-big--up" data-deck="up"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-up"/></svg>Vote up</button>
+    </div>
+    <div class="apb-end" hidden><h3>You have seen every idea</h3><p>New ideas land here as the owner approves them.</p><div class="apb-end-row"><button type="button" class="apb-btn apb-btn--primary"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button><button type="button" class="apb-btn" data-show-list>See all ideas</button></div></div>
+  </div>
+  <section class="apb-shelves" aria-label="In progress and Done">
+  <div class="apb-shelf"><button type="button" class="apb-shelf-h" data-shelf aria-expanded="true">In progress <span class="apb-num">2</span><svg class="apb-i" aria-hidden="true"><use href="#apb-i-chev-down"/></svg></button>
+    <div class="apb-shelf-body"><div class="apb-sitem"><b>Card details that fit on a phone</b><div class="apb-smeta"><span class="apb-chip apb-chip--prog"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-play"/></svg>In progress</span><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span><span>13 up · 0 down</span></div></div><div class="apb-sitem"><b>Theme drafts</b><div class="apb-smeta"><span class="apb-chip apb-chip--prog"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-play"/></svg>In progress</span><span class="apb-chip">Drafts</span><span class="apb-chip apb-chip--team">Team</span><span>10 up · 1 down</span></div></div></div></div>
+  <div class="apb-shelf"><button type="button" class="apb-shelf-h" data-shelf aria-expanded="true">Done <span class="apb-num">12</span><svg class="apb-i" aria-hidden="true"><use href="#apb-i-chev-down"/></svg></button>
+    <div class="apb-shelf-body">
+      <p class="apb-wk">This week</p><p class="apb-quiet">Nothing yet.</p>
+      <p class="apb-wk">Oct 19–25</p><div class="apb-ditem"><span>Search cards by what they do: effects, partners, counters, release dates and format staples.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>See live card statuses, protections and counters on the board.</span><small>Duels</small></div>
+      <div data-more hidden><div class="apb-ditem"><span>Get legal deck suggestions and start a Test duel straight from the editor.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Hosts can remove players before a table starts, and replays load faster.</span><small>Duels</small></div><div class="apb-ditem"><span>Fixed: decision clocks, Damage Step timing, card sorting and multiplayer LP effects.</span><small>Duels</small></div><p class="apb-wk">Oct 12–18</p><div class="apb-ditem"><span>Import decks in bulk, with better previews and an editor that fits your screen.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Build and play Genesys decks with point budgets.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Replay older games even after engine updates.</span><small>Replays &amp; watching</small></div><p class="apb-wk">Oct 5–11</p><div class="apb-ditem"><span>Make drafts and tournaments open or private, with invitations.</span><small>Drafts</small></div><div class="apb-ditem"><span>Follow each chain link as it resolves, with a table log and negation marks.</span><small>Duels</small></div><p class="apb-wk">Sept 28 – Oct 4</p><div class="apb-ditem"><span>Play Tag 2v2 and three- or four-player free-for-all.</span><small>Duels</small></div><div class="apb-ditem"><span>Export draft decks and turn a finished draft into a tournament.</span><small>Drafts</small></div></div>
+      <button type="button" class="apb-more-btn" data-more-btn aria-expanded="false" data-open="Show all 12" data-close="Show fewer">Show all 12</button>
+    </div></div></section>
+  <div class="apb-listwrap"><ul class="apb-list" aria-label="All ideas"><li class="apb-row" data-id="NT-102">
+  <div><div class="apb-row-t">Ranked queue</div><p class="apb-row-p">Find a ranked match near your rating, in Standard or Domain.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-102" data-dir="up" aria-pressed="true"><span class="apb-vn">14</span></button><button type="button" class="apb-vp" data-vote data-id="NT-102" data-dir="down" aria-pressed="false"><span class="apb-vn">1</span></button></div></li>
+<li class="apb-row" data-id="NT-108">
+  <div><div class="apb-row-t">Swiss rounds with a top cut</div><p class="apb-row-p">Play set rounds against equal records, then the top 4 or 8 play on.</p><div class="apb-row-m"><span class="apb-chip">Tournaments</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-108" data-dir="up" aria-pressed="false"><span class="apb-vn">12</span></button><button type="button" class="apb-vp" data-vote data-id="NT-108" data-dir="down" aria-pressed="false"><span class="apb-vn">1</span></button></div></li>
+<li class="apb-row" data-id="NT-113">
+  <div><div class="apb-row-t">A practice bot that plays a real deck</div><p class="apb-row-p">Pick a saved deck for the practice bot to pilot.</p><div class="apb-row-m"><span class="apb-chip">Duels</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-113" data-dir="up" aria-pressed="false"><span class="apb-vn">11</span></button><button type="button" class="apb-vp" data-vote data-id="NT-113" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-104">
+  <div><div class="apb-row-t">Separate Standard and Domain ratings</div><p class="apb-row-p">Each format gets its own rating and tier.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-104" data-dir="up" aria-pressed="false"><span class="apb-vn">11</span></button><button type="button" class="apb-vp" data-vote data-id="NT-104" data-dir="down" aria-pressed="false"><span class="apb-vn">3</span></button></div></li>
+<li class="apb-row" data-id="NT-106">
+  <div><div class="apb-row-t">Season crest and seat frame</div><p class="apb-row-p">Your best tier becomes a profile crest and a seat frame.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-106" data-dir="up" aria-pressed="false"><span class="apb-vn">8</span></button><button type="button" class="apb-vp" data-vote data-id="NT-106" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-109">
+  <div><div class="apb-row-t">Friends and playing now</div><p class="apb-row-p">See who is online or mid-duel, and challenge them in one tap.</p><div class="apb-row-m"><span class="apb-chip">Community</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-109" data-dir="up" aria-pressed="false"><span class="apb-vn">10</span></button><button type="button" class="apb-vp" data-vote data-id="NT-109" data-dir="down" aria-pressed="false"><span class="apb-vn">2</span></button></div></li>
+<li class="apb-row" data-id="NT-110">
+  <div><div class="apb-row-t">Share a deck or cube by link</div><p class="apb-row-p">A read-only page anyone signed in can view and copy.</p><div class="apb-row-m"><span class="apb-chip">Decks &amp; cubes</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-110" data-dir="up" aria-pressed="false"><span class="apb-vn">9</span></button><button type="button" class="apb-vp" data-vote data-id="NT-110" data-dir="down" aria-pressed="false"><span class="apb-vn">1</span></button></div></li>
+<li class="apb-row" data-id="NT-111">
+  <div><div class="apb-row-t">Jump in from your own replays</div><p class="apb-row-p">Stop a replay where it went wrong and play it out from there.</p><div class="apb-row-m"><span class="apb-chip">Replays &amp; watching</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-111" data-dir="up" aria-pressed="false"><span class="apb-vn">8</span></button><button type="button" class="apb-vp" data-vote data-id="NT-111" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-121">
+  <div><div class="apb-row-t">Rematch button after a casual duel</div><p class="apb-row-p">One button on the result screen to run it back with the same opponent and decks.</p><div class="apb-row-m"><span class="apb-chip">Duels</span><span>Idea by vexmoth</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-121" data-dir="up" aria-pressed="false"><span class="apb-vn">9</span></button><button type="button" class="apb-vp" data-vote data-id="NT-121" data-dir="down" aria-pressed="false"><span class="apb-vn">1</span></button></div></li>
+<li class="apb-row" data-id="NT-103">
+  <div><div class="apb-row-t">Placement series</div><p class="apb-row-p">Your first five rated series move your rating faster.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-103" data-dir="up" aria-pressed="false"><span class="apb-vn">9</span></button><button type="button" class="apb-vp" data-vote data-id="NT-103" data-dir="down" aria-pressed="false"><span class="apb-vn">2</span></button></div></li>
+<li class="apb-row" data-id="NT-114">
+  <div><div class="apb-row-t">Draft recap</div><p class="apb-row-p">Step through every pack you saw and see who took what you passed.</p><div class="apb-row-m"><span class="apb-chip">Drafts</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-114" data-dir="up" aria-pressed="false"><span class="apb-vn">7</span></button><button type="button" class="apb-vp" data-vote data-id="NT-114" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-115">
+  <div><div class="apb-row-t">Inbox for challenges, round calls and updates</div><p class="apb-row-p">One place for challenges, round calls, draft starts and news.</p><div class="apb-row-m"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-115" data-dir="up" aria-pressed="false"><span class="apb-vn">8</span></button><button type="button" class="apb-vp" data-vote data-id="NT-115" data-dir="down" aria-pressed="false"><span class="apb-vn">1</span></button></div></li>
+<li class="apb-row" data-id="NT-118">
+  <div><div class="apb-row-t">Readable text everywhere</div><p class="apb-row-p">Nothing in the app smaller than 11px, starting with the duel log.</p><div class="apb-row-m"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-118" data-dir="up" aria-pressed="false"><span class="apb-vn">6</span></button><button type="button" class="apb-vp" data-vote data-id="NT-118" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-119">
+  <div><div class="apb-row-t">Clear, consistent format names</div><p class="apb-row-p">Standard, Domain and Genesys read the same on every screen.</p><div class="apb-row-m"><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-119" data-dir="up" aria-pressed="false"><span class="apb-vn">5</span></button><button type="button" class="apb-vp" data-vote data-id="NT-119" data-dir="down" aria-pressed="false"><span class="apb-vn">0</span></button></div></li>
+<li class="apb-row" data-id="NT-107">
+  <div><div class="apb-row-t">Ladder sorted by rating</div><p class="apb-row-p">Sort the leaderboard by rating as well as winnings.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-107" data-dir="up" aria-pressed="false"><span class="apb-vn">6</span></button><button type="button" class="apb-vp" data-vote data-id="NT-107" data-dir="down" aria-pressed="false"><span class="apb-vn">2</span></button></div></li>
+<li class="apb-row" data-id="NT-105">
+  <div><div class="apb-row-t">Seasons with a soft reset</div><p class="apb-row-p">Every 8 weeks, ratings move halfway back to 1000.</p><div class="apb-row-m"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-105" data-dir="up" aria-pressed="false"><span class="apb-vn">7</span></button><button type="button" class="apb-vp" data-vote data-id="NT-105" data-dir="down" aria-pressed="false"><span class="apb-vn">4</span></button></div></li>
+<li class="apb-row" data-id="NT-112">
+  <div><div class="apb-row-t">Quick reactions in duels</div><p class="apb-row-p">A fixed set of short reactions with a per-table mute.</p><div class="apb-row-m"><span class="apb-chip">Duels</span><span class="apb-chip apb-chip--team">Team</span></div></div>
+  <div class="apb-row-v"><button type="button" class="apb-vp" data-vote data-id="NT-112" data-dir="up" aria-pressed="false"><span class="apb-vn">6</span></button><button type="button" class="apb-vp" data-vote data-id="NT-112" data-dir="down" aria-pressed="true"><span class="apb-vn">5</span></button></div></li></ul></div>
+</div></div></div></div></div></div>
+    <figcaption class="ws-caption"><b>S1 Player board (desktop).</b> The board opens on one idea. Vote and the next card slides in; the two shelves sit below, and All ideas swaps the card for a list. Everything here works.</figcaption></figure>
+  <figure class="ws-fig" id="apb-s2"><div class="ws-screen-scroll"><div class="ws-screen apb-s apb-m"><div class="apb-app"><nav class="apb-side" aria-label="App menu (decoration)" inert>
+  <div class="apb-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#apb-i-gem"/></svg><span>Dueling <em>Domain</em></span></div>
+  <div class="apb-nav"><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-dash"/></svg>Dashboard</div><h4>Compete</h4><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-trophy"/></svg>Tournaments</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-layers"/></svg>Drafts</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-zap"/></svg>Duels</div><h4>Build</h4><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-lib"/></svg>Decks</div><div class="apb-navrow"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-box"/></svg>Cubes</div><h4>Community</h4><div class="apb-navrow apb-navrow--on" aria-current="page"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-bulb"/></svg>Ideas</div></div>
+  <div class="apb-seat"><span class="apb-ring" aria-hidden="true">LU</span><span><b>lumen</b>Gold · 1184</span></div></nav><div class="apb-main">
+  <div class="apb-bar"><div class="apb-grow"><h3>Suggest an idea</h3><p>Only you and the owner see it until it is approved.</p></div></div>
+  <div class="apb-page"><div class="apb-board" style="max-width:900px;gap:24px">
+    <div class="apb-notice" role="status"><span class="apb-ico"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-check"/></svg></span><div><h3>Done: Card details that fit on a phone. You backed this.</h3><p>Card text, clock names and lobby wording now fit on phones.</p></div><button type="button" class="apb-btn apb-btn--quiet" data-dismiss aria-label="Dismiss notice"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-x"/></svg></button></div>
+    <div class="apb-cols2">
+      <form class="apb-panel" data-apb-form novalidate><h3>Suggest an idea</h3>
+        <div class="apb-field"><label for="apb-f-title">Title</label><input id="apb-f-title" data-f-title type="text" maxlength="80" placeholder="Short and clear" autocomplete="off"></div>
+        <div class="apb-field"><label for="apb-f-line">One more line (optional)</label><input id="apb-f-line" data-f-line type="text" maxlength="140" autocomplete="off"></div>
+        <div class="apb-field"><label for="apb-f-area">Area</label><select id="apb-f-area" data-f-area><option>Ranked</option><option>Duels</option><option>Drafts</option><option>Tournaments</option><option>Decks &amp; cubes</option><option>Replays &amp; watching</option><option>Community</option><option selected>App</option></select></div>
+        <div><button type="submit" class="apb-btn apb-btn--primary">Post idea</button></div>
+        <p class="apb-formmsg" data-f-msg role="status"></p></form>
+      <div class="apb-panel"><h3>Your ideas</h3><ul class="apb-mine" data-mine>
+        <li><span class="apb-facedown" aria-hidden="true"></span><b>Keyboard shortcuts for Pass and End turn</b><p>I play on desktop and reach for the mouse every turn. Space to pass would be enough.</p><div class="apb-smeta"><span class="apb-chip apb-chip--wait">Waiting for approval</span><span>Duels · 1d</span></div></li></ul></div>
+    </div></div></div></div></div></div></div>
+    <figcaption class="ws-caption"><b>S2 Suggest an idea and hear back (desktop).</b> The form is four things. A posted idea turns up under Your ideas as a face-down card marked Waiting. The Done notice (a sample for NT-117) is one line plus the owner's optional note.</figcaption></figure>
+  <figure class="ws-fig" id="apb-s3"><div class="ws-screen-scroll"><div class="ws-screen apb-s apb-m"><div class="apb-result"><div class="apb-result-in">
+  <h3 class="apb-wordmark">Victory</h3><p class="apb-reason">lumen beat nyx_ra, 2 games to 0.</p>
+  <div class="apb-result-act"><button type="button" class="apb-btn apb-btn--primary apb-btn--big">Rematch</button><button type="button" class="apb-btn apb-btn--gold apb-btn--big">Replay</button><button type="button" class="apb-btn apb-btn--quiet apb-btn--big">Exit</button></div>
+  <div class="apb-ask" data-apb-ask>
+  <div class="apb-ask-head"><h3>One idea for you</h3><button type="button" class="apb-btn apb-btn--quiet"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button></div>
+  <div class="apb-ask-card"><div><b>Jump in from your own replays</b><p>Stop a replay where it went wrong and play it out from there.</p></div>
+    <div class="apb-ask-row"><button type="button" class="apb-vp" data-dir="down" data-ask-vote="down" aria-pressed="false" aria-label="Vote down: Jump in from your own replays">Vote down</button><button type="button" class="apb-vp" data-dir="up" data-ask-vote="up" aria-pressed="false" aria-label="Vote up: Jump in from your own replays">Vote up</button></div>
+    <p class="apb-ask-msg" data-ask-msg role="status"></p></div></div></div></div></div></div>
+    <figcaption class="ws-caption"><b>S3 End-of-activity prompt (desktop).</b> One idea below Rematch, Replay and Exit, picked to match the activity (here, replays). Two votes and a Suggest link; nothing to dismiss.</figcaption></figure>
+  <figure class="ws-fig" id="apb-s4"><div class="ws-screen-scroll"><div class="ws-screen ws-screen--admin apb-m"><div class="apb-adm" data-apb-admin>
+  <nav class="apb-arail" aria-label="Console menu (decoration)" inert><div class="apb-abrand"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#apb-i-gem"/></svg><span>Dueling Domain<small>ADMIN CONSOLE</small></span></div>
+    <div class="apb-anav"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-gauge"/></svg>Overview</div><div class="apb-anav"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-users"/></svg>Members</div><div class="apb-anav apb-anav--on"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-bulb"/></svg>Ideas<em data-rail-count>4</em></div><div class="apb-anav"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-bug"/></svg>Bug reports</div></nav>
+  <div class="apb-amain">
+    <div class="apb-ahead"><small>Owner</small><h3>Ideas</h3></div>
+    <section class="apb-asec" aria-labelledby="apb-a-w"><h4 id="apb-a-w">Waiting for approval <span class="apb-cnt" data-cnt="waiting">4</span></h4>
+      <ul class="apb-alist" data-list="waiting"><li class="apb-ar" data-id="NT-123" data-title="Choose a card sleeve for your decks" data-by="kestrel9" data-area="Decks &amp; cubes" data-up="0" data-down="0" data-reasons="Already on the board|It's a bug, reported for you|Not for now"><div><div class="apb-ar-t"><code>NT-123</code>Choose a card sleeve for your decks</div><div class="apb-ar-m"><span>by kestrel9</span><span>2d ago</span><span>Decks &amp; cubes</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn apb-abtn--primary" data-act="approve" aria-label="Approve: Choose a card sleeve for your decks">Approve</button><button type="button" class="apb-abtn apb-abtn--danger" data-act="decline" aria-label="Decline: Choose a card sleeve for your decks">Decline</button></div></li>
+<li class="apb-ar" data-id="NT-124" data-title="Keyboard shortcuts for Pass and End turn" data-by="lumen" data-area="Duels" data-up="0" data-down="0" data-reasons="Already on the board|It's a bug, reported for you|Not for now"><div><div class="apb-ar-t"><code>NT-124</code>Keyboard shortcuts for Pass and End turn</div><div class="apb-ar-m"><span>by lumen</span><span>1d ago</span><span>Duels</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn apb-abtn--primary" data-act="approve" aria-label="Approve: Keyboard shortcuts for Pass and End turn">Approve</button><button type="button" class="apb-abtn apb-abtn--danger" data-act="decline" aria-label="Decline: Keyboard shortcuts for Pass and End turn">Decline</button></div></li>
+<li class="apb-ar" data-id="NT-125" data-title="pls ranked matchmaking" data-by="mossgiant" data-area="Ranked" data-up="0" data-down="0" data-reasons="Already on the board: Ranked queue|It's a bug, reported for you|Not for now"><div><div class="apb-ar-t"><code>NT-125</code>pls ranked matchmaking</div><div class="apb-ar-m"><span>by mossgiant</span><span>6h ago</span><span>Ranked</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn apb-abtn--primary" data-act="approve" aria-label="Approve: pls ranked matchmaking">Approve</button><button type="button" class="apb-abtn apb-abtn--danger" data-act="decline" aria-label="Decline: pls ranked matchmaking">Decline</button></div></li>
+<li class="apb-ar" data-id="NT-126" data-title="My trap didn't negate the attack in the Damage Step" data-by="pellucid" data-area="Duels" data-up="0" data-down="0" data-reasons="Already on the board|It's a bug, reported for you|Not for now"><div><div class="apb-ar-t"><code>NT-126</code>My trap didn't negate the attack in the Damage Step</div><div class="apb-ar-m"><span>by pellucid</span><span>3h ago</span><span>Duels</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn apb-abtn--primary" data-act="approve" aria-label="Approve: My trap didn't negate the attack in the Damage Step">Approve</button><button type="button" class="apb-abtn apb-abtn--danger" data-act="decline" aria-label="Decline: My trap didn't negate the attack in the Damage Step">Decline</button></div></li></ul><p class="apb-aempty" data-empty="waiting" hidden>Nothing waiting.</p></section>
+    <section class="apb-asec" aria-labelledby="apb-a-o"><h4 id="apb-a-o">Open <span class="apb-cnt" data-cnt="open">17</span></h4>
+      <div class="apb-ascroll" tabindex="0" role="region" aria-label="Open ideas, scrollable"><ul class="apb-alist" data-list="open"><li class="apb-ar" data-id="NT-102" data-title="Ranked queue" data-by="Team" data-area="Ranked" data-up="14" data-down="1"><div><div class="apb-ar-t"><code>NT-102</code>Ranked queue</div><div class="apb-ar-m"><span>14 up · 1 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Ranked queue">Start</button></div></li>
+<li class="apb-ar" data-id="NT-108" data-title="Swiss rounds with a top cut" data-by="Team" data-area="Tournaments" data-up="12" data-down="1"><div><div class="apb-ar-t"><code>NT-108</code>Swiss rounds with a top cut</div><div class="apb-ar-m"><span>12 up · 1 down</span><span>Tournaments</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Swiss rounds with a top cut">Start</button></div></li>
+<li class="apb-ar" data-id="NT-113" data-title="A practice bot that plays a real deck" data-by="Team" data-area="Duels" data-up="11" data-down="0"><div><div class="apb-ar-t"><code>NT-113</code>A practice bot that plays a real deck</div><div class="apb-ar-m"><span>11 up · 0 down</span><span>Duels</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: A practice bot that plays a real deck">Start</button></div></li>
+<li class="apb-ar" data-id="NT-104" data-title="Separate Standard and Domain ratings" data-by="Team" data-area="Ranked" data-up="11" data-down="3"><div><div class="apb-ar-t"><code>NT-104</code>Separate Standard and Domain ratings</div><div class="apb-ar-m"><span>11 up · 3 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Separate Standard and Domain ratings">Start</button></div></li>
+<li class="apb-ar" data-id="NT-106" data-title="Season crest and seat frame" data-by="Team" data-area="Ranked" data-up="8" data-down="0"><div><div class="apb-ar-t"><code>NT-106</code>Season crest and seat frame</div><div class="apb-ar-m"><span>8 up · 0 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Season crest and seat frame">Start</button></div></li>
+<li class="apb-ar" data-id="NT-109" data-title="Friends and playing now" data-by="Team" data-area="Community" data-up="10" data-down="2"><div><div class="apb-ar-t"><code>NT-109</code>Friends and playing now</div><div class="apb-ar-m"><span>10 up · 2 down</span><span>Community</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Friends and playing now">Start</button></div></li>
+<li class="apb-ar" data-id="NT-110" data-title="Share a deck or cube by link" data-by="Team" data-area="Decks &amp; cubes" data-up="9" data-down="1"><div><div class="apb-ar-t"><code>NT-110</code>Share a deck or cube by link</div><div class="apb-ar-m"><span>9 up · 1 down</span><span>Decks &amp; cubes</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Share a deck or cube by link">Start</button></div></li>
+<li class="apb-ar" data-id="NT-111" data-title="Jump in from your own replays" data-by="Team" data-area="Replays &amp; watching" data-up="8" data-down="0"><div><div class="apb-ar-t"><code>NT-111</code>Jump in from your own replays</div><div class="apb-ar-m"><span>8 up · 0 down</span><span>Replays &amp; watching</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Jump in from your own replays">Start</button></div></li>
+<li class="apb-ar" data-id="NT-121" data-title="Rematch button after a casual duel" data-by="vexmoth" data-area="Duels" data-up="9" data-down="1"><div><div class="apb-ar-t"><code>NT-121</code>Rematch button after a casual duel</div><div class="apb-ar-m"><span>9 up · 1 down</span><span>Duels</span><span>by vexmoth</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Rematch button after a casual duel">Start</button></div></li>
+<li class="apb-ar" data-id="NT-103" data-title="Placement series" data-by="Team" data-area="Ranked" data-up="9" data-down="2"><div><div class="apb-ar-t"><code>NT-103</code>Placement series</div><div class="apb-ar-m"><span>9 up · 2 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Placement series">Start</button></div></li>
+<li class="apb-ar" data-id="NT-114" data-title="Draft recap" data-by="Team" data-area="Drafts" data-up="7" data-down="0"><div><div class="apb-ar-t"><code>NT-114</code>Draft recap</div><div class="apb-ar-m"><span>7 up · 0 down</span><span>Drafts</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Draft recap">Start</button></div></li>
+<li class="apb-ar" data-id="NT-115" data-title="Inbox for challenges, round calls and updates" data-by="Team" data-area="App" data-up="8" data-down="1"><div><div class="apb-ar-t"><code>NT-115</code>Inbox for challenges, round calls and updates</div><div class="apb-ar-m"><span>8 up · 1 down</span><span>App</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Inbox for challenges, round calls and updates">Start</button></div></li>
+<li class="apb-ar" data-id="NT-118" data-title="Readable text everywhere" data-by="Team" data-area="App" data-up="6" data-down="0"><div><div class="apb-ar-t"><code>NT-118</code>Readable text everywhere</div><div class="apb-ar-m"><span>6 up · 0 down</span><span>App</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Readable text everywhere">Start</button></div></li>
+<li class="apb-ar" data-id="NT-119" data-title="Clear, consistent format names" data-by="Team" data-area="App" data-up="5" data-down="0"><div><div class="apb-ar-t"><code>NT-119</code>Clear, consistent format names</div><div class="apb-ar-m"><span>5 up · 0 down</span><span>App</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Clear, consistent format names">Start</button></div></li>
+<li class="apb-ar" data-id="NT-107" data-title="Ladder sorted by rating" data-by="Team" data-area="Ranked" data-up="6" data-down="2"><div><div class="apb-ar-t"><code>NT-107</code>Ladder sorted by rating</div><div class="apb-ar-m"><span>6 up · 2 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Ladder sorted by rating">Start</button></div></li>
+<li class="apb-ar" data-id="NT-105" data-title="Seasons with a soft reset" data-by="Team" data-area="Ranked" data-up="7" data-down="4"><div><div class="apb-ar-t"><code>NT-105</code>Seasons with a soft reset</div><div class="apb-ar-m"><span>7 up · 4 down</span><span>Ranked</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Seasons with a soft reset">Start</button></div></li>
+<li class="apb-ar" data-id="NT-112" data-title="Quick reactions in duels" data-by="Team" data-area="Duels" data-up="6" data-down="5"><div><div class="apb-ar-t"><code>NT-112</code>Quick reactions in duels</div><div class="apb-ar-m"><span>6 up · 5 down</span><span>Duels</span><span>Team</span></div></div><div class="apb-ar-act"><button type="button" class="apb-abtn" data-act="start" aria-label="Start: Quick reactions in duels">Start</button></div></li></ul></div></section>
+    <section class="apb-asec" aria-labelledby="apb-a-p"><h4 id="apb-a-p">In progress <span class="apb-cnt" data-cnt="prog">2</span></h4>
+      <ul class="apb-alist" data-list="prog"><li class="apb-ar" data-id="NT-117" data-title="Card details that fit on a phone" data-by="Team" data-area="App" data-up="13" data-down="0"><div><div class="apb-ar-t"><code>NT-117</code>Card details that fit on a phone</div><div class="apb-ar-m"><span>13 up · 0 down</span><span>App</span><span>Team</span></div></div><div class="apb-ar-act"><input class="apb-ainput" type="text" maxlength="90" placeholder="Note for the notice, optional" aria-label="Note for the notice, optional: Card details that fit on a phone"><button type="button" class="apb-abtn apb-abtn--primary" data-act="done" aria-label="Done: Card details that fit on a phone">Done</button></div></li>
+<li class="apb-ar" data-id="NT-116" data-title="Theme drafts" data-by="Team" data-area="Drafts" data-up="10" data-down="1"><div><div class="apb-ar-t"><code>NT-116</code>Theme drafts</div><div class="apb-ar-m"><span>10 up · 1 down</span><span>Drafts</span><span>Team</span></div></div><div class="apb-ar-act"><input class="apb-ainput" type="text" maxlength="90" placeholder="Note for the notice, optional" aria-label="Note for the notice, optional: Theme drafts"><button type="button" class="apb-abtn apb-abtn--primary" data-act="done" aria-label="Done: Theme drafts">Done</button></div></li></ul><p class="apb-aempty" data-empty="prog" hidden>Nothing in progress.</p></section>
+    <section class="apb-asec" aria-labelledby="apb-a-d"><h4 id="apb-a-d">Done this week <span class="apb-cnt" data-cnt="done">0</span></h4>
+      <ul class="apb-alist" data-list="done"></ul><p class="apb-aempty" data-empty="done">Nothing yet this week.</p></section>
+  </div><div class="apb-toast" role="status" aria-live="polite"></div></div></div></div>
+    <figcaption class="ws-caption"><b>S4 Owner console (desktop).</b> Approve or Decline, Start, Done, in that order down the page. Try each: the row moves to the next list. Decline asks for a reason in one more tap; Done shows how many players get the notice.</figcaption></figure>
+  <figure class="ws-fig" id="apb-s5"><div class="ws-phone-row">
+  <div class="ws-phone apb-phone apb-m"><div class="ws-phone-inner"><div class="apb-phone-bar"><h3>Ideas</h3><button type="button" class="apb-btn apb-btn--primary"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button></div>
+    <div class="apb-phone-body"><p class="apb-vh" role="status" aria-live="polite" data-live></p>
+<div class="apb-board" data-apb-board data-mode="cards" data-clone>
+  <div class="apb-seg" role="group" aria-label="View"><button type="button" data-mode="cards" aria-pressed="true"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-card"/></svg>One at a time</button><button type="button" data-mode="list" aria-pressed="false"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-list"/></svg>All ideas <span class="apb-num">17</span></button></div>
+  <div class="apb-deckwrap">
+    <div class="apb-count"><span data-count>15 ideas left to vote on</span><div class="apb-pips" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="apb-deck"><article class="apb-card" data-id="NT-104" data-pos="0">
+  <div class="apb-cardtop"><span class="apb-chip">Ranked</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Separate Standard and Domain ratings</h3>
+  <p class="apb-cpitch">Each format gets its own rating and tier.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">11</b>up</span><span><b data-tally="down">3</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-108" data-pos="1">
+  <div class="apb-cardtop"><span class="apb-chip">Tournaments</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">Swiss rounds with a top cut</h3>
+  <p class="apb-cpitch">Play set rounds against equal records, then the top 4 or 8 play on.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">12</b>up</span><span><b data-tally="down">1</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article>
+<article class="apb-card" data-id="NT-113" data-pos="2">
+  <div class="apb-cardtop"><span class="apb-chip">Duels</span><span class="apb-chip apb-chip--team">Team</span></div>
+  <h3 class="apb-ctitle">A practice bot that plays a real deck</h3>
+  <p class="apb-cpitch">Pick a saved deck for the practice bot to pilot.</p>
+  <div class="apb-cfoot"><span></span><span class="apb-tally"><span><b data-tally="up">11</b>up</span><span><b data-tally="down">0</b>down</span></span></div>
+  <span class="apb-stamp" aria-hidden="true"></span>
+</article></div>
+    <div class="apb-act">
+      <button type="button" class="apb-big apb-big--down" data-deck="down"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-down"/></svg>Vote down</button>
+      <button type="button" class="apb-skip" data-skip>Skip</button>
+      <button type="button" class="apb-big apb-big--up" data-deck="up"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-up"/></svg>Vote up</button>
+    </div>
+    <div class="apb-end" hidden><h3>You have seen every idea</h3><p>New ideas land here as the owner approves them.</p><div class="apb-end-row"><button type="button" class="apb-btn apb-btn--primary"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button><button type="button" class="apb-btn" data-show-list>See all ideas</button></div></div>
+  </div>
+  <section class="apb-shelves" aria-label="In progress and Done">
+  <div class="apb-shelf"><button type="button" class="apb-shelf-h" data-shelf aria-expanded="false">In progress <span class="apb-num">2</span><svg class="apb-i" aria-hidden="true"><use href="#apb-i-chev-down"/></svg></button>
+    <div class="apb-shelf-body" hidden><div class="apb-sitem"><b>Card details that fit on a phone</b><div class="apb-smeta"><span class="apb-chip apb-chip--prog"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-play"/></svg>In progress</span><span class="apb-chip">App</span><span class="apb-chip apb-chip--team">Team</span><span>13 up · 0 down</span></div></div><div class="apb-sitem"><b>Theme drafts</b><div class="apb-smeta"><span class="apb-chip apb-chip--prog"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-play"/></svg>In progress</span><span class="apb-chip">Drafts</span><span class="apb-chip apb-chip--team">Team</span><span>10 up · 1 down</span></div></div></div></div>
+  <div class="apb-shelf"><button type="button" class="apb-shelf-h" data-shelf aria-expanded="false">Done <span class="apb-num">12</span><svg class="apb-i" aria-hidden="true"><use href="#apb-i-chev-down"/></svg></button>
+    <div class="apb-shelf-body" hidden>
+      <p class="apb-wk">This week</p><p class="apb-quiet">Nothing yet.</p>
+      <p class="apb-wk">Oct 19–25</p><div class="apb-ditem"><span>Search cards by what they do: effects, partners, counters, release dates and format staples.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>See live card statuses, protections and counters on the board.</span><small>Duels</small></div>
+      <div data-more hidden><div class="apb-ditem"><span>Get legal deck suggestions and start a Test duel straight from the editor.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Hosts can remove players before a table starts, and replays load faster.</span><small>Duels</small></div><div class="apb-ditem"><span>Fixed: decision clocks, Damage Step timing, card sorting and multiplayer LP effects.</span><small>Duels</small></div><p class="apb-wk">Oct 12–18</p><div class="apb-ditem"><span>Import decks in bulk, with better previews and an editor that fits your screen.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Build and play Genesys decks with point budgets.</span><small>Decks &amp; cubes</small></div><div class="apb-ditem"><span>Replay older games even after engine updates.</span><small>Replays &amp; watching</small></div><p class="apb-wk">Oct 5–11</p><div class="apb-ditem"><span>Make drafts and tournaments open or private, with invitations.</span><small>Drafts</small></div><div class="apb-ditem"><span>Follow each chain link as it resolves, with a table log and negation marks.</span><small>Duels</small></div><p class="apb-wk">Sept 28 – Oct 4</p><div class="apb-ditem"><span>Play Tag 2v2 and three- or four-player free-for-all.</span><small>Duels</small></div><div class="apb-ditem"><span>Export draft decks and turn a finished draft into a tournament.</span><small>Drafts</small></div></div>
+      <button type="button" class="apb-more-btn" data-more-btn aria-expanded="false" data-open="Show all 12" data-close="Show fewer">Show all 12</button>
+    </div></div></section>
+  <div class="apb-listwrap"><ul class="apb-list" aria-label="All ideas"></ul></div>
+</div></div></div></div>
+  <div class="ws-phone apb-phone apb-m"><div class="ws-phone-inner"><div class="apb-phone-bar"><h3>Result</h3></div><div class="apb-result"><div class="apb-result-in">
+  <h3 class="apb-wordmark">Victory</h3><p class="apb-reason">lumen beat nyx_ra, 2 games to 0.</p>
+  <div class="apb-result-act"><button type="button" class="apb-btn apb-btn--primary apb-btn--big">Rematch</button><button type="button" class="apb-btn apb-btn--gold apb-btn--big">Replay</button><button type="button" class="apb-btn apb-btn--quiet apb-btn--big">Exit</button></div>
+  <div class="apb-ask" data-apb-ask>
+  <div class="apb-ask-head"><h3>One idea for you</h3><button type="button" class="apb-btn apb-btn--quiet"><svg class="apb-i" aria-hidden="true"><use href="#apb-i-plus"/></svg>Suggest an idea</button></div>
+  <div class="apb-ask-card"><div><b>Jump in from your own replays</b><p>Stop a replay where it went wrong and play it out from there.</p></div>
+    <div class="apb-ask-row"><button type="button" class="apb-vp" data-dir="down" data-ask-vote="down" aria-pressed="false" aria-label="Vote down: Jump in from your own replays">Vote down</button><button type="button" class="apb-vp" data-dir="up" data-ask-vote="up" aria-pressed="false" aria-label="Vote up: Jump in from your own replays">Vote up</button></div>
+    <p class="apb-ask-msg" data-ask-msg role="status"></p></div></div></div></div></div></div></div>
+    <figcaption class="ws-caption"><b>S5 Phone (390).</b> The same card, thumb-sized buttons, and the shelves folded to two bars. The second phone is the result screen with its one-idea prompt.</figcaption></figure>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">How it covers the request</h3>
+  <div class="ws-req-scroll"><table class="ws-req"><tbody>
+    <tr><th scope="row">R1</th><td>Intake board</td><td>Ideas is one page under Community. The board opens on one card; Suggest an idea is one title, one optional line and an area.</td></tr>
+    <tr><th scope="row">R2</th><td>Owner approval</td><td>A new player idea is Waiting: only its author and the owner see it. Approve puts it in the deck, Decline sends the author a short reason.</td></tr>
+    <tr><th scope="row">R3</th><td>Seeded features</td><td>The deck opens with the six rank ideas, each tagged Ranked and Team, mixed in with the team's other seeds and one player idea.</td></tr>
+    <tr><th scope="row">R4</th><td>Prompts after activities</td><td>After a duel, draft or tournament, one idea card with Vote up and Vote down sits under Rematch, Replay and Exit. It never sits in front of them.</td></tr>
+    <tr><th scope="row">R5</th><td>Upvote and downvote</td><td>Every card and every list row has Vote up and Vote down, both with a count. Each one toggles, so a second tap takes the vote back.</td></tr>
+    <tr><th scope="row">R6</th><td>Simple progress</td><td>Two slim shelves under the card: In progress (one chip, nothing else) and Done. Tapping Done sends one notice to everyone who voted up and to the author.</td></tr>
+    <tr><th scope="row">R7</th><td>Players and team both post and vote</td><td>Team ideas carry a Team chip and ride in the same deck. Team and players vote and post the same way.</td></tr>
+    <tr><th scope="row">R8</th><td>Admin console</td><td>Three actions on one page: Approve or Decline, Start, Done. Each is one tap and moves the idea to the next list. Done takes an optional note.</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Trade-offs</h3>
+  <div class="ws-trade">
+    <div class="ws-card ws-pro"><h4>Strengths</h4><ul>
+      <li>A first-time player needs no help: one card, two buttons.</li>
+      <li>Every idea gets in front of every player, so quiet ideas collect votes too.</li>
+      <li>The prompt after a duel is the same card as the board, so the board fills as people play.</li></ul></div>
+    <div class="ws-card ws-con"><h4>Risks</h4><ul>
+      <li>The deck hides the size of the board until someone taps All ideas.</li>
+      <li>Card order decides who gets votes first; a bad order starves the later cards.</li>
+      <li>Fast taps make drive-by down votes easy, with no reason attached.</li></ul></div>
+    <div class="ws-card ws-cost"><h4>Build size</h4><p class="ws-size">S</p><p class="ws-p">One votes table, one state field, three console actions and one notice. The deck and the list read the same rows, so the card is a view, not a feature.</p></div>
+  </div>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Assumes and asks</h3>
+  <div class="ws-cols">
+    <div class="ws-card"><h4 class="ws-h4">What it assumes</h4><ul class="ws-list">
+      <li>The board stays small enough (tens of ideas) for a deck to feel complete.</li>
+      <li>Players are fine voting on ideas they have not asked for.</li>
+      <li>In progress ideas show their counts but stop taking votes.</li></ul></div>
+    <div class="ws-card"><h4 class="ws-h4">Questions it raises</h4><ul class="ws-list">
+      <li>What order should the deck use: random per player, fewest votes first, or Team ideas first?</li>
+      <li>Should the deck bring a skipped card back later in the same visit?</li>
+      <li>Should players see down-vote counts, or only up-vote counts?</li></ul></div>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById("approach-b");
+  if (!root) return;
+  const reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const MS = reduce ? 0 : 420;
+  const $ = (el, sel) => el.querySelector(sel);
+  const $$ = (el, sel) => Array.from(el.querySelectorAll(sel));
+  const boards = $$(root, "[data-apb-board]");
+  boards.forEach((b, k) => {
+    if (!b.hasAttribute("data-clone") || !k) return;
+    const have = $$(b, ".apb-card").map((c) => c.dataset.id);
+    const deck = $(b, ".apb-deck");
+    $$(boards[0], ".apb-card").forEach((c) => { if (have.indexOf(c.dataset.id) < 0) deck.append(c.cloneNode(true)); });
+    $(b, ".apb-list").innerHTML = $(boards[0], ".apb-list").innerHTML;
+  });
+  boards.forEach((board) => {
+    const ideas = {};
+    $$(board, ".apb-row").forEach((row) => {
+      const num = (dir) => +$(row, '[data-dir="' + dir + '"] .apb-vn').textContent;
+      const on = $(row, '[aria-pressed="true"]');
+      ideas[row.dataset.id] = { up: num("up"), down: num("down"), my: on ? on.dataset.dir : "", title: $(row, ".apb-row-t").textContent };
+    });
+    const cards = $$(board, ".apb-card");
+    const order = cards.map((c) => c.dataset.id);
+    let queue = order.slice();
+    const pips = $$(board, ".apb-pips i");
+    const live = $(board.parentElement, "[data-live]");
+    const countEl = $(board, "[data-count]");
+    const actEl = $(board, ".apb-act");
+    const endEl = $(board, ".apb-end");
+    const deckEl = $(board, ".apb-deck");
+    const skipBtn = $(board, "[data-skip]");
+    const say = (t) => { if (live) live.textContent = t; };
+
+    const paint = (id) => {
+      const d = ideas[id];
+      $$(board, '[data-vote][data-id="' + id + '"]').forEach((b) => {
+        const dir = b.dataset.dir;
+        $(b, ".apb-vn").textContent = d[dir];
+        b.setAttribute("aria-pressed", d.my === dir ? "true" : "false");
+        b.setAttribute("aria-label", "Vote " + dir + ": " + d.title + ". " + d[dir] + " so far.");
+      });
+      $$(board, '.apb-card[data-id="' + id + '"] [data-tally]').forEach((t) => { t.textContent = d[t.dataset.tally]; });
+      const row = $(board, '.apb-row[data-id="' + id + '"]');
+      if (row) row.classList.toggle("apb-row--mine", !!d.my);
+    };
+
+    const layout = () => {
+      cards.forEach((c) => {
+        const i = queue.indexOf(c.dataset.id);
+        if (i < 0) return;
+        c.dataset.pos = String(Math.min(i, 3));
+        const front = i === 0;
+        c.toggleAttribute("inert", !front);
+        c.setAttribute("aria-hidden", front ? "false" : "true");
+      });
+      pips.forEach((p, k) => {
+        const d = ideas[order[k]];
+        const voted = queue.indexOf(order[k]) < 0 && d.my;
+        p.className = voted ? "is-" + d.my : "";
+      });
+      const n = queue.length;
+      if (countEl) countEl.textContent = n ? n + (n === 1 ? " idea left to vote on" : " ideas left to vote on") : "You have voted on every idea";
+      if (actEl) actEl.hidden = !n;
+      if (deckEl) deckEl.hidden = !n;
+      if (endEl) endEl.hidden = !!n;
+      if (skipBtn) skipBtn.disabled = n < 2;
+    };
+
+    const leave = (id, dir) => {
+      queue = queue.filter((x) => x !== id);
+      const c = cards.find((x) => x.dataset.id === id);
+      if (c) {
+        c.removeAttribute("aria-hidden");
+        c.setAttribute("inert", "");
+        c.dataset.pos = dir ? "out-" + dir : "gone";
+        window.setTimeout(() => { if (queue.indexOf(id) < 0) c.dataset.pos = "gone"; }, MS);
+      }
+      layout();
+    };
+
+    const vote = (id, dir, fromDeck) => {
+      const d = ideas[id];
+      if (!d) return;
+      if (d.my === dir) { d[dir] -= 1; d.my = ""; }
+      else { if (d.my) d[d.my] -= 1; d[dir] += 1; d.my = dir; }
+      paint(id);
+      say(d.my ? "Voted " + dir + ": " + d.title + ". " + d.up + " up, " + d.down + " down." : "Vote removed: " + d.title + ".");
+      if (queue.indexOf(id) >= 0 && d.my) leave(id, fromDeck ? dir : "");
+      else layout();
+    };
+
+    Object.keys(ideas).forEach(paint);
+    layout();
+
+    board.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t || !board.contains(t)) return;
+      if (t.dataset.vote !== undefined) { vote(t.dataset.id, t.dataset.dir, false); return; }
+      if (t.dataset.deck) { if (queue.length) vote(queue[0], t.dataset.deck, true); return; }
+      if (t.hasAttribute("data-skip")) {
+        if (queue.length < 2) return;
+        const id = queue.shift();
+        queue.push(id);
+        layout();
+        say("Skipped. Next idea: " + ideas[queue[0]].title + ".");
+        return;
+      }
+      if (t.dataset.mode) {
+        board.dataset.mode = t.dataset.mode;
+        $$(board, "[data-mode]").forEach((b) => b.setAttribute("aria-pressed", b === t ? "true" : "false"));
+        if (board.hasAttribute("data-open-shelves")) $$(board, "[data-shelf]").forEach((h) => { const open = t.dataset.mode === "cards"; h.setAttribute("aria-expanded", String(open)); h.nextElementSibling.hidden = !open; });
+        return;
+      }
+      if (t.hasAttribute("data-shelf")) {
+        const body = t.nextElementSibling;
+        const open = t.getAttribute("aria-expanded") === "true";
+        t.setAttribute("aria-expanded", open ? "false" : "true");
+        if (body) body.hidden = open;
+        return;
+      }
+      if (t.hasAttribute("data-more-btn")) {
+        const more = $(board, "[data-more]");
+        const open = t.getAttribute("aria-expanded") === "true";
+        t.setAttribute("aria-expanded", open ? "false" : "true");
+        if (more) more.hidden = open;
+        t.textContent = open ? t.dataset.open : t.dataset.close;
+        return;
+      }
+      if (t.hasAttribute("data-show-list")) {
+        const b = $(board, 'button[data-mode="list"]');
+        if (b) b.click();
+      }
+    });
+  });
+  $$(root, "[data-apb-ask]").forEach((ask) => {
+    const msg = $(ask, "[data-ask-msg]");
+    const up = $(ask, '[data-ask-vote="up"]');
+    const down = $(ask, '[data-ask-vote="down"]');
+    ask.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-ask-vote]");
+      if (!b) return;
+      const dir = b.dataset.askVote;
+      const other = dir === "up" ? down : up;
+      const was = b.getAttribute("aria-pressed") === "true";
+      if (other.getAttribute("aria-pressed") === "true") { other.setAttribute("aria-pressed", "false"); }
+      b.setAttribute("aria-pressed", was ? "false" : "true");
+      msg.textContent = was ? "Vote removed." : "Voted " + dir + ". Thanks.";
+    });
+  });
+
+  root.addEventListener("click", (e) => {
+    const x = e.target.closest("[data-dismiss]");
+    if (x) { const n = x.closest(".apb-notice"); if (n) n.hidden = true; }
+  });
+  $$(root, "[data-apb-form]").forEach((form) => {
+    const title = $(form, "[data-f-title]");
+    const line = $(form, "[data-f-line]");
+    const area = $(form, "[data-f-area]");
+    const msg = $(form, "[data-f-msg]");
+    const list = $(root, "[data-mine]");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const t = title.value.trim();
+      if (!t) { msg.dataset.tone = "warn"; msg.textContent = "Add a title first."; title.focus(); return; }
+      const li = document.createElement("li");
+      li.className = "is-new";
+      const dot = document.createElement("span");
+      dot.className = "apb-facedown";
+      dot.setAttribute("aria-hidden", "true");
+      const b = document.createElement("b");
+      b.textContent = t;
+      li.append(dot, b);
+      if (line.value.trim()) { const p = document.createElement("p"); p.textContent = line.value.trim(); li.append(p); }
+      const meta = document.createElement("div");
+      meta.className = "apb-smeta";
+      const chip = document.createElement("span");
+      chip.className = "apb-chip apb-chip--wait";
+      chip.textContent = "Waiting for approval";
+      const tag = document.createElement("span");
+      tag.textContent = area.value + " · just now";
+      meta.append(chip, tag);
+      li.append(meta);
+      list.prepend(li);
+      form.reset();
+      msg.dataset.tone = "";
+      msg.textContent = "Posted. Only you and the owner can see it until it is approved.";
+    });
+  });
+  $$(root, "[data-apb-admin]").forEach((adm) => {
+    const toast = $(adm, ".apb-toast");
+    let tt = 0;
+    const flash = (t) => {
+      toast.textContent = t;
+      toast.classList.add("is-on");
+      window.clearTimeout(tt);
+      tt = window.setTimeout(() => toast.classList.remove("is-on"), 2600);
+    };
+    const lists = { waiting: $(adm, '[data-list="waiting"]'), open: $(adm, '[data-list="open"]'), prog: $(adm, '[data-list="prog"]'), done: $(adm, '[data-list="done"]') };
+    const rail = $(adm, "[data-rail-count]");
+    const sync = () => {
+      Object.keys(lists).forEach((k) => {
+        const n = lists[k].querySelectorAll(".apb-ar").length;
+        const c = $(adm, '[data-cnt="' + k + '"]');
+        if (c) c.textContent = n;
+        const e = $(adm, '[data-empty="' + k + '"]');
+        if (e) e.hidden = n > 0;
+      });
+      if (rail) { const n = lists.waiting.querySelectorAll(".apb-ar").length; rail.textContent = n; rail.hidden = !n; }
+    };
+    const act = (row, kind) => {
+      const a = $(row, ".apb-ar-act");
+      a.textContent = "";
+      const mk = (cls, label, attrs) => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; Object.keys(attrs || {}).forEach((k) => b.setAttribute(k, attrs[k])); return b; };
+      if (kind === "open") {
+        const m = $(row, ".apb-ar-m");
+        m.textContent = "";
+        [(row.dataset.up || 0) + " up · " + (row.dataset.down || 0) + " down", row.dataset.area, row.dataset.by === "Team" ? "Team" : "by " + row.dataset.by].forEach((x) => { const sp = document.createElement("span"); sp.textContent = x; m.append(sp); });
+      }
+      if (kind === "open") a.append(mk("apb-abtn", "Start", { "data-act": "start", "aria-label": "Start: " + row.dataset.title }));
+      if (kind === "prog") {
+        const inp = document.createElement("input");
+        inp.className = "apb-ainput";
+        inp.type = "text";
+        inp.maxLength = 90;
+        inp.placeholder = "Note for the notice, optional";
+        inp.setAttribute("aria-label", "Note for the notice, optional: " + row.dataset.title);
+        a.append(inp, mk("apb-abtn apb-abtn--primary", "Done", { "data-act": "done", "aria-label": "Done: " + row.dataset.title }));
+      }
+    };
+    const move = (row, to, kind) => {
+      act(row, kind);
+      lists[to].prepend(row);
+      row.classList.remove("is-in");
+      void row.offsetWidth;
+      row.classList.add("is-in");
+      sync();
+    };
+    adm.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || !adm.contains(b)) return;
+      const row = b.closest(".apb-ar");
+      const kind = b.dataset.act;
+      if (!row || !kind) return;
+      if (kind === "approve") {
+        move(row, "open", "open");
+        flash("Approved. " + row.dataset.title + " is on the board.");
+      } else if (kind === "decline") {
+        const a = $(row, ".apb-ar-act");
+        a.textContent = "";
+        const wrap = document.createElement("div");
+        wrap.className = "apb-reasons";
+        const lab = document.createElement("small");
+        lab.textContent = "Tell " + row.dataset.by;
+        wrap.append(lab);
+        (row.dataset.reasons || "Not for now").split("|").forEach((r) => {
+          const c = document.createElement("button");
+          c.type = "button"; c.className = "apb-rchip"; c.dataset.act = "reason"; c.dataset.reason = r; c.textContent = r;
+          wrap.append(c);
+        });
+        const own = document.createElement("input");
+        own.className = "apb-ainput"; own.type = "text"; own.maxLength = 90; own.placeholder = "Or type one line";
+        own.setAttribute("aria-label", "Or type one line for " + row.dataset.by);
+        const send = document.createElement("button");
+        send.type = "button"; send.className = "apb-abtn"; send.dataset.act = "reason"; send.textContent = "Send";
+        wrap.append(own, send);
+        a.append(wrap);
+        const first = $(a, ".apb-rchip");
+        if (first) first.focus();
+      } else if (kind === "reason") {
+        const own = $(row, "input.apb-ainput");
+        const txt = b.dataset.reason || (own && own.value.trim());
+        if (!txt) { if (own) own.focus(); return; }
+        const a = $(row, ".apb-ar-act");
+        a.textContent = "";
+        const s = document.createElement("span");
+        s.className = "apb-adone is-no";
+        s.textContent = "Declined. " + row.dataset.by + " sees: " + txt;
+        a.append(s);
+        flash("Declined. " + row.dataset.by + " sees the reason.");
+        window.setTimeout(() => { row.remove(); sync(); }, reduce ? 0 : 1500);
+      } else if (kind === "start") {
+        move(row, "prog", "prog");
+        flash("Started. Everyone sees In progress.");
+      } else if (kind === "done") {
+        const inp = $(row, "input.apb-ainput");
+        const note = inp ? inp.value.trim() : "";
+        const n = (+row.dataset.up || 0) + 1;
+        const a = $(row, ".apb-ar-act");
+        a.textContent = "";
+        const s = document.createElement("span");
+        s.className = "apb-adone";
+        s.textContent = "Notice sent to " + n + (n === 1 ? " player" : " players") + (note ? ". Note: " + note : "");
+        a.append(s);
+        lists.done.prepend(row);
+        row.classList.remove("is-in");
+        void row.offsetWidth;
+        row.classList.add("is-in");
+        sync();
+        flash("Notice sent to " + n + (n === 1 ? " player" : " players"));
+      }
+    });
+    sync();
+  });
+})();
+</script>
+</section>

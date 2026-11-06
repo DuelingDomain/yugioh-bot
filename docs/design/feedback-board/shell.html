@@ -1,0 +1,204 @@
+<title>Feedback Board Workshop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400;1,6..72,500&family=Oxanium:wght@500;600;700;800&family=Schibsted+Grotesk:wght@400;500;600;700&family=Sofia+Sans+Extra+Condensed:wght@500;600;700&family=Sofia+Sans+Semi+Condensed:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<style>
+/* Layout: one reading column (max 1240px) with a sticky jump bar; each approach is a full-width chapter,
+   its screens sit in dark device frames that keep the app's own look in either page theme. */
+:root {
+  /* Page chrome, light */
+  --bg: #f3f3f6;
+  --surface: #ffffff;
+  --surface-2: #eceaf2;
+  --fg: #17151f;
+  --muted: #565365;
+  --line: #d9d7e2;
+  --accent: #5733d1;
+  --accent-soft: rgb(87 51 209 / 0.09);
+  --gold: #85621a;
+  --gold-soft: rgb(181 153 99 / 0.16);
+  --good: #1d7a4a;
+  --bad: #b23a2e;
+  --frame: #1b1d26;
+
+  /* Type */
+  --display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --sans: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --mono: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* App mock tokens (fixed dark: the product is dark-first, so mocks never change with the page theme) */
+  --m-floor: #050811; --m-ground: #070b15; --m-panel: #0a1120; --m-panel-2: #0e1729; --m-panel-3: #132037;
+  --m-ink: #efe7d5; --m-ink-2: #c3bba8; --m-ink-3: #958f81; --m-ink-4: #5f5c57;
+  --m-pen: #9b7eff; --m-pen-ink: #c6b6ff; --m-pen-fill: #5733d1; --m-pen-soft: rgb(155 126 255 / 0.13);
+  --m-chain: #e4b64f; --m-chain-ink: #f4d690; --m-chain-soft: rgb(228 182 79 / 0.11);
+  --m-gold: rgb(181 153 99); --m-gold-ink: #dcc58f;
+  --m-rule: rgb(181 153 99 / .34); --m-rule-hi: rgb(181 153 99 / .646); --m-rule-lo: rgb(181 153 99 / .17);
+  --m-loss: #e45a4d; --m-loss-ink: #ff9489; --m-loss-soft: rgb(228 90 77 / .1);
+  --m-ok: #86cfa1; --m-ok-soft: rgb(134 207 161 / .09);
+  --m-warn: #ee9a3a; --m-warn-ink: #ffc079; --m-live: #ff5448;
+  --m-display: "Oxanium", "Segoe UI", sans-serif;
+  --m-ui: "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  --m-num: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
+  --m-voice: "Newsreader", Georgia, serif;
+  /* Admin console mock tokens (its own look; never mix with the player tokens) */
+  --a-bg: #08090b; --a-bg2: #0c0d10; --a-hover: #121418; --a-sel: #16191e; --a-line: #1a1c21; --a-line2: #262930;
+  --a-t1: #f3f3f1; --a-t2: #a8abb2; --a-t3: #868a93; --a-t4: #43474f;
+  --a-good: #3fd28a; --a-warn: #f2b443; --a-crit: #ff6868; --a-info: #8fb3ff; --a-gold: #e3c27a; --a-gold-dim: rgba(227,194,122,.32);
+  --a-ui: "Schibsted Grotesk", system-ui, sans-serif;
+  --a-mono: "Martian Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0c12; --surface: #12131b; --surface-2: #191a24; --fg: #ecebf2; --muted: #a6a3b4; --line: #282936;
+    --accent: #b9a6ff; --accent-soft: rgb(155 126 255 / 0.13); --gold: #e4b64f; --gold-soft: rgb(228 182 79 / 0.11);
+    --good: #86cfa1; --bad: #ff9489; --frame: #2a2c38; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0c12; --surface: #12131b; --surface-2: #191a24; --fg: #ecebf2; --muted: #a6a3b4; --line: #282936;
+  --accent: #b9a6ff; --accent-soft: rgb(155 126 255 / 0.13); --gold: #e4b64f; --gold-soft: rgb(228 182 79 / 0.11);
+  --good: #86cfa1; --bad: #ff9489; --frame: #2a2c38; color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font: 400 16px/1.55 var(--sans); }
+.ws-wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { text-wrap: balance; }
+
+/* Hero */
+.ws-hero { padding-block: 56px 32px; display: grid; gap: 18px; }
+.ws-kicker { font: 500 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.ws-hero h1 { font: 600 clamp(34px, 5vw, 56px)/1.04 var(--display); letter-spacing: -.02em; margin: 0; max-width: 18ch; }
+.ws-hero .ws-intro { font-size: 18px; color: var(--muted); max-width: 64ch; margin: 0; }
+
+/* Jump bar */
+.ws-jump { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); border-bottom: 1px solid var(--line); }
+.ws-jump nav { display: flex; gap: 6px; overflow-x: auto; padding-block: 10px; scrollbar-width: none; }
+.ws-jump a { flex: none; text-decoration: none; color: var(--fg); font: 500 14px/1 var(--sans); padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); }
+.ws-jump a b { font: 500 11px/1 var(--mono); color: var(--muted); margin-right: 6px; }
+.ws-jump a:hover { border-color: var(--accent); }
+
+/* Brief section */
+.ws-section { padding-block: 56px; border-bottom: 1px solid var(--line); display: grid; gap: 24px; }
+.ws-section > h2 { font: 600 clamp(26px, 3.4vw, 36px)/1.1 var(--display); margin: 0; letter-spacing: -.01em; }
+.ws-section > .ws-p { max-width: 68ch; }
+.ws-reqs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.ws-reqs li { background: var(--surface); padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+.ws-reqs .ws-rid { font: 500 11px/1 var(--mono); color: var(--gold); letter-spacing: .06em; }
+.ws-reqs strong { font-weight: 600; }
+.ws-reqs span { color: var(--muted); font-size: 14.5px; }
+
+/* Shared approach classes: every approach fragment uses these for its prose so the three chapters read alike */
+.ws-approach { padding-block: 72px 56px; border-bottom: 1px solid var(--line); display: grid; gap: 48px; scroll-margin-top: 64px; }
+.ws-ap-head { display: grid; gap: 14px; max-width: 76ch; }
+.ws-eyebrow { font: 500 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); margin: 0; }
+.ws-h2 { font: 600 clamp(32px, 4.4vw, 48px)/1.04 var(--display); letter-spacing: -.02em; margin: 0; }
+.ws-thesis { font: italic 400 clamp(19px, 2.2vw, 23px)/1.4 var(--display); margin: 0; }
+.ws-lede, .ws-p { margin: 0; color: var(--muted); max-width: 68ch; }
+.ws-block { display: grid; gap: 20px; min-width: 0; }
+.ws-h3 { font: 500 12px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.ws-h4 { font: 600 18px/1.3 var(--sans); margin: 0; }
+.ws-list { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; max-width: 70ch; }
+.ws-list li::marker { color: var(--gold); }
+.ws-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 24px; }
+.ws-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+
+/* Screens: desktop mocks sit in a scroll box so a 1100px design never widens the page */
+.ws-fig { margin: 0; display: grid; gap: 10px; min-width: 0; }
+.ws-screen-scroll { overflow-x: auto; border-radius: 14px; border: 1px solid var(--frame); background: var(--frame); padding: 6px; }
+.ws-screen { min-width: 960px; border-radius: 10px; overflow: hidden; background: var(--m-floor); color: var(--m-ink); font: 400 14px/1.45 var(--m-ui); }
+.ws-screen--admin { background: var(--a-bg); color: var(--a-t1); font: 400 15px/1.45 var(--a-ui); }
+.ws-phone-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.ws-phone { width: 390px; max-width: 100%; border-radius: 36px; border: 6px solid var(--frame); background: var(--m-floor); color: var(--m-ink); font: 400 14px/1.45 var(--m-ui); overflow: hidden; }
+.ws-phone-inner { padding-block: 47px 34px; min-height: 760px; box-sizing: border-box; }
+.ws-caption { font-size: 14px; color: var(--muted); max-width: 72ch; }
+.ws-caption b { color: var(--fg); font-weight: 600; }
+
+/* Requirement coverage */
+.ws-req-scroll { overflow-x: auto; }
+.ws-req { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 560px; }
+.ws-req th, .ws-req td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.ws-req th { font: 500 11px/1.3 var(--mono); letter-spacing: .06em; color: var(--gold); white-space: nowrap; width: 1%; }
+.ws-req td:nth-child(2) { font-weight: 600; width: 26%; }
+.ws-req td:last-child { color: var(--muted); }
+
+/* Trade-offs */
+.ws-trade { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
+.ws-trade .ws-card h4 { margin: 0; font: 500 11px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.ws-trade .ws-pro h4 { color: var(--good); }
+.ws-trade .ws-con h4 { color: var(--bad); }
+.ws-trade .ws-cost h4 { color: var(--gold); }
+.ws-trade ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: 15px; }
+.ws-size { margin: 0; font: 600 34px/1 var(--display); }
+
+/* Compare + questions */
+.ws-compare { width: 100%; border-collapse: collapse; min-width: 880px; font-size: 14.5px; }
+.ws-compare th, .ws-compare td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.ws-compare thead th { font: 600 17px/1.2 var(--display); border-bottom: 2px solid var(--fg); }
+.ws-compare thead th small { display: block; font: 500 10.5px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+.ws-compare tbody th { font-weight: 600; width: 18%; }
+.ws-compare tbody th span { display: block; font: 500 10.5px/1.4 var(--mono); color: var(--gold); letter-spacing: .06em; }
+.ws-compare td { color: var(--muted); }
+.ws-compare tr.ws-emph td { color: var(--fg); }
+.ws-qs { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: q; }
+.ws-qs li { counter-increment: q; display: grid; grid-template-columns: 44px 1fr; gap: 4px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.ws-qs li::before { content: counter(q, decimal-leading-zero); font: 500 13px/1.6 var(--mono); color: var(--gold); grid-row: span 3; }
+.ws-qs strong { font-weight: 600; font-size: 17px; }
+.ws-qs p { margin: 0; color: var(--muted); font-size: 15px; }
+.ws-qs .ws-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ws-qs .ws-opts span { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; color: var(--fg); }
+.ws-foot { padding-block: 40px 64px; color: var(--muted); font-size: 14px; display: grid; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+</style>
+
+<header class="ws-wrap ws-hero">
+  <p class="ws-kicker">Dueling Domain · design workshop · round 2 · Oct 30, 2026</p>
+  <h1>Feedback board: three approaches</h1>
+  <p class="ws-intro">Three simpler ways to build the feedback section. All three share one model: an idea is open for votes, then in progress, then done, and the people who backed it hear about it once. The differences are in how the board looks and feels. Each approach shows five key screens, how it covers each requirement, and what it would cost to build. The comparison and the open questions come last.</p>
+</header>
+
+<div class="ws-jump">
+  <nav class="ws-wrap" aria-label="Jump to section">
+    <a href="#brief"><b>00</b>The request</a>
+    <a href="#approach-a"><b>A</b><!--NAME-A--></a>
+    <a href="#approach-b"><b>B</b><!--NAME-B--></a>
+    <a href="#approach-c"><b>C</b><!--NAME-C--></a>
+    <a href="#compare"><b>vs</b>Compare</a>
+    <a href="#questions"><b>?</b>Questions</a>
+  </nav>
+</div>
+
+<main class="ws-wrap">
+  <section class="ws-section" id="brief" aria-labelledby="brief-title">
+    <h2 id="brief-title">What you asked for</h2>
+    <p class="ws-p">A feedback section inside the web app, run from the existing owner admin console. The alpha is small and invitation-only (41 members), so every approach favours one-tap actions and a short owner queue. The requirement codes below are reused in every approach and in the comparison.</p>
+    <p class="ws-p"><strong>The shared model.</strong> A new idea waits for your approval, visible only to its author. Approved ideas are open for votes. You tap Start and it shows In progress. You tap Done and everyone who voted it up gets one notice. There are no steps, dates or update posts to keep current.</p>
+    <ul class="ws-reqs">
+      <li><span class="ws-rid">R1</span><strong>Intake board</strong><span>A place that collects ideas from players.</span></li>
+      <li><span class="ws-rid">R2</span><strong>Owner approval</strong><span>You approve an idea before everyone sees it.</span></li>
+      <li><span class="ws-rid">R3</span><strong>Seeded features</strong><span>Starts with the rank system plus team ideas.</span></li>
+      <li><span class="ws-rid">R4</span><strong>Prompts after activities</strong><span>Asks at the end of duels, drafts and tournaments so the board stays full.</span></li>
+      <li><span class="ws-rid">R5</span><strong>Upvote and downvote</strong><span>Both directions count.</span></li>
+      <li><span class="ws-rid">R6</span><strong>Simple progress</strong><span>In progress, then a notice when it's done.</span></li>
+      <li><span class="ws-rid">R7</span><strong>Players and team both post and vote</strong><span>Team ideas sit next to player ideas.</span></li>
+      <li><span class="ws-rid">R8</span><strong>Controlled from the admin console</strong><span>Three actions: Approve, Start, Done.</span></li>
+    </ul>
+  </section>
+
+<!--APPROACH-A-->
+
+<!--APPROACH-B-->
+
+<!--APPROACH-C-->
+
+<!--COMPARE-->
+
+<!--QUESTIONS-->
+</main>
+
+<footer class="ws-wrap ws-foot">
+  <p>Sample data: every person is an invented handle and the vote counts are sample numbers for a small alpha. The shipped lines come from real merged pull requests on main. Round one's more detailed mocks are still on the <a href="https://claude.ai/artifact/Y2oAJAi4vJWXgwVVGQrrMD">design canvas</a>.</p>
+</footer>

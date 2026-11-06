@@ -13,6 +13,10 @@ Approved by the owner on 2026-10-02. The app builds it as the draft room (`packa
 
 The Solid Vision concept page, used as the e2e baseline by `packages/web/e2e/duel-3d-mode.playwright.ts` (it loads `index.html` and `shots/*.png`). The page loads `../assets/`, so keep both folders. Local card art, no network needed.
 
+## Feedback board (`feedback-board/`)
+
+In progress, no direction chosen yet. A three-approach workshop for the players' ideas board, with sources, briefs and research. See its README for the decided model and the open questions.
+
 ## Contracts
 
 - `bigger-field-contract.md`: the owner's bigger-field rules and the shared drawer and fit pieces in `packages/web/src/components/duel/edge-drawer/`.

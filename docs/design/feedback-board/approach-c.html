@@ -1,0 +1,799 @@
+<section class="ws-approach ap-c" id="approach-c" aria-labelledby="apc-title">
+<!--NAME:The Field-->
+<style>
+.ap-c [hidden] { display: none !important; }
+.ap-c .c-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ap-c .c-i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ap-c :where(.ws-screen) button, .ap-c :where(.ws-phone) button { font: inherit; color: inherit; cursor: pointer; margin: 0; background: none; border: 0; padding: 0; }
+.ap-c :where(.ws-screen) *, .ap-c :where(.ws-phone) * { margin: 0; }
+.ap-c :where(.ws-screen) ul, .ap-c :where(.ws-phone) ul, .ap-c :where(.ws-screen) fieldset, .ap-c :where(.ws-phone) fieldset { padding: 0; }
+.ap-c :where(.ws-screen) input, .ap-c :where(.ws-phone) input { font: inherit; color: inherit; }
+.ap-c .ws-screen :focus-visible, .ap-c .ws-phone :focus-visible { outline: 2px solid var(--m-pen-ink); outline-offset: 2px; }
+.ap-c .ws-screen--admin :focus-visible { outline-color: var(--a-gold); }
+.ap-c .ws-fig { grid-template-columns: minmax(0, 1fr); scroll-margin-top: 72px; }
+.ap-c .ws-phone-row > .ws-phone { min-width: 0; box-sizing: border-box; width: min(390px, 100%); }
+
+/* ---------- Page prose (chrome tokens) ---------- */
+.ap-c .c-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 30px; max-width: 860px; }
+.ap-c .c-step { position: relative; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.ap-c .c-step + .c-step::before { content: ""; position: absolute; left: -21px; top: 66px; width: 9px; height: 9px; border-top: 2px solid var(--gold); border-right: 2px solid var(--gold); transform: rotate(45deg); }
+.ap-c .c-face { position: relative; width: min(100%, 118px); aspect-ratio: 59 / 86; display: grid; place-items: center; text-align: center; padding: 8px; box-sizing: border-box; background: var(--surface); border: 1px solid var(--gold); border-radius: 8px; font: 600 16px/1.15 var(--display); }
+.ap-c .c-face::before { content: ""; position: absolute; inset: 4px; border: 1px solid var(--gold-soft); border-radius: 5px; }
+.ap-c .c-face span { position: relative; }
+.ap-c .c-face--wait { border-style: dashed; color: var(--muted); }
+.ap-c .c-face--live { border-color: var(--accent); background: var(--accent-soft); }
+.ap-c .c-face--done { border-color: var(--good); }
+.ap-c .c-step p { margin: 0; font-size: 14.5px; color: var(--muted); }
+.ap-c .c-step p b { display: block; color: var(--fg); font-weight: 600; }
+.ap-c .c-brace { grid-column: 2 / 5; margin: 0; padding-top: 8px; border-top: 2px dashed var(--gold); font: 500 11px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ap-c .c-rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; counter-reset: r; max-width: 74ch; }
+.ap-c .c-rules li { counter-increment: r; display: grid; grid-template-columns: 30px 1fr; font-size: 15.5px; }
+.ap-c .c-rules li::before { content: counter(r); font: 500 12px/1.9 var(--mono); color: var(--gold); }
+.ap-c .c-rules b { font-weight: 600; }
+
+@media (max-width: 600px) {
+  .ap-c .c-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 16px; }
+  .ap-c .c-step + .c-step::before { display: none; }
+  .ap-c .c-brace { grid-column: 1 / -1; }
+}
+
+/* ---------- Mock: shell ---------- */
+.ap-c .c-app { display: grid; grid-template-columns: 68px minmax(0, 1fr); }
+.ap-c .c-side { background: var(--m-panel); border-right: 1px solid var(--m-rule-lo); display: flex; flex-direction: column; align-items: center; padding-bottom: 14px; }
+.ap-c .c-brand { height: 67px; width: 100%; display: grid; place-items: center; border-bottom: 1px solid var(--m-rule-lo); }
+.ap-c .c-brand i { width: 16px; height: 16px; border: 1.5px solid var(--m-gold); transform: rotate(45deg); border-radius: 3px; }
+.ap-c .c-nav { padding: 12px 0; display: grid; gap: 4px; flex: 1; align-content: start; }
+.ap-c .c-ni { position: relative; width: 44px; height: 40px; display: grid; place-items: center; border-radius: 8px; color: var(--m-ink-3); }
+.ap-c .c-ni .c-i { width: 20px; height: 20px; }
+.ap-c .c-ni.c-on { background: var(--m-pen-soft); color: var(--m-pen-ink); }
+.ap-c .c-ni.c-on::before { content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 2px; background: var(--m-pen); border-radius: 2px; }
+.ap-c .c-dot { position: absolute; top: 7px; right: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--m-pen); }
+.ap-c .c-ring { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--m-pen); font: 600 12px/1 var(--m-ui); color: var(--m-pen-ink); }
+.ap-c .c-main { min-width: 0; background: var(--m-floor); }
+.ap-c .c-bar { min-height: 68px; padding: 12px 28px; background: var(--m-panel); border-bottom: 1px solid var(--m-rule-lo); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; box-sizing: border-box; }
+.ap-c .c-title { font: 600 19px/1.2 var(--m-display); }
+.ap-c .c-sub { margin-top: 2px; font-size: 14px; color: var(--m-ink-3); }
+.ap-c .c-body { padding: 24px 24px 32px; }
+.ap-c .c-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 18px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--m-rule); color: var(--m-ink); font: 600 15.5px/1 var(--m-ui); text-decoration: none; white-space: nowrap; }
+.ap-c .c-btn:hover { border-color: var(--m-rule-hi); }
+.ap-c .c-btn--pri { background: var(--m-pen-fill); border-color: var(--m-pen-fill); }
+.ap-c .c-btn--pri:hover { filter: brightness(1.14); border-color: var(--m-pen-fill); }
+.ap-c .c-btn--q { min-height: 30px; padding: 0 12px; border-color: var(--m-rule-lo); color: var(--m-ink-2); font: 500 14px/1 var(--m-ui); }
+
+/* ---------- Mock: the mat ---------- */
+.ap-c .c-mat { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 212px 132px; gap: 14px; padding: 16px; border: 1px solid var(--m-rule); border-radius: 16px;
+  background: repeating-linear-gradient(45deg, rgb(181 153 99 / .035) 0 1px, transparent 1px 16px), repeating-linear-gradient(-45deg, rgb(181 153 99 / .035) 0 1px, transparent 1px 16px), var(--m-ground); }
+.ap-c .c-zone { min-width: 0; border: 1px dashed var(--m-rule); border-radius: 12px; padding: 0 14px 14px; background: rgb(5 8 17 / .45); }
+.ap-c .c-zone--prog { border: 1px solid rgb(155 126 255 / .42); background: linear-gradient(var(--m-pen-soft), var(--m-pen-soft)), rgb(5 8 17 / .6); }
+.ap-c .c-zh { display: flex; align-items: center; gap: 10px; min-height: 52px; }
+.ap-c .c-zt { display: flex; align-items: baseline; gap: 8px; font: 600 15px/1 var(--m-display); letter-spacing: .06em; text-transform: uppercase; color: var(--m-ink); }
+.ap-c .c-zn { font: 600 22px/1 var(--m-num); letter-spacing: 0; color: var(--m-chain-ink); }
+.ap-c .c-seg { margin-left: auto; display: inline-flex; border: 1px solid var(--m-rule); border-radius: 8px; overflow: hidden; }
+.ap-c .c-seg button { min-height: 32px; padding: 0 14px; font: 500 14px/1 var(--m-ui); color: var(--m-ink-2); }
+.ap-c .c-seg button + button { border-left: 1px solid var(--m-rule-lo); }
+.ap-c .c-seg button[aria-pressed="true"] { background: var(--m-pen-soft); color: var(--m-ink); font-weight: 600; }
+.ap-c .c-scroll { max-height: 640px; -webkit-mask-image: linear-gradient(#000 calc(100% - 30px), transparent); mask-image: linear-gradient(#000 calc(100% - 30px), transparent); overflow-y: auto; margin: 0 -6px; padding: 2px 6px 6px; }
+.ap-c .c-grid { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px; }
+.ap-c .c-stack { list-style: none; display: grid; gap: 14px; }
+
+/* ---------- Mock: cards (blank blocks, thin gold line) ---------- */
+.ap-c .c-card { position: relative; display: grid; grid-template-rows: auto 1fr auto; gap: 6px; min-width: 0; min-height: 142px; padding: 12px 12px 10px; box-sizing: border-box; background: var(--m-panel-2); border: 1px solid var(--m-rule); border-radius: 9px; transition: transform .18s, border-color .18s, box-shadow .18s; }
+.ap-c .c-card::before { content: ""; position: absolute; inset: 3px; border: 1px solid var(--m-rule-lo); border-radius: 6px; pointer-events: none; }
+.ap-c .c-card.c-mine-up { border-color: rgb(155 126 255 / .6); transform: translateY(-2px); box-shadow: 0 8px 18px -10px rgb(0 0 0 / .9); }
+.ap-c .c-card.c-mine-dn { border-color: rgb(228 90 77 / .45); }
+.ap-c .c-meta { display: flex; align-items: center; gap: 8px; min-height: 20px; flex-wrap: wrap; position: relative; }
+.ap-c .c-tag { font: 500 12px/1 var(--m-ui); letter-spacing: .02em; color: var(--m-ink-3); }
+.ap-c .c-team { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border: 1px solid rgb(228 182 79 / .4); border-radius: 999px; background: var(--m-chain-soft); color: var(--m-chain-ink); font: 600 11.5px/1 var(--m-ui); }
+.ap-c .c-ct { position: relative; font: 600 16px/1.2 var(--m-ui); color: var(--m-ink); align-self: start; }
+.ap-c .c-cp { position: relative; margin-top: 3px; font-size: 13.5px; line-height: 1.35; color: var(--m-ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ap-c .c-txt { align-self: start; }
+.ap-c .c-card--wait { background: transparent; border-style: dashed; }
+.ap-c .c-card--live { min-height: 156px; border-color: var(--m-pen); box-shadow: 0 14px 26px -14px rgb(0 0 0 / .95), 0 0 0 3px rgb(155 126 255 / .1); }
+.ap-c .c-state { position: relative; display: inline-flex; align-items: center; gap: 6px; justify-self: start; align-self: start; height: 22px; padding: 0 9px; border-radius: 999px; font: 500 12.5px/1 var(--m-ui); border: 1px dashed var(--m-rule); color: var(--m-ink-2); }
+.ap-c .c-state .c-i { width: 13px; height: 13px; }
+.ap-c .c-state--live { border-style: solid; border-color: rgb(155 126 255 / .55); background: var(--m-pen-soft); color: var(--m-pen-ink); }
+.ap-c .c-lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--m-pen); box-shadow: 0 0 0 3px rgb(155 126 255 / .18); }
+.ap-c .c-slot { display: grid; place-content: center; justify-items: center; gap: 8px; min-height: 142px; height: 100%; width: 100%; box-sizing: border-box; border: 1.5px dashed rgb(155 126 255 / .55); border-radius: 9px; color: var(--m-pen-ink); font: 600 15px/1.2 var(--m-ui); text-decoration: none; text-align: center; }
+.ap-c .c-slot:hover { background: var(--m-pen-soft); }
+.ap-c .c-slot span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid currentColor; }
+.ap-c .c-slot .c-i { width: 18px; height: 18px; stroke-width: 2.2; }
+.ap-c .c-drop { animation: apc-drop .42s cubic-bezier(.2, .8, .3, 1); }
+@keyframes apc-drop { from { transform: translateY(-22px) scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* vote control */
+.ap-c .c-vote { position: relative; display: inline-flex; align-items: center; height: 34px; border: 1px solid var(--m-rule-lo); border-radius: 999px; background: var(--m-panel); }
+.ap-c .c-vb { display: grid; place-items: center; width: 34px; height: 32px; color: var(--m-ink-3); border-radius: 999px; }
+.ap-c .c-vb:hover { color: var(--m-ink); background: rgb(255 255 255 / .05); }
+.ap-c .c-vb .c-i { width: 18px; height: 18px; stroke-width: 2.2; }
+.ap-c .c-vb[aria-pressed="true"][data-v="1"] { color: var(--m-pen-ink); background: var(--m-pen-soft); box-shadow: inset 0 0 0 1px rgb(155 126 255 / .5); }
+.ap-c .c-vb[aria-pressed="true"][data-v="-1"] { color: var(--m-loss-ink); background: var(--m-loss-soft); box-shadow: inset 0 0 0 1px rgb(228 90 77 / .5); }
+.ap-c .c-vn { min-width: 28px; text-align: center; font: 600 21px/1 var(--m-num); color: var(--m-ink); font-variant-numeric: tabular-nums; }
+.ap-c .c-vote[data-m="1"] .c-vn { color: var(--m-pen-ink); }
+.ap-c .c-vote[data-m="-1"] .c-vn { color: var(--m-loss-ink); }
+.ap-c .c-pop { animation: apc-pop .28s ease-out; }
+@keyframes apc-pop { 40% { transform: scale(1.35); } }
+.ap-c .c-cf { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 2px; }
+
+/* the pile */
+.ap-c .c-zone--done { text-align: center; padding-inline: 8px; }
+.ap-c .c-zone--done .c-zh { justify-content: center; }
+.ap-c .c-pile { display: grid; justify-items: center; gap: 12px; width: 100%; padding: 6px 0 2px; border-radius: 10px; }
+.ap-c .c-pile:hover .c-pcap { color: var(--m-ink); text-decoration: underline; }
+.ap-c .c-stk { position: relative; width: 84px; height: 122px; }
+.ap-c .c-stk i { position: absolute; inset: 0; border-radius: 8px; background: var(--m-panel-3); border: 1px solid var(--m-rule-hi); }
+.ap-c .c-stk i::before { content: ""; position: absolute; inset: 3px; border: 1px solid var(--m-rule-lo); border-radius: 5px; }
+.ap-c .c-stk i:nth-child(1) { transform: translate(-6px, 5px) rotate(-4deg); }
+.ap-c .c-stk i:nth-child(2) { transform: translate(4px, 3px) rotate(3deg); }
+.ap-c .c-stk b { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; font: 600 40px/1 var(--m-num); color: var(--m-chain-ink); }
+.ap-c .c-stk b::after { content: ""; width: 7px; height: 7px; background: var(--m-gold); transform: rotate(45deg); }
+.ap-c .c-pcap { display: inline-flex; align-items: center; gap: 4px; font: 500 14px/1.2 var(--m-ui); color: var(--m-ink-2); }
+.ap-c .c-pcap .c-i { width: 14px; height: 14px; }
+.ap-c .c-tray { position: absolute; z-index: 5; top: 60px; right: 14px; width: min(600px, calc(100% - 28px)); max-height: 560px; overflow-y: auto; box-sizing: border-box; background: var(--m-panel); border: 1px solid var(--m-rule); border-radius: 12px; padding: 18px 22px 20px; box-shadow: 0 24px 50px -16px rgb(0 0 0 / .95); transform-origin: top right; animation: apc-tray .24s ease-out; text-align: left; }
+@keyframes apc-tray { from { transform: scale(.94); opacity: 0; } }
+.ap-c .c-trh { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.ap-c .c-icb { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; color: var(--m-ink-2); }
+.ap-c .c-icb:hover { background: rgb(255 255 255 / .06); color: var(--m-ink); }
+.ap-c .c-wk { padding: 10px 0 6px; }
+.ap-c .c-wkh { display: flex; gap: 10px; align-items: baseline; font: 600 14px/1.3 var(--m-ui); color: var(--m-chain-ink); }
+.ap-c .c-wkh span { font-weight: 400; color: var(--m-ink-3); }
+.ap-c .c-dl { list-style: none; display: grid; margin-top: 4px; }
+.ap-c .c-dl li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 0; border-bottom: 1px solid var(--m-rule-lo); font-size: 14.5px; line-height: 1.4; color: var(--m-ink); }
+.ap-c .c-dl .c-i { width: 16px; height: 16px; margin-top: 2px; color: var(--m-ok); stroke-width: 2.4; }
+.ap-c .c-none { margin-top: 6px; font-size: 14.5px; color: var(--m-ink-3); }
+.ap-c .c-fine { margin-top: 12px; font-size: 13px; color: var(--m-ink-3); }
+
+/* ---------- Mock: S2 ---------- */
+.ap-c .c-two { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); }
+.ap-c .c-scrim { padding: 28px; background: linear-gradient(rgb(2 4 10 / .72), rgb(2 4 10 / .72)), var(--m-ground); border-right: 1px solid var(--m-rule-lo); display: grid; align-content: start; }
+.ap-c .c-dialog { display: grid; gap: 16px; padding: 24px; background: var(--m-panel); border: 1px solid var(--m-rule); border-radius: 12px; }
+.ap-c .c-dialog h3 { font: 600 21px/1.2 var(--m-display); }
+.ap-c .c-f { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.ap-c .c-f label, .ap-c .c-f legend { font-size: 12.5px; color: var(--m-ink-3); padding: 0; }
+.ap-c .c-in { height: 42px; padding: 0 12px; box-sizing: border-box; width: 100%; background: var(--m-panel-2); border: 1px solid var(--m-rule-lo); border-radius: 7px; font-size: 15px; color: var(--m-ink); }
+.ap-c .c-in::placeholder { color: var(--m-ink-3); }
+.ap-c .c-in:focus { outline: none; border-color: var(--m-pen); box-shadow: 0 0 0 3px rgb(155 126 255 / .22); }
+.ap-c .c-areas { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-c .c-area { position: relative; }
+.ap-c .c-area input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.ap-c .c-area span { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid var(--m-rule-lo); border-radius: 999px; font-size: 13.5px; color: var(--m-ink-2); }
+.ap-c .c-area input:checked + span { background: var(--m-pen-soft); border-color: rgb(155 126 255 / .55); color: var(--m-ink); font-weight: 600; }
+.ap-c .c-area input:focus-visible + span { outline: 2px solid var(--m-pen-ink); outline-offset: 2px; }
+.ap-c .c-acts { display: flex; align-items: center; gap: 10px; }
+.ap-c .c-err { font-size: 14px; color: var(--m-loss-ink); }
+.ap-c .c-hint { font-size: 13.5px; color: var(--m-ink-3); }
+.ap-c .c-right { padding: 24px; display: grid; gap: 18px; align-content: start; min-width: 0; }
+.ap-c .c-notice { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px 8px 14px 16px; border: 1px solid rgb(134 207 161 / .36); border-left-width: 3px; border-radius: 10px; background: var(--m-ok-soft); }
+.ap-c .c-notice .c-ok { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--m-ok); color: var(--m-ok); }
+.ap-c .c-notice .c-ok .c-i { width: 15px; height: 15px; stroke-width: 2.6; }
+.ap-c .c-notice p { font-size: 15.5px; line-height: 1.4; }
+.ap-c .c-notice p b { font-weight: 600; }
+.ap-c .c-notice p + p { margin-top: 3px; font: italic 400 15px/1.4 var(--m-voice); color: var(--m-ink-2); }
+
+/* ---------- Mock: result screen and prompt ---------- */
+.ap-c .c-result { padding: 52px 24px 44px; display: grid; justify-items: center; background: radial-gradient(ellipse at 50% 0, var(--m-pen-soft), transparent 60%), var(--m-floor); }
+.ap-c .c-rcol { width: min(820px, 100%); display: grid; justify-items: center; text-align: center; }
+.ap-c .c-rwhy { font: italic 400 22px/1.35 var(--m-voice); color: var(--m-ink-2); }
+.ap-c .c-rword { margin-top: 6px; font: 800 clamp(46px, 7vw, 74px)/1 var(--m-display); letter-spacing: .1em; color: var(--m-chain-ink); }
+.ap-c .c-rlp { margin-top: 12px; font: 500 15px/1.3 var(--m-ui); color: var(--m-ink-2); font-variant-numeric: tabular-nums; }
+.ap-c .c-racts { margin-top: 26px; display: grid; grid-template-columns: repeat(3, minmax(0, 200px)); gap: 12px; }
+.ap-c .c-racts .c-btn { min-height: 52px; border-radius: 10px; font-size: 16.5px; }
+.ap-c .c-racts .c-btn--pri { background: linear-gradient(180deg, #6a48e6, var(--m-pen-fill)); border-color: var(--m-pen); }
+.ap-c .c-prompt { margin-top: 28px; padding-top: 16px; width: min(560px, 100%); border-top: 1px solid var(--m-rule-lo); text-align: left; display: grid; gap: 12px; }
+.ap-c .c-ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ap-c .c-ph p { font: italic 400 19px/1.3 var(--m-voice); color: var(--m-ink); }
+.ap-c .c-pcards { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ap-c .c-closed { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; color: var(--m-ink-3); }
+
+/* ---------- Mock: phone ---------- */
+.ap-c .ws-phone-inner { padding-inline: 0; }
+.ap-c .c-pbar { height: 56px; padding: 0 8px 0 6px; display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--m-rule-lo); background: var(--m-panel); }
+.ap-c .c-pbar b { font: 600 17px/1 var(--m-display); margin-left: 4px; }
+.ap-c .c-pbar .c-ring { margin-left: auto; width: 34px; height: 34px; }
+.ap-c .c-pbar .c-icb { width: 44px; height: 44px; }
+.ap-c .c-ptabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px 12px 8px; }
+.ap-c .c-ptab { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 92px; padding: 8px 4px; border: 1px dashed var(--m-rule); border-radius: 10px; color: var(--m-ink-2); font: 500 13px/1.1 var(--m-ui); }
+.ap-c .c-ptab[data-tab="prog"] { border-style: solid; border-color: rgb(155 126 255 / .35); }
+.ap-c .c-ptab[aria-selected="true"] { background: var(--m-pen-soft); border-style: solid; border-color: var(--m-pen); color: var(--m-ink); font-weight: 600; }
+.ap-c .c-ptab b { font: 600 24px/1 var(--m-num); color: var(--m-chain-ink); }
+.ap-c .c-fan { position: relative; display: block; width: 46px; height: 26px; }
+.ap-c .c-fan i { position: absolute; top: 0; left: calc(var(--k) * 9px); transform-origin: 50% 100%; transform: rotate(calc(var(--k) * 7deg - 7deg)); width: 16px; height: 23px; box-sizing: border-box; border-radius: 3px; background: var(--m-panel-3); border: 1px solid var(--m-rule-hi); }
+.ap-c .c-fan--live i { border-color: var(--m-pen); background: var(--m-pen-soft); }
+.ap-c .c-fan--wait i { border-style: dashed; background: transparent; }
+.ap-c .c-pbody { padding: 8px 12px 14px; max-height: 520px; overflow-y: auto; -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent); mask-image: linear-gradient(#000 calc(100% - 28px), transparent); }
+.ap-c .c-pbody .c-cf, .ap-c .c-pres .c-cf { justify-content: flex-end; }
+.ap-c .c-pbody .c-grid { grid-template-columns: minmax(0, 1fr); }
+.ap-c .c-pbody .c-vb { width: 44px; height: 42px; }
+.ap-c .c-pbody .c-vote { height: 44px; }
+.ap-c .c-pbody .c-slot { min-height: 92px; }
+.ap-c .c-pbody .c-card--live { min-height: 0; }
+.ap-c .c-pbody .c-dl li { font-size: 15px; }
+.ap-c .c-pres { padding: 22px 16px 24px; display: grid; justify-items: center; text-align: center; background: radial-gradient(ellipse at 50% 0, var(--m-pen-soft), transparent 60%); }
+.ap-c .c-pres .c-rword { font-size: 46px; }
+.ap-c .c-pres .c-racts { grid-template-columns: minmax(0, 1fr); width: 100%; }
+.ap-c .c-pres .c-pcards { grid-template-columns: minmax(0, 1fr); }
+.ap-c .c-pres .c-vb { width: 44px; height: 42px; }
+.ap-c .c-pres .c-vote { height: 44px; }
+.ap-c .c-pres .c-slot { min-height: 88px; }
+.ap-c .c-pres .c-card { min-height: 0; }
+
+/* ---------- Mock: admin console (admin tokens only) ---------- */
+.ap-c .ws-screen--admin .a-app { display: grid; grid-template-columns: 252px minmax(0, 1fr); }
+.ap-c .a-rail { background: var(--a-bg2); border-right: 1px solid var(--a-line); padding: 24px 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+.ap-c .a-brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
+.ap-c .a-mark { width: 26px; height: 26px; background: var(--a-gold); transform: rotate(45deg) scale(.68); border-radius: 4px; flex: none; }
+.ap-c .a-brand b { display: block; font: 600 15.5px/1.2 var(--a-ui); }
+.ap-c .a-brand small { display: block; font: 500 9.5px/1.4 var(--a-mono); letter-spacing: .14em; color: var(--a-t3); }
+.ap-c .a-nav { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 12px; border-radius: 10px; font: 500 15.5px/1 var(--a-ui); color: var(--a-t2); position: relative; }
+.ap-c .a-nav .c-i { width: 20px; height: 20px; stroke-width: 1.6; }
+.ap-c .a-nav.a-cur { background: var(--a-sel); color: var(--a-t1); }
+.ap-c .a-nav.a-cur::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--a-gold); border-radius: 2px; }
+.ap-c .a-pill { margin-left: auto; font: 500 11.5px/1 var(--a-mono); background: var(--a-gold); color: #17130a; padding: 4px 8px; border-radius: 999px; }
+.ap-c .a-main { min-width: 0; padding: 40px 48px 28px; background: radial-gradient(ellipse at 70% 0, rgb(227 194 122 / .055), transparent 55%), var(--a-bg); display: grid; gap: 30px; align-content: start; }
+.ap-c .a-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.ap-c .a-eyebrow { margin: 0 0 8px; font: 500 11px/1 var(--a-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--a-t3); }
+.ap-c .a-h1 { margin: 0; font: 600 40px/1.05 var(--a-ui); letter-spacing: -.035em; }
+.ap-c .a-strip { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--a-line2); border-radius: 14px; background: var(--a-bg2); }
+.ap-c .a-z { position: relative; display: flex; align-items: center; gap: 14px; padding: 16px 18px; min-width: 0; }
+.ap-c .a-z + .a-z { border-left: 1px dashed var(--a-line2); }
+.ap-c .a-z + .a-z::before { content: ""; position: absolute; left: -5px; top: 50%; width: 8px; height: 8px; margin-top: -4px; background: var(--a-bg2); border-top: 1.5px solid var(--a-gold-dim); border-right: 1.5px solid var(--a-gold-dim); transform: rotate(45deg); }
+.ap-c .a-z small { display: block; font: 500 10px/1.3 var(--a-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--a-t3); }
+.ap-c .a-z b { display: block; font: 600 28px/1.05 var(--a-ui); letter-spacing: -.02em; }
+.ap-c .a-z b.a-pop { animation: apc-pop .35s ease-out; }
+.ap-c .a-fan { position: relative; flex: none; width: 52px; height: 30px; }
+.ap-c .a-fan i { transform-origin: 50% 100%; transform: rotate(calc(var(--k) * 7deg - 7deg)); }
+.ap-c .a-fan i, .ap-c .a-fly { position: absolute; top: 0; left: calc(var(--k) * 10px); width: 19px; height: 28px; box-sizing: border-box; border-radius: 3px; background: var(--a-sel); border: 1px solid var(--a-gold-dim); }
+.ap-c .a-fan--live i { border-color: var(--a-info); }
+.ap-c .a-fan--wait i { border-style: dashed; background: transparent; }
+.ap-c .a-fly { z-index: 3; left: 0; background: var(--a-gold); border-color: var(--a-gold); box-shadow: 0 6px 14px -4px rgb(0 0 0 / .8); pointer-events: none; }
+.ap-c .a-sec { display: grid; gap: 12px; min-width: 0; }
+.ap-c .a-h2 { margin: 0; font: 600 21px/1.2 var(--a-ui); display: flex; align-items: baseline; gap: 12px; }
+.ap-c .a-h2:focus { outline: none; }
+.ap-c .a-h2 small { font: 500 12px/1 var(--a-mono); color: var(--a-t3); }
+.ap-c .a-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--a-line); }
+.ap-c .a-box { max-height: 300px; overflow-y: auto; border-bottom: 1px solid var(--a-line); -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent); mask-image: linear-gradient(#000 calc(100% - 24px), transparent); }
+.ap-c .a-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 20px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--a-line); }
+.ap-c .a-box .a-row:last-child { border-bottom: 0; }
+.ap-c .a-row:hover { background: var(--a-hover); }
+.ap-c .a-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font: 500 12px/1.3 var(--a-mono); color: var(--a-t3); }
+.ap-c .a-title { margin: 2px 0 0; font: 600 16px/1.3 var(--a-ui); }
+.ap-c .a-pitch { margin: 2px 0 0; font-size: 14px; color: var(--a-t2); }
+.ap-c .a-tag { display: inline-block; font: 500 10px/1 var(--a-mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 7px; border: 1px solid var(--a-line2); border-radius: 6px; color: var(--a-t2); }
+.ap-c .a-row--s { padding: 8px 0; }
+.ap-c .a-row--s .a-title { margin: 0; font-size: 15px; }
+.ap-c .a-votes { font: 500 12px/1 var(--a-mono); color: var(--a-t2); white-space: nowrap; }
+.ap-c .a-end { display: flex; align-items: center; gap: 16px; justify-content: flex-end; }
+.ap-c .a-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 16px; border-radius: 9px; border: 1px solid var(--a-line2); background: transparent; color: var(--a-t1); font: 500 14px/1 var(--a-ui); white-space: nowrap; }
+.ap-c .a-btn:hover { background: var(--a-hover); }
+.ap-c .a-btn--pri { background: var(--a-t1); color: #0a0a0b; border-color: var(--a-t1); font-weight: 600; }
+.ap-c .a-btn--pri:hover { background: var(--a-t1); filter: brightness(.9); }
+.ap-c .a-btn--s { min-height: 34px; padding: 0 13px; }
+.ap-c .a-btn--q { color: var(--a-t2); border-color: transparent; }
+.ap-c .a-acts { display: flex; gap: 8px; }
+.ap-c .a-in { height: 34px; width: 260px; box-sizing: border-box; padding: 0 10px; background: var(--a-bg); border: 1px solid var(--a-line2); border-radius: 8px; color: var(--a-t1); font: 400 14px/1 var(--a-ui); }
+.ap-c .a-in::placeholder { color: var(--a-t3); }
+.ap-c .a-in:focus { outline: none; border-color: var(--a-gold); }
+.ap-c .a-why { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 14px; background: var(--a-bg2); border: 1px solid var(--a-line2); border-radius: 10px; }
+.ap-c .a-why > span { font-size: 14px; color: var(--a-t2); margin-right: 4px; }
+.ap-c .a-chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--a-line2); border-radius: 999px; font: 500 13.5px/1 var(--a-ui); color: var(--a-t1); }
+.ap-c .a-chip:hover { background: var(--a-hover); }
+.ap-c .a-chip--sug { border-color: var(--a-gold-dim); color: var(--a-gold); }
+.ap-c .a-none { margin: 0; padding: 14px 0; border-bottom: 1px solid var(--a-line); font-size: 14.5px; color: var(--a-t3); }
+.ap-c .a-foot { position: sticky; bottom: 14px; display: flex; justify-content: center; min-height: 44px; pointer-events: none; }
+.ap-c .a-toast { margin: 0; align-self: center; padding: 11px 18px; background: var(--a-t1); color: #0a0a0b; border-radius: 999px; font: 500 14px/1.3 var(--a-ui); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .8); max-width: 90%; }
+.ap-c .a-row.a-new { animation: apc-flash 1.2s ease-out; }
+@keyframes apc-flash { from { background: rgb(227 194 122 / .18); } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="apc-i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+<symbol id="apc-i-dn" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="apc-i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="apc-i-ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="apc-i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="apc-i-next" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="apc-i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="apc-i-menu" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></symbol>
+<symbol id="apc-i-bulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+<symbol id="apc-i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+<symbol id="apc-i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4"/><path d="M16 6h3a3 3 0 0 1-3 4"/><path d="M12 14v4"/><path d="M8 21h8"/></symbol>
+<symbol id="apc-i-deck" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+<symbol id="apc-i-cards" viewBox="0 0 24 24"><rect x="3" y="6" width="11" height="15" rx="2"/><path d="M8 3h8a2 2 0 0 1 2 2v1"/><path d="M18 8h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1"/></symbol>
+<symbol id="apc-i-swords" viewBox="0 0 24 24"><path d="m5 3 9 9"/><path d="m19 3-9 9"/><path d="m8 12-4 4 2 2 4-4"/><path d="m16 12 4 4-2 2-4-4"/></symbol>
+<symbol id="apc-i-cube" viewBox="0 0 24 24"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5"/><path d="M12 12v9"/></symbol>
+<symbol id="apc-i-chart" viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16v-4"/><path d="M12 16V8"/><path d="M16 16v-6"/></symbol>
+<symbol id="apc-i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+<symbol id="apc-i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/></symbol>
+<symbol id="apc-i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></symbol>
+<symbol id="apc-i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+</defs></svg>
+<p class="c-sr" id="apc-live" role="status" aria-live="polite"></p>
+
+<header class="ws-ap-head">
+  <p class="ws-eyebrow">Approach C</p>
+  <h2 class="ws-h2" id="apc-title">The Field</h2>
+  <p class="ws-thesis">A feedback board is a play mat. Read it left to right: ideas, what we are building, what is done.</p>
+  <p class="ws-lede">One mat with three zones. Ideas are cards on the left. The few cards being built sit face up in the middle. Finished work stacks into a pile on the right. When the owner taps Start or Done, a card slides one zone along, so the whole state of the board shows in one look.</p>
+</header>
+
+<div class="ws-block" id="apc-model">
+  <h3 class="ws-h3">The model</h3>
+  <div class="c-flow">
+    <div class="c-step"><div class="c-face c-face--wait"><span>Waiting</span></div><p><b>You post</b>Only you and the owner see it. Team posts skip this.</p></div>
+    <div class="c-step"><div class="c-face"><span>Open</span></div><p><b>Owner taps Approve</b>Anyone who plays can vote up or down.</p></div>
+    <div class="c-step"><div class="c-face c-face--live"><span>In progress</span></div><p><b>Owner taps Start</b>One label. Nothing to keep updating.</p></div>
+    <div class="c-step"><div class="c-face c-face--done"><span>Done</span></div><p><b>Owner taps Done</b>Everyone who voted up gets one notice.</p></div>
+    <p class="c-brace">The mat: Ideas, In progress, Done</p>
+  </div>
+  <ol class="c-rules">
+    <li><span><b>A post waits for the owner.</b> Only its author and the owner can see a Waiting card. A declined idea leaves, and the author reads a short reason.</span></li>
+    <li><span><b>Ideas is the open zone.</b> Every card shows a title, one line, an area, a Team label if it has one, and votes. Vote up or down, and tap again to take it back.</span></li>
+    <li><span><b>Start moves a card to the middle.</b> The only thing it says is In progress. There are no steps, dates or posts to maintain.</span></li>
+    <li><span><b>Done moves it to the pile.</b> Voters who went up, and the author, get one notice: &ldquo;Done: title. You backed this.&rdquo; The owner can add a one-line note.</span></li>
+  </ol>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Screens</h3>
+
+  <figure class="ws-fig" id="apc-s1">
+    <div class="ws-screen-scroll"><div class="ws-screen">
+      <div class="c-app">
+        <aside class="c-side" data-side aria-hidden="true"></aside>
+        <div class="c-main">
+          <header class="c-bar"><div><h3 class="c-title">Next Turn</h3><p class="c-sub">Back the ideas you want next.</p></div></header>
+          <div class="c-body">
+            <div class="c-mat">
+              <section class="c-zone c-zone--ideas" aria-labelledby="apc-zi">
+                <div class="c-zh"><h4 class="c-zt" id="apc-zi">Ideas <span class="c-zn" data-n="ideas">17</span></h4>
+                  <div class="c-seg" role="group" aria-label="Show ideas"><button type="button" data-filter="all" aria-pressed="true">All</button><button type="button" data-filter="Ranked" aria-pressed="false">Ranked</button></div></div>
+                <div class="c-scroll" tabindex="0" role="region" aria-label="Ideas, scrolls"><ul class="c-grid" data-grid="s1"></ul></div>
+              </section>
+              <section class="c-zone c-zone--prog" aria-labelledby="apc-zp">
+                <div class="c-zh"><h4 class="c-zt" id="apc-zp">In progress <span class="c-zn">2</span></h4></div>
+                <ul class="c-stack" data-grid="prog"></ul>
+              </section>
+              <section class="c-zone c-zone--done" aria-labelledby="apc-zd">
+                <div class="c-zh"><h4 class="c-zt" id="apc-zd">Done <span class="c-zn">12</span></h4></div>
+                <button class="c-pile" type="button" id="apc-pile" aria-expanded="false" aria-controls="apc-tray" aria-label="Done, 12 ideas. See the list">
+                  <span class="c-stk" aria-hidden="true"><i></i><i></i><i></i><b>12</b></span>
+                  <span class="c-pcap">See what&rsquo;s done<svg class="c-i" aria-hidden="true"><use href="#apc-i-next"/></svg></span>
+                </button>
+              </section>
+              <div class="c-tray" id="apc-tray" role="region" aria-label="Done" hidden>
+                <div class="c-trh"><h4 class="c-zt">Done <span class="c-zn">12</span></h4><button class="c-icb" type="button" data-close aria-label="Close the Done list"><svg class="c-i" aria-hidden="true"><use href="#apc-i-x"/></svg></button></div>
+                <div data-weeks></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <figcaption class="ws-caption"><b>S1 Player board.</b> Read the mat left to right. Vote up or down on any card, tap the pile to open the Done list, or tap the dashed card to suggest an idea. The dashed card under it is lumen&rsquo;s own Waiting idea.</figcaption>
+  </figure>
+
+  <figure class="ws-fig" id="apc-s2">
+    <div class="ws-screen-scroll"><div class="ws-screen">
+      <div class="c-app">
+        <aside class="c-side" data-side aria-hidden="true"></aside>
+        <div class="c-main">
+          <header class="c-bar"><div><h3 class="c-title">Next Turn</h3><p class="c-sub">Back the ideas you want next.</p></div></header>
+          <div class="c-two">
+            <div class="c-scrim">
+              <form class="c-dialog" id="apc-form" aria-labelledby="apc-fh" novalidate>
+                <h3 id="apc-fh">Suggest an idea</h3>
+                <div class="c-f"><label for="apc-ft">Title</label><input class="c-in" id="apc-ft" type="text" maxlength="80" placeholder="Name your idea" autocomplete="off"></div>
+                <div class="c-f"><label for="apc-fp">One line (optional)</label><input class="c-in" id="apc-fp" type="text" maxlength="120" placeholder="Why it would help" autocomplete="off"></div>
+                <fieldset class="c-f"><legend>Area</legend><div class="c-areas" data-areas></div></fieldset>
+                <p class="c-err" role="alert" data-err hidden>Add a title first.</p>
+                <div class="c-acts"><button class="c-btn c-btn--pri" type="submit">Post</button><button class="c-btn c-btn--q" type="button" data-clear>Cancel</button></div>
+                <p class="c-hint">The owner reads it before it goes on the board.</p>
+              </form>
+            </div>
+            <div class="c-right">
+              <div class="c-notice" data-notice>
+                <span class="c-ok" aria-hidden="true"><svg class="c-i"><use href="#apc-i-ok"/></svg></span>
+                <div><p><b>Done: Card details that fit on a phone.</b> You backed this.</p><p>Clock names and card text now fit on phones under 400px wide.</p></div>
+                <button class="c-icb" type="button" data-dismiss aria-label="Dismiss this notice"><svg class="c-i" aria-hidden="true"><use href="#apc-i-x"/></svg></button>
+              </div>
+              <section class="c-zone c-zone--ideas" aria-labelledby="apc-zi2" style="align-self:stretch">
+                <div class="c-zh"><h4 class="c-zt" id="apc-zi2">Ideas <span class="c-zn">17</span></h4></div>
+                <ul class="c-grid" data-grid="s2"></ul>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <figcaption class="ws-caption"><b>S2 Suggest an idea and hear back.</b> The form is one title, one optional line, an area and Post. A posted idea lands on the mat as a dashed Waiting card that only lumen sees. When the owner taps Done, a one-time notice tells everyone who backed it. Try Post.</figcaption>
+  </figure>
+
+  <figure class="ws-fig" id="apc-s3">
+    <div class="ws-screen-scroll"><div class="ws-screen">
+      <div class="c-result"><div class="c-rcol">
+        <p class="c-rwhy">LP reached 0</p>
+        <p class="c-rword">YOU WIN</p>
+        <p class="c-rlp">lumen 3,100 &middot; quietstorm 0</p>
+        <div class="c-racts">
+          <a class="c-btn c-btn--pri" href="#apc-s3">Exit duel</a>
+          <a class="c-btn" href="#apc-s3">Watch replay</a>
+          <a class="c-btn" href="#apc-s3">View board</a>
+        </div>
+        <section class="c-prompt" data-prompt aria-labelledby="apc-ph">
+          <div class="c-ph"><p id="apc-ph">Make the next one better</p><button class="c-btn c-btn--q" type="button" data-notnow>Not now</button></div>
+          <ul class="c-pcards" data-grid="prompt"></ul>
+        </section>
+        <p class="c-closed" data-closed hidden>Prompt closed.<button class="c-btn c-btn--q" type="button" data-back>Bring it back</button></p>
+      </div></div>
+    </div></div>
+    <figcaption class="ws-caption"><b>S3 End-of-activity prompt.</b> Exit duel, Watch replay and View board come first. Below them sit two cards on the table: one idea to vote on, and a dashed slot to suggest your own. Drafts and tournaments show the same pair on their last screen.</figcaption>
+  </figure>
+
+  <figure class="ws-fig" id="apc-s4">
+    <div class="ws-screen-scroll"><div class="ws-screen ws-screen--admin">
+      <div class="a-app">
+        <aside class="a-rail" aria-hidden="true">
+          <div class="a-brand"><span class="a-mark"></span><span><b>Dueling Domain</b><small>ADMIN CONSOLE</small></span></div>
+          <span class="a-nav"><svg class="c-i"><use href="#apc-i-gauge"/></svg>Overview</span>
+          <span class="a-nav"><svg class="c-i"><use href="#apc-i-users"/></svg>People</span>
+          <span class="a-nav"><svg class="c-i"><use href="#apc-i-swords"/></svg>Duels</span>
+          <span class="a-nav"><svg class="c-i"><use href="#apc-i-list"/></svg>Waitlist</span>
+          <span class="a-nav"><svg class="c-i"><use href="#apc-i-pulse"/></svg>Health</span>
+          <span class="a-nav a-cur"><svg class="c-i"><use href="#apc-i-bulb"/></svg>Next Turn<span class="a-pill" data-pill>4</span></span>
+        </aside>
+        <div class="a-main" data-admin>
+          <div class="a-head">
+            <div><p class="a-eyebrow">Next Turn</p><h4 class="a-h1">Ideas</h4></div>
+            <button class="a-btn a-btn--s a-btn--q" type="button" data-reset>Reset sample data</button>
+          </div>
+          <div class="a-strip" data-strip></div>
+          <section class="a-sec" aria-labelledby="apc-aw"><h4 class="a-h2" id="apc-aw" tabindex="-1">Waiting <small data-c="waiting"></small></h4><div data-list="waiting"></div></section>
+          <section class="a-sec" aria-labelledby="apc-ao"><h4 class="a-h2" id="apc-ao" tabindex="-1">Ideas <small data-c="open"></small></h4><div data-list="open"></div></section>
+          <section class="a-sec" aria-labelledby="apc-ap"><h4 class="a-h2" id="apc-ap" tabindex="-1">In progress <small data-c="prog"></small></h4><div data-list="prog"></div></section>
+          <div class="a-foot"><p class="a-toast" role="status" data-toast hidden></p></div>
+        </div>
+      </div>
+    </div></div>
+    <figcaption class="ws-caption"><b>S4 Owner control in the admin console.</b> Three moves, each one tap. Approve puts a Waiting card on the board, Start moves it to In progress, Done sends it to the pile and notices its backers. The strip on top shows the card sliding along. Decline asks for a reason in one tap.</figcaption>
+  </figure>
+
+  <figure class="ws-fig" id="apc-s5">
+    <div class="ws-phone-row">
+      <div class="ws-phone"><div class="ws-phone-inner">
+        <div class="c-pbar"><button class="c-icb" type="button" aria-label="Menu"><svg class="c-i" aria-hidden="true" style="width:22px;height:22px"><use href="#apc-i-menu"/></svg></button><b>Next Turn</b><span class="c-ring" aria-hidden="true">LU</span></div>
+        <div class="c-ptabs" role="tablist" aria-label="Zones of the board" data-ptabs></div>
+        <div class="c-pbody" role="tabpanel" tabindex="0" aria-label="Cards in this zone, scrolls" data-ppanel></div>
+      </div></div>
+      <div class="ws-phone"><div class="ws-phone-inner">
+        <div class="c-pres">
+          <p class="c-rwhy">LP reached 0</p>
+          <p class="c-rword">YOU WIN</p>
+          <p class="c-rlp">lumen 3,100 &middot; quietstorm 0</p>
+          <div class="c-racts">
+            <a class="c-btn c-btn--pri" href="#apc-s5">Exit duel</a>
+            <a class="c-btn" href="#apc-s5">Watch replay</a>
+            <a class="c-btn" href="#apc-s5">View board</a>
+          </div>
+          <section class="c-prompt" data-prompt aria-labelledby="apc-ph2" style="width:100%">
+            <div class="c-ph"><p id="apc-ph2">Make the next one better</p><button class="c-btn c-btn--q" type="button" data-notnow>Not now</button></div>
+            <ul class="c-pcards" data-grid="prompt"></ul>
+          </section>
+          <p class="c-closed" data-closed hidden>Prompt closed.<button class="c-btn c-btn--q" type="button" data-back>Bring it back</button></p>
+        </div>
+      </div></div>
+    </div>
+    <figcaption class="ws-caption"><b>S5 Phone.</b> The three zones shrink into three tiles that work as tabs, each with its count, so the state of the board stays in view. The prompt on the right never pushes Exit duel down.</figcaption>
+  </figure>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">How it covers the request</h3>
+  <div class="ws-req-scroll"><table class="ws-req"><tbody>
+    <tr><th scope="row">R1</th><td>Intake board</td><td>The Ideas zone is the intake. A dashed card at the start of it opens the form: a title, one optional line, an area and Post.</td></tr>
+    <tr><th scope="row">R2</th><td>Owner approval</td><td>A post shows to its author as a dashed Waiting card and stays hidden from everyone else until the owner taps Approve.</td></tr>
+    <tr><th scope="row">R3</th><td>Seeded features</td><td>The mat opens with the six rank ideas, the other Team ideas and one player idea in Ideas, two cards in In progress, and the shipped work in the Done pile.</td></tr>
+    <tr><th scope="row">R4</th><td>Prompts after activities</td><td>Duel, draft and tournament end screens carry one idea card to vote on and one dashed slot to suggest. They sit under Exit and Replay and close with Not now.</td></tr>
+    <tr><th scope="row">R5</th><td>Upvote and downvote</td><td>Every card has a vote up and a vote down button around its count. Tap again to take the vote back.</td></tr>
+    <tr><th scope="row">R6</th><td>Simple progress</td><td>Start puts a card in the middle zone with one label, In progress. Done moves it to the pile and sends each backer one notice.</td></tr>
+    <tr><th scope="row">R7</th><td>Players and team both post and vote</td><td>Team and player cards share the zone and the vote control. A gold Team label marks the Team ones, and Team posts skip Waiting.</td></tr>
+    <tr><th scope="row">R8</th><td>Controlled from the admin console</td><td>Three lists with one button each: Approve or Decline, Start, Done. A strip of the same zones shows each card slide along.</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Trade-offs</h3>
+  <div class="ws-trade">
+    <div class="ws-card ws-pro"><h4>Strengths</h4><ul>
+      <li>The whole board is one look: three zones, each with its count, and the middle zone is never empty of meaning.</li>
+      <li>Each owner action is one visible card move, so the model teaches itself.</li>
+      <li>Nothing to maintain. The owner never writes an update.</li>
+    </ul></div>
+    <div class="ws-card ws-con"><h4>Risks</h4><ul>
+      <li>The mat needs width. On a phone it becomes three tabs and loses the one-look.</li>
+      <li>The Ideas zone scrolls once it holds more than about ten cards.</li>
+      <li>Wide cards show fewer ideas at once than a plain list does.</li>
+    </ul></div>
+    <div class="ws-card ws-cost"><h4>Build size</h4><p class="ws-size">S</p><p class="ws-p">One page, one card component, one vote control, one form and three admin lists. Notices reuse the existing in-app notice. No schedules, steps or update posts.</p></div>
+  </div>
+</div>
+
+<div class="ws-block">
+  <h3 class="ws-h3">Assumes and asks</h3>
+  <div class="ws-cols">
+    <div class="ws-card"><h4 class="ws-h4">What it assumes</h4><ul class="ws-list">
+      <li>The app sidebar can sit collapsed to icons, as it does today, so the mat gets room.</li>
+      <li>An in-app notice already exists to carry the Done message.</li>
+      <li>The area list is fixed and short.</li>
+    </ul></div>
+    <div class="ws-card"><h4 class="ws-h4">Questions it raises</h4><ul class="ws-list">
+      <li>Should voting stay open on In progress cards?</li>
+      <li>Do the shipped lines from before the board belong in the Done pile?</li>
+      <li>Is sort by votes enough, or should players switch to newest first?</li>
+      <li>Does the author count as a backer when the Done notice goes out?</li>
+    </ul></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const root = document.getElementById("approach-c");
+  const q = (s, el = root) => el.querySelector(s);
+  const qa = (s, el = root) => [...el.querySelectorAll(s)];
+  const ic = (n, c = "") => `<svg class="c-i ${c}" aria-hidden="true"><use href="#apc-i-${n}"/></svg>`;
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const quiet = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const say = (t) => { q("#apc-live").textContent = t; };
+
+  /* ---------- data ---------- */
+  const SEED = [
+    ["NT-102", "Ranked queue", "Find a ranked match near your rating.", "Ranked", 1, 14, 1],
+    ["NT-103", "Placement series", "Your first five rated series move you faster.", "Ranked", 1, 9, 2],
+    ["NT-104", "Separate Standard and Domain ratings", "Each format gets its own rating and tier.", "Ranked", 1, 11, 3],
+    ["NT-105", "Seasons with a soft reset", "Every 8 weeks, ratings move halfway back to 1000.", "Ranked", 1, 7, 4],
+    ["NT-106", "Season crest and seat frame", "Your peak tier becomes a crest and a seat frame.", "Ranked", 1, 8, 0],
+    ["NT-107", "Ladder sorted by rating", "Sort the season leaderboard by rating too.", "Ranked", 1, 6, 2],
+    ["NT-108", "Swiss rounds with a top cut", "Play set rounds, then the top 4 or 8 play on.", "Tournaments", 1, 12, 1],
+    ["NT-109", "Friends and playing now", "See who is online or mid-duel, then challenge in one tap.", "Community", 1, 10, 2],
+    ["NT-110", "Share a deck or cube by link", "A read-only page anyone signed in can copy.", "Decks & cubes", 1, 9, 1],
+    ["NT-111", "Jump in from your own replays", "Stop at the turn it went wrong and play it out.", "Replays & watching", 1, 8, 0],
+    ["NT-112", "Quick reactions in duels", "A fixed set of short reactions, with a mute.", "Duels", 1, 6, 5],
+    ["NT-113", "A practice bot that plays a real deck", "Pick a saved deck for the practice bot.", "Duels", 1, 11, 0],
+    ["NT-114", "Draft recap", "Step through every pack you saw after a draft.", "Drafts", 1, 7, 0],
+    ["NT-115", "Inbox for challenges, round calls and updates", "One place for challenges and round calls.", "App", 1, 8, 1],
+    ["NT-118", "Readable text everywhere", "Nothing in the app smaller than 11px.", "App", 1, 6, 0],
+    ["NT-119", "Clear, consistent format names", "Standard, Domain and Genesys read the same everywhere.", "App", 1, 5, 0],
+    ["NT-121", "Rematch button after a casual duel", "Run it back with the same opponent and decks.", "Duels", 0, 9, 1],
+    ["NT-116", "Theme drafts", "Each player drafts from their own cube theme.", "Drafts", 1, 10, 1, "prog"],
+    ["NT-117", "Card details that fit on a phone", "Card text and clock names stop getting cut off.", "App", 1, 13, 0, "prog"],
+  ];
+  const by = {};
+  SEED.forEach(([r, t, p, a, team, u, d, s]) => { by[r] = { r, t, p, a, team, u, d, s: s || "open" }; });
+  const WAIT0 = [
+    { r: "NT-123", who: "kestrel9", age: "2d", t: "Choose a card sleeve for your decks", p: "A few sleeve colors to pick per deck.", a: "Decks & cubes" },
+    { r: "NT-124", who: "lumen", age: "1d", t: "Keyboard shortcuts for Pass and End turn", p: "Space to pass would be enough.", a: "Duels" },
+    { r: "NT-125", who: "mossgiant", age: "6h", t: "pls ranked matchmaking", p: "", a: "Ranked", sug: [0, "Already on the board: Ranked queue"] },
+    { r: "NT-126", who: "pellucid", age: "3h", t: "My trap didn't negate the attack in the Damage Step", p: "", a: "Duels", sug: [1, "It's a bug, reported for you"] },
+  ];
+  const PRESETS = ["Already on the board", "It's a bug, reported for you", "Not for now"];
+  const WEEKS = [
+    ["This week &middot; Oct 26 &ndash; Nov 1", []],
+    ["Oct 19&ndash;25", [["Search cards by what they do: effects, partners, counters, release dates and format staples.", "Decks & cubes"], ["See live card statuses, protections and counters on the board.", "Duels"], ["Get legal deck suggestions and start a Test duel straight from the editor.", "Decks & cubes"], ["Hosts can remove players before a table starts, and replays load faster.", "Duels"], ["Fixed: decision clocks, Damage Step timing, card sorting and multiplayer LP effects.", "Duels"]]],
+    ["Oct 12&ndash;18", [["Import decks in bulk, with better previews and an editor that fits your screen.", "Decks & cubes"], ["Build and play Genesys decks with point budgets.", "Decks & cubes"], ["Replay older games even after engine updates.", "Replays & watching"]]],
+    ["Oct 5&ndash;11", [["Make drafts and tournaments open or private, with invitations.", "Drafts"], ["Follow each chain link as it resolves, with a table log and negation marks.", "Duels"]]],
+    ["Sept 28 &ndash; Oct 4", [["Play Tag 2v2 and three- or four-player free-for-all.", "Duels"], ["Export draft decks and turn a finished draft into a tournament.", "Drafts"]]],
+  ];
+  const AREAS = ["Duels", "Drafts", "Tournaments", "Decks & cubes", "Replays & watching", "Community", "Ranked", "App"];
+  const mine = {};
+  let waiting = [{ ...WAIT0[1] }];
+  let filter = "all";
+  let posted = 0;
+  const net = (i) => i.u - i.d;
+  const order = (a, b) => net(by[b]) - net(by[a]) || (a < b ? -1 : 1);
+  const openRefs = () => Object.keys(by).filter((r) => by[r].s === "open").sort(order);
+  const progRefs = () => Object.keys(by).filter((r) => by[r].s === "prog").sort();
+
+  /* ---------- cards ---------- */
+  const voteHTML = (i) => `<div class="c-vote" role="group" aria-label="Vote on ${esc(i.t)}" data-ref="${i.r}" data-m="0">
+    <button class="c-vb" type="button" data-v="1" aria-pressed="false" aria-label="Vote up: ${esc(i.t)}">${ic("up")}</button>
+    <span class="c-vn" aria-hidden="true">${net(i)}</span>
+    <button class="c-vb" type="button" data-v="-1" aria-pressed="false" aria-label="Vote down: ${esc(i.t)}">${ic("dn")}</button>
+    <span class="c-sr">${net(i)} net, ${i.u} up, ${i.d} down</span></div>`;
+  const metaHTML = (i, team = true) => `<div class="c-meta"><span class="c-tag">${esc(i.a)}</span>${team && i.team ? `<span class="c-team">Team</span>` : ""}</div>`;
+  const cardHTML = (i) => {
+    const live = i.s === "prog";
+    return `<li class="c-card${live ? " c-card--live" : ""}" data-ref="${i.r}">
+      ${live ? `<div class="c-meta"><span class="c-state c-state--live"><i class="c-lamp"></i>In progress</span>${i.team ? `<span class="c-team">Team</span>` : ""}</div>` : metaHTML(i)}
+      <div class="c-txt"><h4 class="c-ct">${esc(i.t)}</h4>${i.p ? `<p class="c-cp">${esc(i.p)}</p>` : ""}</div>
+      <div class="c-cf">${live ? `<span class="c-tag">${esc(i.a)}</span>` : ""}${voteHTML(i)}</div></li>`;
+  };
+  const waitHTML = (w, extra = "") => `<li class="c-card c-card--wait${extra}" data-ref="${w.r}">
+      <span class="c-state">${ic("clock")}Waiting for approval</span>
+      <div class="c-txt"><h4 class="c-ct">${esc(w.t)}</h4>${w.p ? `<p class="c-cp">${esc(w.p)}</p>` : ""}</div>
+      <div class="c-meta"><span class="c-tag">${esc(w.a)}</span></div></li>`;
+  const slotHTML = `<li><a class="c-slot" href="#apc-s2"><span>${ic("plus")}</span>Suggest an idea</a></li>`;
+
+  function paint(r) {
+    const i = by[r], m = mine[r] || 0, u = i.u + (m === 1), d = i.d + (m === -1);
+    qa(`.c-vote[data-ref="${r}"]`).forEach((g) => {
+      g.dataset.m = m;
+      g.querySelector('[data-v="1"]').setAttribute("aria-pressed", m === 1);
+      g.querySelector('[data-v="-1"]').setAttribute("aria-pressed", m === -1);
+      g.querySelector(".c-vn").textContent = u - d;
+      g.querySelector(".c-sr").textContent = `${u - d} net, ${u} up, ${d} down`;
+      g.title = `${u} up, ${d} down`;
+      const c = g.closest(".c-card");
+      if (c) { c.classList.toggle("c-mine-up", m === 1); c.classList.toggle("c-mine-dn", m === -1); }
+    });
+    return [u, d];
+  }
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest(".c-vb");
+    if (!b || !root.contains(b)) return;
+    const r = b.closest(".c-vote").dataset.ref, v = Number(b.dataset.v);
+    mine[r] = mine[r] === v ? 0 : v;
+    const [u, d] = paint(r);
+    qa(`.c-vote[data-ref="${r}"] .c-vn`).forEach((n) => { n.classList.remove("c-pop"); void n.offsetWidth; n.classList.add("c-pop"); });
+    say(mine[r] === 0 ? `Vote removed: ${by[r].t}. ${u} up, ${d} down.` : `Voted ${v === 1 ? "up" : "down"}: ${by[r].t}. ${u} up, ${d} down.`);
+  });
+
+  /* ---------- boards ---------- */
+  function renderGrids() {
+    const refs = openRefs();
+    const s1 = refs.filter((r) => filter === "all" || by[r].a === filter);
+    const wl = filter === "all" ? waiting.map((w) => waitHTML(w)).join("") : "";
+    q('[data-grid="s1"]').innerHTML = slotHTML + wl + s1.map((r) => cardHTML(by[r])).join("");
+    q('[data-grid="prog"]').innerHTML = progRefs().map((r) => cardHTML(by[r])).join("");
+    q('[data-grid="s2"]').innerHTML = waiting.map((w) => waitHTML(w)).join("") + refs.slice(0, 5).map((r) => cardHTML(by[r])).join("");
+    qa('[data-grid="prompt"]').forEach((g) => { g.innerHTML = cardHTML(by["NT-121"]) + slotHTML; });
+    Object.keys(mine).forEach(paint);
+    qa('[data-n="ideas"]').forEach((n) => { n.textContent = filter === "all" ? refs.length : s1.length; });
+  }
+  qa("[data-side]").forEach((s) => {
+    s.innerHTML = `<div class="c-brand"><i></i></div><div class="c-nav">${["grid", "trophy", "deck", "swords", "chart", "cards", "cube"].map((n) => `<span class="c-ni">${ic(n)}</span>`).join("")}<span class="c-ni c-on">${ic("bulb")}<b class="c-dot"></b></span></div><span class="c-ring">LU</span>`;
+  });
+  q("[data-areas]").innerHTML = AREAS.map((a, k) => `<label class="c-area"><input type="radio" name="apc-area" value="${esc(a)}"${k === 0 ? " checked" : ""}><span>${esc(a)}</span></label>`).join("");
+  qa("[data-filter]").forEach((b) => b.addEventListener("click", () => {
+    filter = b.dataset.filter;
+    qa("[data-filter]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    renderGrids();
+  }));
+
+  /* Done pile */
+  const weeksHTML = () => WEEKS.map(([h, rows]) => `<section class="c-wk"><h5 class="c-wkh" style="margin:0">${h}${rows.length ? ` <span>${rows.length} done</span>` : ""}</h5>${rows.length
+    ? `<ul class="c-dl">${rows.map(([t, a]) => `<li>${ic("ok")}<span>${esc(t)}</span><span class="c-tag">${esc(a)}</span></li>`).join("")}</ul>`
+    : `<p class="c-none">Nothing yet.</p>`}</section>`).join("") + `<p class="c-fine">Before Next Turn opened, so no ideas or votes are linked.</p>`;
+  const pile = q("#apc-pile"), tray = q("#apc-tray");
+  const setTray = (open) => { tray.hidden = !open; pile.setAttribute("aria-expanded", open); if (!open) pile.focus(); };
+  pile.addEventListener("click", () => setTray(tray.hidden));
+  q("[data-close]").addEventListener("click", () => setTray(false));
+  q(".c-mat").addEventListener("keydown", (e) => { if (e.key === "Escape" && !tray.hidden) setTray(false); });
+  q("[data-weeks]").innerHTML = weeksHTML();
+
+  /* Post form */
+  const form = q("#apc-form"), ti = q("#apc-ft"), pi = q("#apc-fp"), err = q("[data-err]");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const t = ti.value.trim();
+    if (!t) { err.hidden = false; ti.focus(); return; }
+    err.hidden = true;
+    posted += 1;
+    waiting.unshift({ r: "NEW-" + posted, t, p: pi.value.trim(), a: form.elements["apc-area"].value });
+    renderGrids();
+    qa(".c-card--wait[data-ref='NEW-" + posted + "']").forEach((c) => c.classList.add("c-drop"));
+    ti.value = ""; pi.value = "";
+    say("Posted. It is waiting for approval.");
+  });
+  ti.addEventListener("input", () => { err.hidden = true; });
+  q("[data-clear]").addEventListener("click", () => { ti.value = ""; pi.value = ""; err.hidden = true; });
+  q("[data-dismiss]").addEventListener("click", () => { q("[data-notice]").hidden = true; say("Notice dismissed."); });
+
+  /* Prompts */
+  qa("[data-prompt]").forEach((p) => {
+    const closed = p.parentElement.querySelector("[data-closed]");
+    p.querySelector("[data-notnow]").addEventListener("click", () => { p.hidden = true; closed.hidden = false; closed.querySelector("button").focus(); });
+    closed.querySelector("[data-back]").addEventListener("click", () => { p.hidden = false; closed.hidden = true; p.querySelector("[data-notnow]").focus(); });
+  });
+
+  /* Phone tabs */
+  const fan = (n, kind) => `<span class="c-fan c-fan--${kind}" aria-hidden="true">${Array.from({ length: Math.max(1, Math.min(n, 3)) }, (_, k) => `<i style="--k:${k}"></i>`).join("")}</span>`;
+  let tab = "ideas";
+  function renderPhone() {
+    const refs = openRefs(), prog = progRefs();
+    const tabs = [["ideas", "Ideas", refs.length, "idea"], ["prog", "In progress", prog.length, "live"], ["done", "Done", 12, "done"]];
+    q("[data-ptabs]").innerHTML = tabs.map(([k, l, n, f]) => `<button class="c-ptab" type="button" role="tab" data-tab="${k}" aria-selected="${tab === k}">${fan(n, f)}<b>${n}</b>${l}</button>`).join("");
+    q("[data-ppanel]").innerHTML = tab === "ideas"
+      ? `<ul class="c-grid">${slotHTML}${waiting.map((w) => waitHTML(w)).join("")}${refs.map((r) => cardHTML(by[r])).join("")}</ul>`
+      : tab === "prog" ? `<ul class="c-stack">${prog.map((r) => cardHTML(by[r])).join("")}</ul>` : weeksHTML();
+    Object.keys(mine).forEach(paint);
+  }
+  q("[data-ptabs]").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; renderPhone(); q(`[data-tab="${tab}"]`).focus(); } });
+  const renderBoards = () => { renderGrids(); renderPhone(); };
+  renderBoards();
+
+  /* ---------- Owner console ---------- */
+  const A = {};
+  const resetA = () => {
+    A.waiting = WAIT0.map((w) => ({ ...w }));
+    A.open = SEED.filter((s) => !s[7]).map((s) => s[0]).sort(order);
+    A.prog = ["NT-117", "NT-116"];
+    A.done = 12; A.decl = null;
+    A.shown = { waiting: 4, open: A.open.length, prog: 2, done: 12 };
+  };
+  resetA();
+  const admin = q("[data-admin]");
+  const zone = (k, label, kind) => `<div class="a-z" data-z="${k}">${`<span class="a-fan a-fan--${kind}" aria-hidden="true">${Array.from({ length: Math.max(1, Math.min(A.shown[k], 3)) }, (_, j) => `<i style="--k:${j}"></i>`).join("")}</span>`}<div><small>${label}</small><b data-zn="${k}">${A.shown[k]}</b></div></div>`;
+  function renderA() {
+    q("[data-pill]").textContent = A.waiting.length; q("[data-pill]").hidden = !A.waiting.length;
+    q("[data-strip]").innerHTML = zone("waiting", "Waiting", "wait") + zone("open", "Ideas", "idea") + zone("prog", "In progress", "live") + zone("done", "Done", "done");
+    q('[data-c="waiting"]').textContent = A.waiting.length; q('[data-c="open"]').textContent = A.open.length; q('[data-c="prog"]').textContent = A.prog.length;
+    q('[data-list="waiting"]').innerHTML = A.waiting.length ? `<ul class="a-list">${A.waiting.map((w) => `<li class="a-row" data-r="${w.r}">
+      <div><p class="a-meta"><span>${w.r}</span><span>${w.who}</span><span>${w.age}</span><span class="a-tag">${esc(w.a)}</span></p><p class="a-title">${esc(w.t)}</p>${w.p ? `<p class="a-pitch">${esc(w.p)}</p>` : ""}</div>
+      <div class="a-acts"><button class="a-btn a-btn--pri a-btn--s" type="button" data-act="approve" data-r="${w.r}" aria-label="Approve: ${esc(w.t)}">Approve</button><button class="a-btn a-btn--s" type="button" data-act="decline" data-r="${w.r}" aria-label="Decline: ${esc(w.t)}">Decline</button></div>
+      ${A.decl === w.r ? `<div class="a-why" role="group" aria-label="Reason for declining ${esc(w.t)}"><span>${esc(w.who)} will see:</span>${PRESETS.map((p, k) => { const s = w.sug && w.sug[0] === k; const txt = s ? w.sug[1] : p; return `<button class="a-chip${s ? " a-chip--sug" : ""}" type="button" data-act="reason" data-r="${w.r}" data-text="${esc(txt)}">${esc(txt)}</button>`; }).join("")}
+        <input class="a-in" type="text" aria-label="Or type one line for ${esc(w.who)}" placeholder="Or type one line" data-typed><button class="a-btn a-btn--s" type="button" data-act="typed" data-r="${w.r}">Send</button><button class="a-btn a-btn--s a-btn--q" type="button" data-act="cancel" data-r="${w.r}">Cancel</button></div>` : ""}</li>`).join("")}</ul>` : `<p class="a-none">Nothing waiting.</p>`;
+    const keep = q('[data-list="open"] .a-box'); const sc = keep ? keep.scrollTop : 0;
+    q('[data-list="open"]').innerHTML = A.open.length ? `<div class="a-box" tabindex="0" role="region" aria-label="Open ideas, scrolls"><ul class="a-list" style="border-top:0">${A.open.map((r) => { const i = by[r]; return `<li class="a-row a-row--s${A.fresh === r ? " a-new" : ""}">
+      <div><p class="a-meta"><span>${r}</span><span class="a-tag">${esc(i.a)}</span>${i.team ? `<span class="a-tag">Team</span>` : ""}</p><p class="a-title">${esc(i.t)}</p></div>
+      <div class="a-end"><span class="a-votes">${i.u} up &middot; ${i.d} down</span><button class="a-btn a-btn--s" type="button" data-act="start" data-r="${r}" aria-label="Start: ${esc(i.t)}">Start</button></div></li>`; }).join("")}</ul></div>` : `<p class="a-none">No open ideas.</p>`;
+    const nb = q('[data-list="open"] .a-box'); if (nb) nb.scrollTop = sc;
+    q('[data-list="prog"]').innerHTML = A.prog.length ? `<ul class="a-list">${A.prog.map((r) => { const i = by[r]; return `<li class="a-row${A.fresh === r ? " a-new" : ""}">
+      <div><p class="a-meta"><span>${r}</span><span class="a-tag">${esc(i.a)}</span><span class="a-votes">${i.u} up &middot; ${i.d} down</span></p><p class="a-title">${esc(i.t)}</p></div>
+      <div class="a-end"><input class="a-in" type="text" maxlength="120" aria-label="Optional note for the notice: ${esc(i.t)}" placeholder="Optional note for the notice" data-note><button class="a-btn a-btn--pri a-btn--s" type="button" data-act="done" data-r="${r}" aria-label="Done: ${esc(i.t)}">Done</button></div></li>`; }).join("")}</ul>` : `<p class="a-none">Nothing in progress.</p>`;
+  }
+  let toastT;
+  const toast = (t) => { const n = q("[data-toast]"); n.textContent = t; n.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { n.hidden = true; }, 5200); };
+  function fly(from, to, after) {
+    const strip = q("[data-strip]"), a = q(`[data-z="${from}"] .a-fan`, strip), b = q(`[data-z="${to}"] .a-fan`, strip);
+    const finish = () => { A.shown = { waiting: A.waiting.length, open: A.open.length, prog: A.prog.length, done: A.done }; renderA(); const n = q(`[data-zn="${to}"]`); if (n) n.classList.add("a-pop"); if (after) after(); };
+    if (!a || !b || quiet() || !strip.animate) { finish(); return; }
+    const s = strip.getBoundingClientRect(), ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const f = document.createElement("span"); f.className = "a-fly"; f.setAttribute("aria-hidden", "true"); strip.appendChild(f);
+    const x0 = ra.left - s.left, y0 = ra.top - s.top, x1 = rb.left - s.left + 8, y1 = rb.top - s.top;
+    const an = f.animate([{ transform: `translate(${x0}px,${y0}px) rotate(0)` }, { transform: `translate(${(x0 + x1) / 2}px,${y0 - 22}px) rotate(-8deg)` }, { transform: `translate(${x1}px,${y1}px) rotate(0)` }], { duration: 620, easing: "cubic-bezier(.3,.7,.2,1)", fill: "forwards" });
+    an.onfinish = () => { f.remove(); finish(); };
+  }
+  const refocus = (id) => { const h = q(id); if (h) h.focus({ preventScroll: true }); };
+  admin.addEventListener("click", (e) => {
+    if (e.target.closest("[data-reset]")) { resetA(); Object.keys(by).forEach((r) => { if (/^NT-1(2[3-6])$/.test(r)) delete by[r]; }); SEED.forEach(([r, , , , , , , s]) => { by[r].s = s || "open"; }); waiting = [{ ...WAIT0[1] }]; renderA(); renderBoards(); toast("Sample data restored."); return; }
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const r = b.dataset.r, act = b.dataset.act;
+    const w = A.waiting.find((x) => x.r === r);
+    if (act === "decline") { A.decl = r; renderA(); const c = q("[data-act='reason']"); if (c) c.focus(); return; }
+    if (act === "cancel") { A.decl = null; renderA(); return; }
+    if (act === "reason" || act === "typed") {
+      const typed = act === "typed" ? b.parentElement.querySelector("[data-typed]").value.trim() : b.dataset.text;
+      if (!typed) { b.parentElement.querySelector("[data-typed]").focus(); return; }
+      A.waiting = A.waiting.filter((x) => x.r !== r); A.decl = null;
+      waiting = waiting.filter((x) => x.r !== r);
+      A.shown.waiting = A.waiting.length; renderA(); renderBoards(); refocus("#apc-aw");
+      toast(`Declined. ${w.who} sees: ${typed}`); say(`Declined ${w.t}.`);
+      return;
+    }
+    if (act === "approve") {
+      A.waiting = A.waiting.filter((x) => x.r !== r); waiting = waiting.filter((x) => x.r !== r);
+      by[r] = { r, t: w.t, p: w.p, a: w.a, team: 0, u: 0, d: 0, s: "open" };
+      A.open = [r, ...A.open]; A.fresh = r;
+      renderA(); renderBoards(); refocus("#apc-aw");
+      toast(`Approved. ${w.t} is on the board.`);
+      fly("waiting", "open", () => { A.fresh = null; });
+      return;
+    }
+    if (act === "start") {
+      const i = by[r]; i.s = "prog"; A.open = A.open.filter((x) => x !== r); A.prog.push(r); A.fresh = r;
+      renderA(); renderBoards(); refocus("#apc-ao");
+      toast(`Started. ${i.t} is in progress.`);
+      fly("open", "prog", () => { A.fresh = null; });
+      return;
+    }
+    if (act === "done") {
+      const i = by[r], note = b.parentElement.querySelector("[data-note]").value.trim();
+      i.s = "done"; A.prog = A.prog.filter((x) => x !== r); A.done += 1;
+      const n = i.u + 1;
+      renderA(); renderBoards(); refocus("#apc-ap");
+      toast(`Done: ${i.t}. Notice sent to ${n} players.${note ? " Note: " + note : ""}`);
+      fly("prog", "done");
+    }
+  });
+  renderA();
+})();
+</script>
+</section>
