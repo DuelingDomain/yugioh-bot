@@ -1650,7 +1650,8 @@ test('field watcher automatic: owner table applies once and Undo removes the ato
     const scale=Math.min(r.width/video.videoWidth,r.height/video.videoHeight),w=video.videoWidth*scale,h=video.videoHeight*scale;
     feed.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+(r.width-w)/2+550/1280*w,clientY:r.top+(r.height-h)/2+301/720*h}));
   });
-  await expect(page.getByTestId('recognition-tray')).toBeVisible();await page.keyboard.press('Escape');
+  // A clear read opens the card at once; any other read opens the tray.
+  await expect(page.getByTestId('card-popover').or(page.getByTestId('recognition-tray')).first()).toBeVisible();await page.keyboard.press('Escape');
   await expect(page.getByTestId('card-popover')).toHaveCount(0);
   await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();await expect(page.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
 });
