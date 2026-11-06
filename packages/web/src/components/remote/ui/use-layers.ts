@@ -36,6 +36,9 @@ export function useLayers() {
     if (!layer) return;
     const frame = requestAnimationFrame(() => {
       const root = document.querySelector<HTMLElement>(`[data-layer="${layer}"]`); if (!root) return;
+      // A layer that opens by itself (a finished card read) does not take the keyboard from a field the person is typing in.
+      const active = document.activeElement;
+      if (active?.matches('input,textarea,select,[contenteditable="true"]') && !active.closest("[data-layer]")) return;
       (root.querySelector<HTMLElement>(FIRST) ?? root.querySelector<HTMLElement>(FOCUSABLE) ?? root).focus({ preventScroll: true });
     });
     function key(event: KeyboardEvent) {

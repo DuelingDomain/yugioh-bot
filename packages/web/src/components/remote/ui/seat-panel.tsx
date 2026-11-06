@@ -31,7 +31,7 @@ export type SeatPanelProps = {
   onDock?: (seat: number, node: HTMLElement | null) => void;
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
-  marks: FeedMark[]; reticles: FeedReticle[]; onBegin: (seat: number, start: FeedStart) => void; onMiss: (seat: number) => void; onSearch: (seat: number, start: FeedStart) => void; onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReset: (seat: number) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
+  marks: FeedMark[]; reticles: FeedReticle[]; onBegin: (seat: number, start: FeedStart) => number; readLive: (id: number) => boolean; onAbort: (seat: number, id: number) => void; onMiss: (seat: number) => void; onSearch: (seat: number, start: FeedStart) => void; onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReset: (seat: number) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; extraZones?: boolean; facing?: { name: string; twin: readonly TwinCard[] } | null; boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[]; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
@@ -113,9 +113,9 @@ export function SeatPanel(p: SeatPanelProps) {
         <span className={s.sig}><i /><i /><i /><i /></span><i className={s.hlt}>{p.health.label}</i>
       </button>
     </header>
-    {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} /> : null}
+    {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${p.webcamOnly ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
         below={p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}

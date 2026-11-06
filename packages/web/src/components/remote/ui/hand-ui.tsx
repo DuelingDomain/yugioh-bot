@@ -63,7 +63,7 @@ export function HandSuggestChip({ suggest }: { suggest: NonNullable<HandProps["s
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) suggest.onDismiss(); };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, [suggest]);
-  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add ${suggest.card.name} to hand?`} data-testid="hand-suggest">
+  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add ${suggest.card.name} to hand?`} title={`Add ${suggest.card.name} to hand?`} data-testid="hand-suggest">
     <span className={s.hchipl}>Add {suggest.card.name} to hand?</span>
     {SUGGEST_SOURCES.map(item => <button type="button" key={item.source} className={s.hchipb} onClick={() => suggest.onAdd(item.source)} data-testid={`hand-suggest-${item.source}`}>{item.label}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={suggest.onReveal} data-testid="hand-suggest-reveal">Reveal</button>

@@ -530,9 +530,11 @@
 .toast b{color:var(--gold-ink)}
 /* Notification stack: recognition prompts, notices and toasts live here, never over a camera image.
    Both views: one stack per seat panel, floating at its top right (draggable, minimizable). Webcam only: the same, at the bottom of that player's seat. */
-.seatDock{position:absolute;right:8px;top:42px;z-index:30;width:min(clamp(204px,30cqw,280px),calc(100% - 16px));max-height:min(62%,420px);display:flex;flex-direction:column;gap:4px;pointer-events:none;overscroll-behavior:contain}
-/* Top right, beside the camera and above the field: no zone or the hand count sits under it, and new content grows away from the header. A card choice needs the full width. */
+.seatDock{--dock-anchor:top;position:absolute;right:8px;top:42px;z-index:30;width:min(clamp(204px,30cqw,280px),calc(100% - 16px));max-height:min(62%,420px);display:flex;flex-direction:column;gap:4px;pointer-events:none;overscroll-behavior:contain}
+/* Top right, above the field: no zone or the hand count sits under it, and new content grows away from the header. In a small seat it can cover the right edge of the camera (about 30 px at 1366x768). A card choice needs the full width. */
 .seatDock:has(.bigTray){width:min(280px,calc(100% - 20px))}
+/* Camera beside the field (4 seats): the top right is the field, so the stack sits over the hand row and LP in the field column. */
+@container seat (min-aspect-ratio:1.55){.seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:calc((100cqw - 26px) * .37);justify-content:flex-end}}
 .seatDock>*{pointer-events:auto}
 .seatDock[data-count="0"]{display:none}
 .ndHead{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 2px;border:1px solid var(--line2);border-radius:8px;background:rgb(20 13 38/.96);font-size:11px;line-height:1.2}
@@ -641,7 +643,7 @@
 /* Every feed gets the same height budget, so a seat with the camera controls row and a seat without it show equal feeds. */
 .seat[data-wc] .feedcol:not(:has(.camsel)){padding-bottom:42px}
 @container seat (max-width:560px){:is(.tag.you,.hlt,.sul){display:none}.vhide{padding:0 6px}.sundo{flex-basis:auto}}
-.seat[data-wc] .seatDock{top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
+.seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 @media (max-width:900px){
   .vlong{display:none}
   .viewseg button{padding:6px 9px}
@@ -651,7 +653,7 @@
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
-  .seatDock{top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
+  .seatDock{--dock-anchor:bottom;top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
@@ -1043,13 +1045,21 @@
 /* A fixed height: the row is the same with no cards, with cards and with more cards than fit. */
 .handrow{flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;height:37px;padding:2px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .handmain{position:relative;display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;height:100%}
-/* The chip floats over the label and cards of the row. A chip too wide for one line grows upward. Phones use the fixed chip below. */
+/* A narrow seat: the chip floats over the label and cards of the row, and a chip too wide for one line grows upward. Phones use the fixed chip below. */
 @media (min-width:701px){
   .handmain>.hchip{position:absolute;left:0;bottom:0;z-index:12;box-sizing:border-box;width:max-content;max-width:100%;min-height:100%;gap:4px;padding:2px 6px;background:#1e1408;box-shadow:0 6px 18px rgb(0 0 0/.55)}
   .handmain>.hchip .hchipl{min-width:0;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .handmain>.hchip .hchipb{max-width:170px;padding:3px 7px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* Camera beside the field: the row is too short for the chip, so it grows left over the camera edge and not up over the zones. */
-  @container seat (min-aspect-ratio:1.55){.handmain>.hchip{left:auto;right:0;max-width:calc(100cqw - 120px)}}
+  /* A wide seat: the chip takes a place in the fixed row in place of the label. The label shortens and the revealed cards stay beside it. */
+  @container seat (min-width:640px) and (max-aspect-ratio:1.55){
+    .handmain:has(>.hchip)>.hlab{display:none}
+    .handmain:has(>.hchip)>.hcards{flex:0 0 60px}
+    .handmain>.hchip{position:static;order:-1;flex:1 1 auto;flex-wrap:nowrap;width:auto;min-width:0}
+    .handmain>.hchip>*{flex:none}
+    .handmain>.hchip>.hchipl{flex:0 1 auto}
+  }
+  /* Camera beside the field: the row is short, so the chip sits beside it over the bottom of the camera. It covers no zone and no revealed card. */
+  @container seat (min-aspect-ratio:1.55){.handmain>.hchip{left:auto;right:calc(100% + 8px);max-width:calc((100cqw - 26px) * .63)}}
 }
 .hlab{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
 .hcards{display:flex;align-items:center;flex:1 1 auto;gap:6px;min-width:0;height:100%;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}

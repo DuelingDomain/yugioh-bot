@@ -64,6 +64,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
     function onKey(event: KeyboardEvent) {
       if (event.target === input.current || event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest('input,textarea,select,[contenteditable="true"]')) return;
       const n = Number(event.key);
       if (n >= 1 && n <= 5 && strip && list[n - 1]) { event.preventDefault(); choose(list[n - 1], found ? "typed" : "click"); }
       else if (!strip) return;

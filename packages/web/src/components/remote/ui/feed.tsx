@@ -79,13 +79,17 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
-  /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
-  onBegin: (seat: number, start: FeedStart) => void;
+  /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
+  onBegin: (seat: number, start: FeedStart) => number | void;
+  /** False once Esc, another layer or a newer click stopped that read. */
+  readLive?: (id: number) => boolean;
+  /** The feed dropped that read itself (for example F froze the frame). */
+  onAbort?: (seat: number, id: number) => void;
   /** A click that found no outlined card. The table reads at that point. */
   onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
-  /** A click found no card (live or on a frozen frame). The table drops the popup it opened at once. */
+  /** A click found no card (live or on a frozen frame). The table clears its mark. */
   onMiss: (seat: number) => void;
   /** The "Search card" link on the no-card note: opens the popup for a manual search at that point. */
   onSearch: (seat: number, start: FeedStart) => void;
@@ -317,11 +321,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       onPoint(seat,p.x,p.y,{anchor:around(p),feed,live:true});return;
     }
     const token = ++run.current; const feed = feedRect(); setMiss(null);
-    onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
-    const frames = await sharpest(p); if (token !== run.current) return;
+    const id = onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
+    const frames = await sharpest(p); if (token !== run.current) { if (id) onAbort?.(seat, id); return; }
     const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
     const found = bitmap ? await detectCards(bitmap) : null;
-    if (token !== run.current) return;
+    if (token !== run.current) { if (id) onAbort?.(seat, id); return; }
+    if (id !== undefined && readLive && !readLive(id)) return;
     // Only a quad that is shaped, sized and confident like a card can be read. Hands, mice and shadows get "No card here".
     const frame = frames[0] ? { w: frames[0].width, h: frames[0].height } : { w: box.width, h: box.height };
     const cards = found?.status === "ready" ? readableCards(toFeedCards(found.cards), frame) : [];
@@ -339,11 +344,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (!f && onPick && onPick(seat, p.x, p.y)) return;
     const cached=!f?hub.trackedAt(seat,p.x,p.y):undefined;
     if(cached){
-      ++run.current;
+      ++run.current; setMiss(null);
       onSelect(seat,{x:p.x,y:p.y,quad:cached.quad,kind:'face-up',confidence:1,refined:true,covered:false,index:0,count:1,anchor:anchorOf(cached.quad),feed:feedRect(),cached});
       return;
     }
-    if (!f && onZoneCard && onZoneCard(seat, { x: p.x, y: p.y, anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() })) return;
+    if (!f && onZoneCard && onZoneCard(seat, { x: p.x, y: p.y, anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() })) { ++run.current; setMiss(null); return; }
     if (!f) { void liveClick(p); return; }
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }

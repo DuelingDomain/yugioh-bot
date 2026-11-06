@@ -65,6 +65,8 @@ const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
 /** The small mark on the camera between a click and the end of the card search. */
 const BEGIN_RETICLE = "begin";
+const FIND_LIMIT_MS = 15_000; // a click search for the card under the pointer
+const READ_LIMIT_MS = 30_000; // a card read, which can wait for a paired phone
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
@@ -320,6 +322,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, []);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
+  /** The read in progress. No popup is open for it, so Esc, another layer and the time limit stop it here. */
+  const inFlight = useRef<{ seat: number; start?: FeedStart; rid?: string; force?: boolean } | null>(null);
+  const cancelRead = useCallback(() => {
+    const read = inFlight.current; if (!read) return;
+    inFlight.current = null; readCounter.current++;
+    reticle(read.seat, null, BEGIN_RETICLE); if (read.rid) reticle(read.seat, null, read.rid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const stopLateRead = useCallback(() => { if (!inFlight.current) return; cancelRead(); toast("The card read did not finish. Click the card again.", 4200); }, [cancelRead, toast]);
 
   /** Where a new card goes on a field: its row, the first free slot and a fresh ref. */
   const layoutFor = (seat: number, cardId: number, found: ReturnType<typeof cardInfo>, current=R.current.room) => {
@@ -413,22 +424,27 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
    * A click landed on a live feed. Nothing opens yet: the camera shows a small mark at the click, and any older popup closes.
    * The notification stack opens only when the read ends with a choice for the person.
    */
-  const beginRead = useCallback((seat: number, start: FeedStart) => {
+  const beginRead = useCallback((seat: number, start: FeedStart): number => {
     // On a closed table no card can be placed, so a read would end with a popup that closes by itself. Say it at once.
     const now = R.current.room;
-    if (now.status !== "active" || now.state.ended) { readCounter.current++; toast("The table is closed. Cards cannot be read here.", 4200); return; }
+    if (now.status !== "active" || now.state.ended) { readCounter.current++; toast("The table is closed. Cards cannot be read here.", 4200); return 0; }
     const id = ++readCounter.current; beginId.current = id;
+    inFlight.current = { seat, start };
+    setTimeout(() => { if (readCounter.current === id) stopLateRead(); }, FIND_LIMIT_MS);
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
     ctx.current = { seat, x: start.x, y: start.y, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}) };
     setTray(null); layers.close("tray"); layers.close("card");
     reticle(seat, { id: BEGIN_RETICLE, x: start.x, y: start.y, state: "reading", text: "Reading…" }, BEGIN_RETICLE);
+    return id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, toast]);
+  const readLive = useCallback((id: number) => readCounter.current === id, []);
+  const abortRead = useCallback((_seat: number, id: number) => { if (readCounter.current === id) cancelRead(); }, [cancelRead]);
 
   /** A click found no card. Nothing opened for it; the feed shows a small "No card here" note. */
   const noCard = useCallback((seat: number) => {
     if (ctx.current?.seat === seat) delete ctx.current.cardRef;
-    readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
+    inFlight.current = null; readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers]);
   /** "Search card" on that note: the popup with only the search box, at the click. */
@@ -441,7 +457,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [layers, name]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
-    reticle(seat, null, BEGIN_RETICLE);
+    reticle(seat, null, BEGIN_RETICLE); inFlight.current = null;
     let hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
@@ -468,10 +484,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
-    // Only a result that needs the person opens the stack, and not over a drawer or pile they opened during the read.
+    inFlight.current = { seat, rid, force: !!found?.force, ...(at.anchor && at.feed ? { start: { x, y, anchor: at.anchor, feed: at.feed } } : {}) };
+    setTimeout(() => { if (readCounter.current === id) stopLateRead(); }, READ_LIMIT_MS);
+    // Only a result that needs the person opens the stack.
     const ask = (next: Omit<TrayState, "seat" | "ownerName" | "at">) => {
-      if (readCounter.current !== id || (R.current.layer && R.current.layer !== "tray" && R.current.layer !== "card")) return;
-      setTray({ seat, ownerName: owner, at, ...next }); layers.open("tray");
+      if (readCounter.current !== id) return;
+      inFlight.current = null; setTray({ seat, ownerName: owner, at, ...next }); layers.open("tray");
     };
     let result: Awaited<ReturnType<typeof hub.read>>;
     try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, (found?.hit?.cached&&!cached?undefined:extra?.frames),found?.force); }
@@ -491,6 +509,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1500);
+      inFlight.current = null;
       void identify({ cardId: top.cardId, name: top.name || cardInfo(top.cardId)?.name || `Card ${top.cardId}`, via: "click" }, "auto");
       return;
     }
@@ -505,6 +524,22 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [hub, identify, layers, name, toast]);
   const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
   useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); } }, [layers.layer, tray]);
+  // Esc stops a read in progress.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") cancelRead(); };
+    window.addEventListener("keydown", onKey, true); return () => window.removeEventListener("keydown", onKey, true);
+  }, [cancelRead]);
+  // Another layer stops it too. A drawer or pile says so, with the search one click away. Closing the card that asked for a new read also stops that read.
+  const lastLayer = useRef(layers.layer);
+  useEffect(() => {
+    const before = lastLayer.current; const now = layers.layer; lastLayer.current = now;
+    const read = inFlight.current; if (before === now || !read) return;
+    if (!now) { if (before === "card" && read.force) cancelRead(); return; }
+    cancelRead();
+    const start = read.start;
+    if (now !== "card" && now !== "tray") toast(start ? <>Card read stopped.<button type="button" data-testid="read-stopped-search" onClick={() => searchHere(read.seat, start)}>Search card</button></> : "Card read stopped.", 6000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layers.layer]);
 
   const addToDeck = async (seat: number, id: number | undefined) => {
     if (!id || !live) return; setAdding(true);
@@ -977,6 +1012,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         const target=trackedRereadTarget(at.ref!,hub.trackedCards(subject.seat),frozen);
         if(target){void startRead(subject.seat,target.x,target.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!,frames:target.frames},force:true,ref:subject.ref});return;}
       }
+      // A card opened from its zone on the camera: read that spot again. It may be a new physical card.
+      if(subject.via==='field'&&subject.ref&&ctx.current?.ref===subject.ref&&ctx.current.seat===subject.seat&&ctx.current.at.anchor&&ctx.current.at.feed){
+        const at=ctx.current;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
+      }
+      const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
+      ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
       layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
     onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
@@ -1093,11 +1134,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
     const card = twinAtPoint(seat, at.x, at.y);
     // The table already knows this card: its details open in both views, with no read.
-    if (card && cardCode(card)) { openSubject(card, false, at.anchor); return true; }
+    if (card && cardCode(card)) {
+      cancelRead(); openSubject(card, false, at.anchor);
+      ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, cardRef: card.ref, ref: card.ref };
+      return true;
+    }
     if (!webcamOnly) return false;
-    if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; openPile(seat, pile, null); return true; }
+    if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
     if (card.faceUp) return false;
-    toast("Set card"); layers.close(); return true;
+    cancelRead(); toast("Set card"); layers.close(); return true;
   };
   /** Webcam only, while a target is picked for an attack: a click on a monster of another seat declares it. */
   const onCamPick = (seat: number, x: number, y: number) => {
@@ -1156,7 +1201,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
-            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
+            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
