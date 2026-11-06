@@ -15,6 +15,7 @@ import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
+import { isThemedListOpen } from "@/components/ui/themed-select";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
 export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[];
@@ -133,6 +134,13 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   useEffect(() => () => { if (missTimer.current) clearTimeout(missTimer.current); }, []);
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
   const phonePointerHandled=useRef(false);
+  // A press on the camera that closes an open themed list only closes it: it starts no card read.
+  // The window's capture phase runs before the list's own document listener closes it. A later press sets this again.
+  const closingPress=useRef(false);
+  useEffect(()=>{
+    const onPress=(event:PointerEvent)=>{closingPress.current=isThemedListOpen()&&!!cam.current?.contains(event.target as Node);};
+    window.addEventListener("pointerdown",onPress,true);return()=>window.removeEventListener("pointerdown",onPress,true);
+  },[]);
   // Webcam only: the name line that follows the pointer over a card.
   // The text changes state; the position follows the pointer through the element, so a move does not render the whole feed.
   const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; flip: boolean } | null>(null);
@@ -343,6 +351,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   }
   function click(event: React.MouseEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
+    if(closingPress.current){closingPress.current=false;return;}
     if(event.detail>0 && phonePointerHandled.current){phonePointerHandled.current=false;return;}
     const p = point(event.clientX, event.clientY); if (!p || !box) return;
     wrap.current?.focus({ preventScroll: true });
@@ -378,12 +387,13 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       else setHover(-1);
       return;
     }
-    if (event.pointerType !== "mouse" || !auto || !source || !p) return;
+    if (event.pointerType !== "mouse" || !auto || !source || !p || isThemedListOpen()) return;
     if (Math.hypot(event.clientX - lastMove.current.x, event.clientY - lastMove.current.y) < 5 && dwell.current) return;
     lastMove.current = { x: event.clientX, y: event.clientY };
     if (dwell.current) clearTimeout(dwell.current);
     dwell.current = setTimeout(() => { dwell.current = null; void freeze(false); }, DWELL_MS);
   }
+  const calmHover = useCallback(() => { setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; } }, []);
   function leave() {
     setHovered(false); setHover(-1); setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
     if (frozenRef.current && !frozenRef.current.pinned) unfreeze("Live feed.");
@@ -483,7 +493,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
-      onPointerDown={event=>{phonePointerHandled.current=false;if(event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
+      onPointerDown={event=>{phonePointerHandled.current=false;if(closingPress.current||event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {
         if (!onCardMenu || !source || event.shiftKey) return;
@@ -498,7 +508,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       <div className={s.grain} />
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
-      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} /> : null}
+      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} onControlsEnter={calmHover} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
 import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
-import { FieldOrientationControls } from "../field-orientation";
+import { FieldOrientationSelect } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration, FieldTrack } from "@yugidraft/vision";
 import s from "./remote-ui.module.css";
@@ -18,7 +18,7 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
  * Off by default (`visible`). While auto-detect waits for my zones, my own feed still draws a default grid with the calibrate controls.
  * With the grid off, only the "Move into one zone" hint stays: it helps recognition.
  */
-export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box: Box | null; visible?:boolean }) {
+export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void }) {
   const grid = useZoneGrid();
   const own = grid.ownSeat === seat;
   const hub=useVideoHub();
@@ -73,8 +73,8 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
 
     </div>
     {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
-    {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36,maxWidth:Math.max(0,box.width-16)}}>
-      <FieldOrientationControls calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration}/>
+    {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
+      <FieldOrientationSelect calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration} onPointerEnter={onControlsEnter}/>
       {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
     </div>:null}
   </>;
