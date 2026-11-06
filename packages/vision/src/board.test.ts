@@ -1179,12 +1179,12 @@ test('a removal hold for a hand, arm or moving shadow is local to the cards it c
 test('a weak white back resting on the mat turns a bound front down; a weak box over plain mat does not',async()=>{
  const undecided=()=>{const w=96,h=140,d=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const e=Math.exp(-(((x-48)/20)**2+((y-70)/28)**2));d.set([150+60*e,150,150-60*e,255],(y*w+x)*4);}return {width:w,height:h,data:d};};
  const front=card(.43,.6,.1,.2),art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255),sleeve=Array(288).fill(.92),mat=Array(288).fill(.2);
- const placed=async()=>{
+ const placed=async(confidence=.2)=>{
   const r=fieldRig('sure',20,undefined,{width:160,height:90});
   r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
   r.outlines=[front];r.appearanceAt=()=>art;for(let i=0;i<12;i++)await r.tick(100);
   const {id,zone}=r.events.find(e=>e.type==='placed')!.track;r.watcher.confirm(id,'A');r.known=[{id,zone,cardId:'A',faceDown:false}];r.events.length=0;
-  r.cropAt=undecided;r.outlines=[{...front,kind:'face-down',confidence:.2,cell:true}];
+  r.cropAt=undecided;r.outlines=[{...front,kind:'face-down',confidence,cell:true}];
   return {r,id};
  };
  const {r,id}=await placed();r.appearanceAt=()=>sleeve;
@@ -1204,6 +1204,12 @@ test('a weak white back resting on the mat turns a bound front down; a weak box 
  // None of these is a back: a weak box over plain mat, glare on a third of the art, a flat dark object, a printed mat with no empty
  // baseline, a hand beside the sleeve, a moving shadow over it.
  const glare=art.map((v,i)=>Math.floor(Math.floor(i/3)/8)<4?.97:v);
+ // A .3 box gets no shortcut: glare, a dark object and a printed mat under it stay fronts.
+ for(const [name,look] of [['.3 glare',glare],['.3 flat dark object',Array(288).fill(.45)],['.3 printed mat',Array(288).fill(.3)]] as const){
+  const {r:other}=await placed(.3);other.appearanceAt=()=>look as number[];
+  for(let i=0;i<25;i++)await other.tick(100);
+  assert.equal(other.events.some(e=>e.type==='flipped'),false,name);other.watcher.dispose();
+ }
  for(const [name,look,extra] of [['plain mat',mat],['glare',glare],['flat dark object',Array(288).fill(.45)],['printed mat',Array(288).fill(.3)],['hand near',sleeve,(x:ReturnType<typeof fieldRig>)=>{x.skinNearAt=()=>.2;}],['moving shadow',sleeve,(x:ReturnType<typeof fieldRig>)=>{x.shadow={share:.4,changed:.4};}]] as const){
   const {r:other}=await placed();other.appearanceAt=()=>look as number[];extra?.(other);
   for(let i=0;i<25;i++)await other.tick(100);

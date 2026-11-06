@@ -424,8 +424,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const originReturn=!!existing&&['deck','hand','extra','graveyard','banished'].includes(existing.zone)&&existing.zone!==location.zone;
       const atomicReveal=!!existing&&!originReturn&&!existing.faceUp&&!track.faceDown&&!!entry;
       if(existing&&!originReturn&&existing.faceUp===track.faceDown){
-        // No write now: the card is in its quiet time, or an Xyz Monster with no clear back. The face check comes back to it.
-        if(!chosen&&!face.current.allows(existing.ref,performance.now())||track.faceDown&&existing.materials?.length&&!fieldStrongBack(track))return;
+        // No write now: the player holds this face, the card is in its quiet time, or an Xyz Monster has no clear back. The face check comes back to it.
+        if(!chosen&&(face.current.held(existing.ref)||!face.current.allows(existing.ref,performance.now()))||track.faceDown&&existing.materials?.length&&!fieldStrongBack(track))return;
         updated=await mutate({type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;
         face.current.flipped(existing.ref,performance.now());
       }
@@ -881,7 +881,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       identity:t=>{const entry=t.cardId?entries.current.get(t.cardId):undefined,code=entry&&catalogCardId(entry);return code?{cardId:code,name:entry!.name}:undefined;}});
   };
   const flipFace=async(act:RoomMutation,{track,card,proposal}:FieldFaceFix)=>{
-    const updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,proposal);if(!updated)return updated;
+    const updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,proposal,!!card.faceUp&&!!card.materials?.length);if(!updated)return updated;
     if(card.faceUp===track.faceDown)face.current.flipped(card.ref,performance.now());
     if(!track.faceDown)watch.confirm(track.id,track.cardId,card.ref,false);
     rememberPhysical(card.ref,track.zone);

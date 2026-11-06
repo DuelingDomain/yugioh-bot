@@ -751,7 +751,7 @@ it('the board follows a resting track of the other face with one flip; a weak or
  expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},up,0,{cardId:89194033,name:'Apophis'})).toMatchObject({faceUp:true,cardId:89194033,name:'Apophis',source:'auto'});
 });
 it('the face check waits on still frames, limits repeated flips, keeps the player\'s hold and binds by ref only',async()=>{
- const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS}=await import('../src/lib/remote/field-face');
+ const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS,FIELD_FACE_CALM_MS}=await import('../src/lib/remote/field-face');
  const {fieldFaceProposal,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
  const track=(over:object={})=>({id:'c',state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:0,restSince:0,revision:1,card:{confidence:.2},...over}) as any;
  const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
@@ -764,6 +764,11 @@ it('the face check waits on still frames, limits repeated flips, keeps the playe
  check=createFieldFaceCheck();check.flipped('c',0);check.flipped('c',1300);
  expect(run(check,track(),up,5000)).toEqual([]);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS-1)).toEqual([]);
  expect(run(check,track(),up,5000,true)).toHaveLength(1);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS+700)).toHaveLength(1);
+ // Steady glare: a second pair within a minute stops flips until the track rests in one face.
+ check=createFieldFaceCheck();for(const at of [0,1300,12_000,13_300])check.flipped('c',at);
+ expect(check.allows('c',50_000)).toBe(false);expect(run(check,track(),up,50_000)).toEqual([]);expect(run(check,track({faceDown:false,cardId:'a'}),up,52_000)).toEqual([]);
+ expect(run(check,track(),up,53_000)).toEqual([]);expect(run(check,track(),up,53_000+FIELD_FACE_CALM_MS-1)).toEqual([]);expect(run(check,track(),up,53_000+FIELD_FACE_CALM_MS)).toHaveLength(1);
+ check=createFieldFaceCheck();for(const at of [0,1300,12_000,13_300])check.flipped('c',at);expect(run(check,track(),up,20_000,true)).toHaveLength(1);expect(check.allows('c',20_000)).toBe(true);
  // The player set the card down while the camera says up: a false down for a moment does not end the hold, a resting change does.
  check=createFieldFaceCheck();check.hold('c',false);const front=track({faceDown:false,cardId:'a'});
  expect(run(check,front,down,1000)).toEqual([]);expect(run(check,track(),down,1100)).toEqual([]);
@@ -788,6 +793,11 @@ it('the face check waits on still frames, limits repeated flips, keeps the playe
  const act=vi.fn(async(p:any,id?:string)=>{if(p.type==='twin.flip'){now={...front,revision:2};return {state:{undo:{actionId:id}}} as any;}return {state:{undo:null}} as any;});
  expect(await applyFieldFaceFlip(front,()=>now,act,reveal)).toBeNull();expect(act.mock.calls.map(([p])=>p.type)).toEqual(['twin.flip','undo']);
  act.mockClear();expect(await applyFieldFaceFlip(front,()=>now,act,reveal)).toBeNull();expect(act).not.toHaveBeenCalled();
+ // A stale flip down that sent materials to the GY is undone too; a plain one stays for the check to settle.
+ const flipDown=fieldFaceProposal(up,track(),0)!;let later=track();
+ const actDown=vi.fn(async(p:any,id?:string)=>{if(p.type==='twin.flip'){later=track({revision:2});return {state:{undo:{actionId:id}}} as any;}return {state:{undo:null}} as any;});
+ expect(await applyFieldFaceFlip(track(),()=>later,actDown,flipDown,true)).toBeNull();expect(actDown.mock.calls.map(([p])=>p.type)).toEqual(['twin.flip','undo']);
+ actDown.mockClear();later=track();expect(await applyFieldFaceFlip(track(),()=>later,actDown,flipDown)).toBeNull();expect(actDown.mock.calls.map(([p])=>p.type)).toEqual(['twin.flip']);
 });
 it('camera writes retry with the same action key and expose a final failure',async()=>{
  const {retryFieldMutation}=await import('../src/lib/remote/field-proposals');
