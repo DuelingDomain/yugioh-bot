@@ -63,7 +63,7 @@ export function HandSuggestChip({ suggest }: { suggest: NonNullable<HandProps["s
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="dialog"]')) suggest.onDismiss(); };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, [suggest]);
-  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add ${suggest.card.name} to hand?`} data-testid="hand-suggest">
+  return <div className={s.hchip} role="group" aria-live="polite" aria-label={`Add ${suggest.card.name} to hand?`} title={`Add ${suggest.card.name} to hand?`} data-testid="hand-suggest">
     <span className={s.hchipl}>Add {suggest.card.name} to hand?</span>
     {SUGGEST_SOURCES.map(item => <button type="button" key={item.source} className={s.hchipb} onClick={() => suggest.onAdd(item.source)} data-testid={`hand-suggest-${item.source}`}>{item.label}</button>)}
     <button type="button" className={`${s.hchipb} ${s.hchipo}`} onClick={suggest.onReveal} data-testid="hand-suggest-reveal">Reveal</button>
@@ -89,13 +89,15 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const fresh = useFresh(hand.cards);
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
   const { count, onCount } = hand;
-  // The webcam overlay stays out of the feed until there is something to show.
-  if (!hand.cards.length && !hand.search && !hand.suggest && (hand.overlay || count === undefined)) return null;
+  // The webcam overlay stays out of the feed until there is something to show. Under the board the row is always there, so a card arriving does not move the camera.
+  if (hand.overlay && !hand.cards.length && !hand.search && !hand.suggest) return null;
+  const chip = hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
-    {hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null}
-    <div className={s.hrow}>
+    {hand.overlay ? chip : null}
+    <div className={s.handrow}>
+      <div className={s.handmain}>
       <span className={s.hlab}>Revealed in hand</span>
-      <ul className={s.hcards}>
+      <ul className={s.hcards} onWheel={event => { event.currentTarget.scrollLeft += event.deltaY; }}>
         {hand.cards.map(card => <li key={card.id} className={fresh.has(card.id) ? s.hfresh : undefined}>
           <button type="button" className={s.hcard} onClick={() => { setLook(null); hand.onInspect(card); }} onMouseEnter={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setLook(null)} onFocus={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onBlur={() => setLook(null)} data-testid="hand-card">
             <img src={cardArt(card.cardId, "small")} alt="" draggable={false} />
@@ -104,6 +106,9 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
         </li>)}
         {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
       </ul>
+      {/* Floats over this part of the row (see .handmain>.hchip), so it does not move the camera and the hand count stays free. */}
+      {hand.overlay ? null : chip}
+      </div>
       {count !== undefined || onCount ? <span className={s.hcount} data-testid={`hand-count-${seat}`}>
         {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
         <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>

@@ -1,34 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
 type Offset = { dx: number; dy: number };
-const KEY = (seat: number) => `dd-remote-notify-pos:${seat}`;
-const readOffset = (seat: number): Offset => {
-  try { const value = JSON.parse(localStorage.getItem(KEY(seat)) ?? "null"); if (value && Number.isFinite(value.dx) && Number.isFinite(value.dy)) return { dx: value.dx, dy: value.dy }; } catch { /* no storage */ }
+// One saved offset per anchor: an offset from the top of the seat means nothing from its bottom. The CSS names the anchor in --dock-anchor.
+const KEY = (seat: number, anchor: string) => `dd-remote-notify-pos2:${seat}:${anchor}`;
+const anchorOf = (node: HTMLElement) => getComputedStyle(node).getPropertyValue("--dock-anchor").trim() || "top";
+const readOffset = (seat: number, anchor: string): Offset => {
+  try { const value = JSON.parse(localStorage.getItem(KEY(seat, anchor)) ?? "null"); if (value && Number.isFinite(value.dx) && Number.isFinite(value.dy)) return { dx: value.dx, dy: value.dy }; } catch { /* no storage */ }
   return { dx: 0, dy: 0 };
 };
 
 /**
- * The notification stack of one seat: recognition prompts, notices and toasts for that player sit here, beside their own virtual field.
+ * The notification stack of one seat: recognition prompts, notices and toasts for that player sit here, floating above the seat layout.
+ * It is out of flow on every path (appear, update, hide, reset), so it cannot move the camera or the field.
  * A header (shown only while something is waiting) holds the drag handle, a minimize button that leaves a small chip with a count, and a reset.
  * Content is portaled into `data-notify-slot`; the position is kept per device.
  */
-export function NotifyDock({ seat, onSlot }: { seat: number; onSlot: (seat: number, node: HTMLElement | null) => void }) {
+export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat: number, node: HTMLElement | null) => void; /** Changes when the seat layout changes, so the stack is placed again. */ view: string }) {
   const root = useRef<HTMLDivElement>(null); const slot = useRef<HTMLDivElement | null>(null);
   const [count, setCount] = useState(0); const [open, setOpen] = useState(true); const [offset, setOffset] = useState<Offset>({ dx: 0, dy: 0 });
   const drag = useRef<{ x: number; y: number; from: Offset } | null>(null);
   const setSlot = useCallback((node: HTMLDivElement | null) => { slot.current = node; onSlot(seat, node); }, [onSlot, seat]);
-  useEffect(() => { setOffset(readOffset(seat)); }, [seat]);
+  // The position the person chose, and the position shown. The second is the first kept inside the seat.
+  const wanted = useRef<Offset>({ dx: 0, dy: 0 }); const shown = useRef(offset); shown.current = offset; const anchor = useRef<string | null>(null); const shownCount = useRef(0);
   useEffect(() => {
     const node = slot.current; if (!node) return;
-    const update = () => setCount(Array.from(node.children).reduce((sum, child) => sum + (child.getAttribute("data-testid") === "toasts" ? child.childElementCount : child.textContent ? 1 : 0), 0));
-    update(); const observer = new MutationObserver(update); observer.observe(node, { childList: true, subtree: true, characterData: true });
+    const read = () => Array.from(node.children).reduce((sum, child) => sum + (child.getAttribute("data-testid") === "toasts" ? child.childElementCount : child.textContent ? 1 : 0), 0);
+    shownCount.current = read(); setCount(shownCount.current);
+    // Applied before the next paint: the header never shows for a frame with an empty stack.
+    const observer = new MutationObserver(() => { const next = read(); if (next === shownCount.current) return; shownCount.current = next; flushSync(() => setCount(next)); }); observer.observe(node, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, []);
-  const save = (next: Offset) => { setOffset(next); try { localStorage.setItem(KEY(seat), JSON.stringify(next)); } catch { /* no storage */ } };
+  const save = (next: Offset) => { wanted.current = next; setOffset(next); const node = root.current; try { localStorage.setItem(KEY(seat, node ? anchorOf(node) : "top"), JSON.stringify(next)); } catch { /* no storage */ } };
   // Keep the whole stack inside the seat panel.
   const clamp = (next: Offset, base: Offset): Offset => {
     const node = root.current; const area = node?.parentElement; if (!node || !area) return next;
@@ -38,6 +45,20 @@ export function NotifyDock({ seat, onSlot }: { seat: number; onSlot: (seat: numb
     const dy = Math.min(Math.max(my, bounds.top + 4 - box.top), bounds.bottom - 4 - box.bottom) + base.dy;
     return { dx, dy };
   };
+  // Runs before paint when the content, the view or the seat size changes: a new anchor loads its own offset, and the header never leaves the seat.
+  const place = useRef(() => {}); place.current = () => {
+    const node = root.current; if (!node || drag.current) return;
+    const now = anchorOf(node); if (anchor.current !== now) { anchor.current = now; wanted.current = readOffset(seat, now); }
+    if (getComputedStyle(node).display === "none") { setOffset(old => old.dx === wanted.current.dx && old.dy === wanted.current.dy ? old : wanted.current); return; }
+    const next = clamp(wanted.current, shown.current);
+    setOffset(old => Math.abs(old.dx - next.dx) < .5 && Math.abs(old.dy - next.dy) < .5 ? old : next);
+  };
+  useLayoutEffect(() => { place.current(); }, [count, open, view, seat]);
+  useLayoutEffect(() => {
+    const node = root.current; const area = node?.parentElement; if (!node || !area || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => place.current()); observer.observe(node); observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
   const down = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { x: event.clientX, y: event.clientY, from: offset };

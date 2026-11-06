@@ -127,7 +127,7 @@
 .seat.next .tag.nextt{display:inline-block}
 .micI{display:none;color:#1b1204;background:var(--gold);width:20px;height:20px;border-radius:50%;place-items:center}
 .seat.speak .micI{display:grid}
-.sundo{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:min(300px,52%);height:28px;padding:0 10px;border-radius:7px;border:1.5px solid var(--gold);background:linear-gradient(180deg,rgb(232 185 79/.22),rgb(232 185 79/.09));color:var(--gold-ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.sundo{display:inline-flex;align-items:center;gap:6px;flex:0 1 26cqw;min-width:0;max-width:min(300px,52%);height:28px;padding:0 10px;border-radius:7px;border:1.5px solid var(--gold);background:linear-gradient(180deg,rgb(232 185 79/.22),rgb(232 185 79/.09));color:var(--gold-ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
 .sundo .ic{width:15px;height:15px;flex:none}
 .sundo .sul{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sundo:hover:not(:disabled){background:var(--gold);color:#1b1204}
@@ -529,16 +529,20 @@
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
 /* Notification stack: recognition prompts, notices and toasts live here, never over a camera image.
-   Both views: one stack per seat panel, beside that player's own virtual field (draggable, minimizable). Webcam only: the same, beside that player's own feed. */
-.seatDock{position:absolute;right:10px;bottom:76px;z-index:30;width:min(280px,calc(100% - 20px));max-height:min(62%,420px);display:flex;flex-direction:column;justify-content:flex-end;gap:4px;pointer-events:none;overscroll-behavior:contain}
+   Both views: one stack per seat panel, floating at its top right (draggable, minimizable). Webcam only: the same, at the bottom of that player's seat. */
+.seatDock{--dock-anchor:top;position:absolute;right:8px;top:42px;z-index:30;width:min(clamp(204px,30cqw,280px),calc(100% - 16px));max-height:min(62%,420px);display:flex;flex-direction:column;gap:4px;pointer-events:none;overscroll-behavior:contain}
+/* Top right, above the field: no zone or the hand count sits under it, and new content grows away from the header. In a small seat it can cover the right edge of the camera (about 30 px at 1366x768). A card choice needs the full width. */
+.seatDock:has(.bigTray){width:min(280px,calc(100% - 20px))}
+/* Camera beside the field (4 seats): the top right is the field, so the stack sits over the hand row and LP in the field column. */
+@container seat (min-aspect-ratio:1.55){.seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:calc((100cqw - 26px) * .37);justify-content:flex-end}}
 .seatDock>*{pointer-events:auto}
 .seatDock[data-count="0"]{display:none}
-.ndHead{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 2px;border:1px solid var(--line2);border-radius:8px;background:rgb(20 13 38/.96);font-size:11px;line-height:1.2}
+.ndHead{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 2px;border:1px solid var(--line2);border-radius:8px;background:rgb(20 13 38/.96);font-size:11px;line-height:1.2}
 .ndGrip{display:grid;place-items:center;width:22px;height:22px;flex:none;padding:0;border:0;border-radius:5px;background:transparent;color:var(--ink2);cursor:grab;touch-action:none}
 .ndGrip:active{cursor:grabbing}.ndGrip .ic{width:14px;height:14px}
-.ndTitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gold-ink);font-weight:700;letter-spacing:.04em}
+.ndTitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--gold-ink);font-weight:700}
 .ndCount{flex:none;min-width:18px;padding:1px 6px;border-radius:9px;background:var(--gold);color:#1b1204;font-weight:700;text-align:center}
-.ndBtn{flex:none;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:5px;background:var(--p2);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.ndBtn{flex:none;height:22px;padding:0 5px;border:1px solid var(--line2);border-radius:5px;background:var(--p2);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
 .ndBtn:hover{border-color:var(--pen)}
 .ndSlot{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto}
 .ndSlot[hidden]{display:none}
@@ -638,8 +642,8 @@
 @container seat (max-width:760px){.vhide kbd{display:none}}
 /* Every feed gets the same height budget, so a seat with the camera controls row and a seat without it show equal feeds. */
 .seat[data-wc] .feedcol:not(:has(.camsel)){padding-bottom:42px}
-@container seat (max-width:560px){:is(.tag.you,.hlt,.sul){display:none}.vhide{padding:0 6px}}
-.seat[data-wc] .seatDock{bottom:8px;max-height:min(34%,240px)}
+@container seat (max-width:560px){:is(.tag.you,.hlt,.sul){display:none}.vhide{padding:0 6px}.sundo{flex-basis:auto}}
+.seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 @media (max-width:900px){
   .vlong{display:none}
   .viewseg button{padding:6px 9px}
@@ -649,7 +653,7 @@
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
-  .seatDock{bottom:12px;max-height:46%}
+  .seatDock{--dock-anchor:bottom;top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
@@ -699,7 +703,7 @@
   .rail{position:sticky;bottom:var(--dockh,128px);z-index:35;display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"tb back pass" "ph ph ph";gap:6px 8px;align-items:center;min-height:0;margin:0;padding:8px 10px;border-radius:12px 12px 0 0;border-width:1px 0 0}
   .tbox{grid-area:tb;min-width:0;overflow:hidden;gap:9px;padding-right:0;border-right:0}.tbox .pip{width:12px;height:12px}.order{display:none}
   .pass{grid-area:pass;height:38px;padding:0 12px;font-size:13px}.pass>span:last-child{display:none}.pback{grid-area:back;height:38px;padding:0 10px;font-size:12px}
-  .tn{min-width:0}.tbox .tn b{max-width:none;font-size:17px}.tbox .tn{gap:4px}.pconfirm{left:0;right:0;transform:none;white-space:normal;flex-wrap:wrap}.sundo{max-width:46%}
+  .tn{min-width:0}.tbox .tn b{max-width:none;font-size:17px}.tbox .tn{gap:4px}.pconfirm{left:0;right:0;transform:none;white-space:normal;flex-wrap:wrap}.sundo{flex-basis:auto;max-width:46%}
   .phases{grid-area:ph;padding:0;gap:4px}
   .phases::before{display:none}
   .phases li{flex:1;min-width:0}
@@ -1037,19 +1041,37 @@
 .hchipo{color:var(--ink2)}
 .hchipx{display:grid;place-items:center;width:24px;height:24px;border:0;background:transparent;color:var(--ink3);cursor:pointer;border-radius:6px}
 .hchipx:hover{color:var(--ink)}
-.hstrip{display:flex;flex-direction:column;gap:6px;min-width:0}
-.hrow{display:flex;align-items:center;gap:8px;min-width:0}
+.hstrip{flex:none;display:flex;flex-direction:column;gap:6px;min-width:0}
+/* A fixed height: the row is the same with no cards, with cards and with more cards than fit. */
+.handrow{flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;height:37px;padding:2px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.handmain{position:relative;display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;height:100%}
+/* A narrow seat: the chip floats over the label and cards of the row, and a chip too wide for one line grows upward. Phones use the fixed chip below. */
+@media (min-width:701px){
+  .handmain>.hchip{position:absolute;left:0;bottom:0;z-index:12;box-sizing:border-box;width:max-content;max-width:100%;min-height:100%;gap:4px;padding:2px 6px;background:#1e1408;box-shadow:0 6px 18px rgb(0 0 0/.55)}
+  .handmain>.hchip .hchipl{min-width:0;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .handmain>.hchip .hchipb{max-width:170px;padding:3px 7px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* A wide seat: the chip takes a place in the fixed row in place of the label. The label shortens and the revealed cards stay beside it. */
+  @container seat (min-width:640px) and (max-aspect-ratio:1.55){
+    .handmain:has(>.hchip)>.hlab{display:none}
+    .handmain:has(>.hchip)>.hcards{flex:0 0 60px}
+    .handmain>.hchip{position:static;order:-1;flex:1 1 auto;flex-wrap:nowrap;width:auto;min-width:0}
+    .handmain>.hchip>*{flex:none}
+    .handmain>.hchip>.hchipl{flex:0 1 auto}
+  }
+  /* Camera beside the field: the row is short, so the chip sits beside it over the bottom of the camera. It covers no zone and no revealed card. */
+  @container seat (min-aspect-ratio:1.55){.handmain>.hchip{left:auto;right:calc(100% + 8px);max-width:calc((100cqw - 26px) * .63)}}
+}
 .hlab{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
-.hcards{display:flex;flex:1 1 auto;gap:6px;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto}
+.hcards{display:flex;align-items:center;flex:1 1 auto;gap:6px;min-width:0;height:100%;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
 .hcards li{flex:none}
 .hnone{font-size:12px;color:var(--ink3)}
-.hcard{display:flex;align-items:center;gap:7px;max-width:230px;padding:3px 8px 3px 3px;border:1px solid var(--line);border-radius:8px;background:var(--p1);color:var(--ink);text-align:left;cursor:pointer}
+.hcard{display:flex;align-items:center;gap:7px;max-width:230px;height:32px;padding:1px 8px 1px 1px;border:1px solid var(--line);border-radius:8px;background:var(--p1);color:var(--ink);text-align:left;cursor:pointer}
 .hcard:hover,.hcard:focus-visible{border-color:var(--c,var(--gold-ink,#e8b94f))}
-.hcard img{width:26px;height:38px;object-fit:cover;border-radius:3px;flex:none}
+.hcard img{width:20px;height:28px;object-fit:cover;border-radius:3px;flex:none}
 .hcard span{display:flex;flex-direction:column;min-width:0}
-.hcard b{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hcard small{font-size:10.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hfresh .hcard{animation:hpop .5s var(--ease);box-shadow:0 0 0 2px var(--gold-ink,#e8b94f),0 0 18px rgb(232 185 79/.55)}
+.hcard b{font-size:12px;line-height:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcard small{font-size:10.5px;line-height:13px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hfresh .hcard{animation:hpop .5s var(--ease);box-shadow:inset 0 0 0 2px var(--gold-ink,#e8b94f)}
 @keyframes hpop{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
 .hcount{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2)}
 .hcount button{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--p1);color:var(--ink);cursor:pointer;line-height:1}

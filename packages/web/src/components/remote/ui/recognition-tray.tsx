@@ -9,7 +9,7 @@ import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
 
 export type TrayState = {
-  seat: number; ownerName: string; status: "reading" | "guesses" | "empty" | "sure";
+  seat: number; ownerName: string; status: "guesses" | "empty";
   guesses: Guess[]; note: string; reader: string; at: PopAt;
   /** How sure the local reader was, and the kept crop for an optional AI second opinion (own camera reads only). */
   tier?: Tier; aiToken?: number; covered?: boolean; faceDown?: boolean;
@@ -23,7 +23,7 @@ import type { FeedbackSource } from "./recognizer";
 export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voice"; feedback?: FeedbackSource };
 
 /**
- * The popup for a card that was just clicked on a feed. It opens at once with a skeleton, then shows the large card,
+ * The popup for a card that was clicked on a feed and needs a choice. It opens only after the read ends, and shows the large card,
  * its full text and tier. When the reader is not sure, a slim strip of the top 5 guesses lets the person choose:
  * keys 1-5 pick, arrows move the preview, Enter picks the previewed card, typing searches the whole catalog.
  */
@@ -57,15 +57,14 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
   const list = found ?? base;
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
   const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via, feedback: g.source === "ai" ? "ai" : found ? "search" : "pick" });
-  const reading = tray.status === "reading";
-  const placing = tray.status === "sure";
   const current = list[Math.min(cursor, list.length - 1)];
   const alone = !!tray.best && !wrong && found === null;
-  const strip = !reading && !placing && !alone && (found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
+  const strip = !alone && (found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.target === input.current || event.ctrlKey || event.metaKey || event.altKey || reading || placing) return;
+      if (event.target === input.current || event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest('input,textarea,select,[contenteditable="true"]')) return;
       const n = Number(event.key);
       if (n >= 1 && n <= 5 && strip && list[n - 1]) { event.preventDefault(); choose(list[n - 1], found ? "typed" : "click"); }
       else if (!strip) return;
@@ -76,21 +75,15 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
     document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey);
   });
 
-  const ownerLine = `${tray.ownerName}'s field cam`;
   const info = current ? cardInfo(current.cardId) : undefined;
-  const label = reading ? "Reading card" : placing ? "Card found" : "Which card is this?";
-  return <PopupFrame dock={dock} at={tray.at} layer="tray" label={label} busy={reading || placing} testid="recognition-tray" className={s.bigTray}>
+  return <PopupFrame dock={dock} at={tray.at} layer="tray" label="Which card is this?" testid="recognition-tray" className={s.bigTray}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close without choosing" onClick={onClose}><Icon name="x" /></button>
-    <BigArt id={reading || !current ? null : current.cardId} reading={reading} label={reading ? undefined : "No card to show"} />
+    <BigArt id={current?.cardId ?? null} label="No card to show" />
     <div className={s.bmain}>
-      {reading ? <div className={s.bsk} role="status" data-testid="popup-reading">
-        <b className={s.skbig}>Reading card…</b><i className={s.skline} style={{ width: "58%" }} /><i className={s.skline} style={{ width: "84%" }} />
-        <i className={s.skline} /><i className={s.skline} style={{ width: "92%" }} /><i className={s.skline} style={{ width: "46%" }} />
-        <small>Looking at the sharpest frame of {ownerLine}</small>
-      </div> : current ? <>
+      {current ? <>
         <CardText id={current.cardId} info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
           <div className={s.bchips}>
-            {found ? <span className={s.tier}>Search result</span> : alone ? <span className={s.tier} data-testid="best-match">Best match</span> : placing || current === list[0] ? <TierChip tier={tray.tier} /> : null}
+            {found ? <span className={s.tier}>Search result</span> : alone ? <span className={s.tier} data-testid="best-match">Best match</span> : current === list[0] ? <TierChip tier={tray.tier} /> : null}
             {tray.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
             {current.source === "ai" ? <span className={s.tier}>AI second opinion</span> : null}
             {inDeck(current.cardId) === false ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span> : null}
@@ -112,12 +105,12 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
       {ai.note ? <p className={s.bnote} role="status" data-testid="ask-ai-note">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</p> : null}
     </div>
     <div className={s.bbar}>
-      <span className={s.bhint}>{reading ? <>Press <kbd>Esc</kbd> to cancel</> : placing ? "Placing on the field…" : alone ? <><kbd>Enter</kbd> confirm · <kbd>Esc</kbd></> : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
+      <span className={s.bhint}>{alone ? <><kbd>Enter</kbd> confirm · <kbd>Esc</kbd></> : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
       <span className={s.sp} />
       {canAsk ? <span data-testid="ask-ai-row"><button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button></span> : null}
-      {alone && !reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setWrong(true)} data-testid="wrong-card">Wrong card?</button> : null}
-      {!reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button> : null}
-      {!reading && !placing && current ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={() => choose(current, found ? "typed" : "click")} data-testid="confirm-card"><Icon name="check" />This is it</button> : null}
+      {alone ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setWrong(true)} data-testid="wrong-card">Wrong card?</button> : null}
+      <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button>
+      {current ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={() => choose(current, found ? "typed" : "click")} data-testid="confirm-card"><Icon name="check" />This is it</button> : null}
     </div>
   </PopupFrame>;
 }

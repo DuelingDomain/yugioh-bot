@@ -70,12 +70,12 @@ export function PopupFrame({ at, layer, label, busy, testid, className, dock, ch
   return dock ? createPortal(frame, dock) : frame;
 }
 
-/** The large card picture. `id` null shows the shimmer while the reader works. */
-export function BigArt({ id, label, reading }: { id: number | null; label?: string; reading?: boolean }) {
+/** The large card picture. `id` null shows the empty frame. */
+export function BigArt({ id, label }: { id: number | null; label?: string }) {
   const [broken, setBroken] = useState<number | null>(null);
   const bad = id !== null && broken === id;
-  return <div className={`${s.bigart} ${id === null ? s.bigartSk : ""}`} aria-hidden={id === null && !reading ? true : undefined}>
-    {id === null ? <div className={s.skart}><div className={s.skshine} />{reading ? <span className={s.skread}><i />Reading card…</span> : <span className={s.skread}><Icon name="cam" />{label ?? "No card"}</span>}</div>
+  return <div className={`${s.bigart} ${id === null ? s.bigartSk : ""}`} aria-hidden={id === null ? true : undefined}>
+    {id === null ? <div className={s.skart}><div className={s.skshine} /><span className={s.skread}><Icon name="cam" />{label ?? "No card"}</span></div>
       : bad ? <div className={s.skart}><span className={s.skread}>{label ?? "Art unavailable"}</span></div>
       : <img key={id} src={cardArt(id, "full")} alt={label ?? ""} onError={() => setBroken(id)} data-testid="big-art" />}
   </div>;
