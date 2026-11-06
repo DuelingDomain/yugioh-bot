@@ -5,6 +5,9 @@ import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
 import { pickSelect } from "../helpers/themed-select";
 
+// The table hides the virtual field by default. These tests use the board, so a browser with no saved choice starts in Both view.
+test.beforeEach(async ({ context }) => { await context.addInitScript(() => { if (localStorage.getItem("dd-remote-webcam-only") === null) localStorage.setItem("dd-remote-webcam-only", "0"); }); });
+
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
 const FRAME = process.env.E2E_FAKE_FRAME ? readFileSync(process.env.E2E_FAKE_FRAME).toString("base64") : "";
@@ -391,7 +394,7 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("reticle")).toHaveCount(0);
   });
 
-  test("zone grid on my camera: on by default with a Calibrate link, follows the video through a swap, the toggle is remembered", async ({ page, context }) => {
+  test("zone grid on my camera: shown while the zones need calibration, with a Calibrate link, follows the video through a swap, the toggle is off by default and remembered", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
@@ -426,16 +429,17 @@ test.describe("remote duels screen, solo", () => {
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
     await expect(dialog).toBeHidden();
-    // Off stays off on this device; the opponent feed starts without a grid.
+    // The toggle starts off, and on stays on for this device; the opponent feed starts without a grid.
     const toggle = page.getByTestId("zone-grid-toggle").first();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("feed-box-0").hover();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await toggle.click();
-    await expect(grid).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await page.reload();
     await page.getByTestId("camera-on-feed").click();
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
-    await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "false");
-    await expect(grid).toHaveCount(0);
+    await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
+    await expect(grid).toBeVisible();
     await expect(page.locator('[data-testid="feed-1"] [data-testid="zone-grid"]')).toHaveCount(0);
   });
 
@@ -723,6 +727,8 @@ test.describe("remote lobby camera step", () => {
     const status = page.getByTestId("field-watcher-status");
     // Only a state after the record was read with the camera on can show a missing calibration.
     await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Watcher unavailable|Paused · busy)$/, { timeout: 30_000 });
+    // With the zones calibrated, the grid shows only when the player turns it on.
+    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-toggle").first().click();
     const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
     await expect(tableGrid.first()).toBeVisible();
     const tableCells = await cells('[data-testid="zone-grid"][data-calibrated="true"] polygon', 1);

@@ -84,13 +84,22 @@ function HandPreview({ card, box }: { card: KnownHandCard; box: DOMRect }) {
   </div>, host);
 }
 
+/** The public hand count. Only the owner seat gets the minus and plus buttons. */
+export function HandCount({ seat, hand: { count, onCount } }: { seat: number; hand: HandProps }) {
+  if (count === undefined && !onCount) return null;
+  return <span className={s.hcount} data-testid={`hand-count-${seat}`}>
+    {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
+    <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>
+    {onCount ? <button type="button" onClick={() => onCount(1)} aria-label="Hand plus one">+</button> : null}
+  </span>;
+}
+
 /** "Revealed in hand": mini arts of the cards everybody knows are in this hand, and the hand count. */
 export function HandStrip({ seat, name, hand }: { seat: number; name: string; hand: HandProps }) {
   const fresh = useFresh(hand.cards);
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
-  const { count, onCount } = hand;
-  // The webcam overlay stays out of the feed until there is something to show.
-  if (!hand.cards.length && !hand.search && !hand.suggest && (hand.overlay || count === undefined)) return null;
+  // The webcam overlay stays out of the feed until there is something to show. Webcam only keeps the hand count beside the feed.
+  if (!hand.cards.length && !hand.search && !hand.suggest && (hand.overlay || hand.count === undefined)) return null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
     {hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null}
     <div className={s.hrow}>
@@ -104,11 +113,7 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
         </li>)}
         {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
       </ul>
-      {count !== undefined || onCount ? <span className={s.hcount} data-testid={`hand-count-${seat}`}>
-        {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
-        <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>
-        {onCount ? <button type="button" onClick={() => onCount(1)} aria-label="Hand plus one">+</button> : null}
-      </span> : null}
+      {hand.overlay ? null : <HandCount seat={seat} hand={hand} />}
     </div>
     {look ? <HandPreview card={look.card} box={look.box} /> : null}
   </div>;

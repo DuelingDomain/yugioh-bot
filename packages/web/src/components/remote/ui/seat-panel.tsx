@@ -10,7 +10,7 @@ import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, typ
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
-import { HandStrip, type HandProps } from "./hand-ui";
+import { HandCount, HandStrip, type HandProps } from "./hand-ui";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -43,7 +43,7 @@ export type SeatPanelProps = {
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
   undo?: SeatUndo;
-  /** The virtual field is hidden. The camera feed takes its space. */ webcamOnly?: boolean;
+  /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
   /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** Camera card info for webcam only (click and hover), and the card actions on right click or long press (always). Same shapes as on the feed. */
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
@@ -103,9 +103,9 @@ export function SeatPanel(p: SeatPanelProps) {
         aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${p.undo.reason ? p.undo.reason + ". " : ""}Shortcut Ctrl Z` : "Nothing to undo"}
         title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
         <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
-      {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
-        title={p.webcamOnly ? "Show the virtual fields again (W)" : "Hide the virtual fields. The camera takes the screen (W)"}>
-        {p.webcamOnly ? "Show virtual field" : "Hide virtual field"} <kbd>W</kbd></button> : null}
+      {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W" aria-label={`${p.webcamOnly ? "Show" : "Hide"} virtual field, beta`}
+        title={p.webcamOnly ? "Show the virtual fields (beta) (W). Card recognition does not need them." : "Hide the virtual fields (beta). The camera takes the screen (W)"}>
+        <span>{p.webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button> : null}
       {p.webcamOnly ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat}
@@ -147,7 +147,7 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.projector} />
         </div>
         </div>
-        {!p.webcamOnly && p.hand ? <HandStrip seat={p.seat} name={p.name} hand={p.hand} /> : null}
+        {p.hand ? (p.webcamOnly ? <HandCount seat={p.seat} hand={p.hand} /> : <HandStrip seat={p.seat} name={p.name} hand={p.hand} />) : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>

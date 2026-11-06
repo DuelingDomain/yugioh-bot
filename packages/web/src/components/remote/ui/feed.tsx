@@ -136,8 +136,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const setFrozenHealth = hub.setFrozen;
 
   useEffect(() => { setAuto(readAuto()); }, []);
-  // "Show zone grid": on by default for my own feed, off for opponents, remembered on this device.
-  const [gridOn, setGridOn] = useState(you); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
+  // "Show zone grid": off by default, remembered on this device.
+  const [gridOn, setGridOn] = useState(false); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper();
   useEffect(() => {

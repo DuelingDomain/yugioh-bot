@@ -566,6 +566,7 @@
    --thumb is the camera strip height. It holds cqh tokens, so each rule that uses it reads the seat's height. */
 .vtog{flex:none;height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--line2);background:var(--p2);color:var(--ink2);white-space:nowrap;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .vtog:hover{border-color:var(--pen);color:var(--ink)}
+.vbeta{padding:1px 4px;border:1px solid rgb(232 185 79/.55);border-radius:3px;color:var(--gold-ink);font:700 9px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;vertical-align:1px}
 .vtog:focus-visible,.swapcam:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
 .swapcam{position:absolute;inset:0;z-index:2;padding:0;border:0;background:transparent;cursor:zoom-in}
 .seat[data-view="camera"] .fwrap{cursor:zoom-in}
@@ -641,7 +642,7 @@
 @container seat (max-width:560px){:is(.tag.you,.hlt,.sul){display:none}.vhide{padding:0 6px}}
 .seat[data-wc] .seatDock{bottom:8px;max-height:min(34%,240px)}
 @media (max-width:900px){
-  .vlong{display:none}
+  .vlong{display:none}.vhide kbd{display:none}
   .viewseg button{padding:6px 9px}
   .wcbattle{top:8px}
 }

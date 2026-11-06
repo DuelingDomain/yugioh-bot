@@ -309,12 +309,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
-  // Webcam only: the virtual fields are hidden and the camera feeds get the space. Remembered in this browser only.
-  const [webcamOnly, setWebcamOnlyState] = useState(false);
-  useLayoutEffect(() => { try { setWebcamOnlyState(localStorage.getItem(WEBCAM_ONLY_KEY) === "1"); } catch { /* storage blocked: both views */ } }, []);
+  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. This is the default. A choice in either direction is remembered in this browser.
+  const [webcamOnly, setWebcamOnlyState] = useState(true);
+  useLayoutEffect(() => { try { setWebcamOnlyState(localStorage.getItem(WEBCAM_ONLY_KEY) !== "0"); } catch { /* storage blocked: the default */ } }, []);
   const setWebcamOnly = useCallback((next: boolean) => {
     setWebcamOnlyState(next);
-    try { if (next) localStorage.setItem(WEBCAM_ONLY_KEY, "1"); else localStorage.removeItem(WEBCAM_ONLY_KEY); } catch { /* storage blocked: not remembered */ }
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
   }, []);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
