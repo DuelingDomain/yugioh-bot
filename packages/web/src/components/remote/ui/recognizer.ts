@@ -26,7 +26,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; related?: RelatedCards };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-type RawResult = { quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
+type RawResult = { quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; covered?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
@@ -305,8 +305,8 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     const read: ReadResult = { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
     // Auto-detect reads an unsure card once more before it accepts it. A click does the same, and only when this read could pass.
     if (isBestMatch(read) && !result.quality?.fallback && !result.quality?.partial) {
-      read.agreed = await secondFrameAgrees(vision, result, point, priorsFor(found, priors), card, kept, own);
-      signal.throwIfAborted();
+      // The first read stands even when time runs out here: the person is asked, and no decklist fallback replaces it.
+      read.agreed = await secondFrameAgrees(vision, result, point, priorsFor(found, priors), signal, card, kept, own);
     }
     return read;
   } catch (error) {
@@ -316,8 +316,9 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   } finally { for (const frame of frames) frame.close(); }
 }
 
-/** Reads one other frame. No other frame, an error or a different winner means no agreement, so the person is asked. */
-async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, point: { x: number; y: number }, priors: RecognitionPriors, card?: ReadCard, kept?: HTMLCanvasElement[], own = false): Promise<boolean> {
+/** Reads one other frame. No other frame, an error, the end of the time limit or a different winner means no agreement, so the person is asked. */
+async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, point: { x: number; y: number }, priors: RecognitionPriors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[], own = false): Promise<boolean> {
+  if (signal.aborted) return false;
   try {
     const used = card ? 0 : first.quality?.selectedFrameIndices?.[0] ?? 0;
     const canvas = kept?.[used === 0 ? 1 : 0];
@@ -327,8 +328,12 @@ async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, poi
     for (const other of buffered.slice(1)) other.close();
     if (!frame) return false;
     try {
-      const again = await vision.recognize([frame], { clickPoint: point, k: 5, regionFallback: false, maxFrames: 1, ...(card ? { card: toQuad(card) } : {}), priors });
-      return again.tier !== "low match" && again.candidates[0]?.cardId === first.candidates[0]?.cardId && !again.quality?.fallback && !again.quality?.partial;
+      const stopped = new Promise<null>(resolve => signal.addEventListener("abort", () => resolve(null), { once: true }));
+      const again = await Promise.race([vision.recognize([frame], { clickPoint: point, k: 5, regionFallback: false, maxFrames: 1, ...(card ? { card: toQuad(card) } : {}), priors }), stopped]);
+      if (!again) return false;
+      // The same scores mean the same pixels (a low frame rate repeats frames): that is one read, not two.
+      const repeated = again.candidates.slice(0, 2).every((candidate, index) => candidate.score === first.candidates[index]?.score);
+      return !repeated && again.tier !== "low match" && again.candidates[0]?.cardId === first.candidates[0]?.cardId && !again.quality?.fallback && !again.quality?.partial && !again.quality?.covered;
     } finally { frame.close(); }
   } catch { return false; }
 }
