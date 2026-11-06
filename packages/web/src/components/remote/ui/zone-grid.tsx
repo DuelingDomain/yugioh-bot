@@ -97,7 +97,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
     <div className={s.zglabels} style={{ ...frame, zIndex: 5 }} aria-hidden="true">
       {debug?.detections.map((d, i) => { const p = top(d.quad), bad = !d.use.startsWith("track"); return <span key={`d${i}`} className={`${s.zgdbg} ${s.zgraw}`} data-bad={bad} style={{ left: `${p.x * 100}%`, top: `${p.b * 100}%` }} title={`${d.kind === "face-down" ? "back" : "front"} ${d.confidence.toFixed(2)} · ${d.zone} · ${d.use}`}>
         {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2).replace(/^0/, "")} {d.zone}</span>; })}
-      {live.map(t => <TrackLabel key={t.id} t={t} reason={debug?.reasons[t.id]} />)}
+      {live.map(t => <TrackLabel key={t.id} t={t} reason={debug?.reasons[t.id]} face={view?.faces?.[t.id]} />)}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
         {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}{debug?.pileScores ? <><br />{`piles: ${Object.entries(debug.pileScores).map(([zone, score]) => `${zone} ${score == null ? "none" : score.toFixed(2)}`).join(" · ")}`}</> : null}{view.shadow && view.shadow.share >= .01 ? <><br />{`shadow: ${Math.round(view.shadow.share * 100)}%${view.shadow.hold ? " · hold" : ""}`}</> : null}{view.blur && (view.blur.hold || view.blur.ratio < .8) ? <><br />{`blur: ${view.blur.ratio.toFixed(2)}${view.blur.hold ? " · hold" : ""}`}</> : null}</> : null}
         {camera ? <>{view ? <br /> : null}{camera}</> : null}</span>
@@ -108,9 +108,9 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
 
 const STATE_SHORT: Record<FieldTrack["state"], string> = { candidate: "cand", identified: "id", prompt: "ask", dismissed: "off" };
 /** One short line above the track box: `#c-74 M3 · id · up`. The reason is in the tooltip and shows when the label is clicked open. */
-function TrackLabel({ t, reason }: { t: FieldTrack; reason?: string }) {
+function TrackLabel({ t, reason, face }: { t: FieldTrack; reason?: string; face?: string }) {
   const [open, setOpen] = useState(false);
-  const p = top(t.card.quad), line = `#${t.id.slice(-4)} ${t.zone} · ${STATE_SHORT[t.state]} · ${t.faceDown ? "down" : "up"}${t.under ? " · under" : t.visible === false ? " · hid" : ""}`;
+  const p = top(t.card.quad), line = `#${t.id.slice(-4)} ${t.zone} · ${STATE_SHORT[t.state]} · ${t.faceDown ? "down" : "up"}${t.under ? " · under" : t.visible === false ? " · hid" : ""}${face ? ` · ${face}` : ""}`;
   return <span className={s.zgdbg} data-hidden={t.visible === false} data-open={open} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }} title={`${line}${t.cardId ? ` · card ${t.cardId}` : ""}${reason ? ` — ${reason}` : ""}`}
     onClick={() => setOpen(v => !v)}>{line}{open ? `${t.cardId ? ` · card ${t.cardId}` : ""} — ${reason || "…"}` : ""}</span>;
 }

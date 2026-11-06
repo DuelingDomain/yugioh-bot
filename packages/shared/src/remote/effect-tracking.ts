@@ -67,7 +67,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
     if(source) { source.faceUp=true; source.cardId=context.effect.source.cardId; source.name=context.effect.source.name; }
   }
   const placed=action.type==="twin.place" ? next.seats[action.seat].twin.find(c=>c.ref===action.card.ref) :
-    action.type==="twin.move" || (action.type==="twin.flip" && !action.faceUp) ? next.seats[action.seat].twin.find(c=>c.ref===action.cardRef) : undefined;
+    action.type==="twin.move" || (action.type==="twin.flip" && !action.faceUp && action.source!=="auto") ? next.seats[action.seat].twin.find(c=>c.ref===action.cardRef) : undefined;
   if(placed && "seat" in action && !placed.faceUp && ["spell-trap","monster","field","pendulum"].includes(placed.zone)) {
     const active=tracking.contexts[action.seat];
     if(active && !tracking.origins.some(o=>o.seat===action.seat && o.ref===placed.ref && o.destination==="set")) {

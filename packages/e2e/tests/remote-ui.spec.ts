@@ -1894,8 +1894,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
       await page.setViewportSize({width,height});
       const cell=page.getByTestId('field-0').locator('[data-zone="m3"]');await cell.scrollIntoViewIfNeeded();
       if(label==='revealed-set-same-slot'){
-        const chip=cell.getByTestId('revealed-chip');await expect(chip).toHaveText('Revealed');
-        expect(await chip.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+        await expect(cell.getByTestId('revealed-chip')).toHaveCount(0);
       }
       await shot(page,`${label}-${width}x${height}`);
     }
@@ -1934,21 +1933,25 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   const reset=await room();
   expect(reset.events.filter((e:any)=>e.action.type==='twin.remove')).toHaveLength(0);
   expect(reset.events.filter((e:any)=>e.action.type==='twin.flip')).toHaveLength(2);
-  for(const seats of [new Set([0]),new Set([1]),new Set<number>()]) {
+  // The camera saw it turned face-down: the owner keeps the name, everybody else sees a plain Set.
+  expect(projectRemoteState(reset.state,new Set([0])).seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,zone:'monster',slot:3,cardId:44508094,name:'Stardust Dragon',faceUp:false,position:'defense'})]);
+  expect(reset.state.seats[0].twin[0].publicIdentity).toBeUndefined();
+  for(const seats of [new Set([1]),new Set<number>()]) {
     const view=projectRemoteState(reset.state,seats);
     expect(view.seats[0].twin).toHaveLength(1);
-    expect(view.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:3,cardId:44508094,name:'Stardust Dragon',faceUp:false,position:'defense',publicIdentity:true});
+    expect(view.seats[0].twin[0]).toMatchObject({ref:card.ref,zone:'monster',slot:3,faceUp:false,position:'defense'});
+    expect(view.seats[0].twin[0].cardId).toBeUndefined();expect(view.seats[0].twin[0].name).toBeUndefined();
   }
   expect(reset.events.filter((e:any)=>e.action.type==='twin.place')).toHaveLength(1);
   expect(reset.events.filter((e:any)=>e.action.type==='card.identified')).toHaveLength(flipped.events.filter((e:any)=>e.action.type==='card.identified').length);
   const cell=page.getByTestId('field-0').locator('[data-zone="m3"]');
-  await expect(cell).toHaveAttribute('aria-label',/Face-down.*Revealed.*Stardust Dragon/);
+  await expect(cell).toHaveAttribute('aria-label',/^(?!.*Revealed).*Face-down.*Stardust Dragon/);
   await expect(cell.locator('img')).toBeVisible();
   await expect(page.getByTestId('set-marker')).toHaveText('Set');
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   await shots('revealed-set-same-slot');
   await cell.click();
-  await expect(page.getByTestId('inspector-body')).toContainText('Revealed');
+  await expect(page.getByTestId('inspector-body')).not.toContainText('Revealed');
   await page.keyboard.press('Escape');
   // Normal repeated reveal must save once, without a conflict/retry.
   const revealAgainTiming=await change(false);
@@ -1977,7 +1980,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   }
   await page.evaluate(()=>((window as any).fieldTest).texture(false));
   const whiteResetTiming=await change(true,'#f5f5f5');
-  expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:false,position:'defense',publicIdentity:true})]);
+  expect((await room()).state.seats[0].twin).toEqual([expect.objectContaining({ref:card.ref,slot:3,faceUp:false,position:'defense'})]);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   // Test conflict recovery separately from normal-play latency.
   // One refused save must refresh/retry, rather than leave a silent stale Set.

@@ -738,6 +738,57 @@ it('owner M3: candidate choices follow the physical row without projecting spell
  expect(fieldCandidateFitsZone('S3',{type:'Spell Card',race:'Field'})).toBe(false);
  expect(fieldCandidateFitsZone('FIELD',{type:'Spell Card',race:'Field'})).toBe(true);
 });
+it('the board follows a resting track of the other face with one flip; a weak or moving track does not speak',async()=>{
+ const {fieldFaceProposal,fieldFaceWitness}=await import('../src/lib/remote/field-proposals');
+ const at=10_000,down={state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:at-100,restSince:at-700} as any;
+ expect(fieldFaceWitness(down,at)).toBe(true);
+ for(const other of [{restSince:undefined},{removed:true},{under:'top'},{zone:'GY'},{state:'candidate'},{lastSeen:at-2000},{faceDown:false}])expect(fieldFaceWitness({...down,...other},at)).toBe(false);
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:true},down,0)).toEqual({type:'twin.flip',source:'auto',actorSeat:0,seat:0,cardRef:'apophis',faceUp:false,position:'attack'});
+ expect(fieldFaceProposal({ref:'set',zone:'monster',faceUp:true},down,0)?.position).toBe('defense');
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},down,0)).toBeUndefined();
+ const up={...down,faceDown:false,cardId:'a'};
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},up,0)).toBeUndefined();
+ expect(fieldFaceProposal({ref:'apophis',zone:'spell-trap',faceUp:false},up,0,{cardId:89194033,name:'Apophis'})).toMatchObject({faceUp:true,cardId:89194033,name:'Apophis',source:'auto'});
+});
+it('the face check waits on still frames, limits repeated flips, keeps the player\'s hold and binds by ref only',async()=>{
+ const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS}=await import('../src/lib/remote/field-face');
+ const {fieldFaceProposal,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
+ const track=(over:object={})=>({id:'c',state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:0,restSince:0,revision:1,card:{confidence:.2},...over}) as any;
+ const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
+ const up={ref:'c',zone:'spell-trap',faceUp:true} as any,down={...up,faceUp:false};
+ // 600 ms of still frames, and a rest that starts later counts from there.
+ let check=createFieldFaceCheck();
+ expect(run(check,track({restSince:1000}),up,1000)).toEqual([]);expect(run(check,track({restSince:1000}),up,1500)).toEqual([]);
+ expect(run(check,track({restSince:1000}),up,1650)[0].proposal).toMatchObject({type:'twin.flip',faceUp:false,source:'auto'});
+ // Glare: a down and an up, then quiet. The level check picks the card up again after the quiet time; Scan field does not wait.
+ check=createFieldFaceCheck();check.flipped('c',0);check.flipped('c',1300);
+ expect(run(check,track(),up,5000)).toEqual([]);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS-1)).toEqual([]);
+ expect(run(check,track(),up,5000,true)).toHaveLength(1);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS+700)).toHaveLength(1);
+ // The player set the card down while the camera says up: a false down for a moment does not end the hold, a resting change does.
+ check=createFieldFaceCheck();check.hold('c',false);const front=track({faceDown:false,cardId:'a'});
+ expect(run(check,front,down,1000)).toEqual([]);expect(run(check,track(),down,1100)).toEqual([]);
+ expect(run(check,front,down,1200)).toEqual([]);expect(run(check,front,down,9000)).toEqual([]);expect(check.held('c')).toBe(true);
+ run(check,track(),down,10_000);run(check,track(),down,10_000+FIELD_FACE_RELEASE_MS);expect(check.held('c')).toBe(false);
+ // Scan field overrules a hold. A hold with no face takes the next track.
+ check=createFieldFaceCheck();check.hold('c',true);expect(run(check,track(),up,5000)).toEqual([]);expect(run(check,track(),up,5000,true)).toHaveLength(1);
+ check=createFieldFaceCheck();check.hold('c');expect(run(check,track(),up,5000)).toEqual([]);expect(check.held('c')).toBe(true);
+ // Bound by ref only: a track never takes another card in its zone. A front with no read gives no work, so nothing is queued.
+ check=createFieldFaceCheck();expect(run(check,track({id:'other',faceDown:false,cardId:'a'}),down,5000)).toEqual([]);
+ expect(run(check,track({faceDown:false}),down,5000)).toEqual([]);
+ // Failed writes wait, then stop until Scan field.
+ check=createFieldFaceCheck();run(check,track(),up,5000);check.failed('c',5000);expect(run(check,track(),up,6000)).toEqual([]);expect(run(check,track(),up,7100)).toHaveLength(1);
+ check.failed('c',7100);check.failed('c',7100);expect(run(check,track(),up,99_000)).toEqual([]);expect(run(check,track(),up,99_000,true)).toHaveLength(1);
+ // An Xyz Monster needs a clear back. An old Revealed clears on a camera back; a card Set by an effect keeps its public identity.
+ const xyz={ref:'x',zone:'monster',faceUp:true,materials:['m']} as any;
+ expect(fieldFaceProposal(xyz,track(),0)).toBeUndefined();expect(fieldFaceProposal(xyz,track({card:{confidence:.6}}),0)).toBeUndefined();
+ expect(fieldFaceProposal(xyz,track({card:{confidence:.6},pixelsDown:true}),0)?.faceUp).toBe(false);
+ expect(fieldFaceProposal({...down,publicIdentity:true},track(),0)?.faceUp).toBe(false);expect(fieldFaceProposal({...down,publicIdentity:true,setBy:{name:'Trap Tracks'}},track(),0)).toBeUndefined();
+ // The write checks its evidence: a card that turned during the save gets no confirm, and a stale reveal is undone.
+ const reveal=fieldFaceProposal(down,front,0,{cardId:89194033,name:'Apophis'})!;let now=front;
+ const act=vi.fn(async(p:any,id?:string)=>{if(p.type==='twin.flip'){now={...front,revision:2};return {state:{undo:{actionId:id}}} as any;}return {state:{undo:null}} as any;});
+ expect(await applyFieldFaceFlip(front,()=>now,act,reveal)).toBeNull();expect(act.mock.calls.map(([p])=>p.type)).toEqual(['twin.flip','undo']);
+ act.mockClear();expect(await applyFieldFaceFlip(front,()=>now,act,reveal)).toBeNull();expect(act).not.toHaveBeenCalled();
+});
 it('camera writes retry with the same action key and expose a final failure',async()=>{
  const {retryFieldMutation}=await import('../src/lib/remote/field-proposals');
  const proposal={type:'twin.flip',actorSeat:0,seat:0,cardRef:'mark',faceUp:true} as const,room={lastSeq:2} as any;
