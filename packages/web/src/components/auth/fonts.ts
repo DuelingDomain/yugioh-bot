@@ -1,6 +1,4 @@
 import localFont from "next/font/local";
-import { russoOne } from "@/lib/fonts";
-import styles from "./fonts.module.css";
 
 // Sign-in has always used four Latin weights. The app layout uses 400/600/700.
 const body = localFont({
@@ -14,4 +12,12 @@ const body = localFont({
   variable: "--font-sign-in-body",
 });
 
-export const signInFontClasses = `${body.variable} ${russoOne.variable} ${styles.fonts}`;
+const display = localFont({
+  src: "../../lib/fonts/russo-one-400-latin.woff2",
+  weight: "400",
+  style: "normal",
+  display: "swap",
+  variable: "--font-sign-in-display",
+});
+
+export const signInFontClasses = `${body.variable} ${display.variable}`;

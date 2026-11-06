@@ -10,15 +10,16 @@ Each family is licensed under SIL Open Font License 1.1; the full license is in 
 
 Russo One and Chakra Petch reuse the existing sign-in files. The root definitions
 live in `../fonts.ts`; root Chakra Petch keeps only 400/600/700. Sign-in has its
-own four-weight Latin Chakra Petch loader (including 500), as before, and aliases
-the shared Russo One display variable. Admin, duel, and Solid Vision definitions
-and subset CSS remain scoped to their consumers, including portals.
+own four-weight Latin Chakra Petch loader (including 500) and Russo One loader,
+with `--font-sign-in-body` and `--font-sign-in-display`, as before. Admin, duel,
+and Solid Vision definitions and subset CSS remain scoped to their consumers,
+including portals.
 
-Turbopack's graph CSS chunking uses `requestCost: 0` to keep route-only font rules
-out of shared layout chunks. Otherwise its default merging can put sign-in's 500
-face and preload on every page even though the root loader does not declare it.
-This trades more stylesheet requests for route isolation; a cost of 500 still
-merged the sign-in face into the root CSS in the production build.
+Sign-in's font module stays independent of `../fonts.ts`. Importing the root
+Russo One definition there connects the font modules and lets Turbopack's default
+CSS merging put sign-in's 500 face and preload in root CSS. Separate local
+loaders keep that face scoped to sign-in consumers with default CSS chunking,
+without increasing stylesheet requests across the app.
 
 All faces use `swap`. Latin loaders keep the existing adjusted Arial fallback;
 Newsreader retains Times New Roman. The surrounding CSS fallback stacks are
