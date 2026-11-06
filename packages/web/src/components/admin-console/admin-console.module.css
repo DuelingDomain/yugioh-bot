@@ -549,8 +549,8 @@ a.errT:hover { text-decoration: underline; text-decoration-color: var(--t3); }
 }
 @media (max-width: 760px) {
   .hero5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tabbar7 { grid-template-columns: repeat(7, minmax(0, 1fr)); padding-left: 2px; padding-right: 2px; }
-  .tabbar7 .tab { font-size: 10px; letter-spacing: -.01em; }
+  .tabbar8 { grid-template-columns: repeat(8, minmax(0, 1fr)); padding-left: 2px; padding-right: 2px; }
+  .tabbar8 .tab { font-size: 9.5px; letter-spacing: -.02em; }
 }
 
 /* creator list */

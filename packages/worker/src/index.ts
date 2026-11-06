@@ -17,6 +17,7 @@ import {
 } from "@yugidraft/shared/services";
 import { effectsFromEnv } from "./effects.js";
 import { drainProductEvents } from "./analytics-drain.js";
+import { createEmailDrain } from "./email-drain.js";
 import { createLoop } from "./loop.js";
 import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
@@ -43,6 +44,7 @@ const beat = db.prepare("insert into worker_heartbeat(id, at, pid) values (1, ?,
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createEmailDrain({ db }),
   createVpsHealth({ db, guildId: process.env.DISCORD_GUILD_ID }),
   // Presence keeps only the latest value and is dropped after 24 hours without an update.
   createLoop(async () => clearOldPresence(db), 10 * 60_000),

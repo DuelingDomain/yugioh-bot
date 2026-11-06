@@ -6,6 +6,7 @@ import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
+import { migrateReleases } from "./releases.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -1602,6 +1603,7 @@ export function migrate(db: Database.Database) {
   `);
 
   migrateWaitlistAdminSource(db);
+  migrateReleases(db);
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

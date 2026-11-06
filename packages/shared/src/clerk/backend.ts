@@ -17,9 +17,9 @@ export interface ClerkUserJson {
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];
 }
 
-export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number; /** Epoch ms. */ updated_at?: number }
+export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number; /** Epoch ms. */ updated_at?: number; invitation?: ClerkInvitationJson | null }
 
-export interface ClerkInvitationJson { id: string; email_address: string; status: string; /** Epoch ms. */ expires_at?: number | null }
+export interface ClerkInvitationJson { id: string; email_address: string; status: string; /** Epoch ms. */ expires_at?: number | null; url?: string | null; revoked?: boolean }
 
 export class ClerkBackendError extends Error {
   constructor(
@@ -62,7 +62,14 @@ export interface ClerkBackend {
   revokeInvitation(id: string): Promise<void>;
 }
 
-export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; fetch?: typeof fetch; timeoutMs?: number }): ClerkBackend {
+/** Complete, read-only audience discovery. Ticket URLs never leave server-side email preparation. */
+export interface ClerkDiscoveryBackend extends ClerkBackend {
+  listAllUsers(): Promise<ClerkUserJson[]>;
+  listAllInvitations(): Promise<ClerkInvitationJson[]>;
+  listAllWaitlistEntries(status: "pending" | "invited"): Promise<ClerkWaitlistEntryJson[]>;
+}
+
+export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; fetch?: typeof fetch; timeoutMs?: number }): ClerkDiscoveryBackend {
   const apiUrl = (opts.apiUrl ?? "https://api.clerk.com/v1").replace(/\/+$/, "");
   const fetcher = opts.fetch ?? globalThis.fetch;
   const redact = (value: string) => opts.secretKey ? value.split(opts.secretKey).join("[redacted]") : value;
@@ -106,6 +113,34 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     return query ? `${path}?${query}` : path;
   }
 
+  async function listAll<T extends { id: string }>(path: string, filters: Record<string, string> = {}): Promise<T[]> {
+    const result: T[] = [], seen = new Set<string>();
+    let offset = 0;
+    for (let pageNumber = 0; pageNumber < 10000; pageNumber++) {
+      const params = new URLSearchParams({ ...filters, limit: "100", offset: String(offset) });
+      const raw = await request<unknown>(queryPath(path, params));
+      const envelope = raw as { data?: unknown; total_count?: unknown; totalCount?: unknown } | null;
+      const page = Array.isArray(raw) ? raw : envelope?.data;
+      const total = Array.isArray(raw) ? undefined : envelope?.total_count ?? envelope?.totalCount;
+      if (!Array.isArray(page) || (total !== undefined && (!Number.isSafeInteger(total) || Number(total) < 0)))
+        throw new ClerkBackendError("Incomplete audience response", 0, null, null);
+      let added = 0;
+      for (const entry of page) {
+        if (!entry || typeof entry.id !== "string" || !entry.id) throw new ClerkBackendError("Invalid audience response", 0, null, null);
+        if (seen.has(entry.id) && offset > 0) throw new ClerkBackendError("Incomplete audience response", 0, null, null);
+        if (!seen.has(entry.id)) { seen.add(entry.id); result.push(entry as T); added++; }
+      }
+      offset += page.length;
+      if (total !== undefined && offset >= Number(total)) {
+        if (result.length !== total) throw new ClerkBackendError("Incomplete audience response", 0, null, null);
+        return result;
+      }
+      if (total === undefined && page.length < 100) return result;
+      if (added === 0) throw new ClerkBackendError("Incomplete audience response", 0, null, null);
+    }
+    throw new ClerkBackendError("Audience pagination limit reached", 0, null, null);
+  }
+
   async function deleteResource(path: string): Promise<void> {
     try { await request(path, "DELETE"); }
     catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
@@ -117,6 +152,9 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
   }
 
   return {
+    listAllUsers() { return listAll<ClerkUserJson>("/users", { order_by: "+created_at" }); },
+    listAllInvitations() { return listAll<ClerkInvitationJson>("/invitations", { status: "pending" }); },
+    listAllWaitlistEntries(status) { return listAll<ClerkWaitlistEntryJson>("/waitlist_entries", { status, order_by: "+created_at" }); },
     getUser(clerkUserId) { return request(`/users/${encodeURIComponent(clerkUserId)}`); },
     async listUsers(query) {
       // Clerk's own SDK repeats the plain snake_case key for array filters.

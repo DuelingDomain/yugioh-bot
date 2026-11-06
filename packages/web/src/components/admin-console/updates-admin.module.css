@@ -1,0 +1,84 @@
+/* Admin console, Updates view. Tokens (--line, --t1 ...) come from the .app root of the console. */
+.tbl { margin-top: 4px; }
+.row { grid-template-columns: 92px minmax(0, 2.2fr) minmax(0, 1.2fr) minmax(0, 1.3fr) 112px 16px; }
+.ver { font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--gold); }
+.sub { color: var(--t3); font-size: 13px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { display: flex; gap: 6px; flex-wrap: wrap; }
+.email { font-size: 14px; color: var(--t2); }
+.email[data-tone="good"] { color: var(--good); }
+.email[data-tone="warn"] { color: var(--warn); }
+.email[data-tone="info"] { color: var(--info); }
+.date { text-align: right; color: var(--t2); font-size: 13.5px; white-space: nowrap; }
+
+/* sheet */
+.body:focus { outline: none; }
+.check { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; cursor: pointer; padding: 4px 0; }
+.check[data-off="true"] { cursor: default; }
+.check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--gold); cursor: inherit; }
+.check b { display: block; font-weight: 500; font-size: 14.5px; color: var(--t1); }
+.check small { display: block; color: var(--t3); font-size: 13px; margin-top: 3px; line-height: 1.4; }
+.check[data-off="true"] b { color: var(--t2); }
+textarea.area { height: auto; min-height: 0; padding: 10px 12px; line-height: 1.45; resize: vertical; font-size: 14.5px; }
+.secs { display: grid; gap: 14px; margin-top: 10px; padding-top: 22px; border-top: 1px solid var(--line); }
+.secs h3 { font-size: 17px; font-weight: 600; letter-spacing: -.015em; }
+.box { border: 1px solid var(--line2); border-radius: 12px; padding: 16px 18px; display: grid; gap: 14px; background: rgba(255, 255, 255, .012); }
+.box[data-locked="true"] { border-color: var(--line); }
+.lead { color: var(--t2); font-size: 14px; }
+.muted { color: var(--t3); font-size: 13px; }
+.state { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; }
+.state b { font-weight: 500; font-size: 15px; display: block; }
+.state p { color: var(--t2); font-size: 13.5px; margin-top: 4px; line-height: 1.45; }
+.warnLine { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; font-size: 13.5px; line-height: 1.45; color: var(--warn); padding-top: 12px; border-top: 1px solid var(--line); }
+.missing { list-style: none; margin: 10px 0 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.missing code { font-family: var(--mono); font-size: 12px; color: var(--t1); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; }
+
+/* read-only notes */
+.hl { list-style: none; margin: 0 0 6px; padding: 0; border-top: 1px solid var(--line); }
+.hl li, .secRead li { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; color: var(--t1); line-height: 1.45; }
+.secRead { margin-top: 22px; }
+.secRead h4 { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); font-weight: 400; display: flex; gap: 8px; margin-bottom: 8px; }
+.secRead h4 span { color: var(--t4); }
+.secRead ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.secRead li { color: var(--t2); }
+
+/* preview numbers */
+.counts { display: grid; gap: 12px; }
+.counts dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.counts dt { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); }
+.counts dd { font-size: 22px; font-weight: 600; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.total { font-size: 14.5px; color: var(--t2); padding-top: 12px; border-top: 1px solid var(--line); }
+.total b { color: var(--t1); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.excl { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: var(--t3); }
+.excl li { display: flex; justify-content: space-between; gap: 12px; }
+.excl b { font-weight: 500; color: var(--t2); font-variant-numeric: tabular-nums; }
+
+/* progress */
+.prog { position: relative; height: 26px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.prog > span { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(227, 194, 122, .28); transition: width .4s ease-out; }
+.prog > .progBad { background: rgba(255, 104, 104, .4); }
+.prog em { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-family: var(--mono); font-size: 11.5px; color: var(--t1); font-variant-numeric: tabular-nums; }
+
+/* confirm dialog */
+.scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 20px; animation: fade .15s ease-out; }
+.confirm { width: min(440px, 100%); background: var(--bg2); border: 1px solid var(--line2); border-radius: 14px; padding: 24px 24px 22px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); display: grid; gap: 12px; }
+.confirm h3 { font-size: 19px; font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
+.confirm p { color: var(--t2); font-size: 14.5px; line-height: 1.5; }
+.confirm :global(button:focus-visible) { outline: 2px solid var(--gold); outline-offset: 2px; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 1100px) {
+  .row { grid-template-columns: 84px minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.2fr) 96px 14px; gap: 16px; }
+}
+@media (max-width: 760px) {
+  .row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 16px 4px; }
+  .row > :nth-child(1) { grid-column: 1; grid-row: 1; }
+  .row > :nth-child(3) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .row > :nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .row > :nth-child(4) { grid-column: 1; grid-row: 3; }
+  .row > :nth-child(5) { grid-column: 2; grid-row: 3; }
+  .row > :nth-child(6) { display: none; }
+  .counts dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .prog > span { animation: none; transition: none; }
+}

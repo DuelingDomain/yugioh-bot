@@ -25,6 +25,8 @@ function unauthorized(request: NextRequest) {
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
+  if ((request.nextUrl.pathname === "/unsubscribe" && ["GET", "POST"].includes(request.method))
+    || (request.nextUrl.pathname === "/api/webhooks/resend" && request.method === "POST")) return NextResponse.next();
   // Clerk calls this signed endpoint without a browser session. Do not initialize
   // session middleware here; the route verifies the signature before any writes.
   if (request.method === "POST" && request.nextUrl.pathname === "/api/webhooks/clerk") return NextResponse.next();

@@ -98,11 +98,11 @@ const RESEND_TEXT: Record<ResendResponse["result"], string> = {
 /* ---------- the sheet frame: right side on wide screens, bottom sheet on a phone ---------- */
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-function SheetFrame({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+export function SheetFrame({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeRef.current?.focus({ preventScroll: true }); }, []);
-  // Keys stay inside the sheet: the console's 1-7 and "/" shortcuts must not switch the view under an open sheet.
+  // Keys stay inside the sheet: the console’s 1-8 and "/" shortcuts must not switch the view under an open sheet.
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     e.stopPropagation();
     const target = e.target as HTMLElement;
