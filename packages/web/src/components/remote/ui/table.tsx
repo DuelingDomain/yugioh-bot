@@ -569,7 +569,9 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
 
   // ---- read the whole board of one feed ----
   const readBoardInto = useCallback(async (seat: number, reading: BoardReading): Promise<string> => {
-    const { room: now, state: current } = R.current; const owns = now.solo || seat === now.mySeat;
+    const { room: now, state: current } = R.current;
+    // Tap to identify: a board read names the cards and places nothing, with no zone claim.
+    const tap = (now.solo || seat === now.mySeat) && tapToIdentifyNow(seat); const owns = (now.solo || seat === now.mySeat) && !tap;
     const mine = reading.near.length ? reading.near : reading.far;
     const hidden = mine.filter(card => card.faceDown).length;
     const usable = mine.filter(card => !card.faceDown && !card.error && card.cardId && card.name);
@@ -593,7 +595,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       }).sort((a,b)=>a.quad.reduce((n,p)=>n+p.x,0)-b.quad.reduce((n,p)=>n+p.x,0));
     const planned=[...current.seats[seat].twin];
     const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number} }[] = [];
-    for (const card of fresh) {
+    if (tap) for (const card of sure) placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone: "" });
+    for (const card of tap ? [] : fresh) {
       const observed=locationOf(card);
       const existing=observed?current.seats[seat].twin.find(c=>c.zone===observed.zone&&c.slot===observed.slot&&sameObservedCard(c,card)):undefined;
       const physical=calibration?.orientation?mapFieldZone({quad:card.quad,kind:'face-up',confidence:1,partial:false},calibration,[],current.deckChecks.format.id).zone:'M1';
@@ -626,11 +629,11 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     const seenNow = owns ? done : placed;
     for (let i = 0; i < seenNow.length; i += 20) {
       const chunk = seenNow.slice(i, i + 20);
-      await act({ type: "cards.identified", actorSeat: now.mySeat, seat, source: "auto", cards: chunk.map((item, n) => ({ observationId: `${item.ref}-${i + n}`, cardId: item.card.cardId, name: item.card.name ?? undefined, zone: item.zone, ...(item.slot ? { slot: item.slot } : {}), ...(owns ? { cardRef: item.ref } : {}) })) });
+      await act({ type: "cards.identified", actorSeat: now.mySeat, seat, source: "auto", cards: chunk.map((item, n) => ({ observationId: `${item.ref}-${i + n}`, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(tap ? {} : { zone: item.zone }), ...(item.slot ? { slot: item.slot } : {}), ...(owns ? { cardRef: item.ref } : {}) })) });
     }
     if (done.length) setFresh(done[done.length - 1].ref);
-    const bits = [owns ? `${done.length} placed on ${name(seat)}'s field` : `${seenNow.length} identified. Only the field owner places cards`];
-    if (onField.length !== current.seats[seat].twin.length && fresh.length < sure.length) bits.push(`${sure.length - fresh.length} already there`);
+    const bits = [tap ? `${seenNow.length} identified` : owns ? `${done.length} placed on ${name(seat)}'s field` : `${seenNow.length} identified. Only the field owner places cards`];
+    if (!tap && onField.length !== current.seats[seat].twin.length && fresh.length < sure.length) bits.push(`${sure.length - fresh.length} already there`);
     if (unsure > 0) bits.push(`${unsure} unsure or covered, click to confirm`);
     if (hidden) bits.push(`${hidden} face-down`);
     bits.push(`${(reading.ms / 1000).toFixed(1)} s`);
@@ -1146,6 +1149,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const pileCount = (seat: number, zone: PileZone) => (state.seats[seat]?.twin ?? []).filter(card => card.zone === zone).length;
   /** Webcam only: the name under the pointer. Outlined cards first, then the card the table holds in that zone. A hidden card shows as a Set card. */
   const hoverTip = (seat: number, x: number, y: number) => {
+    if (tapOwnSeat && seat === mySeat) return null;
     const tracked = hub.trackedAt(seat, x, y);
     if (tracked) return { label: tracked.name ?? info(tracked.cardId)?.name ?? "Card", detail: statLine(tracked.cardId) };
     const card = twinAtPoint(seat, x, y);
