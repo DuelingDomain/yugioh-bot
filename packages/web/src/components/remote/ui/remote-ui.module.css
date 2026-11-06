@@ -559,7 +559,13 @@
 .bigTray.docked .btext{flex:none;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;padding-top:6px;font-size:12px;line-height:1.35;white-space:normal}
 .bigTray.docked .bstrip li{flex:0 0 calc((100% - 24px) / 5);width:auto;min-width:0}
 .bigTray.docked .bbar{gap:6px;padding-top:8px}
-@container seat (max-height:420px){.bigTray.docked .btext{-webkit-line-clamp:2;line-clamp:2}.bigTray.docked .bhint{display:none}.pop.big.show.bigTray.docked{--aw:72px;grid-template-columns:72px minmax(0,1fr);padding:8px;gap:6px 8px}.bigTray.docked .bstrip li{flex-basis:36px}.bigTray.docked .bbar{padding-top:6px}.bigTray.docked .bmain:has(.bstrip) :is(.btext,.bfacts){display:none}}
+@container seat (max-height:420px){.bigTray.docked .btext{-webkit-line-clamp:2;line-clamp:2}.bigTray.docked .bhint{display:none}.pop.big.show.bigTray.docked{--aw:72px;grid-template-columns:72px minmax(0,1fr);padding:8px;gap:6px 8px}.bigTray.docked .bstrip li{flex-basis:36px}.bigTray.docked .bbar{padding-top:6px}}
+/* Little room above the LP buttons: this is the only case where the card text scrolls. */
+.seatDock[data-tight] .ndSlot{overflow:hidden}
+.seatDock[data-tight] .pop.big.show.bigTray.docked{flex:0 1 auto;min-height:0;grid-template-rows:minmax(0,1fr) auto}
+.seatDock[data-tight] .bigTray.docked .bmain{align-self:stretch;min-height:0;overflow:hidden}
+.seatDock[data-tight] .bigTray.docked .btext{display:block;-webkit-line-clamp:none;line-clamp:none;flex:0 1 auto;min-height:24px;overflow:auto}
+@container seat (max-height:300px){.bigTray.docked .bmain:has(.bstrip) :is(.btext,.bfacts){display:none}.bigTray.docked .bstrip li{flex-basis:30px}}
 
 /* ============ overlay: banner + arrow ============ */
 .banner{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:8;overflow:hidden}
@@ -662,9 +668,9 @@
 @container seat (max-width:560px){:is(.tag.you,.hlt,.sul,.vlong){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
 .seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 /* One notice, or a card choice, shows in full. It may cover the camera and grows away from its anchor; only a longer list scrolls. */
-.seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:calc(100% - 44px)}
+.seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:var(--dock-room,calc(100% - 44px))}
 .seat .seatDock:has(.bigTray){width:min(340px,calc(100% - 16px))}
-@container seat (max-height:420px){.seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:calc(100% - 8px)}.seat .seatDock:has(.bigTray){width:min(400px,calc(100% - 16px))}}
+@container seat (max-height:420px){.seat .seatDock:has(.bigTray){width:min(400px,calc(100% - 16px))}}
 @media (max-width:900px){
   .vlong{display:none}.vhide kbd{display:none}.viewseg .vbeta{display:none}
   .viewseg button{padding:6px 9px}

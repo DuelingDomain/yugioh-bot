@@ -16,6 +16,8 @@ export type TrayState = {
   /** The top guess is shown alone as "Best match". "Wrong card?" opens the top 5 and the search. */
   best?: boolean;
   /** "hand": the chosen card is added to the hand, not placed on the board. */
+  /** The card this read just added to the board. "Wrong card?" can take it off again. */
+  placedRef?: string;
   intent?: "hand"; originId?: string; source?: "deck" | "gy" | "banish"; by?: { cardId: number; name: string };
 };
 import type { FeedbackSource } from "./recognizer";
@@ -27,8 +29,8 @@ export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voi
  * its full text and tier. When the reader is not sure, a slim strip of the top 5 guesses lets the person choose:
  * keys 1-5 pick, arrows move the preview, Enter picks the previewed card, typing searches the whole catalog.
  */
-export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, aiAllowed, dock }: {
-  dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay?: () => void; saying: boolean;
+export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced, onSay, saying, aiAllowed, dock }: {
+  onRemovePlaced?: (ref: string) => void; dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay?: () => void; saying: boolean;
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
@@ -109,6 +111,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
       <span className={s.sp} />
       {canAsk ? <span data-testid="ask-ai-row"><button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button></span> : null}
       {alone ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setWrong(true)} data-testid="wrong-card">Wrong card?</button> : null}
+      {tray.placedRef && onRemovePlaced ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => onRemovePlaced(tray.placedRef!)} data-testid="remove-placed">Remove card</button> : null}
       {onSay ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button> : null}
       {current ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={() => choose(current, found ? "typed" : "click")} data-testid="confirm-card"><Icon name="check" />This is it</button> : null}
     </div>
