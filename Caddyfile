@@ -208,6 +208,11 @@ www.{$MARKETING_DOMAIN:marketing-disabled.localhost}, http://{$MARKETING_DOMAIN:
     redir https://{$MARKETING_DOMAIN:marketing-disabled.localhost}{uri} 308
 }
 
+# Remote Duels LiveKit signalling. LiveKit runs in its own Compose project on the host network; media does not pass here.
+{$RTC_DOMAIN:rtc-disabled.localhost} {
+    reverse_proxy host.docker.internal:7880
+}
+
 {$LEGACY_DOMAIN:legacy-disabled.localhost}, www.{$LEGACY_DOMAIN:legacy-disabled.localhost}, http://{$LEGACY_DOMAIN:legacy-disabled.localhost}, http://www.{$LEGACY_DOMAIN:legacy-disabled.localhost} {
     redir https://{$SITE_DOMAIN}{uri} 308
 }
