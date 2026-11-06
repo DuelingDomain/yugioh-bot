@@ -52,7 +52,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useZoneGrid,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
+import {useZoneGrid,useTapToIdentify,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
@@ -1116,7 +1116,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   void draftPhase;
 
   // ---- camera card info and card actions ----
-  const zoneGrid = useZoneGrid();
+  const zoneGrid = useZoneGrid(); const tapOwnSeat = useTapToIdentify(mySeat);
   const gridFormat = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
   /** The mat zone under a point on a camera feed ("M1", "GY", "BANISHED" ...). Needs the feed's confirmed mat grid. */
   const zoneAtPoint = (seat: number, x: number, y: number): string | undefined => {
@@ -1152,6 +1152,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   };
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
+    // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
+    if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { readTapChoice } from './tap-offer';
 import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
@@ -106,7 +107,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!(hasCalibration&&placed);
   useEffect(()=>{
     const value=readSaved(options.seatKey,options.deviceKey,options.deviceLabel),record=loadFieldCalibrationRecord(options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize);
-    setOn(value.enabled!==false);
+    // A camera with no saved answer starts in Auto-detect, unless this browser chose Tap to identify.
+    setOn(value.enabled??readTapChoice()!=='switch');
     setGrid(record.calibration);setPlaced(record.placed);setAspectChanged(!!record.aspectChanged);
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize?.width,options.captureSize?.height]);

@@ -2,7 +2,8 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration} from '@yugidraft/vision';
+import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
+import {createSlowWatch,isWeakDevice,readTapChoice,saveTapChoice,type TapChoice} from '@/lib/remote/tap-offer';
 import {remoteHandReadDecision,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
@@ -704,6 +705,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }));
   },[watch.setCalibration,watch.getTrack]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded;tracks.current=watch.snapshot.tracks;
+  // Slow computer: one quiet offer of Tap to identify. Only the player changes the mode; the answer is remembered.
+  const [tapOffer,setTapOffer]=useState(false),slowWatch=useRef(createSlowWatch());
+  const setDetection=useCallback((on:boolean)=>{saveTapChoice(on?'keep':'switch');setTapOffer(false);watch.setEnabled(on);},[watch.setEnabled]);
+  const answerTapOffer=(choice:TapChoice)=>setDetection(choice==='keep');
+  useEffect(()=>{
+    if(tapOffer||!watch.enabled||!ownsSource||!hub.cameraOn||room.status!=='active'||readTapChoice())return;
+    const at=performance.now();slowWatch.current.see(at,watch.snapshot);
+    if(slowWatch.current.slow(at)||(recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice())))setTapOffer(true);
+  },[watch.snapshot,watch.enabled,ownsSource,hub.cameraOn,room.status,recognition.backend,tapOffer]);
   // Show a still outline on the board at once (local only). The saved "Reading" card takes its place with the same look.
   const ghostState=useRef(newGhostState());
   useEffect(()=>{
@@ -818,9 +828,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     });
   }
   useEffect(()=>{
-    const message=fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),key=JSON.stringify(message);lastMessage.current=message;
+    // Tap to identify: no mat grid goes out, so other players read this camera and do not trust the board's zones.
+    const message=fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled?watch.calibration:undefined),key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
-  },[watch.snapshot,watch.calibration,hub.publishFieldTracks,room.state]);
+  },[watch.snapshot,watch.calibration,watch.enabled,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
   const gridFormat=room.format?.id??room.state.deckChecks.format.id;
   const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
@@ -1005,7 +1016,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
     },100);
   },[watch.scanNow,watch.getSnapshot]);
-  useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled]);
+  useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,setDetection]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
   useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics,boardTwin=current.current.room.state.seats[seat].twin;publishFieldDebug({faces:Object.fromEntries(watch.snapshot.tracks.flatMap(t=>{const card=t.state==='identified'&&!t.removed?boardTwin.find(c=>c.ref===(bindings.current.get(t.id)??t.id)&&publicField(c.zone)):undefined;return card&&card.faceUp===t.faceDown?[[t.id,`board: ${card.faceUp?'up':'down'} · track: ${t.faceDown?'down':'up'}`]]:[];})),blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
@@ -1028,7 +1039,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  const label=watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):!watch.enabled?'Auto-placement off':watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const label=!watch.enabled?'Tap to identify':watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
@@ -1039,7 +1050,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   })).join('');
   return <>
     <style>{readingStyles}</style>
-    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={watch.setEnabled} statusLabel={label} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} offer={tapOffer?{text:'This computer is slow for live tracking. Switch to tap-to-identify?',onSwitch:()=>answerTapOffer('switch'),onKeep:()=>answerTapOffer('keep')}:undefined} statusLabel={label} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);

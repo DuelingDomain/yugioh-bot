@@ -16,6 +16,8 @@ export type FieldWatcherUIProps={
   statusLabel:string;statusTitle?:string;statusExtra?:ReactNode;calibrated:boolean;calibrationDisabled:boolean;onCalibrate():void;
   prompts:readonly FieldWatcherPrompt[];pending:boolean;onChoose(promptId:string,cardId:string):void;onDismiss(promptId:string):void;
   notice?:ReactNode;noticeTestId?:string;
+  /** One quiet offer beside the status chip: on the camera's top right corner, out of flow, so nothing moves and LP and phase controls stay clear. */
+  offer?:{text:string;onSwitch():void;onKeep():void};
   /** The notification stack beside the field. Prompts and notices go there, never over the camera. */
   dock?:HTMLElement|null;
 };
@@ -38,7 +40,7 @@ function promptAnchor(host:HTMLElement,quad:FieldWatcherPrompt['quad']):{anchor:
 }
 
 /** Feed watcher presentation, independent of recognition and table actions. */
-export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,dock}:FieldWatcherUIProps) {
+export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,offer,dock}:FieldWatcherUIProps) {
   const prompt=enabled?prompts[0]:undefined,description=useId();
   const bubble=useRef<HTMLDivElement>(null),toast=useRef<HTMLDivElement>(null);
   const [promptStyle,setPromptStyle]=useState<CSSProperties>({visibility:'hidden'}),[noticeStyle,setNoticeStyle]=useState<CSSProperties>({visibility:'hidden'});
@@ -70,13 +72,13 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   },[host,dock,prompt?.id,anchorKey,hasNotice]);
   if(!host||typeof document==='undefined')return null;
   const controls=host.querySelector('[data-field-watcher-controls]'),status=host.querySelector('[data-field-watcher-status-slot]');
-  const tooltip=[statusTitle,statusLabel,!calibrated?'Calibrate zones for exact columns':null].filter(Boolean).join(' · ');
+  const tooltip=[statusTitle,statusLabel,enabled&&!calibrated?'Calibrate zones for exact columns':null].filter(Boolean).join(' · ');
   return <>
     {controls?createPortal(<div className={s.controls} onClick={stop} onPointerDown={stop} onKeyDown={keepControlKey}>
       <label className={`${table.fzbtn} ${s.toggle}`}><input type="checkbox" checked={enabled} onChange={event=>onEnabledChange(event.target.checked)}/>Auto-detect cards</label>
       <button type="button" className={table.fzbtn} disabled={calibrationDisabled} onClick={onCalibrate}>{calibrated?'Recalibrate':'Calibrate zones'}</button>
     </div>,controls):null}
-    {status&&enabled?createPortal(<div className={table.statusRow}><span className={s.chip} role="status" title={tooltip} data-testid="field-watcher-status">{statusLabel}</span>{statusExtra}</div>,status):null}
+    {status?createPortal(<div className={table.statusRow}><span className={s.chip} role="status" title={tooltip} data-testid="field-watcher-status">{statusLabel}</span>{statusExtra}{offer?<div className={s.offer} role="status" data-testid="tap-identify-offer" onClick={stop} onPointerDown={stop} onKeyDown={keepControlKey}><span>{offer.text}</span><button type="button" onClick={offer.onSwitch}>Switch</button><button type="button" onClick={offer.onKeep}>Keep</button></div>:null}</div>,status):null}
     {createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.announcement}`} role="status" aria-label="Card detection updates" aria-atomic="true">{prompt?`New card needs a choice in ${zoneName(prompt.zone)}. ${prompts.length>1?`${prompts.length-1} more waiting.`:''}`:''}</div>,document.body)}
     {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt} ${dock?s.docked:''}`} style={dock?undefined:promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
       <header><strong>{prompt.title??'New card?'}</strong>{prompts.length>1?<span className={s.queue}>+{prompts.length-1} more</span>:null}</header>

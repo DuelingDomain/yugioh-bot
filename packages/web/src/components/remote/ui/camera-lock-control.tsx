@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { useCameraLock } from '@/lib/remote/use-camera-lock';
-import { RecognitionSetting } from './recognition-setting';
+import { CardDetectionSetting, RecognitionSetting } from './recognition-setting';
 import s from './camera-lock-control.module.css';
 
 export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraLock> }) {
@@ -39,6 +39,7 @@ export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCamer
   return <>
     <button type="button" ref={trigger} className={s.more} popoverTarget={id} aria-label="More camera settings" data-testid="camera-more">More</button>
     <div id={id} ref={panel} popover="auto" className={s.menu} onToggle={event => { setOpen(event.newState === 'open'); if (event.newState === 'open') place(); }}>
+      <CardDetectionSetting />
       <RecognitionSetting />
       {lock ? <CameraLockControl lock={lock} /> : null}
     </div>

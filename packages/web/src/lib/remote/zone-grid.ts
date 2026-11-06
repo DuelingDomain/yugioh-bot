@@ -97,17 +97,28 @@ export function useMissingPiles(seat: number): readonly string[] {
   return value.seat === seat ? value.zones : [];
 }
 /** "Scan field" beside the virtual board: the field watcher re-syncs the board at once. Local only. `ready` is false while the camera is off. */
-export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; ready: boolean; scan?: () => void }
+export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; ready: boolean; scan?: () => void; setDetection?: (on: boolean) => void }
 let fieldScan: FieldScanState = { seat: null, scanning: false, enabled: false, ready: false };
 const scanListeners = new Set<() => void>();
 export function publishFieldScan(next: FieldScanState) {
-  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.ready === next.ready && fieldScan.scan === next.scan) return;
+  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.ready === next.ready && fieldScan.scan === next.scan && fieldScan.setDetection === next.setDetection) return;
   fieldScan = next; for (const listener of scanListeners) listener();
 }
 /** Starts a field scan for my seat when the camera is on and auto-detect is watching; the S key calls it. Returns false when it did nothing. */
 export function runFieldScan(): boolean {
   if (!fieldScan.enabled || !fieldScan.ready || fieldScan.scanning || !fieldScan.scan) return false;
   fieldScan.scan(); return true;
+}
+const useFieldScanStore = () => useSyncExternalStore(listener => { scanListeners.add(listener); return () => { scanListeners.delete(listener); }; }, () => fieldScan, () => fieldScan);
+/** Card detection of my seat at the table: Auto-detect or Tap to identify. Null before the watcher is on the page. */
+export function useCardDetection(): { seat: number; autoDetect: boolean; set: (on: boolean) => void } | null {
+  const value = useFieldScanStore();
+  return value.seat !== null && value.setDetection ? { seat: value.seat, autoDetect: value.enabled, set: value.setDetection } : null;
+}
+/** True while this seat is mine and in Tap to identify: the table follows no cards, so a click reads the camera. */
+export function useTapToIdentify(seat: number): boolean {
+  const value = useFieldScanStore();
+  return value.seat === seat && !!value.setDetection && !value.enabled;
 }
 /** The scan state of my seat while auto-detect is on; null for any other seat. */
 export function useFieldScan(seat: number): FieldScanState | null {

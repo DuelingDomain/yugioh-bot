@@ -12,7 +12,7 @@ import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt 
 import { useVideoHub, useFieldBacks, type Health } from "./video-hub";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
-import { readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 
@@ -180,19 +180,21 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     context.drawImage(element, 0, 0, w, h); return canvas;
   }, [you]);
   // The own feed has an always-on native-resolution ring (shared with remote reads), so it needs no hover ring.
+  // Tap to identify has no watcher to feed: the ring stops, and the own feed keeps frames only under the pointer, like other feeds.
+  const tapOwn = useTapToIdentify(seat) && you;
   useEffect(() => {
-    const element = video.current; if (!you || !source || !element) return;
+    const element = video.current; if (!you || !source || !element || tapOwn) return;
     attachOwnFeed(element); return () => detachOwnFeed(element);
-  }, [you, source]);
+  }, [you, source, tapOwn]);
   useEffect(() => {
-    if (!hovered || !source || frozen || you) return;
+    if (!hovered || !source || frozen || (you && !tapOwn)) return;
     const tick = () => {
       const list = ring.current; const reuse = list.length >= RING_SIZE ? list.shift()?.canvas : undefined;
       const canvas = grab(reuse); if (canvas) list.push({ canvas, at: performance.now() });
     };
     tick(); const timer = setInterval(tick, RING_GAP_MS);
     return () => clearInterval(timer);
-  }, [hovered, source, frozen, you, grab]);
+  }, [hovered, source, frozen, you, tapOwn, grab]);
   useEffect(() => { ring.current = []; return () => { ring.current = []; }; }, [source]);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   /** The two sharpest frames around a point, copied so the ring can go on. */
@@ -327,9 +329,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     const found = bitmap ? await detectCards(bitmap) : null;
     if (token !== run.current) { if (id) onAbort?.(seat, id); return; }
     if (id !== undefined && readLive && !readLive(id)) return;
+    // The detector could not run: this says nothing about the click, so read at that point. The reader looks for the card itself.
+    if (found?.status !== "ready") { onPoint(seat, p.x, p.y, { anchor: around(p), feed, frames, live: true }); return; }
     // Only a quad that is shaped, sized and confident like a card can be read. Hands, mice and shadows get "No card here".
     const frame = frames[0] ? { w: frames[0].width, h: frames[0].height } : { w: box.width, h: box.height };
-    const cards = found?.status === "ready" ? readableCards(toFeedCards(found.cards), frame) : [];
+    const cards = readableCards(toFeedCards(found.cards), frame);
     const hit = hitTest(cards, p, { w: box.width, h: box.height });
     if (!hit) { onMiss(seat); showMiss(p); return; }
     flashQuad(hit.quad);

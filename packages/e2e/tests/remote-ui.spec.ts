@@ -1652,7 +1652,7 @@ test('field watcher automatic: owner table applies once and Undo removes the ato
   });
   await expect(page.getByTestId('recognition-tray')).toBeVisible();await page.keyboard.press('Escape');
   await expect(page.getByTestId('card-popover')).toHaveCount(0);
-  await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();await expect(page.getByTestId('field-watcher-status')).toHaveCount(0);
+  await page.getByLabel('Auto-detect cards',{exact:true}).uncheck();await expect(page.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
 });
 
 test('field watcher automatic: a failed lazy recognition load leaves detection usable and can retry',async({page})=>{
@@ -1737,6 +1737,49 @@ test('field watcher automatic: cached owner and observer clicks open the popup w
     await expect.poll(()=>a.evaluate(()=>(window as any).visionCalls.filter((t:string)=>t==='recognize').length)).toBeGreaterThan(counts[0]);
     await expect(a.getByTestId('card-popover')).toContainText('Sacred Sword of Seven Stars');
     const room=await alice.request.get(`/api/remote/${slug}`).then(r=>r.json());expect(room.state.seats[0].twin).toHaveLength(1);
+  }finally{await Promise.allSettled([alice.close(),bob.close()]);}
+});
+test('field watcher automatic: tap to identify reads every camera on a click, runs nothing while idle, and a slow computer gets one offer',async({browser})=>{
+  test.setTimeout(240_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449',options={permissions:['camera','microphone'],baseURL:origin,viewport:{width:1920,height:1080}};
+  const alice=await browser.newContext(options),bob=await browser.newContext(options);
+  try{
+    await authenticatePlayer(alice.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,origin);
+    const slug=await startTwoPlayerTable(alice.request,bob.request),a=await alice.newPage(),b=await bob.newPage();
+    for(const page of [a,b]){await appearingCamera(page);await page.addInitScript(()=>{
+      (window as any).visionCalls=[];const post=Worker.prototype.postMessage;
+      Worker.prototype.postMessage=function(...args:any[]){if(['recognize','detect'].includes(args[0]?.type))(window as any).visionCalls.push(args[0].type);return (post as any).apply(this,args);};
+    });}
+    // Alice has a weak computer on the CPU.
+    await a.addInitScript(()=>{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>2});localStorage.setItem('dd-remote-recognition-mode','cpu');});
+    await Promise.all([a.goto(`/duels/remote/${slug}`),b.goto(`/duels/remote/${slug}`)]);
+    for(const page of [a,b])await page.getByTestId('camera-on-feed').click();
+    const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
+    const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
+    // The offer leaves LP and phase controls clear.
+    expect(await a.evaluate(()=>{const d=document.querySelector('[data-testid="tap-identify-offer"]')!.getBoundingClientRect();return Array.from(document.querySelectorAll('[data-testid="seat-0"] button,[data-testid="remote-table"] button')).filter(b=>/^([−+-]\d+|Draw|Standby|Main \d|Battle|End)$/.test(b.textContent?.trim()??'')).map(b=>b.getBoundingClientRect()).filter(r=>r.left<d.right&&r.right>d.left&&r.top<d.bottom&&r.bottom>d.top).length;})).toBe(0);
+    const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
+    expect(await boxes()).toEqual(shown);
+    await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
+    // Bob changes the mode in the More menu; the checkbox follows.
+    await b.getByTestId('camera-more').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
+    await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
+    await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
+    const calls=(page:Page,type:string)=>page.evaluate(t=>(window as any).visionCalls.filter((c:string)=>c===t).length,type);
+    const before=await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]));
+    await a.waitForTimeout(5000);
+    expect(await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]))).toEqual(before);
+    const clickCard=(page:Page)=>page.evaluate(()=>{
+      const feed=document.querySelector<HTMLElement>('[data-testid="feed-0"]')!,video=feed.querySelector('video')!,r=feed.getBoundingClientRect();
+      const scale=Math.min(r.width/video.videoWidth,r.height/video.videoHeight),w=video.videoWidth*scale,h=video.videoHeight*scale;
+      feed.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+(r.width-w)/2+550/1280*w,clientY:r.top+(r.height-h)/2+301/720*h}));
+    });
+    for(const page of [a,b]){
+      const detect=await calls(page,'detect');await clickCard(page);
+      await expect(page.getByTestId('card-popover').or(page.getByTestId('recognition-tray')).first()).toBeVisible({timeout:30_000});
+      expect(await calls(page,'detect')).toBe(detect+1);
+    }
+    // The opponent's auto-detect is off, so no outlines came: Alice's own reader answered Bob's click.
+    expect(await calls(a,'recognize')).toBeGreaterThanOrEqual(2);
   }finally{await Promise.allSettled([alice.close(),bob.close()]);}
 });
 async function measuredFieldChange(page:Page,kind:'move'|'remove') {
