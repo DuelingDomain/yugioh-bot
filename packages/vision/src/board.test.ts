@@ -51,7 +51,7 @@ test('client exposes both worker operations and abort releases its worker for an
     terminate(){this.terminated=true;}
   }
   globalThis.Worker=FakeWorker as unknown as typeof Worker;
-  const reader=createRecognizer({backend:'wasm'});
+  const reader=createRecognizer({backend:'wasm',workers:'single'});
   try {
     await Promise.all([reader.warmup(),reader.warmup()]);
     assert.equal(workers.length,1);
@@ -1329,4 +1329,34 @@ test('a phantom track with no box on the mat plane expires in two full scans des
  assert.equal(gone?.track.id,'set-1',JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.equal(gone?.reason,'phantom');assert.ok(r.at-from<=3000,`gone after ${r.at-from} ms`);
  assert.equal((r.keeps as {x:number;y:number}[][]).some(q=>Math.abs(q[0].x-tall.quad[0].x)<1e-6&&Math.abs(q[0].y-tall.quad[0].y)<1e-6),false,'its box does not keep weak outlines');
  r.watcher.dispose();
+});
+
+test('CPU budget: a still noisy mat rarely runs the detector, a change wakes it, and long motion stays in budget', async()=>{
+ let seed=12345;const random=()=>(seed=(Math.imul(seed,1664525)+1013904223)>>>0)/2**32;
+ const W=320,H=180,image=(shift=0,patch?:number):{width:number;height:number;data:Uint8ClampedArray}=>{
+  const data=new Uint8ClampedArray(W*H*4);
+  for(let i=0;i<data.length;i+=4){data[i]=data[i+1]=data[i+2]=40+shift+Math.round((random()-.5)*14);data[i+3]=255;}
+  if(patch!==undefined)for(let y=60;y<110;y++)for(let x=patch;x<patch+36;x++){const i=(y*W+x)*4;data[i]=220;data[i+1]=180;data[i+2]=140;}
+  return {width:W,height:H,data};
+ };
+ let at=1000,frame=image(),passes=0,busyMs=0;
+ const cost=300,watcher=field.createFieldWatcher({now:()=>at,hidden:()=>false,profile:yugioh,clone:async f=>f,
+  buffer:{sample:async()=>({frame:frame as ImageData,at})},
+  recognizer:{detectorBackend:'wasm',detectCards:async()=>{passes++;busyMs+=cost;at+=cost;return [];},recognize:async()=>{throw new Error('no reads here');}}});
+ const run=async(ms:number,next:(i:number)=>ReturnType<typeof image>)=>{const end=at+ms;let i=0;while(at<end){frame=next(i++);at+=100;await watcher.tick();}};
+ await run(1000,()=>image());
+ passes=0;busyMs=0;
+ // Noise alone and a change of exposure are not a change of the scene.
+ await run(30_000,i=>image(i%20<10?0:3));
+ assert.ok(passes<=8,`a still mat ran ${passes} passes in 30 s`);
+ // A hand keeps moving for 30 s: wakes the detector at once, and the share stays near the sustained budget.
+ passes=0;busyMs=0;const before=at;
+ await run(30_000,i=>image(0,20+(i*7)%260));
+ assert.ok(passes>=10,`motion ran only ${passes} passes`);
+ assert.ok(busyMs/(at-before)<.5,`motion used ${Math.round(100*busyMs/(at-before))}% of the time`);
+ assert.ok(watcher.getSnapshot().metrics.dutyPercent<60);
+ // It stops: one pass on the final scene, then quiet again.
+ passes=0;const still=image(0,100);await run(20_000,()=>({...still}));
+ assert.ok(passes>=1&&passes<=8,`after motion: ${passes} passes in 20 s`);
+ watcher.dispose();
 });

@@ -77,7 +77,7 @@ export const WASM_SESSION_OPTIONS = { executionProviders: ['wasm'], graphOptimiz
 export const WEBGPU_SESSION_OPTIONS = { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' } as const;
 
 /**
- * ONNX Runtime's WASM threads for a computer with `cores` logical cores: half of them, 1 to 4. Its threads wait
+ * ONNX Runtime's WASM threads for a computer with `cores` logical cores: half of them, 1 to 4 (a split recognizer chooses its own, see client.ts). Its threads wait
  * for each other at every layer, so one that loses its core to the browser, the video or another thread holds up
  * the rest: on 2 cores, a crop took 149 ms on 2 threads, 273 ms on 1, and 540 ms on 4 (all cores, 4 as
  * before: a 2-core, 4-thread laptop's). test/e2e/low-end/embed-bench.ts measures it (test/e2e/low-end/README.md).
@@ -196,6 +196,8 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
       device: info?.device ?? '', description: info?.description ?? '',
       isFallbackAdapter: Boolean(adapter.isFallbackAdapter || info?.isFallbackAdapter),
     };
+    // SwiftShader and friends run the GPU work on the CPU: never pick them over WASM.
+    if (diagnostics.adapter.isFallbackAdapter) return { ort: null, why: 'the WebGPU adapter is software (no usable GPU)', diagnostics };
     diagnostics.features = adapter.features?.[Symbol.iterator] ? [...adapter.features as Iterable<string>].sort() : [];
     diagnostics.limits = gpuLimits(adapter.limits);
     const load = deps.ortWebGpu ?? (async () => (await import('onnxruntime-web/webgpu')) as WebOrt);

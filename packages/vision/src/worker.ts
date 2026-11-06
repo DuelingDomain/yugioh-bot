@@ -6,7 +6,7 @@ import { embedImages } from './embed';
 import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
 import { CARD_DETECTOR } from './detector/spec';
-import { detectScene } from './detect-scene';
+import { detectScene, lastShadowPasses } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
 import { LearningCache } from './learning-cache';
@@ -191,7 +191,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
-          const split=last?{preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};
+          const split=last?{shadowPasses:lastShadowPasses(),preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};
           reply({id:message.id,result,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:detectMs,...split,worker:performance.now()-start}});return;
         }
         if(message.type==='aiCrop') {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { defaultGridCalibration, isPlacedCalibration } from './zone-grid';
+import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 export type CaptureSize = {width:number;height:number};
@@ -86,6 +86,8 @@ export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,camera
     if(cameraId)localStorage.setItem(fieldCalibrationKey(seatKey),JSON.stringify(value));
   }catch{/* Memory-only fallback. */}
 }
+/** A snapshot without what changes on every tick (timings, noise in the debug numbers). Debug always re-renders. */
+export const fieldSnapshotKey=(s:FieldSnapshot)=>JSON.stringify({...s,metrics:undefined,debug:undefined,blur:s.blur?.hold,shadow:s.shadow?.hold});
 /** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const latest=useRef(options);latest.current=options;
@@ -137,7 +139,14 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
       }
       reader=createFieldWatcher({...config,calibration:gridRef.current,gallery:gallery.current.value});watcher.current=reader;
       reader.subscribe(event=>{if(!cancelled)latest.current.onEvent(event);});
-      reader.subscribeState(()=>{if(!cancelled)setSnapshot(reader!.getSnapshot());});reader.start();
+      // A still watcher ticks several times a second with nothing new: re-render only on a real change, or once a second.
+      let lastKey='',lastAt=0;
+      reader.subscribeState(()=>{
+        if(cancelled)return;
+        const next=reader!.getSnapshot(),key=fieldSnapshotKey(next),at=performance.now();
+        if(key===lastKey&&at-lastAt<1000&&!fieldDebugEnabled()&&!next.tracks.some(t=>t.state==='candidate'))return;
+        lastKey=key;lastAt=at;setSnapshot(next);
+      });reader.start();
     }).catch(error=>{if(!cancelled)setSnapshot({...initial,status:'error',error:error instanceof Error?error.message:'Card watcher unavailable'});});
     return()=>{cancelled=true;reader?.dispose();if(watcher.current===reader)watcher.current=null;};
     // Calibration updates the running watcher without resetting physical IDs.

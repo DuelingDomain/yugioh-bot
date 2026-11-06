@@ -363,6 +363,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
     recognizer: {
       get detectorBackend() { return reader.detectorBackend; },
       get detectorTimingsMs() { return reader.detectorTimingsMs; },
+      get separateDetector() { return reader.separateDetector; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
