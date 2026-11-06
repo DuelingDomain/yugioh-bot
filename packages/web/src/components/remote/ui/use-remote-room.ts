@@ -16,7 +16,15 @@ export type RoomController = ReturnType<typeof useRemoteRoom>;
 export function useRemoteRoom(slug: string) {
   const router = useRouter();
   const [realtime, setRealtime] = useState("Connecting…");
-  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, () => remoteApi<RemoteRoom>(`/${slug}`), { refreshInterval: realtime === "Connected" ? 30_000 : 5000 });
+  // A person with no seat watches a public table. The spectate request also keeps the spectator slot, so this poll holds it.
+  const spectating = useRef(false);
+  const load = useCallback(async () => {
+    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, {}); spectating.current = !!view.spectator; return view; };
+    if (spectating.current) return watch();
+    try { return await remoteApi<RemoteRoom>(`/${slug}`); }
+    catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
+  }, [slug]);
+  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const roomRef = useRef<RemoteRoom | undefined>(room);
@@ -56,7 +64,7 @@ export function useRemoteRoom(slug: string) {
       if (snapshot.table.slug !== slug) return;
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq
-        ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper } : current, { revalidate: false });
+        ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: current.spectatorCount } : current, { revalidate: false });
     });
     socket.connect(); const timer = setInterval(() => void join(), 4 * 60_000);
     return () => { disposed = true; clearInterval(timer); socket.emit("remote:leave"); socket.disconnect(); socketRef.current = null; };

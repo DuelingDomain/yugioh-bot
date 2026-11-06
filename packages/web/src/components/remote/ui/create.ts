@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import type { RemoteRoom } from "@yugidraft/shared/remote";
+import type { RemoteRoom, RemoteVisibility } from "@yugidraft/shared/remote";
 import type { Choice } from "@/components/duel/sheet-ui";
 import { remoteApi } from "./api";
 
@@ -29,11 +29,11 @@ export const deckFailedKey = (slug: string) => `remote:deck-failed:${slug}`;
  * undo the room (a retry would make a second room). The message goes to the setup room through sessionStorage.
  */
 export async function createRemoteRoom(input: {
-  seatCount: number; solo: boolean; format: string; savedDeckId?: number | null; showCardsSetFromDeck?: boolean; rules?: unknown;
+  seatCount: number; solo: boolean; format: string; savedDeckId?: number | null; showCardsSetFromDeck?: boolean; rules?: unknown; visibility?: RemoteVisibility;
 }): Promise<RemoteRoom> {
   const room = await remoteApi<RemoteRoom>("", {
     gameId: "ygo", seatCount: input.seatCount, solo: input.solo, format: input.format,
-    showCardsSetFromDeck: input.showCardsSetFromDeck, ...(input.rules ? { rules: input.rules } : {}),
+    showCardsSetFromDeck: input.showCardsSetFromDeck, visibility: input.solo ? undefined : input.visibility, ...(input.rules ? { rules: input.rules } : {}),
   });
   if (input.savedDeckId) {
     await remoteApi(`/${room.slug}/deck`, { savedDeckId: input.savedDeckId }).catch((error: unknown) => {

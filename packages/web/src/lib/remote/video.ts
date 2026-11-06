@@ -234,8 +234,11 @@ export class RemoteVideo {
         const data = announcement ? { requestId: message.requestId, feedOwnerSeat: "feedOwnerSeat" in message ? message.feedOwnerSeat : undefined } : message;
         const bytes = new TextEncoder().encode(JSON.stringify(data));
         if (bytes.byteLength > 8192) throw new Error("Recognition message is too large");
+        // Never to the whole room: hidden spectators are in it, and a read answer is for the players only.
+        const seated = this.options.members.flatMap(p => p.userId !== null && p.seat !== this.options.seat ? [`remote-user-${p.userId}`] : []);
+        if (!identity && !seated.length) return;
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: announcement ? PENDING_TOPIC : RECOGNITION_TOPIC,
-          destinationIdentities: identity ? [identity] : undefined });
+          destinationIdentities: identity ? [identity] : seated });
       }, async request => {
         const cached=!request.force?this.trackedAt(this.options.seat,request.x,request.y):undefined;
         if(cached)return {candidates:[{cardId:cached.cardId,name:cached.name??`Card ${cached.cardId}`,score:0}],tier:'sure',faceDown:false,covered:false};

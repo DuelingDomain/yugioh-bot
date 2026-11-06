@@ -3,7 +3,7 @@ import { signToken, verifyToken } from "../internal-auth/index.js";
 export const REMOTE_CONNECTION_TTL_MS = 5 * 60_000;
 const claimsSchema = z.strictObject({
   slug: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/), guildId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
-  userId: z.number().int().positive().safe(), seat: z.number().int().min(0).max(3), expiresAt: z.number().int().nonnegative().safe(),
+  userId: z.number().int().positive().safe(), /** Null is a spectator, as in duel tokens. */ seat: z.number().int().min(0).max(3).nullable(), expiresAt: z.number().int().nonnegative().safe(),
 });
 export type RemoteConnectionTokenClaims = z.infer<typeof claimsSchema>;
 export function createRemoteConnectionToken(claims: RemoteConnectionTokenClaims, secret: string): string {

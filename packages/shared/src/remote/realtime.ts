@@ -42,3 +42,5 @@ export interface RemoteClientEvents {
   "remote:data": (payload: RemoteDataMessage, ack?: (result: RemoteAck) => void) => void;
 }
 export const remoteSocketRoom = (guildId: string, slug: string) => `remote:${guildId}:${slug}`;
+/** Spectators stay out of the player room: `remote:changed` and `remote:data` of that room never reach them. */
+export const remoteSpectatorSocketRoom = (guildId: string, slug: string) => `remote-spectators:${guildId}:${slug}`;

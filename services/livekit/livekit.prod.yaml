@@ -8,10 +8,12 @@ turn:
   enabled: false
 room:
   auto_create: true
-  max_participants: 6
+  # 4 seats + 4 phones + 10 spectators (REMOTE_SPECTATOR_CAP). Hidden spectators count here.
+  max_participants: 18
   empty_timeout: 300
   departure_timeout: 20
 limit:
-  num_tracks: 16
+  # In and out together, on this node. One spectator adds 1 track per camera.
+  num_tracks: 96
 prometheus:
   port: 6789

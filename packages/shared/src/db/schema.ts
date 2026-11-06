@@ -1848,6 +1848,15 @@ function migrateRemoteDuels(db: Database.Database) {
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");
   addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");
+  // Tables from before this setting stay closed to spectators. New tables choose at creation.
+  addColumnIfMissing(db, "remote_tables", "visibility", "text not null default 'private' check (visibility in ('public','private'))");
+  // A spectator slot, held by the viewer's room poll. No seat, no event, no idle clock. user_id has no foreign key: rows live for seconds.
+  db.exec(`create table if not exists remote_spectators (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    last_seen_at integer not null,
+    primary key (table_id,user_id)
+  ) without rowid`);
   for (const table of ["remote_seats", "remote_bot_seats"]) {
     addColumnIfMissing(db, table, "saved_deck_id", "integer");
     addColumnIfMissing(db, table, "deck_json", "text");

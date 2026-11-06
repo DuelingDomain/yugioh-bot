@@ -1,5 +1,5 @@
 import { verifyRemoteConnectionToken, createTalkLimiter, type RemoteConnectionTokenClaims } from "@yugidraft/shared/ws";
-import { remoteDataMessageSchema, remoteSocketRoom, type RemoteSnapshot } from "@yugidraft/shared/remote";
+import { remoteDataMessageSchema, remoteSocketRoom, remoteSpectatorSocketRoom, type RemoteSnapshot } from "@yugidraft/shared/remote";
 import type { TypedServer, TypedSocket } from "./events.js";
 
 export function registerRemoteEventHandlers(io: TypedServer, opts: {
@@ -7,8 +7,11 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
   canRead: (claims: RemoteConnectionTokenClaims) => boolean;
   readPrivateSnapshot?: (claims: RemoteConnectionTokenClaims) => RemoteSnapshot | null;
   readSnapshot: (slug: string, guildId: string) => RemoteSnapshot | null;
+  readSpectatorSnapshot?: (slug: string, guildId: string) => RemoteSnapshot | null;
 }) {
   const members = new Map<string, Set<TypedSocket>>();
+  /** Spectator sockets, by the spectator room. They receive only the spectator projection, never a player room event. */
+  const spectators = new Map<string, Set<TypedSocket>>();
   const timers = new Map<string, NodeJS.Timeout>();
   const limiter = createTalkLimiter({ cooldownMs: 100 });
   const pending = new Map<string, Map<string, { owner: number; requester: number; expiresAt: number }>>();
@@ -18,14 +21,20 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
   function detach(socket: TypedSocket, expired = false) {
     const timer = timers.get(socket.id); if (timer) clearTimeout(timer); timers.delete(socket.id);
     const claims = socket.data.remote; if (!claims) return;
-    const room = remoteSocketRoom(claims.guildId, claims.slug);
-    socket.leave(room); members.get(room)?.delete(socket);
-    if (!members.get(room)?.size) { members.delete(room); pending.delete(room); }
+    if (claims.seat === null) {
+      const watching = remoteSpectatorSocketRoom(claims.guildId, claims.slug);
+      socket.leave(watching); spectators.get(watching)?.delete(socket);
+      if (!spectators.get(watching)?.size) spectators.delete(watching);
+    } else {
+      const room = remoteSocketRoom(claims.guildId, claims.slug);
+      socket.leave(room); members.get(room)?.delete(socket);
+      if (!members.get(room)?.size) { members.delete(room); pending.delete(room); }
+    }
     socket.data.remote = undefined;
     if (expired) socket.emit("remote:subscription-expired", { slug: claims.slug });
   }
   function prune(slug: string, guildId: string) {
-    for (const socket of [...(members.get(remoteSocketRoom(guildId, slug)) ?? [])]) {
+    for (const socket of [...(members.get(remoteSocketRoom(guildId, slug)) ?? []), ...(spectators.get(remoteSpectatorSocketRoom(guildId, slug)) ?? [])]) {
       if (!socket.data.remote || !authorized(socket.data.remote)) detach(socket, true);
     }
   }
@@ -39,6 +48,12 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
         if(privateData) socket.emit("remote:private",privateData);
       }
     }
+    // One read and one emit for all spectators of the table, so they add no per-viewer database work.
+    const watching=remoteSpectatorSocketRoom(guildId,slug);
+    if(opts.readSpectatorSnapshot && spectators.get(watching)?.size) {
+      const view=opts.readSpectatorSnapshot(slug,guildId);
+      if(view) io.to(watching).emit("remote:private",view);
+    }
     return data;
   }
   function publish(slug: string, guildId: string) {
@@ -50,10 +65,11 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
       const claims = verifyRemoteConnectionToken(payload?.token, opts.secret);
       if (!claims || !authorized(claims)) { ack?.({ ok: false, error: "Invalid or revoked remote token" }); return; }
       detach(socket);
-      const room = remoteSocketRoom(claims.guildId, claims.slug);
+      const room = claims.seat === null ? remoteSpectatorSocketRoom(claims.guildId, claims.slug) : remoteSocketRoom(claims.guildId, claims.slug);
+      const list = claims.seat === null ? spectators : members;
       socket.data.remote = claims; socket.join(room);
-      if (!members.has(room)) members.set(room, new Set());
-      members.get(room)!.add(socket);
+      if (!list.has(room)) list.set(room, new Set());
+      list.get(room)!.add(socket);
       timers.set(socket.id, setTimeout(() => detach(socket, true), Math.max(1, claims.expiresAt - Date.now())));
       ack?.({ ok: true });
     });
@@ -62,6 +78,7 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
     socket.on("remote:data", (payload, ack) => {
       const claims = socket.data.remote;
       if (!claims || !authorized(claims)) { detach(socket, true); ack?.({ ok: false, error: "Remote membership expired" }); return; }
+      if (claims.seat === null) { ack?.({ ok: false, error: "Spectators cannot send table data" }); return; }
       if (!payload || typeof payload !== "object" || JSON.stringify(payload).length > 8192) { ack?.({ ok: false, error: "Invalid data message" }); return; }
       const parsed = remoteDataMessageSchema.safeParse(payload);
       if (!parsed.success) { ack?.({ ok: false, error: "Invalid data message" }); return; }

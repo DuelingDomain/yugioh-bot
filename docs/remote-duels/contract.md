@@ -230,6 +230,22 @@ All responses use `Cache-Control: private, no-store`. All routes return 404 when
 
 Errors: `{error,code?}` with 400 malformed/action failure, 401 missing session, 403 actor/turn/owner refusal, 404 missing guild-scoped table or nonmember read, 409 lifecycle/seat/sequence conflict, 503 unavailable provider. `STALE_SEQUENCE` means fetch current state and reconsider the action; do not blindly replay a phase/turn intent. For transport failure, retry the same body/key. The server never accepts stale `baseSeq` for a new action.
 
+## Spectators
+
+The room creator picks Public (default, as in normal duels) or Private at creation. Solo tables are always private, and tables from before this setting stay private. The setting does not change after creation. Public tables appear in `GET /api/remote?scope=open`, also when active or full. Private tables open only with the invite link, for a seat.
+
+`POST /api/remote/[slug]/spectate` takes or keeps a slot in `remote_spectators` and returns a room with `spectator: true` and `mySeat: -1`. The browser poll (30 s while connected) holds the slot; it ends 90 s after the last poll (`REMOTE_SPECTATOR_SLOT_MS`). `DELETE` frees it. The cap is `REMOTE_SPECTATOR_CAP` (10 for each table); at the cap the reply is 409 `SPECTATORS_FULL`. A private table replies 403 `TABLE_PRIVATE`. `REMOTE_DUELS_USERS` applies as on all routes, and ws rechecks it. A slot writes no event, seat or idle time, so it cannot hold a table open or stop its end. Every other room route refuses a spectator with 403 `SPECTATOR_READ_ONLY`.
+
+`projectRemoteSpectator` (`shared/remote/privacy.ts`) is the only view a spectator gets, from HTTP and from ws. It is stricter than an opponent's view: no known hand cards, no name of any face-down card (also a card once public), no deck data, undo history, effect tracking or flags. Events pass through an allow list; any other type, and a player's note, becomes a plain private line. `messages` are removed. Spectator sockets join their own room, so `remote:changed` and `remote:data` of the player room never reach them, and they cannot send `remote:data`. Tap memory stays in the player's browser and is never sent.
+
+The LiveKit token has `canPublish: false`, `canPublishData: false`, `canSubscribe: true` and `hidden: true`, with the identity `remote-spectator-<id>`. LiveKit sends a data message to the whole room when it has no destination, so recognition messages now name the seated players as destinations. Field tracks stay room wide: they hold only face-up public cards, and backs hold no names.
+
+The spectator page mounts no `VideoHubProvider`, card reader, field watcher, camera or microphone subscription. A click on a card opens the view-only popup when the server view has that card as public; otherwise nothing opens.
+
+Traffic: a spectator asks for the 720p layer of each webcam (360p on a screen of 900 px or less), with adaptive stream off. The 720p layer is at most 1.7 Mbps and the 360p layer at most 450 kbps. That is at most 1.5 GB per hour for a 1v1 and 3.1 GB per hour for a 4-way, or 0.4 and 0.8 GB per hour on a phone. Ten spectators of a 1v1 are at most 15 GB per hour from the SFU. Socket and HTTP add about 5 MB per hour. A phone field camera has no simulcast (3 Mbps at most), so a spectator gets its full stream: 1.35 GB per hour for each phone seat. The layer is a browser request; the SFU does not enforce it.
+
+`services/livekit/livekit.prod.yaml` must allow this: `max_participants: 18` (4 seats, 4 phones, 10 spectators) and `num_tracks: 96`. Restart LiveKit to apply the file. Hidden participants count.
+
 ## WebSocket contract
 
 Socket.IO uses the existing ws process and `NEXT_PUBLIC_WS_URL` (or same origin behind the existing proxy). Set `REMOTE_DUELS=1` on **both web and ws**.

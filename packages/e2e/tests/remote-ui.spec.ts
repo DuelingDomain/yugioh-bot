@@ -4,6 +4,8 @@ import { projectRemoteState } from "@yugidraft/shared/remote";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
 import { pickSelect } from "../helpers/themed-select";
+import Database from "better-sqlite3";
+import { io } from "socket.io-client";
 
 // The table hides the virtual field by default. These tests use the board, so a browser with no saved choice starts in Both view.
 const bothView = (context: BrowserContext) => context.addInitScript(() => { if (localStorage.getItem("dd-remote-webcam-only") === null) localStorage.setItem("dd-remote-webcam-only", "0"); });
@@ -1142,6 +1144,174 @@ for (const showCardsSetFromDeck of [true]) test(`two browsers honor Deck publici
   } finally {await bob.close();}
 });
 
+
+test.describe("remote duels, spectators", () => {
+  test("a spectator watches a public table, cannot act, sees nothing hidden, and a private table refuses", async ({ browser }) => {
+    test.setTimeout(300_000);
+    const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+    const [alice, bob, carol, dave] = await Promise.all([1, 2, 3, 4].map(() => browser.newContext()));
+    const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103], [dave, 104]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request), path = `/api/remote/${slug}`;
+      // Hidden facts of Alice: a Set card, a card known to be in hand. Public: a face-up monster.
+      const act = async (action: Record<string, unknown>) => {
+        const room = await (await alice!.request.get(path)).json();
+        const done = await alice!.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { actorSeat: 0, idempotencyKey: crypto.randomUUID(), ...action } } });
+        expect(done.status(), await done.text()).toBe(200);
+      };
+      await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "hidden-set", slot: 1, cardId: 53582587, name: "Torrential Tribute", faceUp: false } });
+      await act({ type: "hand.add", cardId: 47355498, source: "unknown" });
+      await act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "shown", slot: 1, cardId: 900000001, name: "Origin fixture 1", faceUp: true } });
+      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Necrovalley", "47355498", "knownHand", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
+
+      // Listed where normal duels list tables, and the view from the server holds no hidden fact.
+      expect((await (await carol!.request.get("/api/remote?scope=open")).json()).tables.some((t: { slug: string }) => t.slug === slug)).toBe(true);
+      const before = await (await alice!.request.get(path)).json();
+      const watched = await carol!.request.post(`${path}/spectate`, { data: {} });
+      expect(watched.status(), await watched.text()).toBe(200);
+      const view = await watched.json(), viewText = JSON.stringify(view);
+      expect([view.spectator, view.mySeat]).toEqual([true, -1]);
+      hiddenFree(viewText);
+      expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "shown").name).toBe("Origin fixture 1");
+      expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "hidden-set").cardId).toBeUndefined();
+      expect(view.state.seats[0].handCount).toBeDefined();
+
+      // No seat change, no event, no idle clock.
+      const after = await (await alice!.request.get(path)).json();
+      expect([after.lastSeq, after.lastEventAt, after.seats.length]).toEqual([before.lastSeq, before.lastEventAt, 2]);
+      expect(after.spectatorCount).toBe(1);
+
+      // Every room action is refused.
+      const refused: [string, "post" | "get" | "patch" | "delete", unknown?][] = [
+        ["actions", "post", { baseSeq: after.lastSeq, action: { type: "lp.change", actorSeat: 0, seat: 0, delta: -100, reason: "x", idempotencyKey: crypto.randomUUID() } }],
+        ["ready", "post", { ready: true }], ["start", "post", {}], ["leave", "post", {}], ["activity", "post", {}], ["deck", "post", { savedDeckId: null }], ["format", "post", { bestOf: 1 }],
+        ["search?seat=0&recentCardId=73628505", "get"], ["phone", "get"], ["phone", "post", {}], ["phone", "delete"], ["phone", "patch", { mode: "webcam" }],
+      ];
+      for (const [route, method, data] of refused) {
+        const reply = await carol!.request[method](`${path}/${route}`, data === undefined ? undefined : { data });
+        expect(reply.status(), `${method} ${route}`).toBe(403);
+      }
+      expect((await carol!.request.post(`${path}/seat`, { data: {} })).status()).toBe(409);
+
+      // The video token has no publish rights.
+      const media = await carol!.request.post(`${path}/livekit`);
+      expect(media.status(), await media.text()).toBe(200);
+      const grant = JSON.parse(Buffer.from((await media.json()).token.split(".")[1], "base64url").toString()).video;
+      expect(grant).toMatchObject({ canPublish: false, canPublishData: false, canSubscribe: true, hidden: true });
+
+      // The socket: its own projection, no player room event, and it cannot send.
+      const credentials = await (await carol!.request.get(`${path}/connection`)).json();
+      expect(credentials.seat).toBeNull();
+      const socket = io(`http://localhost:${process.env.E2E_WS_PORT ?? 3312}`, { transports: ["websocket"] });
+      const pushes: unknown[] = [], playerRoom: unknown[] = [];
+      socket.on("remote:private", payload => pushes.push(payload)); socket.on("remote:changed", payload => playerRoom.push(payload)); socket.on("remote:data", payload => playerRoom.push(payload));
+      const joined = await new Promise<{ ok: boolean }>(resolve => socket.on("connect", () => socket.emit("remote:join", { token: credentials.token }, resolve)));
+      expect(joined.ok).toBe(true);
+      const sent = await new Promise<{ ok: boolean }>(resolve => socket.emit("remote:data", { type: "recognition.request", requestId: crypto.randomUUID(), feedOwnerSeat: 0, x: .5, y: .5 }, resolve));
+      expect(sent.ok).toBe(false);
+      await act({ type: "lp.change", seat: 1, delta: -500, reason: "Battle" });
+      await expect.poll(() => pushes.length).toBeGreaterThan(0);
+      hiddenFree(JSON.stringify(pushes)); expect(playerRoom).toEqual([]);
+      socket.disconnect();
+
+      // The browser: both cameras at the lower layer, no camera of its own, no card reader or watcher.
+      const [a, b, c] = await Promise.all([alice!.newPage(), bob!.newPage(), carol!.newPage()]);
+      await c.addInitScript(() => {
+        const w = window as unknown as { __cameraAsked: number }; w.__cameraAsked = 0;
+        const asked = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = constraints => { w.__cameraAsked++; return asked(constraints); };
+      });
+      const readerFiles: string[] = [], workers: string[] = [];
+      c.on("request", request => { if (/\.onnx|ort-wasm|\/vision|remote-vision/.test(request.url())) readerFiles.push(request.url()); });
+      c.on("worker", worker => workers.push(worker.url()));
+      await fakeCamera(a, "16:9"); await fakeCamera(b, "16:9");
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`), c.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
+      await expect(c.getByTestId("spectator-table")).toBeVisible();
+      await expect(c.getByTestId("spectator-badge")).toBeVisible();
+      for (const seat of [0, 1]) {
+        const video = c.locator(`[data-testid="feed-${seat}"] video`);
+        await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0), { timeout: 60_000 }).toBeGreaterThan(0);
+        expect(await video.evaluate((v: HTMLVideoElement) => v.videoHeight)).toBeLessThanOrEqual(720);
+        await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "medium");
+      }
+      await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
+      await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
+      await expect(c.getByTestId("lp-value-0")).toHaveText("7900");
+      await expect(c.getByTestId("public-cards-0")).toContainText("Origin fixture 1");
+      await expect(c.getByTestId("set-count-0")).toHaveText("1 Set");
+      hiddenFree((await c.locator("body").innerText()));
+      // A click on a public card opens the view-only popup. A click on the camera with no public read opens nothing.
+      await c.getByTestId("public-cards-0").getByRole("button", { name: "Origin fixture 1" }).click();
+      await expect(c.getByTestId("card-popover")).toBeVisible();
+      await expect(c.getByTestId("card-popover")).toContainText("Origin fixture 1");
+      await expect(c.getByTestId("card-popover").locator("button", { hasText: /Wrong card|Pin|Read again|Attack|Flip|Move/ })).toHaveCount(0);
+      await c.keyboard.press("Escape");
+      await c.getByTestId("feed-1").click();
+      await expect(c.getByTestId("card-popover")).toHaveCount(0);
+      await c.getByTestId("log-button").click();
+      await expect(c.getByTestId("log-drawer").or(c.locator('[data-layer="log"]')).first()).toBeVisible();
+      hiddenFree((await c.locator("body").innerText()));
+      await c.keyboard.press("Escape");
+      expect(await c.evaluate(() => (window as unknown as { __cameraAsked: number }).__cameraAsked)).toBe(0);
+      expect(readerFiles).toEqual([]); expect(workers.filter(worker => /recogni|vision|watcher|field/.test(worker))).toEqual([]);
+      await expect(c.locator('[data-testid="field-watcher"],[data-testid="camera-on-feed"],[data-testid="seat-undo"]')).toHaveCount(0);
+
+      // Screen sizes: no page scroll sideways, cameras and LP on the screen.
+      for (const [name, width, height] of [["1080p", 1920, 1080], ["1440p", 2560, 1440], ["768p", 1366, 768], ["mobile", 390, 844]] as const) {
+        await c.setViewportSize({ width, height }); await c.waitForTimeout(400);
+        await shot(c, `spectator-${name}`);
+        const overflow = await c.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow, name).toBeLessThanOrEqual(0);
+        await expect(c.getByTestId("lp-value-0"), name).toBeVisible();
+        const video = await c.locator('[data-testid="feed-0"] video').boundingBox();
+        expect(video && video.width > 200 && video.height > 100, name).toBe(true);
+      }
+      await c.setViewportSize({ width: 1920, height: 1080 });
+
+      // The cap, with a clear message. Carol keeps her slot; Dave is the one too many.
+      const tableId = (db.prepare("select id from remote_tables where slug=?").get(slug) as { id: number }).id;
+      for (let filler = 0; filler < 9; filler++) db.prepare("insert into remote_spectators(table_id,user_id,last_seen_at) values(?,?,?)").run(tableId, 9000 + filler, Date.now());
+      const full = await dave!.request.post(`${path}/spectate`, { data: {} });
+      expect([full.status(), (await full.json()).code]).toEqual([409, "SPECTATORS_FULL"]);
+      expect((await carol!.request.post(`${path}/spectate`, { data: {} })).status()).toBe(200);
+      const fullPage = await dave!.newPage();
+      await fullPage.goto(`/duels/remote/${slug}`);
+      await expect(fullPage.getByTestId("remote-load-note")).toContainText("limit of 10 spectators");
+      await fullPage.close();
+      db.prepare("delete from remote_spectators where table_id=? and user_id>=9000").run(tableId);
+
+      // A spectator never holds a table open: the idle close ends it with the spectator still there, and she sees the end.
+      await a.close(); await b.close();
+      db.prepare("update remote_tables set last_event_at=?,started_at=? where id=?").run(Date.now() - 11 * 60_000, Date.now() - 20 * 60_000, tableId);
+      await expect(c.getByTestId("spectator-note")).toContainText("This table has ended", { timeout: 60_000 });
+      await c.close();
+
+      // Private: no spectators by list, by link, by socket or by video. The invite link still seats a player.
+      const closed = await alice!.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, visibility: "private" } });
+      expect(closed.status(), await closed.text()).toBe(201);
+      const privateSlug = (await closed.json()).slug as string, privatePath = `/api/remote/${privateSlug}`;
+      expect((await (await carol!.request.get("/api/remote?scope=open")).json()).tables.some((t: { slug: string }) => t.slug === privateSlug)).toBe(false);
+      const no = await carol!.request.post(`${privatePath}/spectate`, { data: {} });
+      expect([no.status(), (await no.json()).code]).toEqual([403, "TABLE_PRIVATE"]);
+      expect((await carol!.request.get(`${privatePath}/connection`)).status()).toBe(404);
+      expect((await carol!.request.post(`${privatePath}/livekit`)).status()).toBe(404);
+      const privatePage = await carol!.newPage();
+      await privatePage.goto(`/duels/remote/${privateSlug}`);
+      await expect(privatePage.getByTestId("remote-load-note")).toContainText("private");
+      await expect(privatePage.getByTestId("spectator-table")).toHaveCount(0);
+      await privatePage.close();
+
+      // The creator has the same choice, default Public, and the solo test has no such choice.
+      const creator = await alice!.newPage();
+      await creator.goto("/duels/new?type=remote");
+      await expect(creator.getByRole("radio", { name: "Public" })).toBeChecked();
+      await expect(creator.getByTestId("remote-visibility-hint")).toContainText("can watch");
+      await shot(creator, "spectator-creator");
+    } finally { db.close(); await Promise.all([alice, bob, carol, dave].map(context => context!.close())); }
+  });
+});
 
 // Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;

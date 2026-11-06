@@ -61,6 +61,9 @@ const remoteAccess = process.env.REMOTE_DUELS === "1" ? createRemoteAccessReader
 const remoteEvents = remoteAccess ? registerRemoteEventHandlers(io, {
   secret: WS_INTERNAL_SECRET, canRead: remoteAccess.canRead,
   readPrivateSnapshot: claims => remoteAccess.snapshot(claims.slug,claims.guildId,claims.userId),
+  readSpectatorSnapshot: (slug, guildId) => {
+    try { return remoteAccess.spectatorSnapshot(slug, guildId); } catch { return null; }
+  },
   readSnapshot: (slug, guildId) => {
     try { return remoteAccess.snapshot(slug, guildId); }
     catch (error) { if (error instanceof Error && "status" in error && error.status === 404) return null; throw error; }

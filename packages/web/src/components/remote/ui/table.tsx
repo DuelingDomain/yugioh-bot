@@ -37,6 +37,7 @@ import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
+import { SpectatorScreen } from "./spectator-table";
 import { CameraSettingsMore } from './camera-lock-control';
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
@@ -85,9 +86,11 @@ export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: stri
   const isDeveloper = room?.isDeveloper === true;
   useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
   if (!room) return <div className={`${duelFontClasses} ${s.app}`} data-mode="1v1"><div className={s.shell} style={{ display: "grid", placeItems: "center", alignContent: "center", gap: 12 }}>
-    <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
+    <p role="status" data-testid="remote-load-note" style={{ color: "var(--ink2)", maxWidth: 520, padding: "0 16px", textAlign: "center" }}>{ctl.loadError ? `${ctl.loadError.message.replace(/\.$/, "")}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
+  // No VideoHubProvider for a spectator: it holds the camera and the card reader.
+  if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
   return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
@@ -1272,7 +1275,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}`} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />

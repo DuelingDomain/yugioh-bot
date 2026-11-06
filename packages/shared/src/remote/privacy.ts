@@ -64,6 +64,45 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
   }
   return next;
 }
+/**
+ * What a spectator may know. A player sees some cards because the table told that player (a searched card, a reveal, a
+ * card once public and now Set). A spectator gets none of that: no hand contents, no face-down names, no notes, no undo or deck data.
+ * Allow list for events: a new action type shows as a private line until it is added here.
+ */
+const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","seat.joined","seat.left","seat.ready","seat.deck",
+  "phase.set","phase.advance","turn.end","lp.change","attack.declare","attack.resolve","player.concede","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
+  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","pile.lift","pile.order","effect.activated"]);
+const PUBLIC_ZONE=(card:{zone:string;faceUp?:boolean})=>card.faceUp!==false && !["hand","deck","extra"].includes(card.zone);
+function spectatorPosition<T extends RemotePosition>(state:T):T {
+  const next=structuredClone(state);
+  delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
+  next.deckChecks.registrations={}; next.deckChecks.flags=[]; next.deckChecks.instances=[];
+  for(const seat of next.seats) {
+    delete seat.knownHand; delete seat.deckCount;
+    seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
+    for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
+      delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.publicIdentity; delete card.setBy;
+    }
+  }
+  const shown=next.identified, on=shown?.cardRef ? next.seats[shown.seat]?.twin.find(card=>card.ref===shown.cardRef) : undefined;
+  next.identified=shown && on && PUBLIC_ZONE(on) && !shown.private ? {seat:shown.seat,cardRef:shown.cardRef,cardId:shown.cardId,passcode:shown.passcode,zone:shown.zone,source:shown.source,name:shown.name,addErrors:[]} : null;
+  return next;
+}
+function spectatorEvent(event:RemoteEvent):RemoteEvent {
+  const projected=projectEvent(event,new Set());
+  delete projected.messages;
+  const a=projected.action;
+  const actor=event.actorSeat ?? -1;
+  if(!SPECTATOR_EVENTS.has(a.type)) return {...projected,action:{type:"log.note",actorSeat:actor,text:a.type==="undo" ? "Undid an action" : "Updated a private card",idempotencyKey:event.id}};
+  if(a.type==="twin.flip" && !a.faceUp) { delete a.cardId; }
+  if(a.type==="twin.place" && (a.zone==="hand" || a.zone==="deck")) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
+  return projected;
+}
+/** The one view of a table that spectators get, from the HTTP route and from the socket. */
+export function projectRemoteSpectator(snapshot:RemoteSnapshot):RemoteSnapshot {
+  const state=spectatorPosition(snapshot.state);
+  return {table:projectRemoteTable(snapshot.table),state:{...state,undo:null,undoHistory:[]},events:snapshot.events.map(spectatorEvent)};
+}
 export function projectRemoteSnapshot(snapshot:RemoteSnapshot,seats:ReadonlySet<number>=new Set()):RemoteSnapshot {
   return {table:projectRemoteTable(snapshot.table,seats),state:projectRemoteState(snapshot.state,seats),events:snapshot.events.map(e=>projectEvent(e,seats))};
 }

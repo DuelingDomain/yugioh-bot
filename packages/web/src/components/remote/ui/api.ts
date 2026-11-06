@@ -15,7 +15,7 @@ export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
     const date = Date.parse(response.headers.get("date") ?? "");
     if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Could not update the table");
+    if (!response.ok) throw Object.assign(new Error(data.error ?? "Could not update the table"), { status: response.status, code: data.code as string | undefined });
     return data;
   } catch(error) {
     if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');

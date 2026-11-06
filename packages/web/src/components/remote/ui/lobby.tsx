@@ -32,6 +32,7 @@ function TableLinks({ title, tables, error }: { title: string; tables?: RemoteTa
           <span>{table.slug}</span>
           <span className={l.tag}>{formatName(table.format?.id)}</span>
           {table.solo ? <span className={l.tag}>Solo test</span> : null}
+          {table.visibility === "private" ? <span className={l.tag}>Private</span> : null}
           <span className={l.note}>{table.seats.length}/{table.seatCount} seats</span>
           <span className={`${l.tag} ${table.status === "active" ? l.tagLive : ""}`}>{table.status}</span>
         </a></li>)}</ul>}
@@ -125,6 +126,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
             <span className={cx(ui.chip, ui.chipAccent)}>{formatName(current.id)}</span>
             <span className={ui.chip}>{room.seatCount === 2 ? "1v1" : `${room.seatCount}-way`}</span>
             <span className={ui.chip}>Code <b className={r.code}>{room.slug}</b></span>
+            {room.solo ? null : <span className={ui.chip} data-testid="room-visibility">{room.visibility === "private" ? "Private" : "Public"}</span>}
+            {room.spectatorCount ? <span className={ui.chip} data-testid="room-watching">{room.spectatorCount} watching</span> : null}
             <span className={room_.presence} data-present={ctl.realtime === "Connected"} role="status"><i aria-hidden />{ctl.realtime}</span>
           </p>
         </div>

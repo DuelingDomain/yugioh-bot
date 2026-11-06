@@ -422,7 +422,7 @@ it.each([true,false])("sends only the chosen Deck identity publicly when publici
   if(show) state.effectTracking.origins[0].announcedCard={cardId:53582587,name:"Torrential Tribute"};
   const raw={table:{slug:"remote",guildId:"g",lastSeq:2,seats:[{seat:0,deck:state.deckChecks.registrations[0]}]},state,events:[]} as any;
   const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
-    readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat]))});
+    readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat!]))});
   const a=createClient(server.url), b=createClient(server.url);
   try {
     await Promise.all([a,b].map(waitForConnect));

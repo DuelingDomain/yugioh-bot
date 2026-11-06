@@ -43,12 +43,13 @@ export function RemoteTablesPanel() {
               <span className={styles.chips}>
                 <span className={ui.chip}><Camera size={13} strokeWidth={1.6} aria-hidden />Remote</span>
                 {table.solo ? <span className={ui.chip}>Solo test</span> : null}
+                {table.visibility === "private" ? <span className={ui.chip}>Private</span> : null}
                 <span className={cx(ui.chip, table.status === "active" && ui.chipGold)}>{status}</span>
                 <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{table.seats.length}/{table.seatCount}</span>
               </span>
             </span>
             <span className={styles.go}>
-              {yours ? "Return" : table.status === "lobby" && openSeats > 0 && !table.solo ? `Join · ${openSeats} open` : "Open"}
+              {yours ? "Return" : table.status === "lobby" && openSeats > 0 ? `Join · ${openSeats} open` : table.status === "lobby" ? "Full — watch" : "Watch"}
               <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
             </span>
           </a>

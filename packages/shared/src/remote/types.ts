@@ -7,6 +7,7 @@ import type { RemoteBestOf, RemoteMatch } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteRevealedHand = 'until-played' | 'one-turn';
+export type RemoteVisibility = 'public' | 'private';
 export type RemoteKnownHandCard = {
   id: string; cardId: number; source: 'deck' | 'gy' | 'banish' | 'extra' | 'field' | 'unknown';
   by?: {cardId: number; name: string}; at: number; revealed: true;
@@ -103,6 +104,10 @@ export type RemoteTable = {
   format?: RemoteFormat;
   showCardsSetFromDeck?: boolean;
   revealedHand?: RemoteRevealedHand;
+  /** Same words as normal duels. Public tables can be watched; private tables take no spectators. */
+  visibility?: RemoteVisibility;
 };
 /** `isDeveloper` is decided on the server (owner list); the browser only reads it to show developer tools. */
-export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean };
+export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean;
+  /** This viewer watches: mySeat is -1 and state/events are the spectator projection. */ spectator?: boolean;
+  /** People who watch now. */ spectatorCount?: number };

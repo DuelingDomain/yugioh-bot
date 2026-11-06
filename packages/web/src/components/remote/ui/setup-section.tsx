@@ -13,13 +13,15 @@ type SavedDecks = { data?: { decks: { id: number; name: string }[] }; error?: Er
  * The Remote table section of the create screen. The duel type and the Genesys controls are the ones of the Online
  * form, so the creator passes them in; the rest (seats, deck, solo test, Set from Deck) is only for Remote.
  */
-export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSolo, deck, onDeck, showSet, onShowSet, decks }: {
+export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSolo, deck, onDeck, showSet, onShowSet, decks, visibility }: {
   formatControls: ReactNode;
   seats: number; onSeats: (seats: number) => void;
   solo: boolean; onSolo: (solo: boolean) => void;
   deck: string; onDeck: (deck: string) => void;
   showSet: boolean; onShowSet: (show: boolean) => void;
   decks: SavedDecks;
+  /** The Visibility control of the Online form: the same words and the same setting. */
+  visibility: ReactNode;
 }) {
   const list = decks.data?.decks ?? [];
   const empty = decks.isLoading ? { value: "", label: "Loading decks…", disabled: true }
@@ -37,6 +39,7 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
           <SheetSegmented label="Seats" value={seats} choices={REMOTE_SEAT_CHOICES} onChange={onSeats} full />
           <p className={cx(ui.hint, styles.below)}>{seats === 2 ? "One against one." : "Free for all."} Others join with the link of the room.</p>
         </div>
+        {solo ? null : visibility}
         <div className={styles.wide}>
           <label className={styles.toggle}>
             <input type="checkbox" checked={solo} onChange={(event) => onSolo(event.target.checked)} data-testid="create-solo" />

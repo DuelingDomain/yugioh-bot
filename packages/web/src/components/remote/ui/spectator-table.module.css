@@ -1,0 +1,20 @@
+.app{--dock:0px;--dockh:0px}
+.badge{flex:none;padding:3px 9px;border-radius:999px;border:1px solid rgb(232 185 79/.55);color:var(--gold-ink);font:700 12px/1.2 var(--font-duel-ui),system-ui,sans-serif;white-space:nowrap}
+.watching{flex:none;color:var(--ink2);font:600 12px/1.2 var(--font-duel-ui),system-ui,sans-serif;white-space:nowrap}
+.leave{flex:none;white-space:nowrap}
+.side{display:flex;flex-direction:column;gap:6px;min-height:0;min-width:0}
+.stats{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;color:var(--ink2);font:600 13px/1.2 var(--font-duel-ui),system-ui,sans-serif}
+.stats b{color:var(--ink);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.cards{display:flex;flex-wrap:wrap;gap:4px;margin:0;padding:0;list-style:none;max-height:76px;overflow:auto}
+.cards button{max-width:190px;min-height:26px;padding:3px 8px;overflow:hidden;border:1px solid var(--line2);border-radius:5px;background:var(--p0);color:var(--ink);font:600 12px/1.2 var(--font-duel-ui),system-ui,sans-serif;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.cards button:hover,.cards button:focus-visible{border-color:var(--gold);color:var(--gold-ink)}
+.set{align-self:center;padding:3px 8px;border:1px dashed var(--line2);border-radius:5px;color:var(--ink2);font:600 12px/1.2 var(--font-duel-ui),system-ui,sans-serif;white-space:nowrap}
+.note{position:absolute;z-index:6;top:10px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:6px 12px;border:1px solid rgb(232 185 79/.55);border-radius:8px;background:rgb(7 4 14/.92);color:var(--gold-ink);font:600 13px/1.3 var(--font-duel-ui),system-ui,sans-serif;text-align:center}
+/* A spectator cannot move the game: the rail shows the turn and the phase only. */
+.app [data-testid="pass-turn"],.app [data-testid="phase-back"]{display:none}
+.lobby{display:grid;gap:14px;max-width:560px;margin:0 auto;padding:32px 16px}
+.lobby ul{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.lobby li{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line,rgb(255 255 255/.14));border-radius:8px}
+@media (max-width:1100px){.hideNarrow{display:none}}
+/* Phones use the stacked layout of the table in remote-ui.module.css. There is no dock under the rail here. */
+@media (max-width:900px){.leave{padding-inline:8px}}

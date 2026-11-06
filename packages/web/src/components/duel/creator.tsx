@@ -198,7 +198,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     try {
       if (remote) {
         const room = await createRemoteRoom({
-          seatCount: remoteSeats, solo: remoteSolo, format: remoteFormatKey, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet,
+          seatCount: remoteSeats, solo: remoteSolo, format: remoteFormatKey, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet, visibility: settings.visibility,
           rules: genesys && cap.ok ? { genesys: { pointCap: cap.value } } : undefined,
         });
         navigatedToRoom.current = true;
@@ -365,7 +365,11 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
 
             {remote ? (
               <RemoteSetupSection formatControls={formatControls(false)} seats={remoteSeats} onSeats={setRemoteSeats} solo={remoteSolo} onSolo={setRemoteSolo}
-                deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks} />
+                deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks}
+                visibility={<div className={styles.wide}>
+                  <SheetSegmented label="Visibility" value={settings.visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} full />
+                  <p className={cx(ui.hint, styles.below)} data-testid="remote-visibility-hint">{settings.visibility === "private" ? "Only people you invite can enter. No spectators." : "Everyone with Remote Duels access can watch: both cameras and the public table, no hand or Set cards."}</p>
+                </div>} />
             ) : <>
 
             <section className={styles.section} aria-labelledby="creator-table">
@@ -573,7 +577,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <p className={styles.kind}>Remote Duel · {remoteFormatName(remoteFormatKey)} · {remoteSeats === 2 ? "1v1" : `${remoteSeats}-way`}</p>
                 <dl className={styles.rows}>
                   {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormatKey)], ...(genesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []), ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
-                    ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"],
+                    ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"], ["Visibility", remoteSolo || settings.visibility === "private" ? "Invite only" : "Public"],
                     ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "Choose in the room"]] as [string, string][]).map(([label, value]) => (
                     <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
