@@ -1740,7 +1740,10 @@ Other agents shared the CPU, so WASM medians move ±30 ms between runs.
 | RSS added after warm-up (all Chromium processes) | 294 MB | 299 MB |
 
 On WASM the split halves each worker's threads and makes a read 2× slower, so
-`chooseWorkerLayout('auto')` keeps one worker on WASM. It splits only on a hardware
+`chooseWorkerLayout('auto')` keeps one worker on WASM. **Changed 2026-11-05:** with the CPU budget
+(`field-pacer.ts`) passes are few, so `auto` now splits on WASM from 4 cores with its own thread
+counts (detector 2; read 4 on 8+ cores, 2 below): reads keep their speed and passes
+go on during a read. Measure with `scripts/vision/benchmark-cpu.ts`. For WebGPU it splits only on a hardware
 WebGPU adapter (not SwiftShader), on non-mobile devices with at least 4 cores and
 4 GB `deviceMemory`. The read worker creates its own detector only for a read
 without an outline (watcher reads pass one), so the split adds a second ONNX

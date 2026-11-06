@@ -4,8 +4,9 @@ import type { DetectedQuad, FractionalBox } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
-export interface FieldShadow { share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
-export interface FieldAnalysis { motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
+export interface FieldSceneChange { /** Grid cells that changed since the last sample. */ moving:number; /** Grid cells that changed since mark(). */ sinceMark:number; /** The detector saw this frame in a full pass. */ mark():void }
+export interface FieldAnalysis { /** Noise-proof change of the scene, for the CPU budget; absent in injected analyzers. */ scene?:FieldSceneChange; motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -14,8 +15,9 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
 export function createFieldAnalyzer() {
   let previous:RGBAImage|undefined,nativeCanvas:OffscreenCanvas|undefined;
   let shadows=createShadowBaseline();
+  let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
   /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
-  const reset=()=>{shadows=createShadowBaseline();previous=undefined;};
+  const reset=()=>{shadows=createShadowBaseline();previous=undefined;lastMeans=undefined;markMeans=undefined;};
   return Object.assign((frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=frame;
@@ -48,8 +50,10 @@ export function createFieldAnalyzer() {
     };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>();
+    const shadow=shadows(image),means=shadow.means,lastScene=lastMeans,markScene=markMeans;lastMeans=means;
+    const scene:FieldSceneChange|undefined=means&&{moving:changedCells(means,lastScene),sinceMark:changedCells(means,markScene),mark(){markMeans=means;}};
     const analysis:FieldAnalysis={
-      motionRegion,shadow:shadows(image),frameSharpness:frameSharpness(image),
+      scene,motionRegion,shadow,frameSharpness:frameSharpness(image),
       crop(card) {
         // Detector corners are portrait ordered even for a card in Defense Position.
         const source=nativeImage();
@@ -152,6 +156,24 @@ export function frameSharpness(image:RGBAImage):number {
   for(let y=2;y<h-2;y+=2)for(let x=2;x<w-2;x+=2){const v=4*grey(x,y)-grey(x-2,y)-grey(x+2,y)-grey(x,y-2)-grey(x,y+2);sum+=v;sq+=v*v;n++;}
   return n?sq/n-(sum/n)**2:0;
 }
+/**
+ * Grid cells whose mean colour changed, after the median shift of all cells is removed (exposure and flicker).
+ * A cell averages about 19 samples, so camera noise stays low while a card moved by 6 camera pixels at 1080p still shows. No reference counts as changed: the detector has not seen this scene.
+ */
+export function changedCells(now:Float32Array,before?:Float32Array):number {
+  if(!before||before.length!==now.length)return now.length/3;
+  const cells=now.length/3,shift=[0,0,0],values=new Float32Array(cells);
+  for(let k=0;k<3;k++){for(let c=0;c<cells;c++)values[c]=now[c*3+k]-before[c*3+k];values.sort();shift[k]=values[cells>>1];}
+  for(let c=0;c<cells;c++)values[c]=(Math.abs(now[c*3]-before[c*3]-shift[0])+Math.abs(now[c*3+1]-before[c*3+1]-shift[1])+Math.abs(now[c*3+2]-before[c*3+2]-shift[2]))/3;
+  // Noise floor from this frame's own cells: a real change touches few cells, so the median stays camera noise.
+  const deltas=values.slice().sort(),floor=deltas[cells>>1];
+  if(floor>SCENE_WHOLE_DELTA)return cells;
+  const limit=Math.max(SCENE_CELL_DELTA,floor*SCENE_NOISE_FACTOR);
+  let changed=0;for(let c=0;c<cells;c++)if(values[c]>limit)changed++;
+  return changed;
+}
+/** About 5 sigma of the median absolute cell delta. Above SCENE_WHOLE_DELTA the median cell itself moved: the whole view changed. */
+const SCENE_CELL_DELTA=4,SCENE_NOISE_FACTOR=7.4,SCENE_WHOLE_DELTA=8;
 const SHADOW_GX=32,SHADOW_GY=24;
 /**
  * Shadow = a cell that is 20-65% darker than its recent background but keeps
@@ -167,7 +189,8 @@ export function createShadowBaseline() {
       const i=(y*image.width+x)*4,c=(Math.min(SHADOW_GY-1,Math.floor(y*SHADOW_GY/image.height))*SHADOW_GX+Math.min(SHADOW_GX-1,Math.floor(x*SHADOW_GX/image.width)))*4;
       sum[c]+=image.data[i];sum[c+1]+=image.data[i+1];sum[c+2]+=image.data[i+2];sum[c+3]++;
     }
-    if(!base||size!==key){base=new Float32Array(cells*3);flags=new Uint8Array(cells);size=key;for(let c=0;c<cells;c++)for(let k=0;k<3;k++)base[c*3+k]=sum[c*4+k]/Math.max(1,sum[c*4+3]);return {share:0,changed:0};}
+    const means=new Float32Array(cells*3);for(let c=0;c<cells;c++)for(let k=0;k<3;k++)means[c*3+k]=sum[c*4+k]/Math.max(1,sum[c*4+3]);
+    if(!base||size!==key){base=means.slice();flags=new Uint8Array(cells);size=key;return {means,share:0,changed:0};}
     let dark=0,changed=0;const moved=new Uint8Array(cells);
     for(let c=0;c<cells;c++){
       const n=Math.max(1,sum[c*4+3]),r=sum[c*4]/n,g=sum[c*4+1]/n,b=sum[c*4+2]/n,l=r+g+b,br=base[c*3],bg=base[c*3+1],bb=base[c*3+2],bl=br+bg+bb;
@@ -180,7 +203,7 @@ export function createShadowBaseline() {
       const rate=l>=bl*.92?.25:.01;
       base[c*3]+=(r-br)*rate;base[c*3+1]+=(g-bg)*rate;base[c*3+2]+=(b-bb)*rate;
     }
-    return {share:dark/cells,changed:changed/cells,moved,gx:SHADOW_GX,gy:SHADOW_GY};
+    return {means,share:dark/cells,changed:changed/cells,moved,gx:SHADOW_GX,gy:SHADOW_GY};
   };
 }
 

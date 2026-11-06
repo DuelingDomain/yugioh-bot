@@ -13,6 +13,8 @@ export interface RecognizerConfig {
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
   /** One worker, or a detector worker beside the read worker (default 'auto': see chooseWorkerLayout). */
   workers?: WorkerLayout;
+  /** ONNX Runtime WASM threads per worker (default: see chooseWorkerLayout). */
+  threads?: number;
 }
 export interface Recognizer {
   /** Actual providers and fallback reasons from the last worker response. */
@@ -47,7 +49,7 @@ const WASM_THREADS = (cores: number) => Math.max(1, Math.min(4, Math.floor(cores
  * run while a card is being read. They cost a second ONNX Runtime instance and detector session.
  * Measured (2026-11-03): see packages/vision/REPORT.md, "Split workers".
  */
-export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number }> {
+export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number; readThreads?: number }> {
   const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } } }).navigator;
   const cores = nav?.hardwareConcurrency ?? 1;
   // Each worker gets half of the one-worker thread budget: 2+2 on 8 cores, never more threads in total.
@@ -55,13 +57,16 @@ export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' |
   if (layout === 'single') return { split: false };
   if (layout === 'split') return { split: true, threads: half };
   const mobile = nav?.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(nav?.userAgent ?? '');
-  if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return { split: false };
-  if (backend === 'wasm' || !nav?.gpu) return { split: false };
+  if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return { split: false, threads: Math.min(2, WASM_THREADS(cores)) };
+  // CPU: detector passes are frequent and gain little past 2 threads; reads are rare and gain a lot (2026-11-05: 355 ms on 4
+  // threads, 680 ms on 2). A worker for each lets each model use what suits it, and passes go on during a read.
+  const cpu = { split: true, threads: 2, readThreads: cores >= 8 ? 4 : 2 };
+  if (backend === 'wasm' || !nav?.gpu) return cpu;
   try {
     const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
-    // A software adapter (SwiftShader) runs on the CPU like WASM: keep one worker.
-    if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return { split: false };
-  } catch { return { split: false }; }
+    // A software adapter (SwiftShader) runs on the CPU like WASM.
+    if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return cpu;
+  } catch { return cpu; }
   return { split: true, threads: half };
 }
 interface Lane {
@@ -76,7 +81,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   let backendStatus: BackendStatus | undefined, detectorBackend: Recognizer['detectorBackend'];
   let detectorTimingsMs:Record<string,number>|undefined;
   let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
-  let layout: Promise<{ split: boolean; threads?: number }> | undefined;
+  let layout: Promise<{ split: boolean; threads?: number; readThreads?: number }> | undefined;
   const single: Lane = { role: 'both', inFlight: false, pending: new Map() };
   let scene = single, read = single;
   const lanes = () => scene === read ? [read] : [scene, read];
@@ -124,17 +129,19 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   /** The lane that serves `which`; the layout is chosen once, on first use. */
   async function laneFor(which: 'scene' | 'read'): Promise<Lane> {
-    const chosen = await (layout ??= chooseWorkerLayout(config.workers ?? 'auto', config.backend ?? 'auto').catch(() => ({ split: false } as { split: boolean; threads?: number })));
+    const chosen = await (layout ??= chooseWorkerLayout(config.workers ?? 'auto', config.backend ?? 'auto').catch(() => ({ split: false } as { split: boolean; threads?: number; readThreads?: number })));
     if (disposed) throw new Error('Recognizer is disposed');
+    singleThreads = chosen.split ? undefined : chosen.threads;
     if (chosen.split && scene === single) {
-      threads = chosen.threads;
+      sceneThreads = chosen.threads;readThreads = chosen.readThreads ?? chosen.threads;
       scene = { role: 'scene', inFlight: false, pending: new Map() };
       read = { role: 'read', inFlight: false, pending: new Map() };
     }
     return which === 'scene' ? scene : read;
   }
-  let threads: number | undefined;
-  async function initialize(which: 'scene' | 'read') { return startLane(await laneFor(which), threads); }
+  let sceneThreads: number | undefined, readThreads: number | undefined, singleThreads: number | undefined;
+  const threadsOf = (lane: Lane) => config.threads ?? (lane.role === 'scene' ? sceneThreads : lane.role === 'read' ? readThreads : singleThreads);
+  async function initialize(which: 'scene' | 'read') { const lane = await laneFor(which); return startLane(lane, threadsOf(lane)); }
   async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: PeekOptions | ReadAllOptions) {
     if(disposed) throw new Error('Recognizer is disposed');
     opts.signal?.throwIfAborted();
@@ -149,7 +156,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     lane.inFlight=true;
     signal?.addEventListener('abort',abort,{once:true});
     try {
-      await startLane(lane, threads); signal?.throwIfAborted();
+      await startLane(lane, threadsOf(lane)); signal?.throwIfAborted();
       if(disposed) throw new Error('Recognizer is disposed');
       return await request(lane,{type,frame,opts:workerOptions},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]);
     } finally {signal?.removeEventListener('abort',abort);lane.inFlight=false;}
@@ -187,7 +194,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if (lane.inFlight) throw new Error('Recognition is already in progress');
       lane.inFlight = true;
       try {
-        await startLane(lane, threads);
+        await startLane(lane, threadsOf(lane));
         if (disposed) throw new Error('Recognizer is disposed');
         const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
         const start=performance.now();
@@ -206,7 +213,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       // A split detector worker queues its passes itself; one shared worker keeps the single-job guard.
       if(lane.inFlight && lane === read) throw new Error('Recognition is already in progress');
       lane.inFlight=true;
-      try { await startLane(lane, threads); if(disposed) throw new Error('Recognizer is disposed');
+      try { await startLane(lane, threadsOf(lane)); if(disposed) throw new Error('Recognizer is disposed');
         const begin=performance.now(),result=await request(lane,{type:'detect',frame,opts},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[];
         if(detectorTimingsMs){detectorTimingsMs.roundTrip=performance.now()-begin;detectorTimingsMs.transfer=Math.max(0,detectorTimingsMs.roundTrip-(detectorTimingsMs.worker??0)-(detectorTimingsMs.queue??0));}
         return result; }
