@@ -63,6 +63,8 @@ import { isTypingTarget } from "@/lib/typing-target";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
+/** The small mark on the camera between a click and the end of the card search. */
+const BEGIN_RETICLE = "begin";
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
@@ -407,7 +409,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     toast(<>Second copy of <b>{sub.name ?? found?.name ?? `Card ${sub.cardId}`}</b> placed</>);
   };
 
-  /** A click landed on a live feed: the popup opens at once with its skeleton, before the card is found. */
+  /**
+   * A click landed on a live feed. Nothing opens yet: the camera shows a small mark at the click, and any older popup closes.
+   * The notification stack opens only when the read ends with a choice for the person.
+   */
   const beginRead = useCallback((seat: number, start: FeedStart) => {
     // On a closed table no card can be placed, so a read would end with a popup that closes by itself. Say it at once.
     const now = R.current.room;
@@ -415,15 +420,16 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
     ctx.current = { seat, x: start.x, y: start.y, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}) };
-    setTray({ seat, ownerName: name(seat), status: "reading", guesses: [], note: "", reader: "", at });
-    layers.open("tray");
+    setTray(null); layers.close("tray"); layers.close("card");
+    reticle(seat, { id: BEGIN_RETICLE, x: start.x, y: start.y, state: "reading", text: "Reading…" }, BEGIN_RETICLE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers, name, toast]);
+  }, [layers, toast]);
 
-  /** A click found no card. Drop the popup that opened at once; the feed shows a small "No card here" note. */
+  /** A click found no card. Nothing opened for it; the feed shows a small "No card here" note. */
   const noCard = useCallback((seat: number) => {
     if (ctx.current?.seat === seat) delete ctx.current.cardRef;
-    readCounter.current++; setTray(null); layers.close("tray");
+    readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers]);
   /** "Search card" on that note: the popup with only the search box, at the click. */
   const searchHere = useCallback((seat: number, start: FeedStart) => {
@@ -435,6 +441,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   }, [layers, name]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
+    reticle(seat, null, BEGIN_RETICLE);
     let hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
@@ -461,8 +468,11 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
-    setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", at });
-    layers.open("tray");
+    // Only a result that needs the person opens the stack, and not over a drawer or pile they opened during the read.
+    const ask = (next: Omit<TrayState, "seat" | "ownerName" | "at">) => {
+      if (readCounter.current !== id || (R.current.layer && R.current.layer !== "tray" && R.current.layer !== "card")) return;
+      setTray({ seat, ownerName: owner, at, ...next }); layers.open("tray");
+    };
     let result: Awaited<ReturnType<typeof hub.read>>;
     try { result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, (found?.hit?.cached&&!cached?undefined:extra?.frames),found?.force); }
     catch {
@@ -470,7 +480,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "fail", text: "No match", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1800);
-      setTray(old => old && readCounter.current === id ? { ...old, status: "empty", guesses: [], note: "The read did not finish. Search for the card or say its name.", reader: "none" } : old);
+      ask({ status: "empty", guesses: [], note: "The read did not finish. Search for the card or say its name.", reader: "none" });
       return;
     }
     if (readCounter.current !== id) return;
@@ -481,7 +491,6 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1500);
-      setTray(old => old && readCounter.current === id ? { ...old, status: "sure", guesses: [top], note: result.note, reader: result.reader, tier: result.tier } : old);
       void identify({ cardId: top.cardId, name: top.name || cardInfo(top.cardId)?.name || `Card ${top.cardId}`, via: "click" }, "auto");
       return;
     }
@@ -491,7 +500,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (readCounter.current !== id) return;
     reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: best ? "Best match" : result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
     setTimeout(() => reticle(seat, null, rid), 1800);
-    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(best ? { best: true } : {}), ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) } : old);
+    ask({ status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(best ? { best: true } : {}), ...(hit?.covered || result.covered ? { covered: true } : {}), ...(result.faceDown ? { faceDown: true } : {}) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name, toast]);
   const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
@@ -1083,8 +1092,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
     const card = twinAtPoint(seat, at.x, at.y);
+    // The table already knows this card: its details open in both views, with no read.
+    if (card && cardCode(card)) { openSubject(card, false, at.anchor); return true; }
+    if (!webcamOnly) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; openPile(seat, pile, null); return true; }
-    if (cardCode(card)) { openSubject(card, false, at.anchor); return true; }
     if (card.faceUp) return false;
     toast("Set card"); layers.close(); return true;
   };
