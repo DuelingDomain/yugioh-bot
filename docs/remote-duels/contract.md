@@ -209,7 +209,7 @@ System actions: `table.created {gameId,seatCount,solo?:boolean,format?,showCards
 
 ## HTTP routes
 
-All responses use `Cache-Control: private, no-store`. All routes return 404 when `REMOTE_DUELS` is not exactly `1`, and require a session when enabled. Mutation JSON is bounded to 8 KiB and rejects unknown top-level fields. Actor, guild, display name and user identity come from the session, never a request body.
+All responses use `Cache-Control: private, no-store`. All routes return 404 when `REMOTE_DUELS` is not exactly `1` or the user is not on `REMOTE_DUELS_USERS`, and require a session when enabled. Mutation JSON is bounded to 8 KiB and rejects unknown top-level fields. Actor, guild, display name and user identity come from the session, never a request body.
 
 | Method and route | Input | Response |
 | --- | --- | --- |
@@ -272,11 +272,16 @@ With the flag enabled the ws process sweeps every 30 seconds, including once at 
 
 Remote tables, including active solo tables, never enter engine `duels`/`drafts`. `scripts/deployment/check-prod-activity.py` remains unchanged: it queries only those existing tables, so remote calls cannot hold a deploy. Solo uses the same idle warning/closure deadlines and requires the ws sweep process for timed delivery.
 
+## Per-user rollout
+
+`REMOTE_DUELS_USERS` (web and ws, read per request): comma list of `users.id` values or `*`; unset = everybody (keeps local setups), empty = nobody, `REMOTE_DUELS=0` closes everything, and production must set it (its Compose default is empty). Rollout: two ids → more ids → `*`, then restart web and ws after each change.
+
 ## Environment and local use
 
 | Variable | Where / default |
 | --- | --- |
 | `REMOTE_DUELS=1` | Web and ws. Off by default (`0` in `.env.example` and Compose). Gates UI/nav/API/room registration/sweep. |
+| `REMOTE_DUELS_USERS` | Web and ws, the same value. See [Per-user rollout](#per-user-rollout). |
 | `DUEL_DATA_DIR` | Web read-only card bundle (`cards.cdb`, `strings.conf`, `card-scripts`). Uses the existing deck data-directory resolver if omitted. Needed for selected-deck validation and live identity/banlist facts; not a running engine. |
 | `DATABASE_PATH` | Web and ws; **same absolute path** recommended. Web migrates automatically; ws never creates/migrates DB. Use a worktree-local file for local work. |
 | `DISCORD_GUILD_ID` | Web configured data scope. |

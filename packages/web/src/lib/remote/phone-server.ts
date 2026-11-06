@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { AccessToken, RoomServiceClient, TrackSource } from "livekit-server-sdk";
+import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { createRemotePhoneToken, verifyRemotePhoneToken, REMOTE_PHONE_PAIR_TTL_MS, type RemotePhoneClaims } from "@yugidraft/shared/ws";
 import { createRemoteDuelService } from "@yugidraft/shared/services";
 import { remoteAssert, type RemoteRoom } from "@yugidraft/shared/remote";
@@ -97,17 +98,20 @@ export function limitPhoneAttempts(request: Request, slug: string) {
   const row = db.prepare("SELECT count FROM remote_phone_attempts WHERE bucket=?").get(bucket) as { count:number };
   remoteAssert(row.count <= 30, "Wait before trying another pairing code", 429, "PHONE_RATE_LIMIT");
 }
+/** Returns null when the pair's owner is not on the rollout list; the phone has no session, so the check uses the stored owner. */
 export async function connectPhone(slug: string, body: Record<string, unknown>) {
   const db = database(); const now = Date.now(); let p: Pair | undefined;
   const device = typeof body.device === "string" ? verifyRemotePhoneToken("device",body.device,secret()) : null;
   if (device) {
     p = db.prepare("SELECT * FROM remote_phone_pairs WHERE id=? AND used_at IS NOT NULL AND revoked=0 AND device_expires_at>?").get(device.id,now) as Pair | undefined;
     if (!p || p.slug !== slug || JSON.stringify(claimsFor(p,p.device_expires_at)) !== JSON.stringify(device)) return invalid();
+    if (!isRemoteDuelUser(p.user_id)) return null;
   } else {
     const pair = typeof body.pair === "string" ? verifyRemotePhoneToken("pair",body.pair,secret()) : null;
     if (pair?.slug === slug) p = db.prepare("SELECT * FROM remote_phone_pairs WHERE id=? AND slug=?").get(pair.id,slug) as Pair | undefined;
     else if (typeof body.code === "string" && /^[A-Z2-9]{8}$/.test(body.code)) p = db.prepare("SELECT * FROM remote_phone_pairs WHERE slug=? AND code_hash=? AND revoked=0 AND used_at IS NULL AND expires_at>?").get(slug,hash(body.code),now) as Pair | undefined;
     if (!p || p.revoked || p.used_at || p.expires_at <= now || (pair && JSON.stringify(claimsFor(p,p.expires_at)) !== JSON.stringify(pair))) return invalid();
+    if (!isRemoteDuelUser(p.user_id)) return null;
     member(p);
     // One atomic compare-and-set also arbitrates QR/code redemption across workers.
     const result = db.prepare("UPDATE remote_phone_pairs SET used_at=? WHERE id=? AND used_at IS NULL AND revoked=0 AND expires_at>?").run(now,p.id,now);

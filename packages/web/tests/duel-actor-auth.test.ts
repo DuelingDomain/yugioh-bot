@@ -314,6 +314,33 @@ describe("remote duel API foundation", () => {
     state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
     expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
   });
+  it("applies the REMOTE_DUELS_USERS rollout list to rooms, sockets and phones", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
+    vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880"); vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+    const { createRemoteDuelService, canReadRemote } = await import("@yugidraft/shared/services");
+    const { GET } = await import("../app/api/remote/route");
+    const { POST: connect } = await import("../app/api/remote/[slug]/phone/connect/route");
+    const { issuePhone } = await import("../src/lib/remote/phone-server");
+    const room = createRemoteDuelService(state.db!).create({ guildId: "guild-1", userId, displayName: "Yugi", gameId: "ygo", seatCount: 2 });
+    const claims = { slug: room.slug, guildId: "guild-1", userId, seat: 0, expiresAt: Date.now() + 60_000 };
+    const pairing = await issuePhone(room, userId);
+    const phone = () => connect(request(`/${room.slug}/phone/connect`, { pair: pairing.token }), { params: Promise.resolve({ slug: room.slug }) });
+    for (const list of [undefined, "*", ` ${userId + 1}, ${userId} `]) {
+      vi.stubEnv("REMOTE_DUELS_USERS", list);
+      expect((await GET(request(""))).status).toBe(200);
+      expect(canReadRemote(state.db!, claims)).toBe(true);
+    }
+    for (const list of [String(userId + 1), ""]) {
+      vi.stubEnv("REMOTE_DUELS_USERS", list);
+      const denied = await GET(request(""));
+      expect(denied.status).toBe(404); expect(await denied.json()).toEqual({ error: "Not found" });
+      expect(canReadRemote(state.db!, claims)).toBe(false);
+      const refused = await phone();
+      expect(refused.status).toBe(404); expect(await refused.json()).toEqual({ error: "Not found" });
+    }
+    vi.stubEnv("REMOTE_DUELS_USERS", String(userId));
+    expect((await phone()).status).toBe(200);
+  });
   it("keeps connection identity server-side and returns 503 for missing media config", async () => {
     vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
     const { POST } = await import("../app/api/remote/route");
