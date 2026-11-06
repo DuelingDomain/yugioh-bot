@@ -237,7 +237,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
 
   const health = useCallback((seat: number): Health => {
     if (room.seats.find(s => s.seat === seat)?.bot) return { q: "off", label: "No camera", detail: "Test opponent" };
-    if (manual(seat)) return { q: "off", label: "No camera (manual)", detail: "Voice, typing and board twin" };
+    if (manual(seat)) return { q: "off", label: "No camera (manual)", detail: "Typing and board twin" };
     if (localOnly) return local ? { q: "good", label: "Live", detail: "Local preview" } : { q: "off", label: "Camera off", detail: "Turn the camera on" };
     if (snap.connection === ConnectionState.Reconnecting || (snap.signalLost && snap.connection !== ConnectionState.Disconnected)) return { q: "warn", label: "Reconnecting", detail: "Your connection to table video dropped" };
     const feed = snap.feeds.find(f => f.seat === seat);

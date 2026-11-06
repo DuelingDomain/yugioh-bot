@@ -75,7 +75,7 @@ type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { 
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug }: { slug: string }) {
+export function RemoteTableScreen({ slug, voiceRecognition }: { slug: string; voiceRecognition: boolean }) {
   const ctl = useRemoteRoom(slug);
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
@@ -84,7 +84,7 @@ export function RemoteTableScreen({ slug }: { slug: string }) {
     <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} voiceRecognition={voiceRecognition} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -106,7 +106,8 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
+function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: RemoteRoom; voiceRecognition: boolean }) {
+  const sayItsName = voiceRecognition ? " or say its name" : "";
   const hub = useVideoHub();
   const layers = useLayers();
   const state = room.state; const mySeat = room.mySeat; const solo = room.solo;
@@ -454,7 +455,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
     ctx.current = { seat, x: start.x, y: start.y, at, id };
-    setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card or say its name.", reader: "none", at });
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: `Search for the card${sayItsName}.`, reader: "none", at });
     layers.open("tray");
   }, [layers, name]);
 
@@ -500,7 +501,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "fail", text: "No match", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1800);
-      ask({ status: "empty", guesses: [], note: "The read did not finish. Search for the card or say its name.", reader: "none" });
+      ask({ status: "empty", guesses: [], note: `The read did not finish. Search for the card${sayItsName}.`, reader: "none" });
       return;
     }
     if (readCounter.current !== id) return;
@@ -778,7 +779,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [transcript, setTranscript] = useState({ requestId: "", text: "", result: "", ignored: false });
   const [proposal, setProposal] = useState<Pending | null>(null); const proposalId = useRef(0);
   const wakeOpen = wake > Date.now();
-  const micState: MicState = muted ? "muted" : myTurn || wakeOpen ? "listen" : "idle";
+  const micState: MicState = muted ? "muted" : !voiceRecognition ? "off" : myTurn || wakeOpen ? "listen" : "idle";
   useEffect(() => { if (!wake) return; const timer = setTimeout(() => setWakeTick(n => n + 1), Math.max(0, wake - Date.now()) + 50); return () => clearTimeout(timer); }, [wake]);
   const setMic = hub.setMic; const micPublished = hub.micPublished;
   useEffect(() => { if (!solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
@@ -853,7 +854,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const voice = useVoice({ enabled: live, state: micState, ptt, held, hotwords, onFinal, onCorrection });
+  const voice = useVoice({ enabled: live && voiceRecognition, state: micState, ptt, held, hotwords, onFinal, onCorrection });
   const shownTranscript = voice.partial ? { text: voice.partial, live: true, result: "", ignored: false } : { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
 
   // ---- attack proposal (shared) and the voice proposal share the dock chip ----
@@ -1020,7 +1021,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       }
       const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
       ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
-      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
+      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: `Search for the right card${sayItsName}.`, reader: "", at: popAt }); layers.open("tray"); },
     onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
@@ -1218,22 +1219,22 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
-            emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
+            emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
       <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
-        <MicSection state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
+        <MicSection recognition={voiceRecognition} chat={!solo} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
-        <VoxSection transcript={shownTranscript} proposal={chip} samples={shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
+        <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={!voiceRecognition ? [] : shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
-        <UndoSection label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
+        <UndoSection recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
       </footer>
     </div>
 
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />
-    <LogDrawer open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
+    <LogDrawer voiceFilter={voiceRecognition} open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
       onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
@@ -1255,7 +1256,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
       } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
-    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
+    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} saying={micState === "listen"} onSay={voiceRecognition ? () => toast("Say the card name, or “number two”.") : undefined}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);

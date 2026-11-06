@@ -23,3 +23,28 @@ it.each(['manual','phone'])('waits for the saved %s camera choice before mountin
  view.rerender(<RemoteLobbyRoom room={room} ctl={ctl}/>);
  expect(screen.getByTestId('preview-mode')).toHaveTextContent(mode);
 });
+
+it('with voice recognition off the table opens no STT socket and no mic, hides say hints, and keeps the confirm chip', async () => {
+  const {useVoice}=await import('../src/components/remote/ui/use-voice');
+  const {MicSection,VoxSection,UndoSection}=await import('../src/components/remote/ui/dock');
+  const {renderHook}=await import('@testing-library/react');
+  const socket=vi.fn(); vi.stubGlobal('WebSocket',socket);
+  const getUserMedia=vi.fn(()=>new Promise<MediaStream>(()=>{}));
+  Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia}});
+  const voice={ptt:false,held:false,hotwords:[],onFinal:()=>{},onCorrection:()=>{}};
+  const off=renderHook(()=>useVoice({...voice,enabled:false,state:'off'}));
+  expect(getUserMedia).not.toHaveBeenCalled(); expect(socket).not.toHaveBeenCalled(); off.unmount();
+  // Control: the same hook with recognition on does ask for the mic, so the check above can fail.
+  const on=renderHook(()=>useVoice({...voice,enabled:true,state:'listen'}));
+  expect(getUserMedia).toHaveBeenCalledTimes(1); on.unmount();
+  const noop=()=>{};
+  const {container}=render(<>
+    <MicSection recognition={false} state='off' level={0} speaking={false} muted={false} ptt={false} held={false} service='unused' error='' onMute={noop} onPtt={noop} offTurn={false}/>
+    <VoxSection recognition={false} transcript={{text:'',live:false,result:'',ignored:false}} samples={[]} proposal={{id:-1,title:'Dark Magician attacks',sub:'',confirmLabel:'Declare'}} onConfirm={noop} onCancel={noop} onSample={noop}/>
+    <UndoSection recognition={false} label='' enabled={false} flash={0} histOpen={false} onUndo={noop} onHist={noop}/>
+  </>);
+  expect(container.textContent).not.toMatch(/\bsay\b|listening/i);
+  expect(screen.getByTestId('proposal-confirm').textContent).toContain('Declare');
+  expect(screen.getByTestId('mic-label').textContent).toBe('Voice chat');
+  expect(screen.getByRole('button',{name:'Mute'})).toBeTruthy();
+});

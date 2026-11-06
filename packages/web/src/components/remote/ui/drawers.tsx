@@ -16,7 +16,7 @@ const KINDS: { id: LogKind | "all"; label: string }[] = [
 ];
 
 /** Right overlay drawer. Closed by default. It never reads out loud (aria-live off). */
-export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConcede, declare }: { open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void;
+export function LogDrawer({ voiceFilter = true, open, entries, seats, rules, onClose, extra, onConcede, declare }: { voiceFilter?: boolean; open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void;
   /** Extra table settings (for example the training-set switch). */ extra?: ReactNode; onConcede?: () => void;
   /** "Declare result": the other players must agree. `choices` are the possible results; `waiting` is set while a result waits for them. */
   declare?: { choices: { seat: number | null; label: string }[]; waiting: string | null; onDeclare: (winnerSeat: number | null) => void } }) {
@@ -33,7 +33,7 @@ export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConce
     </div>
     {tab === "log" ? <div className={s.db} role="tabpanel" style={{ paddingTop: 0 }}>
       <div className={s.flt} role="group" aria-label="Filter log">
-        {KINDS.map(kind => <button type="button" key={kind.id} aria-pressed={filter === kind.id} onClick={() => setFilter(kind.id)}>{kind.label}</button>)}
+        {KINDS.filter(kind => voiceFilter || kind.id !== "VX").map(kind => <button type="button" key={kind.id} aria-pressed={filter === kind.id} onClick={() => setFilter(kind.id)}>{kind.label}</button>)}
       </div>
       <ol className={s.logl} aria-live="off" data-testid="log-list">
         {shown.length ? shown.map(entry => <li key={entry.id} className={entry.fresh ? s.new : ""}>
