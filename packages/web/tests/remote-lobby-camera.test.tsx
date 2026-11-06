@@ -32,10 +32,10 @@ it('with voice recognition off the table opens no STT socket and no mic, hides s
   const getUserMedia=vi.fn(()=>new Promise<MediaStream>(()=>{}));
   Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia}});
   const voice={ptt:false,held:false,hotwords:[],onFinal:()=>{},onCorrection:()=>{}};
-  const off=renderHook(()=>useVoice({...voice,enabled:false,state:'off'}));
+  const off=renderHook(()=>useVoice({...voice,url:null,enabled:true,state:'listen'}));
   expect(getUserMedia).not.toHaveBeenCalled(); expect(socket).not.toHaveBeenCalled(); off.unmount();
   // Control: the same hook with recognition on does ask for the mic, so the check above can fail.
-  const on=renderHook(()=>useVoice({...voice,enabled:true,state:'listen'}));
+  const on=renderHook(()=>useVoice({...voice,url:'ws://stt.test/ws',enabled:true,state:'listen'}));
   expect(getUserMedia).toHaveBeenCalledTimes(1); on.unmount();
   const noop=()=>{};
   const {container}=render(<>

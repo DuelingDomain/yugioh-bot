@@ -320,7 +320,7 @@ it("parses activation with a named source and activation after identifying a car
     send(data:string){sent.push(data);}
     close(){}
   });
-  const client=new SttClient({});
+  const client=new SttClient({},"ws://stt.test/ws");
   expect(await client.start(["New board card"])).toBeTruthy();
   expect(JSON.parse(sent[0])).toMatchObject({type:"start",hotwords:speechHotwords(["New board card"])});
   client.close();

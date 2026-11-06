@@ -71,7 +71,7 @@ type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { 
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, voiceRecognition }: { slug: string; voiceRecognition: boolean }) {
+export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: string | null }) {
   const ctl = useRemoteRoom(slug);
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
@@ -80,7 +80,7 @@ export function RemoteTableScreen({ slug, voiceRecognition }: { slug: string; vo
     <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} voiceRecognition={voiceRecognition} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -102,7 +102,8 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: RemoteRoom; voiceRecognition: boolean }) {
+function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null }) {
+  const voiceRecognition = sttUrl !== null;
   const sayItsName = voiceRecognition ? " or say its name" : "";
   const hub = useVideoHub();
   const layers = useLayers();
@@ -808,7 +809,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const voice = useVoice({ enabled: live && voiceRecognition, state: micState, ptt, held, hotwords, onFinal, onCorrection });
+  const voice = useVoice({ enabled: live, url: sttUrl, state: micState, ptt, held, hotwords, onFinal, onCorrection });
   const shownTranscript = voice.partial ? { text: voice.partial, live: true, result: "", ignored: false } : { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
 
   // ---- attack proposal (shared) and the voice proposal share the dock chip ----
@@ -1165,7 +1166,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
       <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
-        <MicSection recognition={voiceRecognition} chat={!solo} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
+        <MicSection recognition={voiceRecognition} chat={solo ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={!voiceRecognition ? [] : shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />

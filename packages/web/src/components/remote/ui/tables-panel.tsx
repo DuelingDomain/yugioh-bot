@@ -25,7 +25,7 @@ export function RemoteTablesPanel() {
         <Link href="/duels/new?type=remote" className={sheetButtonClass("secondary", "sm")}><Plus size={15} strokeWidth={1.7} aria-hidden />New Remote Duel</Link>
       </div>
     </div>
-    <p className={ui.hint}>Physical cards over webcam · voice + card reading.</p>
+    <p className={ui.hint}>Physical cards over webcam · card reading.</p>
     {error ? <p className={ui.alert} role="alert">{error.message}</p> : !mine.data && !open.data ? <p className={ui.hint}>Loading remote tables…</p>
       : tables.length === 0 ? <p className={styles.empty}>No remote tables right now.</p>
       : <ul className={styles.list}>{tables.map(table => {
