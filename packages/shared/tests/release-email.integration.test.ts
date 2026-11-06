@@ -459,6 +459,45 @@ it("retains one recipient through a 30-minute DATA outage and accepts it after r
   } finally { db.close(); }
 });
 
+it("quarantines one recipient after a 16-hour DATA outage and retains its payload for review", async () => {
+  const { db, email, config, clerk, outbox, release } = await queuedRecipients(1);
+  const start = Date.now(), rejectionTimes: number[] = [];
+  let now = start, calls = 0;
+  try {
+    const provider = email.createSmtpProvider({ ...config, transport: {
+      sendMail: async () => {
+        calls++;
+        if (now < start + 16 * 3600000) {
+          rejectionTimes.push(now);
+          throw { responseCode: 451, response: "451 4.3.0 Temporary server failure", command: "DATA" };
+        }
+        return { messageId: "must-not-send-after-review" };
+      }, close: () => {},
+    } });
+    for (let hour = 0; hour <= 16; hour++) {
+      now = start + hour * 3600000;
+      await outbox.drain({ clerk, provider, now: () => now });
+    }
+    expect(rejectionTimes).toHaveLength(5);
+    expect(rejectionTimes[4] - start).toBeGreaterThanOrEqual(15 * 3600000);
+    const reviewed = { status: "needs_review", safe_rejections: 5, first_attempt_at: rejectionTimes[4], payload_encrypted: expect.any(String) };
+    const delivery = () => db.prepare("select status,safe_rejections,first_attempt_at,payload_encrypted from release_email_deliveries").get();
+    expect(delivery()).toEqual(reviewed);
+    expect(outbox.state(release.id)).toMatchObject({ state: "needs_review", queued: 0, sent: 0, failed: 1 });
+    now = start + 32 * 3600000;
+    await outbox.drain({ clerk, provider, now: () => now });
+    expect(calls).toBe(5);
+    expect(delivery()).toEqual(reviewed);
+    now = rejectionTimes[4] + 30 * 86400000 - 1;
+    await outbox.drain({ clerk, provider, now: () => now });
+    expect(delivery()).toEqual(reviewed);
+    now += 2;
+    await outbox.drain({ clerk, provider, now: () => now });
+    expect(delivery()).toEqual({ ...reviewed, payload_encrypted: null });
+    expect(calls).toBe(5);
+  } finally { db.close(); }
+});
+
 it("counts at most five rejections across the queue during a continuous outage", async () => {
   const { db, email, config, clerk, outbox } = await queuedRecipients(8);
   let now = Date.now(), calls = 0;
@@ -482,16 +521,16 @@ it.each([
   { responseCode: 552, response: "552 5.2.2 over quota", command: "RCPT TO" },
   { code: "EMESSAGE", responseCode: 550, response: "550 5.7.1 Message invalid", command: "MAIL FROM" },
   { responseCode: 554, response: "554 5.7.1 Message rejected", command: "DATA" },
-])("lets pending recipients pass a repeatedly rejected row and fails it after five replies: $response", async failure => {
+])("lets pending recipients pass a repeatedly rejected row and quarantines it after five replies: $response", async failure => {
   const { db, email, config, clerk, outbox, release } = await queuedRecipients(3);
   let now = Date.now(), accepted = 0, rejected = 0;
-  const start = now;
+  const start = now, rejectionTimes: number[] = [];
   try {
     const rows = db.prepare<[], { id: number; recipient_key: string }>("select id,recipient_key from release_email_deliveries order by id").all();
     const first = rows[0];
     const provider = email.createSmtpProvider({ ...config, transport: {
       sendMail: async message => {
-        if (email.recipientKey(db, message.to[0]) === first.recipient_key) { rejected++; throw failure; }
+        if (email.recipientKey(db, message.to[0]) === first.recipient_key) { rejected++; rejectionTimes.push(now); throw failure; }
         return { messageId: `accepted-${++accepted}` };
       }, close: () => {},
     } });
@@ -504,11 +543,45 @@ it.each([
       if (n === 0 || n >= 3) expect(row.available_at).toBeGreaterThanOrEqual(now + 3600000 * 2 ** (row.safe_rejections - 1));
       now = n >= 2 ? Math.max(next, row.available_at) : next;
     }
-    expect(now - start).toBeGreaterThanOrEqual(31 * 3600000);
+    expect(rejectionTimes[4] - start).toBeGreaterThanOrEqual(15 * 3600000);
     expect({ accepted, rejected }).toEqual({ accepted: 2, rejected: 5 });
     expect(db.prepare("select status,safe_rejections,payload_encrypted from release_email_deliveries where id=?").get(first.id))
-      .toEqual({ status: "failed", safe_rejections: 5, payload_encrypted: null });
-    expect(outbox.state(release.id)).toMatchObject({ state: "done", sent: 2, failed: 1 });
+      .toEqual({ status: "needs_review", safe_rejections: 5, payload_encrypted: expect.any(String) });
+    expect(outbox.state(release.id)).toMatchObject({ state: "needs_review", sent: 2, failed: 1 });
+  } finally { db.close(); }
+});
+
+it("fails the fifth rejection only after an acceptance immediately resets queue failures", async () => {
+  const { db, email, config, clerk, outbox, release } = await queuedRecipients(2);
+  const start = Date.now();
+  let now = start, accepted = 0, rejected = 0;
+  try {
+    const rows = db.prepare<[], { id: number; recipient_key: string }>("select id,recipient_key from release_email_deliveries order by id").all();
+    const first = rows[0];
+    db.prepare("update release_email_deliveries set available_at=? where id=?").run(start + 15 * 3600000 - 12000, rows[1].id);
+    const provider = email.createSmtpProvider({ ...config, transport: {
+      sendMail: async message => {
+        if (email.recipientKey(db, message.to[0]) === first.recipient_key) {
+          rejected++;
+          throw { responseCode: 451, response: "451 4.3.0 Temporary server failure", command: "DATA" };
+        }
+        return { messageId: `accepted-${++accepted}` };
+      }, close: () => {},
+    } });
+    for (let n = 0; n < 4; n++) {
+      await outbox.drain({ clerk, provider, now: () => now });
+      now = (db.prepare("select available_at from release_email_deliveries where id=?").get(first.id) as { available_at: number }).available_at;
+    }
+    now -= 12000;
+    await outbox.drain({ clerk, provider, now: () => now });
+    expect({ accepted, rejected }).toEqual({ accepted: 1, rejected: 4 });
+    expect(db.prepare("select failures from email_budget").get()).toEqual({ failures: 0 });
+    now += 12000;
+    await outbox.drain({ clerk, provider, now: () => now });
+    expect({ accepted, rejected }).toEqual({ accepted: 1, rejected: 5 });
+    expect(db.prepare("select status,safe_rejections,first_attempt_at,payload_encrypted from release_email_deliveries where id=?").get(first.id))
+      .toEqual({ status: "failed", safe_rejections: 5, first_attempt_at: null, payload_encrypted: null });
+    expect(outbox.state(release.id)).toMatchObject({ state: "done", sent: 1, failed: 1 });
   } finally { db.close(); }
 });
 

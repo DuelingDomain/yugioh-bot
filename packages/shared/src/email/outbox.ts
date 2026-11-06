@@ -258,13 +258,16 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
               : Math.min(3600000, SEND_INTERVAL_MS * 2 ** Math.min(failures, 9)), providerError?.retryAfterMs ?? 0);
             // Spend at most five rejection counts across a continuous queue outage, until an acceptance resets failures.
             const countedRejection = providerError?.safeRejection && failures < 5;
-            const rejections = row.safe_rejections + (countedRejection ? 1 : 0), failed = rejections >= 5;
+            const rejections = row.safe_rejections + (countedRejection ? 1 : 0);
+            // Only an acceptance immediately before this rejection isolates the fault from a queue outage.
+            const needsReview = rejections >= 5 && failures > 0, failed = rejections >= 5 && failures === 0;
             const availableAt = now() + Math.max(delay, countedRejection ? 3600000 * 2 ** (rejections - 1) : 0);
-            // An explicit SMTP rejection/setup failure proves no delivery. Clear the attempt marker atomically with the pause.
+            // Safe retries clear the attempt marker; review rows retain a timestamp for the 30-day payload purge.
             const retried = db.prepare(`update release_email_deliveries set status=?,safe_rejections=?,payload_encrypted=case when ? then null else payload_encrypted end,
-              first_attempt_at=null,attempts=max(0,attempts-?),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
+              first_attempt_at=?,attempts=max(0,attempts-?),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
               where id=? and status='processing' and lease_token=?`)
-              .run(failed ? "failed" : "retry", rejections, failed ? 1 : 0, row.first_attempt_at !== null ? 1 : 0, availableAt, code, row.id, row.lease_token);
+              .run(needsReview ? "needs_review" : failed ? "failed" : "retry", rejections, failed ? 1 : 0, needsReview ? now() : null,
+                row.first_attempt_at !== null ? 1 : 0, availableAt, code, row.id, row.lease_token);
             if (!retried.changes) return;
             db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
             db.prepare("update release_email_sends set last_error=? where id=?").run(code, row.send_id);
