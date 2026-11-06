@@ -72,21 +72,21 @@ export function setCode(version: string): string {
 export function cardDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return "";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).toUpperCase();
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase();
 }
 
 /** "4 November 2026" */
 export function longDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return "";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 /** "24 Oct 2026" */
 export function shortDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return "";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 /** The three small stat words at the foot of the card: NEW 3, FIX 1, then card data or improvements. */
