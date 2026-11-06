@@ -13,6 +13,8 @@ const PREROLL = 15; const START_FRAMES = 3; const END_FRAMES = 28; const MIN_SPE
 type Options = {
   /** The table is live and this browser may use a mic. */
   enabled: boolean;
+  /** The STT socket from the server. Null keeps the mic and the socket closed. */
+  url: string | null;
   /** "listen" streams everything, "idle" streams too but the caller only accepts wake words, "muted" stops the mic. */
   state: MicState;
   ptt: boolean;
@@ -33,9 +35,10 @@ export function useVoice(options: Options) {
   const clientRef = useRef<SttClient | null>(null);
   const gates = useRef(new Map<string, MicState>());
 
-  const wantMic = options.enabled && options.state !== "muted" && options.state !== "off";
+  const url = options.url;
+  const wantMic = !!url && options.enabled && options.state !== "muted" && options.state !== "off";
   useEffect(() => {
-    if (!wantMic) { setLevel(0); setSpeaking(false); return; }
+    if (!wantMic || !url) { setLevel(0); setSpeaking(false); return; }
     let disposed = false; let stream: MediaStream | undefined; let context: AudioContext | undefined;
     const client = new SttClient({
       onPartial: (_id, text) => setPartial(text),
@@ -43,7 +46,7 @@ export function useVoice(options: Options) {
       onCorrection: result => opt.current.onCorrection(result),
       onError: message => setMicError(message),
       onState: state => setService(state),
-    });
+    }, url);
     clientRef.current = client;
     void (async () => {
       try {

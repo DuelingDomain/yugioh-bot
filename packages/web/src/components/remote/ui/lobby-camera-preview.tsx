@@ -128,7 +128,9 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
 }
 
 /** Webcam: own preview stream, mic meter and a card check. Everything is released when this unmounts. */
-function WebcamPanel({ room }: { room: RemoteRoom }) {
+function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecognition: boolean }) {
+  // A solo table has no voice chat, so without voice commands nothing here needs a mic.
+  const micTest = !room.solo || voiceRecognition;
   const video = useRef<HTMLVideoElement>(null);
   const meter = useRef<HTMLSpanElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -214,13 +216,13 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
   useEffect(() => {
     let off = false;
     void (async () => {
-      const [camera, microphone] = await Promise.all([permissionGranted("camera"), permissionGranted("microphone")]);
+      const [camera, microphone] = await Promise.all([permissionGranted("camera"), micTest ? permissionGranted("microphone") : false]);
       if (off) return;
       if (microphone) setMicWanted(true);
       if (camera) void start(readSavedCamera());
     })();
     return () => { off = true; run.current++; void release(); };
-  }, [start, release]);
+  }, [start, release, micTest]);
   // The table opens its camera by itself after Start, but only if this preview worked.
   useEffect(() => { if (live) markCameraReady(room.slug, true); }, [live, room.slug]);
   useEffect(() => {
@@ -304,7 +306,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     : !live ? <>Turn on the preview to check a card.</>
     : check === "starting" ? <><LoaderCircle size={14} className={s.spin} aria-hidden /> Getting the card reader ready…</>
     : seenOnce ? <>Card check passed. Hold a card to test again.</> : <>Hold a card under the camera.</>;
-  const micLine = !micWanted ? "Not tested yet." : mic === "heard" ? "Hearing you" : mic === "on" ? "Say something. The bar should move." : mic === "off" ? "Microphone blocked or missing. Voice chat needs it." : "Starting the microphone…";
+  const micLine = !micWanted ? "Not tested yet." : mic === "heard" ? "Hearing you" : mic === "on" ? "Say something. The bar should move." : mic === "off" ? "Microphone blocked or missing. Voice needs it." : "Starting the microphone…";
   const ratio = size.w / size.h;
 
   return <div className={s.stage}>
@@ -335,12 +337,12 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
         onChange={id => { saveCamera(id); void start(id); }} /> : null}
       <LobbyZonesStep live={live} calibrated={calibrated} changed={live&&layoutChanged} onCheck={() => setChecking(true)} skipped={zonesSkipped} calibration={calibration}
         onCalibrate={() => setCalibrating(true)} onSkip={() => setZonesSkipped(true)} onChange={grid => saveCalibration(grid)} />
-      <div className={s.row}>
+      {micTest ? <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><Mic size={13} strokeWidth={1.6} aria-hidden /> Microphone</span>
         <span className={s.meter} ref={meter} aria-hidden><i /></span>
         <p className={ui.hint} role="status" data-testid="lobby-cam-mic">{micLine}</p>
         {!micWanted ? <SheetButton size="sm" onClick={() => setMicWanted(true)} data-testid="lobby-cam-mic-start">Test microphone</SheetButton> : null}
-      </div>
+      </div> : null}
       <div className={s.row}>
         <span className={cx(ui.label, s.rowLabel)}><ScanLine size={13} strokeWidth={1.6} aria-hidden /> Card check</span>
         <p className={cx(s.check, check === "found" && s.checkOn)} role="status" data-testid="lobby-cam-check" data-state={check}>{checkLine}</p>
@@ -467,7 +469,7 @@ function OtherSeats({ room }: { room: RemoteRoom }) {
  * The server side of each choice (webcam, phone, manual) is made here; `mode` follows the room.
  * Mount it only after the room's saved choice has loaded (`hub.rosterReady`), so no camera starts by mistake.
  */
-export default function LobbyCameraPreview({ room, mode, onModeChange }: { room: RemoteRoom; mode: CameraMode; onModeChange: (mode: CameraMode) => void }) {
+export default function LobbyCameraPreview({ room, mode, onModeChange, voiceRecognition = false }: { voiceRecognition?: boolean; room: RemoteRoom; mode: CameraMode; onModeChange: (mode: CameraMode) => void }) {
   const hub = useVideoHub();
   const seat = room.mySeat;
   const [busy, setBusy] = useState(false);
@@ -511,7 +513,7 @@ export default function LobbyCameraPreview({ room, mode, onModeChange }: { room:
     <SheetSegmented label="Camera source" hideLabel value={mode} disabled={busy || ended} full
       choices={MODES.map(item => ({ value: item.value, label: item.label, icon: item.icon }))} onChange={value => void choose(value)} />
     {error ? <p className={s.err} role="alert">{error}</p> : null}
-    {mode === "webcam" ? <WebcamPanel room={room} />
+    {mode === "webcam" ? <WebcamPanel room={room} voiceRecognition={voiceRecognition} />
       : mode === "phone" ? <PhonePanel room={room} onUnpaired={() => { last.current = "webcam"; onModeChange("webcam"); }} />
       : <p className={s.manual} data-testid="lobby-manual-note"><Keyboard size={18} strokeWidth={1.5} aria-hidden /> No camera. You play by typing and on the virtual field. Cards move when you type them or drag them.</p>}
     <OtherSeats room={room} />

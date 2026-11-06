@@ -10,8 +10,6 @@ export type SttEvents = {
   onState?: (state: "connecting" | "ready" | "closed") => void;
 };
 
-export const sttUrl = () => process.env.NEXT_PUBLIC_REMOTE_STT_URL || "ws://localhost:4020/ws";
-
 const GAME_WORDS = ["Yu-Gi-Oh", "draw phase", "standby phase", "main phase one", "battle phase", "main phase two", "end phase",
   "end turn", "pass", "next phase", "summon", "normal summon", "set", "tribute", "activate", "chain", "banish", "graveyard", "GY",
   "special summon", "link summon", "XYZ summon", "synchro summon", "fusion summon", "attach", "detach", "negate", "LP", "life points minus 1000", "life points plus 1000"];
@@ -38,7 +36,7 @@ export class SttClient {
   private active: { requestId: string; started: boolean; queue: ArrayBuffer[]; ended: boolean; cancelled: boolean } | null = null;
   private serial = 0;
   private readonly session = crypto.randomUUID().slice(0, 8);
-  constructor(private readonly events: SttEvents, private readonly url = sttUrl()) {}
+  constructor(private readonly events: SttEvents, private readonly url: string) {}
 
   private open(): Promise<WebSocket> {
     if (this.ready) return this.ready;

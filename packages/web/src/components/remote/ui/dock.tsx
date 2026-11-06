@@ -10,15 +10,15 @@ export type Proposal = { id: number; title: string; sub: string; confirmLabel: s
 
 const BARS = 9;
 
-/** recognition=false: no voice commands. The mute control then only drives voice chat (chat=true), or nothing at a solo table. */
-export function MicSection({ recognition = true, chat = true, state, level, speaking, muted, ptt, held, service, error, onMute, onPtt, offTurn }: {
-  recognition?: boolean; chat?: boolean; state: MicState; level: number; speaking: boolean; muted: boolean; ptt: boolean; held: boolean; service: string; error: string;
+/** recognition=false: no voice commands. The mute control then only drives voice chat, or nothing at a solo table (chat="none"). */
+export function MicSection({ recognition = true, chat = "on", state, level, speaking, muted, ptt, held, service, error, onMute, onPtt, offTurn }: {
+  recognition?: boolean; chat?: "none" | "off" | "connecting" | "on"; state: MicState; level: number; speaking: boolean; muted: boolean; ptt: boolean; held: boolean; service: string; error: string;
   onMute: () => void; onPtt: () => void; offTurn: boolean;
 }) {
-  const noMute = !recognition && !chat;
-  const label = state === "muted" ? "Muted" : state === "off" ? (recognition || !chat ? "Voice off" : "Voice chat") : ptt ? (held ? "Listening" : "Push to talk") : state === "listen" ? "Listening" : "Idle";
+  const noMute = !recognition && chat === "none";
+  const label = state === "muted" ? "Muted" : state === "off" ? (recognition || chat === "none" ? "Voice off" : "Voice chat") : ptt ? (held ? "Listening" : "Push to talk") : state === "listen" ? "Listening" : "Idle";
   const sub = error ? error
-    : !recognition && state === "off" ? (chat ? "Talk to the table." : "No voice chat at a solo table.")
+    : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Join table video to talk." : "No voice chat at a solo table.")
     : service === "closed" && state !== "muted" ? "Speech service offline. Use the buttons and the keyboard."
     : state === "muted" ? "Nobody hears you. Unmute to use voice."
     : ptt ? "Hold V and speak."

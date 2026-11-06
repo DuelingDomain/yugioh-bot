@@ -75,20 +75,20 @@ function CopyInvite({ slug }: { slug: string }) {
 }
 
 /** The camera step. It mounts only after the room's saved camera choice has loaded, so no camera starts by mistake. */
-function CameraStep({ room }: { room: RemoteRoom }) {
+function CameraStep({ room, voiceRecognition }: { room: RemoteRoom; voiceRecognition: boolean }) {
   const hub = useVideoHub();
   if (!hub.rosterReady) return <p className={ui.hint} role="status" data-testid="lobby-camera-loading">Loading camera choice…</p>;
-  return <ReadyCameraStep room={room} />;
+  return <ReadyCameraStep room={room} voiceRecognition={voiceRecognition} />;
 }
 
-function ReadyCameraStep({ room }: { room: RemoteRoom }) {
+function ReadyCameraStep({ room, voiceRecognition }: { room: RemoteRoom; voiceRecognition: boolean }) {
   const hub = useVideoHub();
   const [mode, setMode] = useState<CameraMode>(() => hub.manual(room.mySeat) ? "manual" : hub.phones.some(item => item.seat === room.mySeat) ? "phone" : "webcam");
-  return <LobbyCameraPreview room={room} mode={mode} onModeChange={setMode} />;
+  return <LobbyCameraPreview room={room} mode={mode} onModeChange={setMode} voiceRecognition={voiceRecognition} />;
 }
 
 /** The setup room of a table that has not started: seats, decks, rules, camera, ready, start. */
-export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
+export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: RoomController; room: RemoteRoom; voiceRecognition?: boolean }) {
   const { operation, busy, error } = ctl;
   const saved = useSavedDecks();
   // The create screen leaves a note here when it made the room but could not seat the chosen deck.
@@ -173,7 +173,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
 
         <section className={cx(room_.panel, r.cameraPanel)} aria-label="Camera setup">
           <div className={r.camHead}><h2 className={ui.sectionTitle}>Field camera</h2><p className={ui.hint}>Check your field camera before you get ready.</p></div>
-          <CameraStep room={room} />
+          <CameraStep room={room} voiceRecognition={voiceRecognition} />
         </section>
 
 

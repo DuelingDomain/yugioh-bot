@@ -356,7 +356,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                   <div className={styles.wide}>
                     <SheetSegmented label="Play mode" value={remote ? "remote" : "online"} choices={PLAY_MODES} onChange={changePlayMode} describedBy="play-mode-hint" full />
                     <p id="play-mode-hint" className={cx(ui.hint, styles.below)} data-testid="play-mode-hint">
-                      {remote ? "Remote Duel: physical cards over webcam · voice + card reading." : "Online: the rules engine runs the duel. Remote Duel: physical cards over webcam · voice + card reading."}
+                      {remote ? "Remote Duel: physical cards over webcam · card reading." : "Online: the rules engine runs the duel. Remote Duel: physical cards over webcam · card reading."}
                     </p>
                   </div>
                 </div>

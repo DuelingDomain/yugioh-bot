@@ -9,8 +9,11 @@ import { getDb } from "./db";
 import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
-/** Server speech recognition for voice commands. Off unless set: the browser then opens no STT socket and no mic for it. Voice chat is separate. */
-export const remoteVoiceRecognitionEnabled = () => process.env.REMOTE_VOICE_RECOGNITION === "1";
+/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Voice chat is separate. Production never falls back to localhost. */
+export const remoteSttUrl = () => {
+  if (process.env.REMOTE_VOICE_RECOGNITION !== "1") return null;
+  return process.env.NEXT_PUBLIC_REMOTE_STT_URL?.trim() || (process.env.NODE_ENV === "production" ? null : "ws://localhost:4020/ws");
+};
 export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
 export async function remoteDuelsForViewer() {
