@@ -49,18 +49,22 @@ const WASM_THREADS = (cores: number) => Math.max(1, Math.min(4, Math.floor(cores
  * run while a card is being read. They cost a second ONNX Runtime instance and detector session.
  * Measured (2026-11-03): see packages/vision/REPORT.md, "Split workers".
  */
+const oneCpuWorker = (cores: number) => ({ split: false, threads: Math.min(2, WASM_THREADS(cores)) });
 export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number; readThreads?: number }> {
   const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } } }).navigator;
   const cores = nav?.hardwareConcurrency ?? 1;
-  // Each worker gets half of the one-worker thread budget: 2+2 on 8 cores, never more threads in total.
+  // On a hardware GPU each worker gets half of the one-worker thread budget.
   const half = Math.max(1, Math.floor(WASM_THREADS(cores) / 2));
   if (layout === 'single') return { split: false };
   if (layout === 'split') return { split: true, threads: half };
   const mobile = nav?.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(nav?.userAgent ?? '');
-  if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return { split: false, threads: Math.min(2, WASM_THREADS(cores)) };
-  // CPU: detector passes are frequent and gain little past 2 threads; reads are rare and gain a lot (2026-11-05: 355 ms on 4
-  // threads, 680 ms on 2). A worker for each lets each model use what suits it, and passes go on during a read.
-  const cpu = { split: true, threads: 2, readThreads: cores >= 8 ? 4 : 2 };
+  const one = oneCpuWorker(cores);
+  if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return one;
+  // CPU, 8+ cores: detector passes gain little past 2 threads; reads are rare and gain a lot (2026-11-05: 355 ms on 4 threads,
+  // 680 ms on 2). 2+4 threads is more than one worker's 4, but passes and reads seldom overlap and 8 cores hold both.
+  // Below 8 cores, on Safari (iPadOS reports a Mac) and without SharedArrayBuffer, two runtimes are not worth their cost.
+  const safari = /^((?!chrome|chromium|android|edg).)*safari/i.test(nav?.userAgent ?? '');
+  const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 2, readThreads: 4 } : one;
   if (backend === 'wasm' || !nav?.gpu) return cpu;
   try {
     const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
@@ -121,11 +125,19 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         }
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); };
+      worker.onerror = event => { failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
       worker.onmessageerror = () => failAll(lane, new Error('Recognition worker message failed'));
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads }).catch(error => { reset(lane); throw error; });
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
     }
     return lane.initial;
+  }
+  /** A split worker failed: the next request starts one worker instead of restarting this one on every tick. */
+  function useOneWorker(failed: Lane) {
+    if (scene === read || config.workers === 'split') return;
+    const other = failed === scene ? read : scene;
+    scene = read = single;prepared = undefined;
+    layout = Promise.resolve(oneCpuWorker(globalThis.navigator?.hardwareConcurrency ?? 1));
+    failAll(other, new Error('Recognition worker stopped; continuing with one worker'));reset(other);
   }
   /** The lane that serves `which`; the layout is chosen once, on first use. */
   async function laneFor(which: 'scene' | 'read'): Promise<Lane> {
