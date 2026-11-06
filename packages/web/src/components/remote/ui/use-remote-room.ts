@@ -12,13 +12,13 @@ import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
 import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
-/** Loads one table, keeps it fresh from the socket (5 s poll as backup) and posts actions. */
+/** Loads one table, keeps it fresh from the socket (poll as backup: 30 s while the socket is joined, else 5 s) and posts actions. */
 export function useRemoteRoom(slug: string) {
   const router = useRouter();
-  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, () => remoteApi<RemoteRoom>(`/${slug}`), { refreshInterval: 5000 });
+  const [realtime, setRealtime] = useState("Connecting…");
+  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, () => remoteApi<RemoteRoom>(`/${slug}`), { refreshInterval: realtime === "Connected" ? 30_000 : 5000 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [realtime, setRealtime] = useState("Connecting…");
   const roomRef = useRef<RemoteRoom | undefined>(room);
   if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;
   const lastSeq = useRef(0),tableKey=useRef(slug);

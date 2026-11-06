@@ -170,6 +170,10 @@ it("clears presence when the account is deleted", async () => {
 
 it('vision feedback keeps consent default-off, checks origin and protects review and crop routes', async()=>{
   const {GET,PATCH,DELETE:deleteOwn}=await import('../app/api/remote-vision/feedback/route');
+  const {GET:closedReview}=await import('../app/api/admin/console/vision/route');
+  vi.stubEnv('DISCORD_GUILD_ID','g');vi.stubEnv('REMOTE_DUELS','0');expect((await GET()).status).toBe(404);expect((await closedReview()).status).toBe(404);
+  vi.stubEnv('REMOTE_DUELS','1');vi.stubEnv('REMOTE_DUELS_USERS','2');expect((await GET()).status).toBe(404);expect((await closedReview()).status).toBe(404);
+  vi.stubEnv('REMOTE_DUELS_USERS','*');
   expect(await (await GET()).json()).toMatchObject({enabled:true,isAdmin:true,askedAt:null});
   const req=(enabled:boolean,origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method:'PATCH',headers:{origin,'content-type':'application/json'},body:JSON.stringify({enabled})});
   expect((await PATCH(req(true,'https://evil.test'))).status).toBe(403);
@@ -186,7 +190,7 @@ it('vision feedback keeps consent default-off, checks origin and protects review
 
 it('captures bounded crops through the authenticated API and withdraws moderation/deletion evidence',async()=>{
   const {mkdtemp,rm,writeFile,mkdir,readdir}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');const sharp=(await import('sharp')).default;
-  const dir=await mkdtemp(join(tmpdir(),'vision-route-'));vi.stubEnv('DATA_DIR',dir);vi.stubEnv('VISION_DATA_DIR',join(dir,'vision'));vi.stubEnv('REMOTE_VISION_FEEDBACK','1');
+  const dir=await mkdtemp(join(tmpdir(),'vision-route-'));vi.stubEnv('DATA_DIR',dir);vi.stubEnv('VISION_DATA_DIR',join(dir,'vision'));vi.stubEnv('REMOTE_VISION_FEEDBACK','1');vi.stubEnv('DISCORD_GUILD_ID','g');vi.stubEnv('REMOTE_DUELS','1');vi.stubEnv('REMOTE_DUELS_USERS','*');
   try {
     const {GET,PATCH,POST,DELETE:removeOwn}=await import('../app/api/remote-vision/feedback/route');
     const req=(body:unknown,method='POST',origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method,headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
