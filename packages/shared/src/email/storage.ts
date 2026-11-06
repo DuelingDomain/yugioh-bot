@@ -20,7 +20,7 @@ export function emailConfig(env: Record<string, string | undefined> = process.en
   };
 }
 export function missingEmailConfig(config: EmailConfig): string[] {
-  return [!config.host && "MAIL_HOST", !config.user && "MAIL_USER", !config.password && "MAIL_PASSWORD", !config.postalAddress && "MAIL_POSTAL_ADDRESS"].filter((v): v is string => !!v);
+  return [!config.host && "MAIL_HOST", !config.user && "MAIL_USER", !config.password && "MAIL_PASSWORD"].filter((v): v is string => !!v);
 }
 export const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
 /** A persisted, independent HMAC key keeps suppression stable across Clerk/provider credential rotation. */

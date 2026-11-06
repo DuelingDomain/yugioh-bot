@@ -6,12 +6,12 @@ A major release defaults to automatic email on publication when email is configu
 
 ## Runtime settings
 
-Web prepares previews and handles unsubscribe; the worker prepares automatic campaigns and sends individual messages. Both use the same SQLite file and explicit Compose environment lists. No bot flag controls email. Any missing `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD` or `MAIL_POSTAL_ADDRESS` makes sending `not_configured`, while publication continues without reserving an automatic campaign. Both the publish route and shared service enforce this guard, even for explicit `autoEmail: true`. Restoring configuration does not retroactively reserve published releases; use manual preview/confirmation for those. Already reserved campaigns wait if configuration is later removed.
+Web prepares previews and handles unsubscribe; the worker prepares automatic campaigns and sends individual messages. Both use the same SQLite file and explicit Compose environment lists. No bot flag controls email. Any missing `MAIL_HOST`, `MAIL_USER` or `MAIL_PASSWORD` makes sending `not_configured`, while publication continues without reserving an automatic campaign. Both the publish route and shared service enforce this guard, even for explicit `autoEmail: true`. Restoring configuration does not retroactively reserve published releases; use manual preview/confirmation for those. Already reserved campaigns wait if configuration is later removed. `MAIL_POSTAL_ADDRESS` is optional and does not affect configuration status or block sending. The owner chose on **2026-11-05** to send without a postal address for now.
 
 - `MAIL_HOST`: Namecheap Private Email SMTP hostname, runtime only. Implicit TLS on port **465** is fixed.
 - `MAIL_USER`: existing mailbox login (`support@duelingdomain.com` in production).
 - `MAIL_PASSWORD`: that mailbox password, runtime only.
-- `MAIL_POSTAL_ADDRESS`: physical mailing address in every HTML/text message.
+- `MAIL_POSTAL_ADDRESS`: optional physical mailing address. When set, it appears in HTML and text messages; when unset or blank, its line is omitted without an empty gap.
 - `MAIL_FROM`: defaults to `Dueling Domain <support@duelingdomain.com>`.
 - `MAIL_REPLY_TO`: defaults to `support@duelingdomain.com`.
 - `MAIL_ENCRYPTION_KEY`: optional dedicated secret for AES-256-GCM payload encryption. Without it, payload encryption derives from `CLERK_SECRET_KEY`. Set the same value on web and worker. Keep the encryption secret stable while previews or deliveries remain pending; do not change from the fallback to a dedicated key with pending work.
@@ -62,7 +62,7 @@ There are **no bounce or complaint webhooks**. Hard bounces arrive in the **supp
 
 Review ambiguous work against mailbox/provider records and local delivery IDs. Do not delete the send reservation, clear an ambiguous attempt or create a replacement campaign. No automatic redrive exists for review rows. Accepted/failed/suppressed payloads are purged immediately; review payloads are purged after thirty days when the configured worker drains. Permanent minimal reservation, delivery and suppression tombstones remain. Preview snapshots are deleted on expiry during preview/drain and on confirmation or account deletion.
 
-`GET /unsubscribe?t=...` displays a confirmation form and does not change preferences. Public `POST` immediately suppresses all alpha-news mail; RFC 8058 one-click requests require no login or Origin. Every message carries both unsubscribe headers, the visible link and the postal address. These links do not expire.
+`GET /unsubscribe?t=...` displays a confirmation form and does not change preferences. Public `POST` immediately suppresses all alpha-news mail; RFC 8058 one-click requests require no login or Origin. Every message must carry the visible unsubscribe link and both headers (`List-Unsubscribe` and `List-Unsubscribe-Post`), whether or not a postal address is set. These links do not expire.
 
 ## Offline validation
 

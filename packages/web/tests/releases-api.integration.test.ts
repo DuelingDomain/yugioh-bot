@@ -36,7 +36,7 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     expect(initial.releases.map((r: { version: string }) => r.version)).toEqual(["0.2.2"]); expect(initial.lastSeenVersion).toBeNull();
     expect(initial.releases[0]).toMatchObject({ title: "Dueling Domain v0.2.2", major: false, highlights: expect.any(Array) });
     expect(initial.releases[0].sections.map((s: { kind: string }) => s.kind)).toEqual(["new", "improvements", "cards", "fixes", "howto"]);
-    expect(await (await admin.GET()).json()).toMatchObject({ emailConfigured: false, missingConfig: ["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD", "MAIL_POSTAL_ADDRESS"] });
+    expect(await (await admin.GET()).json()).toMatchObject({ emailConfigured: false, missingConfig: ["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD"] });
     const content = { version: "0.10.0", title: "Dueling Domain v0.10.0", major: true, highlights: ["News"], sections: [{ kind: "new", items: ["Safe <notes>"] }] };
     expect((await admin.POST(request("/api/admin/console/releases", content, "https://evil.test"))).status).toBe(403);
     expect((await admin.POST(request("/api/admin/console/releases", { ...content, highlights: Array(7).fill("Too many") }))).status).toBe(400);
@@ -72,7 +72,8 @@ it("serves published releases and monotonic seen state, enforces owner mutations
     await publish.POST(request("/publish", { autoEmail: true }), minorParams);
     expect(db.prepare("select count(*) n from release_email_sends").get()).toEqual({ n: 0 });
     expect((await preview.POST(request("/preview"), minorParams)).status).toBe(503);
-    vi.stubEnv("MAIL_HOST", "smtp.example.test"); vi.stubEnv("MAIL_USER", "fake"); vi.stubEnv("MAIL_PASSWORD", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
+    vi.stubEnv("MAIL_HOST", "smtp.example.test"); vi.stubEnv("MAIL_USER", "fake"); vi.stubEnv("MAIL_PASSWORD", "fake");
+    expect(await (await admin.GET()).json()).toMatchObject({ emailConfigured: true, missingConfig: [] });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       if (url.hostname !== "api.clerk.com") throw new Error("No real network permitted");

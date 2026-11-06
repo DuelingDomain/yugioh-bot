@@ -8,7 +8,7 @@ import * as services from "../src/services/index.js";
 
 afterEach(() => vi.unstubAllEnvs());
 
-it("reserves one release broadcast and safely resumes personalized deliveries with fake Clerk and SMTP", async () => {
+it.each([undefined, "", " \t ", "123 Test Street"])("reserves one release broadcast with fake Clerk and SMTP (MAIL_POSTAL_ADDRESS=%j)", async postalAddress => {
   expect(services).toHaveProperty("createReleaseService");
   const email = await import("../src/email/index.js");
   const { createClerkBackend } = await import("../src/clerk/backend.js");
@@ -22,7 +22,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     expect(db.prepare("select source,provenance from email_consents where recipient_key=?").get(email.recipientKey(db, "legacy@example.test")))
       .toEqual({ source: "public-waitlist-form", provenance: "public-waitlist-form" });
     db.exec("insert into users(id,username,display_name) values(1,'owner','Owner')");
-    const config = email.emailConfig({ MAIL_HOST: "smtp.example.test", MAIL_USER: "fake", MAIL_PASSWORD: "fake", MAIL_POSTAL_ADDRESS: "123 Test Street", CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
+    const config = email.emailConfig({ MAIL_HOST: "smtp.example.test", MAIL_USER: "fake", MAIL_PASSWORD: "fake", MAIL_POSTAL_ADDRESS: postalAddress, CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
     const releases = services.createReleaseService(db);
     const release = releases.createDraft({ version: "0.3.0", title: "News <safe>", major: false, highlights: ["Deck help"], sections: [{ kind: "new", items: ["**Deck help <safe>**"] }] });
     releases.publish(release.id, { actorUserId: 1, autoEmail: true });
@@ -53,7 +53,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     let outbox = email.createReleaseEmailOutbox(db, config);
     const preview = await outbox.preview(release.id, 1, clerk);
     expect(config.dailyLimit).toBe(2000);
-    expect(email.missingEmailConfig(email.emailConfig({}))).toEqual(["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD", "MAIL_POSTAL_ADDRESS"]);
+    expect(email.missingEmailConfig(email.emailConfig({}))).toEqual(["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD"]);
     expect(preview.counts).toMatchObject({ members: 1, invited: 2, waitlist: 3, total: 6 });
     expect(preview.counts.excluded).toEqual(expect.arrayContaining([{ reason: "suppressed", count: 1 }]));
     for (const address of ["member", "invite", "expired", "historical", "unknown"]) {
@@ -99,7 +99,19 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
     const bodies = calls;
     expect(bodies.every(body => body.to.length === 1 && body.replyTo === "support@duelingdomain.com" && body.from === "Dueling Domain <support@duelingdomain.com>")).toBe(true);
     expect(bodies.every(body => body.headers["List-Unsubscribe-Post"] === "List-Unsubscribe=One-Click")).toBe(true);
-    expect(bodies.every(body => body.text.includes("123 Test Street"))).toBe(true);
+    for (const body of bodies) {
+      const unsubscribeUrl = body.headers["List-Unsubscribe"].slice(1, -1);
+      expect(unsubscribeUrl).toMatch(/^https:\/\/app\.example\.test\/unsubscribe\?t=[A-Za-z0-9_-]{43}$/);
+      expect(body.text).toContain(`Unsubscribe: ${unsubscribeUrl}`);
+      expect(body.html).toContain(`<a href="${unsubscribeUrl}">Unsubscribe</a>`);
+      if (postalAddress?.trim()) {
+        expect(body.text).toContain(`Dueling Domain alpha release news\n\n${postalAddress}\n\nUnsubscribe:`);
+        expect(body.html).toContain(`<p>Dueling Domain alpha release news</p><p>${postalAddress}</p><p><a href=`);
+      } else {
+        expect(body.text).toContain("Dueling Domain alpha release news\n\nUnsubscribe:");
+        expect(body.html).toContain("<p>Dueling Domain alpha release news</p><p><a href=");
+      }
+    }
     expect(bodies.find(body => body.to[0] === "member@example.test")!.text).not.toContain("ticket/");
     expect(bodies.find(body => body.to[0] === "invite@example.test")!.text).toContain("ticket/secret");
     expect(bodies.find(body => body.to[0] === "expired@example.test")!.text).not.toContain("/expired");
@@ -265,7 +277,7 @@ it("reserves one release broadcast and safely resumes personalized deliveries wi
       const unconfigured = draft(autoEmail ? "1.9.1" : "1.9.0"); currentReleases.publish(unconfigured.id, { actorUserId: 1, autoEmail });
       expect(db.prepare("select 1 from release_email_sends where release_id=?").get(unconfigured.id)).toBeUndefined();
     }
-    vi.stubEnv("MAIL_HOST", "smtp.example.test"); vi.stubEnv("MAIL_USER", "fake"); vi.stubEnv("MAIL_PASSWORD", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", "123 Test Street");
+    vi.stubEnv("MAIL_HOST", "smtp.example.test"); vi.stubEnv("MAIL_USER", "fake"); vi.stubEnv("MAIL_PASSWORD", "fake"); vi.stubEnv("MAIL_POSTAL_ADDRESS", config.postalAddress);
     const optedOut = draft("2.0.0"); currentReleases.publish(optedOut.id, { actorUserId: 1, autoEmail: false });
     expect(db.prepare("select 1 from release_email_sends where release_id=?").get(optedOut.id)).toBeUndefined();
     const automatic = draft("2.1.0"); currentReleases.publish(automatic.id, { actorUserId: 1 });

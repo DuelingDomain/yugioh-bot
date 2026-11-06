@@ -42,7 +42,7 @@ window.fetch = async (input, init) => {
         : polls === 2 ? { state: "sending", queued: 720, sent: 516, failed: 4, total: 1240, confirmedAt: running.email.confirmedAt }
         : { state: "done", queued: 0, sent: 1236, failed: 4, total: 1240, confirmedAt: running.email.confirmedAt };
     }
-    return json({ releases: [...store].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true })), emailConfigured: configured, missingConfig: configured ? [] : ["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD", "MAIL_POSTAL_ADDRESS"] });
+    return json({ releases: [...store].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true })), emailConfigured: configured, missingConfig: configured ? [] : ["MAIL_HOST", "MAIL_USER", "MAIL_PASSWORD"] });
   }
   if (rest.length === 0 && method === "POST") {
     const input = body as unknown as ReleaseDraftInput;
