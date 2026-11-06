@@ -173,7 +173,7 @@ it.each(["approve", "reject"] as const)("%s through /admin queues an edit for th
 
 it("records an admin decision but queues no Discord edit when there is no alert", async () => {
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", "alerts");
-  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_BOT_ENABLED", "0");
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");
   vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", "1");
   const response = await act("wle_new", { action: "approve" });

@@ -316,6 +316,42 @@ it("posts only a final decision when the web decides before delivery and does no
   expect(posts(f)).toHaveLength(1);
 });
 
+it.each(["no alert", "dead post"] as const)("drains one admin decision mod-log with %s from the web process without posting twice", async alert => {
+  const f = await fixture();
+  if (alert === "dead post") {
+    f.enqueue();
+    const [post] = f.context.shared.claimOutbox(1);
+    expect(f.context.shared.markFailed(post, { code: "rejected", permanent: true })).toBe(true);
+    expect(f.db.prepare("select completed_at from discord_waitlist_actions").get()).toEqual({ completed_at: null });
+  }
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+  vi.stubEnv("DISCORD_BOT_ENABLED", "0");
+  const input = { clerkEntryId: "wle_test", email: "member@example.com", decision: "approve" as const,
+    actor: { siteUserId: 1 }, source: "admin" as const };
+  expect((await decideWaitlistEntry(f.db, input, f.backend)).status).toBe("completed");
+  expect(f.db.prepare("select kind,operation,channel_id,status from discord_outbox where kind='mod_log'").all())
+    .toEqual([{ kind: "mod_log", operation: "post", channel_id: modLogId, status: "pending" }]);
+  const logs = () => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`));
+  const feature = createWaitlistFeature({ backend: f.backend });
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  const stop = await f.start(feature);
+  await expect.poll(() => f.db.prepare("select status,payload_json from discord_outbox where kind='mod_log'").get())
+    .toEqual({ status: "posted", payload_json: null });
+  expect(logs()).toHaveLength(1);
+  expect(logs()[0].body).toMatchObject({ content: expect.stringMatching(/^Approved by Owner · <t:\d+:f> \(admin\)/),
+    enforce_nonce: true, nonce: expect.any(String) });
+  await stop();
+  vi.stubEnv("DISCORD_BOT_ENABLED", "0");
+  expect((await decideWaitlistEntry(f.db, input, f.backend)).status).toBe("already_decided");
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  await f.start(feature);
+  expect(f.db.prepare("select count(*) as n from discord_outbox where kind='mod_log'").get()).toEqual({ n: 1 });
+  expect(clerkDecisions(f)).toHaveLength(1);
+  expect(logs()).toHaveLength(1);
+  expect(posts(f)).toHaveLength(0);
+  expect(edits(f)).toHaveLength(0);
+});
+
 it("lists ten pending entries with per-entry buttons and pages without duplicate custom IDs", async () => {
   const f = await fixture();
   for (let index = 0; index < 12; index++) f.entries.push({ id: `wle_${index}`, email_address: `member${index}@example.com`, status: "pending", created_at: Date.now() });

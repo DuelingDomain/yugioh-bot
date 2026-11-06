@@ -167,7 +167,7 @@ export async function decideWaitlistEntry(db: Database.Database, input: Waitlist
       actorDiscordId: complete.actor_discord_id ?? undefined, action: `waitlist.${complete.decision}`, result: "success",
       notifyDiscord: false, params: { actionId: complete.id, source: complete.source } });
     const channelId = process.env.DISCORD_MOD_LOG_CHANNEL_ID?.trim();
-    if (!hasDecisionCard && process.env.DISCORD_BOT_ENABLED === "1" && channelId) {
+    if (!hasDecisionCard && channelId) {
       // A command or web-first decision may have no public card. Keep one short
       // audit line; even full-email mode must not persist a complete address.
       const email = input.email ? normalizedNoticeEmail(input.email) : null;
