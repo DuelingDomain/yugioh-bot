@@ -124,9 +124,11 @@ describe("deleteUserAccount", () => {
     expect(after.card_staple_source_revision).toEqual([{ id: 1,
       revision: (before.card_staple_source_revision![0] as {revision:number}).revision + 1 }]);
     for (const table of Object.keys(before)) {
-      if (["users", "players", "saved_decks", "waitlist_signups", "product_events", "card_staple_source_revision"].includes(table)) continue;
+      if (["users", "players", "saved_decks", "waitlist_signups", "product_events", "card_staple_source_revision", "email_deleted_subjects", "email_unsubscribes"].includes(table)) continue;
       expect(after[table], table).toEqual(before[table]);
     }
+    // Deletion keeps keyed tombstones so a deleted account is never emailed again; they hold no readable address.
+    expect(JSON.stringify([after.email_deleted_subjects, after.email_unsubscribes])).not.toContain("three@example.com");
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
