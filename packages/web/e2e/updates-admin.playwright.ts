@@ -137,7 +137,7 @@ for (const size of sizes) {
   await page.getByText("Email is not set up").first().waitFor({ state: "visible" });
   await page.getByRole("row", { name: /v0\.2\.2/ }).click();
   const sheet = page.getByRole("dialog", { name: "Release v0.2.2" });
-  await sheet.getByText("RESEND_API_KEY").waitFor({ state: "visible" });
+  await sheet.getByText("MAIL_HOST").waitFor({ state: "visible" });
   assert.equal(await sheet.getByRole("button", { name: /Send email|Preview/ }).count(), 0, "nothing can be sent");
   await page.waitForTimeout(400);
   await page.screenshot({ path: resolve(out, `not-configured-${size.name}.png`) });

@@ -40,8 +40,9 @@ function failText(status: number, error: string | null, fallback: string): strin
 /** A plain hint for the last send error the queue kept. */
 function lastErrorHint(code: string): string {
   switch (code) {
-    case "provider_auth": return "The email provider refused the key. Check the Resend API key. The queue is paused and will retry.";
-    case "provider_domain": return "The sender domain is not verified. Verify the domain in Resend. The queue is paused and will retry.";
+    case "provider_auth": return "The mail server refused the login. Check the mailbox credentials. The queue is paused and will retry.";
+    case "provider_policy": return "The mail server rejected sending under its rate or policy limits. The queue is paused and will retry.";
+    case "unknown_outcome": return "The mail server did not confirm the result. This delivery needs review and will not retry automatically.";
     case "provider_unavailable": return "The email provider is down. The queue is paused and will retry.";
     default: return "The last send try failed. The queue will retry.";
   }

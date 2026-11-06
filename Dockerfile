@@ -211,6 +211,8 @@ COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/d
 COPY --from=build /app/packages/shared/data/staples/bridge-observations.json packages/shared/data/staples/bridge-observations.json
 COPY --from=build /app/packages/worker/package*.json packages/worker/
 COPY --from=build /app/packages/worker/dist packages/worker/dist
+# The SMTP provider lives in shared and must survive production dependency pruning.
+RUN node -e "require('nodemailer')"
 RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
 USER node

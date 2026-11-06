@@ -17,12 +17,12 @@ export function renderReleaseEmail(release: Release, recipient: EmailRecipient, 
     : "Here is the latest Dueling Domain alpha news. Join us or sign in to check your access.";
   const cta = recipient.inviteUrl ? "Accept your invitation" : recipient.variant === "members" ? "Open Dueling Domain" : "Join or sign in";
   const href = recipient.inviteUrl ?? signIn;
-  // No pixels, scripts, remote assets or rewritten links. Disable tracking on the Resend sending domain too.
-  const link = (url: string, text: string) => `<a href="${escapeHtml(url)}" data-resend-no-track="true">${escapeHtml(text)}</a>`;
+  // No pixels, scripts, remote assets or rewritten links.
+  const link = (url: string, text: string) => `<a href="${escapeHtml(url)}">${escapeHtml(text)}</a>`;
   const text = [plainText(release.title), intro, ...release.sections.flatMap(section => [headings[section.kind], ...section.items.map(item => `• ${plainText(item)}`)]),
-    `${cta}: ${href}`, `Updates: ${home.href}`, "Dueling Domain alpha release news", config.postalAddress, `Unsubscribe: ${unsubscribeUrl}`].join("\n\n");
+    `${cta}: ${href}`, `Updates: ${home.href}`, "Dueling Domain alpha release news", ...(config.postalAddress ? [config.postalAddress] : []), `Unsubscribe: ${unsubscribeUrl}`].join("\n\n");
   const html = `<!doctype html><html><body><h1>${htmlText(release.title)}</h1><p>${escapeHtml(intro)}</p>${release.sections.map(section =>
-    `<h2>${headings[section.kind]}</h2><ul>${section.items.map(item => `<li>${htmlText(item)}</li>`).join("")}</ul>`).join("")}<p>${link(href, cta)}</p><p>${link(home.href, "Updates")}</p><footer><p>Dueling Domain alpha release news</p><p>${escapeHtml(config.postalAddress)}</p><p>${link(unsubscribeUrl, "Unsubscribe")}</p></footer></body></html>`;
+    `<h2>${headings[section.kind]}</h2><ul>${section.items.map(item => `<li>${htmlText(item)}</li>`).join("")}</ul>`).join("")}<p>${link(href, cta)}</p><p>${link(home.href, "Updates")}</p><footer><p>Dueling Domain alpha release news</p>${config.postalAddress ? `<p>${escapeHtml(config.postalAddress)}</p>` : ""}<p>${link(unsubscribeUrl, "Unsubscribe")}</p></footer></body></html>`;
   return { from: config.from, to: [recipient.email], reply_to: config.replyTo, subject: plainText(release.title).replace(/[\r\n]/g, " "), html, text,
     headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
 }

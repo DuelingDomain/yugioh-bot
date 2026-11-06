@@ -4,22 +4,23 @@ import { emailKey } from "../util/email-key.js";
 import { ReleaseError } from "../services/releases.js";
 
 export interface EmailConfig {
-  apiKey: string; postalAddress: string; from: string; replyTo: string; webUrl: string;
+  host: string; user: string; password: string; postalAddress: string; from: string; replyTo: string; webUrl: string;
   encryptionSecret: string; dailyLimit: number;
 }
 export function emailConfig(env: Record<string, string | undefined> = process.env): EmailConfig {
-  const limit = Number(env.MAIL_DAILY_LIMIT ?? "100");
+  const limit = Number(env.MAIL_DAILY_LIMIT ?? "2000");
   return {
-    apiKey: env.RESEND_API_KEY?.trim() ?? "", postalAddress: env.MAIL_POSTAL_ADDRESS?.trim() ?? "",
-    from: env.MAIL_FROM?.trim() || "Dueling Domain <news@updates.duelingdomain.com>",
+    host: env.MAIL_HOST?.trim() ?? "", user: env.MAIL_USER?.trim() ?? "", password: env.MAIL_PASSWORD ?? "",
+    postalAddress: env.MAIL_POSTAL_ADDRESS?.trim() ?? "",
+    from: env.MAIL_FROM?.trim() || "Dueling Domain <support@duelingdomain.com>",
     replyTo: env.MAIL_REPLY_TO?.trim() || "support@duelingdomain.com",
     webUrl: (env.WEB_URL ?? "").replace(/\/+$/, ""),
     encryptionSecret: env.MAIL_ENCRYPTION_KEY || env.CLERK_SECRET_KEY || "",
-    dailyLimit: Number.isSafeInteger(limit) && limit > 0 ? limit : 100,
+    dailyLimit: Number.isSafeInteger(limit) && limit > 0 ? limit : 2000,
   };
 }
 export function missingEmailConfig(config: EmailConfig): string[] {
-  return [!config.apiKey && "RESEND_API_KEY", !config.postalAddress && "MAIL_POSTAL_ADDRESS"].filter((v): v is string => !!v);
+  return [!config.host && "MAIL_HOST", !config.user && "MAIL_USER", !config.password && "MAIL_PASSWORD"].filter((v): v is string => !!v);
 }
 export const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
 /** A persisted, independent HMAC key keeps suppression stable across Clerk/provider credential rotation. */

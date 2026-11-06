@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
-import { createReleaseEmailOutbox, createResendProvider, emailConfig, missingEmailConfig, type AudienceClerk, type EmailProvider } from "@yugidraft/shared/email";
+import { createReleaseEmailOutbox, createSmtpProvider, emailConfig, missingEmailConfig, type AudienceClerk, type EmailProvider } from "@yugidraft/shared/email";
 import { createLoop } from "./loop.js";
 
 /** Independent of Discord/bot enablement; stop() waits for any in-flight provider request. */
@@ -12,6 +12,7 @@ export function createEmailDrain(options: {
   const enabled = missingEmailConfig(config).length === 0 && !!(options.clerk || env.CLERK_SECRET_KEY);
   // Construction does no network I/O, and missing mail configuration never initializes a sender.
   const clerk = enabled ? options.clerk ?? createClerkBackend({ secretKey: env.CLERK_SECRET_KEY! }) : undefined;
-  const provider = enabled ? options.provider ?? createResendProvider({ apiKey: config.apiKey }) : undefined;
-  return createLoop(async () => { if (clerk && provider) await outbox.drain({ clerk, provider }); }, 1000);
+  const provider = enabled ? options.provider ?? createSmtpProvider(config) : undefined;
+  const loop = createLoop(async () => { if (clerk && provider) await outbox.drain({ clerk, provider }); }, 1000);
+  return { ...loop, async stop() { await loop.stop(); provider?.close?.(); } };
 }

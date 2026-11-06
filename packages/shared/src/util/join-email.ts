@@ -2,10 +2,12 @@ import { normalizeEmailDomain } from "./email-domain.js";
 
 const HOST_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 const DOMAIN = new RegExp(`^${HOST_LABEL}(?:\\.${HOST_LABEL})+$`);
+const LOCAL_ATOM = "[a-z0-9!#$%&'*+/=?^_`{|}~-]+";
+const LOCAL_PART = new RegExp(`^${LOCAL_ATOM}(?:\\.${LOCAL_ATOM})*$`);
 
 /**
  * The email rules of every public join form (/api/waitlist, /api/join/<code>, owner allowlist): no format characters
- * in the local part, trimmed and lower case, at most 254 chars, ASCII domain made of valid host labels.
+ * in the local part, dot-separated RFC atoms, trimmed and lower case, at most 254 chars, ASCII domain made of valid host labels.
  * Returns the address to store and send to, or null when it is not usable.
  */
 export function normalizeJoinEmail(raw: unknown): string | null {
@@ -17,5 +19,6 @@ export function normalizeJoinEmail(raw: unknown): string | null {
   // Storage, notification claims and Clerk all use the same ASCII domain.
   const email = normalizeEmailDomain(submitted);
   if (!email || email.length > 254) return null;
-  return DOMAIN.test(email.slice(email.lastIndexOf("@") + 1)) ? email : null;
+  const at = email.lastIndexOf("@");
+  return LOCAL_PART.test(email.slice(0, at)) && DOMAIN.test(email.slice(at + 1)) ? email : null;
 }

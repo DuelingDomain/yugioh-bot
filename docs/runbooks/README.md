@@ -17,7 +17,7 @@ Health was checked on **2026-10-24**. Times are UTC. GitHub can start a schedule
 | [Clean GHCR images](ghcr-cleanup.md) | Deletes old image versions | Sunday 05:17 | `gh workflow run ghcr-cleanup.yml` | `GITHUB_TOKEN` (packages write) | None | OK (last run 10-18) |
 | [VM database backup](vm-backup.md) | Copies the SQLite file, keeps 7 | Daily 07:30 (+ up to 10 min) | `sudo systemctl start dueling-backup.service` | systemd timer on the VM | Confirm it runs | Not visible from the repo |
 | [Worker timers](worker-timers.md) | Draft + tournament timers, presence, analytics, heartbeat, VM health, disk use | Every 1 s to 1 h | Restart the `worker` service | Worker container | None | Not visible from the repo |
-| [Release emails](release-emails.md) | Prepares one-time release broadcasts, sends through Resend and records suppression | Every 1 s | Restart the configured `worker` service | Clerk read access, Resend key, postal address, shared database | Confirm consent evidence and disable provider tracking before enabling | Not enabled by this change |
+| [Release emails](release-emails.md) | Prepares one-time release broadcasts, sends through mailbox SMTP and records unsubscribe suppression | Every 1 s | Restart the configured `worker` service | Clerk read access, SMTP mailbox credentials, shared database | Confirm audience basis and mailbox sending allowance before enabling | Not enabled by this change |
 | [Worker syncs](worker-syncs.md) | Card sets, Genesys points, image cache cleanup | 04:00 / 06:00 daily, Genesys Sunday 06:00 | Restart the `worker` service | Worker container, ygoprodeck.com | None | Not visible from the repo |
 | [Duel server timers](duel-server-timers.md) | Closes idle duels, settles clocks, compresses old snapshots | Every 30 s, every 6 h | Restart the `duel` service | Duel container | Decide on snapshot compression | Not visible from the repo |
 | [Discord bot timers](discord-bot.md) | Online-now embed, outbox, welcome cards | Every 3 s to 60 s | Restart the `bot` service | `DISCORD_BOT_ENABLED=1`, `DISCORD_TOKEN` | Say if the bot runs in production | Unknown |
@@ -44,7 +44,7 @@ Values are never in the repo. Names only.
 | `DISCORD_TOKEN` and other `DISCORD_*` ids | VM `.env` | Discord bot | Reset in the Discord developer portal | Bot goes offline |
 | `WS_INTERNAL_SECRET` | VM `.env` | Signs calls between web, duel, worker and ws | Change on the VM, then redeploy all services | Live updates stop |
 | `POSTHOG_KEY` | VM `.env` | Worker analytics drain | Edit `.env`, restart worker | Queue is cleared, no events sent |
-| `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `MAIL_ENCRYPTION_KEY` | Runtime deployment secrets | Release-email worker; signed webhooks | See [release emails](release-emails.md). Keep encryption stable while work is pending | Sending stops, webhooks fail verification, or payloads require the old encryption key |
+| `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION_KEY` | Runtime deployment secrets | Release-email worker; web configuration guard | See [release emails](release-emails.md). Keep encryption stable while work is pending | Sending stops or payloads require the old encryption key |
 | `CLERK_SECRET_KEY` | VM `.env` | Web sign-in, owner CLI, worker email audience discovery | Clerk dashboard | Sign-in fails |
 
 Names in the first part of the table match `gh secret list -R DuelingDomain/yugioh-bot`. Check expiry dates in GitHub settings. The repo cannot show them.
