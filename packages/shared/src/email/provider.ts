@@ -2,7 +2,7 @@ import nodemailer from "nodemailer";
 import type { EmailMessage } from "./render.js";
 
 export class EmailProviderError extends Error {
-  constructor(readonly code: "transport" | "rate_limited" | "rejected" | "provider_auth" | "provider_policy" | "unknown_outcome", readonly permanent = false, readonly retryAfterMs = 0) {
+  constructor(readonly code: "transport" | "rate_limited" | "rejected" | "provider_auth" | "provider_policy" | "unknown_outcome", readonly permanent = false, readonly retryAfterMs = 0, readonly safeRejection = false) {
     super(code); this.name = "EmailProviderError";
   }
 }
@@ -17,12 +17,12 @@ function classify(error: unknown): EmailProviderError {
   const status = err?.responseCode ?? 0, command = err?.command ?? "";
   // Inspect details only for classification; never persist SMTP text or private values.
   if (status === 535 || (err?.code === "EAUTH" && !(status >= 400 && status < 500))) return new EmailProviderError("provider_auth");
-  if (status >= 400 && status < 500) return new EmailProviderError("rate_limited");
+  if (status >= 400 && status < 500) return new EmailProviderError("rate_limited", false, 0, true);
   if (status >= 500 && status < 600) {
     const response = (err?.response ?? err?.message ?? "").replace(/[^\s<>@]+@[^\s<>@]+/g, "");
     const addressFailure = /\b5\.1\.\d+\b/.test(response) || /\b(?:user unknown|no such user|does not exist)\b/i.test(response);
-    if (/^RCPT TO\b/i.test(command) && addressFailure && !/\b5\.7\.\d+\b/.test(response)) return new EmailProviderError("rejected", true);
-    return new EmailProviderError("provider_policy");
+    if (/^RCPT TO\b/i.test(command) && addressFailure && !/\b5\.7\.\d+\b/.test(response)) return new EmailProviderError("rejected", true, 0, true);
+    return new EmailProviderError("provider_policy", false, 0, true);
   }
   // In the pinned pool implementation this error is emitted only for a close before any message bytes
   // were read (including a reused connection's 421). maxRequeues=0 preserves outbox ownership of retry.

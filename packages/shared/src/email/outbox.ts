@@ -18,7 +18,7 @@ interface SendRow {
 interface DeliveryRow {
   id: number; send_id: string; recipient_key: string; payload_encrypted: string;
   status: string; first_attempt_at: number | null;
-  attempts: number; lease_token: string; lease_expires_at: number;
+  attempts: number; safe_rejections: number; lease_token: string; lease_expires_at: number;
 }
 interface FrozenPayload {
   recipient: EmailRecipient; body: string; unsubscribeUrl: string;
@@ -163,18 +163,18 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
       if (budget.next_attempt_at > now || budget.attempts >= config.dailyLimit) return undefined;
       const row = db.prepare<[number, number], DeliveryRow>(`select * from release_email_deliveries where
         ((status in ('pending','retry') and available_at<=?) or (status='processing' and lease_expires_at<=?))
-        and first_attempt_at is null and payload_encrypted is not null order by id limit 1`).get(now, now);
+        and first_attempt_at is null and payload_encrypted is not null order by status='retry', id limit 1`).get(now, now);
       if (!row) return undefined;
       const lease = randomUUID();
       db.prepare("update release_email_deliveries set status='processing',lease_token=?,lease_expires_at=? where id=?").run(lease, now + LEASE_MS, row.id);
       return { ...row, status: "processing", lease_token: lease, lease_expires_at: now + LEASE_MS };
     }).immediate();
   }
-  function finish(row: DeliveryRow, status: string, error: string, clearPayload = true): boolean {
+  function finish(row: DeliveryRow, status: string, error: string, clearPayload = true, safeRejection = false): boolean {
     return db.transaction(() => {
-      const changed = db.prepare(`update release_email_deliveries set status=?,last_error=?,payload_encrypted=case when ? then null else payload_encrypted end,
+      const changed = db.prepare(`update release_email_deliveries set status=?,last_error=?,safe_rejections=safe_rejections+?,payload_encrypted=case when ? then null else payload_encrypted end,
         lease_token=null,lease_expires_at=null where id=? and status='processing' and lease_token=?`)
-        .run(status, error, clearPayload ? 1 : 0, row.id, row.lease_token);
+        .run(status, error, safeRejection ? 1 : 0, clearPayload ? 1 : 0, row.id, row.lease_token);
       if (changed.changes && status === "needs_review") db.prepare("update release_email_sends set last_error=? where id=?").run(error, row.send_id);
       refresh(row.send_id);
       return changed.changes > 0;
@@ -250,15 +250,18 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
             db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
           }).immediate();
         } else if (providerError?.permanent) {
-          finish(row, "failed", code);
+          finish(row, "failed", code, true, providerError.safeRejection);
         } else {
           db.transaction(() => {
             const failures = db.prepare<[], { failures: number }>("select failures from email_budget where id=1").get()!.failures;
             const delay = Math.max(code === "provider_auth" || code === "provider_policy" ? 3600000
               : Math.min(3600000, SEND_INTERVAL_MS * 2 ** Math.min(failures, 9)), providerError?.retryAfterMs ?? 0);
+            const rejections = row.safe_rejections + (providerError?.safeRejection ? 1 : 0), failed = rejections >= 5;
             // An explicit SMTP rejection/setup failure proves no delivery. Clear the attempt marker atomically with the pause.
-            const retried = db.prepare(`update release_email_deliveries set status='retry',first_attempt_at=null,attempts=max(0,attempts-?),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
-              where id=? and status='processing' and lease_token=?`).run(row.first_attempt_at !== null ? 1 : 0, now() + delay, code, row.id, row.lease_token);
+            const retried = db.prepare(`update release_email_deliveries set status=?,safe_rejections=?,payload_encrypted=case when ? then null else payload_encrypted end,
+              first_attempt_at=null,attempts=max(0,attempts-?),available_at=?,last_error=?,lease_token=null,lease_expires_at=null
+              where id=? and status='processing' and lease_token=?`)
+              .run(failed ? "failed" : "retry", rejections, failed ? 1 : 0, row.first_attempt_at !== null ? 1 : 0, now() + delay, code, row.id, row.lease_token);
             if (!retried.changes) return;
             db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
             db.prepare("update release_email_sends set last_error=? where id=?").run(code, row.send_id);

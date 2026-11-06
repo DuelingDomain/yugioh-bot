@@ -36,7 +36,7 @@ export function migrateReleases(db: Database.Database): void {
         recipient_key text not null, payload_encrypted text, idempotency_key text not null unique,
         status text not null default 'pending' check(status in ('pending','processing','retry','accepted','delivered','failed','suppressed','needs_review')),
         provider_id text, subject_clerk_id text, first_attempt_at integer, accepted_at integer, delivered_at integer,
-        attempts integer not null default 0, available_at integer not null,
+        attempts integer not null default 0, safe_rejections integer not null default 0, available_at integer not null,
         lease_token text, lease_expires_at integer, last_error text,
         unique(send_id,recipient_key)
       );
@@ -70,6 +70,7 @@ export function migrateReleases(db: Database.Database): void {
     // Also upgrade a database initialized by the release-storage revision before the email worker was installed.
     const deliveryColumns = db.pragma("table_info(release_email_deliveries)") as { name: string }[];
     if (!deliveryColumns.some(column => column.name === "subject_clerk_id")) db.exec("alter table release_email_deliveries add column subject_clerk_id text");
+    if (!deliveryColumns.some(column => column.name === "safe_rejections")) db.exec("alter table release_email_deliveries add column safe_rejections integer not null default 0");
     const budgetColumns = db.pragma("table_info(email_budget)") as { name: string }[];
     if (!budgetColumns.some(column => column.name === "failures")) db.exec("alter table email_budget add column failures integer not null default 0");
     const consentColumns = db.pragma("table_info(email_consents)") as { name: string }[];
