@@ -8,6 +8,7 @@ Health was checked on **2026-10-24**. Times are UTC. GitHub can start a schedule
 
 | Job | What it does | Schedule (UTC) | Run by hand | Needs | Owner action now | Health |
 |---|---|---|---|---|---|---|
+| [Vision feedback](vision-feedback.md) | Prunes private card crops and metadata | Startup + hourly | `npx tsx scripts/vision/feedback.ts prune` | Shared SQLite and DATA dir | Opt-in collection, review samples | See measured report |
 | [Engine data update](engine-data-update.md) | Opens a PR with newer card data | Mon + Thu 06:00 | `gh workflow run engine-data-update.yml` | `ENGINE_DATA_PR_TOKEN` | None | OK (last red 10-19, green 10-22) |
 | [Effect tagging](effect-tagging.md) | Tags card effects with Haiku, opens a PR | Mon + Wed + Fri 07:30, and on push to main | `gh workflow run effect-tagging.yml -f dry_run=true` | `ANTHROPIC_API_KEY`, `ENGINE_DATA_PR_TOKEN` | Create the ledger once. Add Actions write to the PAT | **FAILING** since 10-21 |
 | [Format staples](format-staples.md) | Refreshes measured staple data, opens a PR | Same run as effect tagging | Same workflow (`staples` job) | `ENGINE_DATA_PR_TOKEN` | Add Actions write to the PAT | **Half works**: PR #469 opened, the follow-up dispatch fails |
