@@ -15,7 +15,7 @@ import styles from "./dashboard.module.css";
  * The dashboard for a player with nothing yet: no player row, or one with no matches and nothing
  * joined. `standing` is the server-built "Your standing" block with the starting numbers.
  * When something is open, the list leads and its top row holds the primary button. When nothing
- * is, "Challenge someone" is the one primary and faded rows show what the page becomes.
+ * is, "New draft" is the one primary and faded rows show what the page becomes.
  */
 export function WelcomePanel({ standing }: { standing: ReactNode }) {
   const { settled, data } = useOpenNow();
@@ -28,9 +28,8 @@ export function WelcomePanel({ standing }: { standing: ReactNode }) {
         <EmptyHero id="db-hello-t" title="Your first match puts you on the board" lede="Join something and this page fills in.">
           {settled && !leads && (
             <>
-              <SvButton as="a" href={OPEN_ROUTES.challenge} variant="primary" big>Challenge someone</SvButton>
+              <SvButton as="a" href={OPEN_ROUTES.newDraft} variant="primary" big>New draft</SvButton>
               <SvButton as="a" href={OPEN_ROUTES.newTournament} variant="ghost" big>New tournament</SvButton>
-              <SvButton as="a" href={OPEN_ROUTES.newDraft} variant="ghost" big>New draft</SvButton>
             </>
           )}
         </EmptyHero>
