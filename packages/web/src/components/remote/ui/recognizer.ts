@@ -17,6 +17,8 @@ export type ReadResult = {
   backend?: string;
   /** Laplacian variance near the click on the frame that was read. Absent for reads made elsewhere (a phone, a peer). */
   sharpness?: number;
+  /** A second frame of this browser's own read named the same card, on a clean outline. Absent for reads made elsewhere. */
+  agreed?: boolean;
 };
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
 export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
@@ -24,7 +26,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; related?: RelatedCards };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-type RawResult = { quality?: { sharpness?: number }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
+type RawResult = { quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
@@ -59,6 +61,11 @@ export function isBestMatch(read: ReadResult): boolean {
   if (first.score === null || (read.sharpness !== undefined && read.sharpness < SHARP_FLOOR)) return false;
   return second?.score == null || first.score - second.score >= BEST_MARGIN;
 }
+/**
+ * A "not sure" click read that is accepted at once, as Auto-detect accepts it: above the low-match floor, on a clean outline, read twice with the same winner.
+ * It is stricter than Auto-detect's own Best match, because it also needs a sharp frame and a clear lead. The card shows as "Best match" with "Wrong card?".
+ */
+export function isClearRead(read: ReadResult): boolean { return read.agreed === true && isBestMatch(read); }
 const READ_TIMEOUT_MS = 10_000;
 
 let meta: Promise<Meta | null> | null = null;
@@ -295,12 +302,35 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
+    const read: ReadResult = { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
+    // Auto-detect reads an unsure card once more before it accepts it. A click does the same, and only when this read could pass.
+    if (isBestMatch(read) && !result.quality?.fallback && !result.quality?.partial) {
+      read.agreed = await secondFrameAgrees(vision, result, point, priorsFor(found, priors), card, kept, own);
+      signal.throwIfAborted();
+    }
+    return read;
   } catch (error) {
     if (signal.aborted) throw error;
     if (reportGpuFailure(error)) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
+}
+
+/** Reads one other frame. No other frame, an error or a different winner means no agreement, so the person is asked. */
+async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, point: { x: number; y: number }, priors: RecognitionPriors, card?: ReadCard, kept?: HTMLCanvasElement[], own = false): Promise<boolean> {
+  try {
+    const used = card ? 0 : first.quality?.selectedFrameIndices?.[0] ?? 0;
+    const canvas = kept?.[used === 0 ? 1 : 0];
+    // The worker takes bitmaps it reads, so the frames of the first read are gone.
+    const buffered = !canvas && own && ownBuffer ? await ownFeedFrames() : [];
+    const frame = canvas ? await createImageBitmap(canvas) : buffered[0];
+    for (const other of buffered.slice(1)) other.close();
+    if (!frame) return false;
+    try {
+      const again = await vision.recognize([frame], { clickPoint: point, k: 5, regionFallback: false, maxFrames: 1, ...(card ? { card: toQuad(card) } : {}), priors });
+      return again.tier !== "low match" && again.candidates[0]?.cardId === first.candidates[0]?.cardId && !again.quality?.fallback && !again.quality?.partial;
+    } finally { frame.close(); }
+  } catch { return false; }
 }
 
 export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };

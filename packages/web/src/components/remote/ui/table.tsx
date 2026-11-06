@@ -24,7 +24,7 @@ import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
-import { isBestMatch, setFeedbackCapture, type FeedbackSource } from "./recognizer";
+import { isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type Guess } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import { RemoteFx } from "./remote-fx";
 import { useLayers } from "./use-layers";
@@ -71,7 +71,7 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
 
-type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number };
+type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number; guesses?: Guess[]; bestMatch?: boolean };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -403,7 +403,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     if(owns&&ref)setFresh(ref);
     saveSample(at.token, pick.cardId, pick.feedback);
     const identified=updated.state.identified?.seat===seat&&(updated.state.identified.cardId??updated.state.identified.passcode)===pick.cardId?updated.state.identified:undefined;
-    setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
+    setSubject({ cardId: pick.cardId, seat, ...(at.bestMatch ? { bestMatch: true } : at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: identified?.addErrors ?? [], via: source });
     const not = identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
     // One outline per card, and one active selection at a time: a new read replaces the older outlines on this feed.
@@ -517,9 +517,11 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     }
     if (readCounter.current !== id) return;
     const top = result.guesses[0];
-    if (ctx.current && ctx.current.id === id) { if (result.tier) ctx.current.tier = result.tier; ctx.current.token = result.aiToken; }
+    if (ctx.current && ctx.current.id === id) { if (result.tier) ctx.current.tier = result.tier; ctx.current.token = result.aiToken; ctx.current.guesses = result.guesses; }
+    const clear = isClearRead(result);
+    if (clear && ctx.current && ctx.current.id === id) ctx.current.bestMatch = true;
     // "Wrong card?" always asks: an own webcam read can return the same wrong card as sure.
-    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered && !result.covered && !found?.force) {
+    if ((result.tier === "sure" || clear) && top && result.reader === "vision" && !hit?.covered && !result.covered && !found?.force) {
       await loadCards([top.cardId]);
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
@@ -1043,8 +1045,10 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
         const at=ctx.current;at.cardRef=subject.ref;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
       }
       const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
-      ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
-      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: `Search for the right card${sayItsName}.`, reader: "", at: popAt }); layers.open("tray"); },
+      // A read accepted at once keeps its other guesses, so a wrong one costs no more than the tray did.
+      const guesses=(same?.guesses??[]).filter(g=>g.cardId!==subject.cardId);
+      ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(same?.token!==undefined?{token:same.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
+      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(same?.token!==undefined?{aiToken:same.token}:{}) }); layers.open("tray"); },
     onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),

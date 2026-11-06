@@ -45,9 +45,9 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
     const dy = Math.min(Math.max(my, bounds.top + 4 - box.top), bounds.bottom - 4 - box.bottom) + base.dy;
     return { dx, dy };
   };
-  // A quiet notice in the stack must not cover the LP buttons. It moves above them, or else beside them. Only for marked content; the position the person chose stays saved.
+  // The stack must not cover the LP buttons. It moves above them, or else beside them. The position the person chose stays saved.
   const clearLp = (next: Offset, base: Offset): Offset => {
-    const node = root.current; const area = node?.parentElement; if (!node?.querySelector("[data-dock-clear-lp]") || !area) return next;
+    const node = root.current; const area = node?.parentElement; if (!node || !area) return next;
     const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect(); if (!lp?.width) return next;
     const box = node.getBoundingClientRect(); const bounds = area.getBoundingClientRect();
     const left = box.left + next.dx - base.dx, right = box.right + next.dx - base.dx, top = box.top + next.dy - base.dy, bottom = box.bottom + next.dy - base.dy;
