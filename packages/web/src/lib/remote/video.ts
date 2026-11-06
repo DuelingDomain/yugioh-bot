@@ -274,6 +274,7 @@ export class RemoteVideo {
   }
   trackedAt(seat:number,x:number,y:number) {return this.room.state===ConnectionState.Connected?this.fieldTracks.hit(seat,x,y):undefined;}
   trackedCalibration(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.calibration(seat):undefined;}
+  trackedTap(seat:number){return this.room.state===ConnectionState.Connected&&this.fieldTracks.tap(seat);}
   trackedCards(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.snapshot(seat):[];}
   subscribeFieldTracks=(listener:()=>void)=>this.fieldTracks.subscribe(listener);
   trackedBacks(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.backs(seat):emptyBacks;}

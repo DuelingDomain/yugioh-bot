@@ -107,8 +107,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const calibrationNeeded=options.owner&&options.active&&enabled&&loaded===storageKey&&!(hasCalibration&&placed);
   useEffect(()=>{
     const value=readSaved(options.seatKey,options.deviceKey,options.deviceLabel),record=loadFieldCalibrationRecord(options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize);
-    // A camera with no saved answer starts in Auto-detect, unless this browser chose Tap to identify.
-    setOn(value.enabled??readTapChoice()!=='switch');
+    // The player's answer holds on every seat and camera. With no answer, the saved record decides; the default is Auto-detect.
+    const choice=readTapChoice();setOn(choice?choice==='keep':value.enabled!==false);
     setGrid(record.calibration);setPlaced(record.placed);setAspectChanged(!!record.aspectChanged);
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize?.width,options.captureSize?.height]);

@@ -1744,25 +1744,41 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
   const alice=await browser.newContext(options),bob=await browser.newContext(options);
   try{
     await authenticatePlayer(alice.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,origin);
+    // The offer sits in the dock, clear of the LP buttons at every size and table shape, and goes with no answer after its time.
+    const weak=(page:Page)=>page.addInitScript(()=>{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>2});localStorage.setItem('dd-remote-recognition-mode','cpu');});
+    const carol=await browser.newContext(options);
+    try{
+      await authenticatePlayer(carol.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
+      for(const seats of [3,4] as const){
+        const page=await carol.newPage();await appearingCamera(page);await weak(page);await page.goto(`/duels/remote/${await soloTable(carol.request,seats)}`);await page.getByTestId('camera-on-feed').click();
+        const notice=page.locator('[data-testid="notify-dock-0"]').getByTestId('tap-identify-offer');await expect(notice).toBeVisible({timeout:60_000});
+        for(const [width,height] of [[1920,1080],[2560,1440],[1366,768],[390,844]] as const){
+          await page.setViewportSize({width,height});await page.waitForTimeout(300);
+          expect(await page.evaluate(()=>{const d=document.querySelector('[data-testid="notify-dock-0"]')!.getBoundingClientRect();return Array.from(document.querySelectorAll('[data-testid="lp-0"] button,[data-testid="lp-0"] input')).map(b=>b.getBoundingClientRect()).filter(r=>r.width&&r.left<d.right&&r.right>d.left&&r.top<d.bottom&&r.bottom>d.top).length;}),`${seats} seats at ${width}x${height}`).toBe(0);
+        }
+        if(seats===4){await expect(notice).toHaveCount(0,{timeout:25_000});expect(await page.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBeNull();}
+        await page.close();
+      }
+    }finally{await carol.close();}
     const slug=await startTwoPlayerTable(alice.request,bob.request),a=await alice.newPage(),b=await bob.newPage();
     for(const page of [a,b]){await appearingCamera(page);await page.addInitScript(()=>{
       (window as any).visionCalls=[];const post=Worker.prototype.postMessage;
       Worker.prototype.postMessage=function(...args:any[]){if(['recognize','detect'].includes(args[0]?.type))(window as any).visionCalls.push(args[0].type);return (post as any).apply(this,args);};
     });}
     // Alice has a weak computer on the CPU.
-    await a.addInitScript(()=>{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>2});localStorage.setItem('dd-remote-recognition-mode','cpu');});
+    await weak(a);
     await Promise.all([a.goto(`/duels/remote/${slug}`),b.goto(`/duels/remote/${slug}`)]);
     for(const page of [a,b])await page.getByTestId('camera-on-feed').click();
     const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
     const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
-    // The offer leaves LP and phase controls clear.
-    expect(await a.evaluate(()=>{const d=document.querySelector('[data-testid="tap-identify-offer"]')!.getBoundingClientRect();return Array.from(document.querySelectorAll('[data-testid="seat-0"] button,[data-testid="remote-table"] button')).filter(b=>/^([−+-]\d+|Draw|Standby|Main \d|Battle|End)$/.test(b.textContent?.trim()??'')).map(b=>b.getBoundingClientRect()).filter(r=>r.left<d.right&&r.right>d.left&&r.top<d.bottom&&r.bottom>d.top).length;})).toBe(0);
     const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
     expect(await boxes()).toEqual(shown);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the More menu; the checkbox follows.
     await b.getByTestId('camera-more').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
+    // Bob sees Alice's mode on her camera.
+    await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
     const calls=(page:Page,type:string)=>page.evaluate(t=>(window as any).visionCalls.filter((c:string)=>c===t).length,type);
     const before=await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]));
@@ -1777,6 +1793,9 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
       const detect=await calls(page,'detect');await clickCard(page);
       await expect(page.getByTestId('card-popover').or(page.getByTestId('recognition-tray')).first()).toBeVisible({timeout:30_000});
       expect(await calls(page,'detect')).toBe(detect+1);
+      if(await page.getByTestId('recognition-tray').isVisible()){await page.getByTestId('confirm-card').click();await expect(page.getByTestId('card-popover')).toBeVisible({timeout:15_000});}
+      // A read on a tap seat adds nothing to the shared board.
+      expect((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).state.seats[0].twin).toHaveLength(0);
     }
     // The opponent's auto-detect is off, so no outlines came: Alice's own reader answered Bob's click.
     expect(await calls(a,'recognize')).toBeGreaterThanOrEqual(2);

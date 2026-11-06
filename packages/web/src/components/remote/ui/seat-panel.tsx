@@ -145,7 +145,7 @@ export function SeatPanel(p: SeatPanelProps) {
           title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
           <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan || tapHere ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}

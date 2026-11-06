@@ -115,6 +115,8 @@ export function useCardDetection(): { seat: number; autoDetect: boolean; set: (o
   const value = useFieldScanStore();
   return value.seat !== null && value.setDetection ? { seat: value.seat, autoDetect: value.enabled, set: value.setDetection } : null;
 }
+/** Read outside React: this seat is mine and in Tap to identify. */
+export const tapToIdentifyNow = (seat: number) => fieldScan.seat === seat && !!fieldScan.setDetection && !fieldScan.enabled;
 /** True while this seat is mine and in Tap to identify: the table follows no cards, so a click reads the camera. */
 export function useTapToIdentify(seat: number): boolean {
   const value = useFieldScanStore();

@@ -9,7 +9,7 @@ import { Icon } from "./icons";
 import type { Rect } from "./popup";
 import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
-import { useVideoHub, useFieldBacks, type Health } from "./video-hub";
+import { useVideoHub, useFieldBacks, useTapSeat, type Health } from "./video-hub";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
@@ -47,7 +47,7 @@ const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
 const AUTO_KEY = "dd-remote-hover-freeze";
-const RING_SIZE = 6; const RING_GAP_MS = 140; const RING_MAX_PX = 1280; const FLASH_MS = 1200;
+const RING_SIZE = 6; const RING_GAP_MS = 140; const RING_MAX_AGE_MS = 1000; const RING_MAX_PX = 1280; const FLASH_MS = 1200;
 
 // Hover freeze is an opt-in mode now. A click on the live feed is the main way to read a card.
 const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
@@ -141,6 +141,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
 
   useEffect(() => { setAuto(readAuto()); }, []);
   // "Show zone grid": off by default, remembered on this device.
+  const tapSeat = useTapSeat(seat) && !you;
   const [gridOn, setGridOn] = useState(false); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper();
@@ -193,13 +194,14 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       const canvas = grab(reuse); if (canvas) list.push({ canvas, at: performance.now() });
     };
     tick(); const timer = setInterval(tick, RING_GAP_MS);
-    return () => clearInterval(timer);
+    // Frames from an earlier hover can show a card that has left.
+    return () => { clearInterval(timer); ring.current = []; };
   }, [hovered, source, frozen, you, tapOwn, grab]);
   useEffect(() => { ring.current = []; return () => { ring.current = []; }; }, [source]);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   /** The two sharpest frames around a point, copied so the ring can go on. */
   const sharpest = useCallback(async (p: Pt): Promise<HTMLCanvasElement[]> => {
-    const fresh = grab(); let pool = [...ring.current.map(item => item.canvas), ...(fresh ? [fresh] : [])];
+    const fresh = grab(); const now = performance.now(); let pool = [...ring.current.filter(item => now - item.at <= RING_MAX_AGE_MS).map(item => item.canvas), ...(fresh ? [fresh] : [])];
     if (you) {
       const bitmaps = await ownFeedFrames().catch(() => []);
       const buffered = bitmaps.flatMap(bitmap => {
@@ -496,7 +498,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       <div className={s.grain} />
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
-      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn} /> : null}
+      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
@@ -542,7 +544,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       </div> : null}
       {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b className={s.sr}>{r.text}</b></div>) : null}
     </div>
-    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span><span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
+    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span>{tapSeat ? <span className={s.ctag} data-testid="feed-tap-tag">Tap to identify</span> : null}<span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
@@ -551,7 +553,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
-        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn} onClick={toggleGrid} data-testid="zone-grid-toggle" title={you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
+        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
