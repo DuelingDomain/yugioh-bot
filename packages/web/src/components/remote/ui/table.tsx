@@ -589,10 +589,18 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (state.phase !== "battle") return "Move to the Battle Phase first.";
     if (state.attack) return "Finish the current attack first."; return "";
   };
+  /** A seat with its board hidden has a target list and Attack directly. A seat with its board shown has a name plate. */
+  const boardHidden = (seat: number) => webcamOnly && !needsBoard(seat);
+  const pickHint = (attackerSeat: number) => {
+    const targets = state.seats.filter(item => item.seat !== attackerSeat && !item.eliminated).map(item => item.seat);
+    if (targets.every(boardHidden)) return "Click a monster or pick one from the list on its seat, or press Attack directly.";
+    if (!targets.some(boardHidden)) return "Click a monster or a name plate.";
+    return "Click a monster or a name plate. A seat with no board has a list and Attack directly.";
+  };
   const startAttack = (seat: number, card: TwinCard) => {
     const block = attackBlock(seat, card); if (block) { toast(block); return; }
     layers.close(); setPicking({ seat, ref: card.ref });
-    toast(<>Pick a target for <b>{cardName(card, info(cardCode(card)))}</b>. {webcamOnly ? "Click a monster or pick one from the list on its seat, or press Attack directly." : "Click a monster or a name plate."} <kbd>Esc</kbd> cancels.</>, 4200);
+    toast(<>Pick a target for <b>{cardName(card, info(cardCode(card)))}</b>. {pickHint(seat)} <kbd>Esc</kbd> cancels.</>, 4200);
   };
   const declare = async (targetSeat: number, targetRef?: string) => {
     if (!picking) return; const at = picking; setPicking(null);
@@ -1091,12 +1099,12 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     if (card.faceUp) return false;
     toast("Set card"); layers.close(); return true;
   };
-  /** Webcam only, while a target is picked for an attack: a click on a monster of another seat declares it. */
+  /** While a target is picked for an attack: a click on a monster of another seat declares it. */
   const onCamPick = (seat: number, x: number, y: number) => {
     if (!picking || seat === picking.seat) return false;
     const card = cardAtPoint(seat, x, y);
     // No monster under the click: tell the player. A read here would hide the pick.
-    if (!card || (card.zone !== "monster" && card.zone !== "extra-monster")) { toast("No monster there. Pick one from the list on this seat, or press Attack directly."); return true; }
+    if (!card || (card.zone !== "monster" && card.zone !== "extra-monster")) { toast(boardHidden(seat) ? "No monster there. Pick one from the list on this seat, or press Attack directly." : "No monster there. Click a monster or a name plate."); return true; }
     void declare(seat, card.ref); return true;
   };
   /** Right click or long press on a card: its actions in the card drawer (move, flip, position, Graveyard, Wrong card?, Undo). True when something opened. */
