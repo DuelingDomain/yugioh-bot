@@ -8,23 +8,9 @@ import { connection } from "next/server";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
 import { cookies } from "next/headers";
 import type { Metadata } from "next";
-import { Russo_One, Chakra_Petch } from "next/font/google";
+import { russoOne, chakraPetch } from "@/lib/fonts";
 import { DuelNavigationGuard } from "@/lib/hooks/use-duel-leave-guard";
 import "./globals.css";
-
-const russoOne = Russo_One({
-  weight: "400",
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-russo-one",
-});
-
-const chakraPetch = Chakra_Petch({
-  weight: ["400", "600", "700"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-chakra-petch",
-});
 
 export const metadata: Metadata = {
   title: "Dueling Domain",

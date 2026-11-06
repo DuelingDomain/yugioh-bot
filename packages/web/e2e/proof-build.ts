@@ -21,10 +21,10 @@ export async function buildProofPage(artifacts: string, entry: string, title: st
     },
     plugins: [{
       name: "proof-test-only-fonts", enforce: "pre",
-      resolveId(id) { if (id === "next/font/google") return "\0test-fonts"; },
+      resolveId(id) { if (id === "next/font/local") return "\0test-fonts"; },
       load(id) {
         if (id === "\0test-fonts") return `const font = () => ({className: '', variable: '', style: {}});
-          export {font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed};`;
+          export default font;`;
       },
     }, react()],
   });

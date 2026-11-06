@@ -8,10 +8,6 @@ import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, session } from "./replay-fixtures";
 
 // The real SWR is used here on purpose: the laggy "previous data" fallback is part of what this file proves is gone.
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));

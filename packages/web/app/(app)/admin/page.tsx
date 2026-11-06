@@ -1,14 +1,11 @@
 import { notFound, redirect } from "next/navigation";
-import { Martian_Mono, Schibsted_Grotesk } from "next/font/google";
+import { sans, mono } from "@/components/admin-console/fonts";
 import { AdminConsole } from "@/components/admin-console/admin-console";
 import { isOwnerUser } from "@/lib/owner-access";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 
 export const metadata = { title: "Admin console" };
 export const dynamic = "force-dynamic";
-
-const sans = Schibsted_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--adm-sans" });
-const mono = Martian_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--adm-mono" });
 
 export default async function AdminConsolePage() {
   const result = await resolveSessionIdentity();
