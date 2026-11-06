@@ -165,8 +165,8 @@ it.each([undefined, "", " \t ", "123 Test Street"])("reserves one release broadc
     now += 60000;
     await outbox.drain({ clerk: singleClerk, provider: { send: async () => { unknownCalls++; throw new email.EmailProviderError("unknown_outcome"); } }, now: () => now });
     expect({ delivery: db.prepare("select status,attempts from release_email_deliveries where send_id=(select id from release_email_sends where release_id=?)").get(cutoff.id),
-      state: outbox.state(cutoff.id), budget: db.prepare("select next_attempt_at from email_budget").get() })
-      .toMatchObject({ delivery: { status: "needs_review", attempts: 1 }, state: { lastError: "unknown_outcome" }, budget: { next_attempt_at: expect.any(Number) } });
+      state: outbox.state(cutoff.id), budget: db.prepare("select next_attempt_at,failures from email_budget").get() })
+      .toMatchObject({ delivery: { status: "needs_review", attempts: 1 }, state: { lastError: "unknown_outcome" }, budget: { next_attempt_at: now + 12000, failures: 1 } });
     db.close(); db = openDatabase(path); outbox = email.createReleaseEmailOutbox(db, config);
     now += 23 * 60 * 60000 + 1;
     await outbox.drain({ clerk: singleClerk, provider: { send: async () => { unknownCalls++; return { id: "must-not-replay" }; } }, now: () => now });
@@ -329,4 +329,53 @@ it.each([undefined, "", " \t ", "123 Test Street"])("reserves one release broadc
     expect(db.prepare("select reason from email_unsubscribes where recipient_key=?").get(email.recipientKey(db, "delete@example.test"))).toEqual({ reason: "deleted_account" });
 
   } finally { if (db.open) db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+async function queuedRecipients(count: number, path = ":memory:") {
+  const email = await import("../src/email/index.js");
+  const db = openDatabase(path);
+  db.exec("insert into users(id,username,display_name) values(1,'owner','Owner')");
+  const config = email.emailConfig({ MAIL_HOST: "smtp.example.test", MAIL_USER: "fake", MAIL_PASSWORD: "fake", CLERK_SECRET_KEY: "fake-clerk", WEB_URL: "https://app.example.test" });
+  const clerk = { listAllUsers: async () => [], listAllInvitations: async () => [], listAllWaitlistEntries: async () => [] };
+  for (let n = 1; n <= count; n++) db.prepare("insert into waitlist_signups(email,created_at,source) values(?,'2026-11-05','fixture')").run(`recipient${n}@example.test`);
+  const releases = services.createReleaseService(db);
+  const release = releases.createDraft({ version: "1.0.0", title: "News", major: false, highlights: [], sections: [] });
+  releases.publish(release.id, { actorUserId: 1 });
+  const outbox = email.createReleaseEmailOutbox(db, config);
+  const preview = await outbox.preview(release.id, 1, clerk);
+  await outbox.confirm(release.id, 1, preview.token);
+  return { email, db, config, clerk, outbox, release };
+}
+
+it("quarantines only one recipient per persisted backoff period during an unknown-outcome outage", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "release-email-outage-"));
+  const path = join(directory, "test.sqlite");
+  const fixture = await queuedRecipients(5, path);
+  let { db, outbox } = fixture;
+  const { email, config, clerk } = fixture;
+  let now = Date.now(), calls = 0;
+  const provider = { send: async () => { calls++; throw new email.EmailProviderError("unknown_outcome"); } };
+  try {
+    for (let n = 1; n <= 5; n++) {
+      await outbox.drain({ clerk, provider, now: () => now });
+      const next = now + 12000 * 2 ** (n - 1);
+      expect(db.prepare("select next_attempt_at,failures from email_budget").get()).toEqual({ next_attempt_at: next, failures: n });
+      expect(db.prepare("select count(*) n from release_email_deliveries where status='needs_review'").get()).toEqual({ n });
+      db.close(); db = openDatabase(path); outbox = email.createReleaseEmailOutbox(db, config);
+      await outbox.drain({ clerk, provider, now: () => next - 1 });
+      expect(calls).toBe(n);
+      now = next;
+    }
+  } finally { if (db.open) db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it.each(["ENETUNREACH", "EHOSTUNREACH", "ECONNRESET", "ETIMEDOUT"])("only treats %s as safe when syscall proves a connect failure", async code => {
+  const { createSmtpProvider } = await import("../src/email/provider.js");
+  for (const syscall of [undefined, "read", "connect"]) {
+    const provider = createSmtpProvider({ host: "fake", user: "fake", password: "fake", transport: {
+      sendMail: async () => { throw Object.assign(new Error("fake socket error"), { code, syscall, command: "CONN" }); }, close: () => {},
+    } });
+    await expect(provider.send(JSON.stringify({ to: ["recipient@example.test"] })))
+      .rejects.toMatchObject({ code: syscall === "connect" ? "transport" : "unknown_outcome" });
+  }
 });

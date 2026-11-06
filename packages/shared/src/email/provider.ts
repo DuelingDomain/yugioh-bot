@@ -13,7 +13,7 @@ export interface EmailTransport {
   close(): void;
 }
 function classify(error: unknown): EmailProviderError {
-  const err = error as { code?: string; originalCode?: string; responseCode?: number; response?: string; command?: string; timeoutType?: string; message?: string } | null;
+  const err = error as { code?: string; originalCode?: string; responseCode?: number; response?: string; command?: string; timeoutType?: string; message?: string; syscall?: string } | null;
   const status = err?.responseCode ?? 0, command = err?.command ?? "";
   // Inspect details only for classification; never persist SMTP text or private values.
   if (status === 535 || (err?.code === "EAUTH" && !(status >= 400 && status < 500))) return new EmailProviderError("provider_auth");
@@ -34,6 +34,7 @@ function classify(error: unknown): EmailProviderError {
     "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"].includes(err.originalCode ?? "")) return new EmailProviderError("transport");
   // Nodemailer uses CONN for socket failures even AFTER DATA. Only proven setup failures are safe.
   if (["EDNS", "ETLS", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(err?.code ?? "")
+    || err?.syscall === "connect"
     || err?.originalCode === "ECONNREFUSED"
     || ["CONNECT_TIMEOUT", "GREETING_TIMEOUT", "UPGRADE_TIMEOUT"].includes(err?.timeoutType ?? "")
     || ["EHLO", "HELO", "STARTTLS", "MAIL FROM", "RCPT TO"].includes(command)

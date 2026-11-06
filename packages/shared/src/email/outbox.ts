@@ -170,13 +170,14 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
       return { ...row, status: "processing", lease_token: lease, lease_expires_at: now + LEASE_MS };
     }).immediate();
   }
-  function finish(row: DeliveryRow, status: string, error: string, clearPayload = true): void {
-    db.transaction(() => {
+  function finish(row: DeliveryRow, status: string, error: string, clearPayload = true): boolean {
+    return db.transaction(() => {
       const changed = db.prepare(`update release_email_deliveries set status=?,last_error=?,payload_encrypted=case when ? then null else payload_encrypted end,
         lease_token=null,lease_expires_at=null where id=? and status='processing' and lease_token=?`)
         .run(status, error, clearPayload ? 1 : 0, row.id, row.lease_token);
       if (changed.changes && status === "needs_review") db.prepare("update release_email_sends set last_error=? where id=?").run(error, row.send_id);
       refresh(row.send_id);
+      return changed.changes > 0;
     }).immediate();
   }
   async function drain(options: { clerk: AudienceClerk; provider: EmailProvider; now?: () => number }): Promise<void> {
@@ -242,7 +243,12 @@ export function createReleaseEmailOutbox(db: Database.Database, config: EmailCon
         const code = unknownOutcome ? "unknown_outcome" : providerError?.code === "provider_auth" || providerError?.code === "provider_policy"
           ? providerError.code : providerError && !providerError.permanent ? "provider_unavailable" : providerError?.code ?? "audience_or_storage_unavailable";
         if (unknownOutcome) {
-          finish(row, "needs_review", code, false);
+          db.transaction(() => {
+            if (!finish(row, "needs_review", code, false)) return;
+            const { failures } = db.prepare<[], { failures: number }>("select failures from email_budget where id=1").get()!;
+            const delay = Math.max(Math.min(3600000, SEND_INTERVAL_MS * 2 ** Math.min(failures, 9)), providerError?.retryAfterMs ?? 0);
+            db.prepare("update email_budget set next_attempt_at=max(next_attempt_at,?),failures=failures+1 where id=1").run(now() + delay);
+          }).immediate();
         } else if (providerError?.permanent) {
           finish(row, "failed", code);
         } else {
