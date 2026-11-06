@@ -20,9 +20,9 @@ function classify(error: unknown): EmailProviderError {
   if (status >= 400 && status < 500) return new EmailProviderError("rate_limited");
   if (status >= 500 && status < 600) {
     const response = (err?.response ?? err?.message ?? "").replace(/[^\s<>@]+@[^\s<>@]+/g, "");
-    if (/\b(?:limits?|rate|spam|policy|quota)\b|\btoo many\b/i.test(response) || !/^RCPT TO\b/i.test(command))
-      return new EmailProviderError("provider_policy");
-    return new EmailProviderError("rejected", true);
+    const addressFailure = /\b5\.1\.\d+\b/.test(response) || /\b(?:user unknown|no such user|does not exist)\b/i.test(response);
+    if (/^RCPT TO\b/i.test(command) && addressFailure && !/\b5\.7\.\d+\b/.test(response)) return new EmailProviderError("rejected", true);
+    return new EmailProviderError("provider_policy");
   }
   // In the pinned pool implementation this error is emitted only for a close before any message bytes
   // were read (including a reused connection's 421). maxRequeues=0 preserves outbox ownership of retry.

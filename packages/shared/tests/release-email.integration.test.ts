@@ -379,3 +379,25 @@ it.each(["ENETUNREACH", "EHOSTUNREACH", "ECONNRESET", "ETIMEDOUT"])("only treats
       .rejects.toMatchObject({ code: syscall === "connect" ? "transport" : "unknown_outcome" });
   }
 });
+
+it.each([
+  ["554 5.7.1 blocked using zen.spamhaus.org", "provider_policy"],
+  ["550 5.7.1 Sender not authorized", "provider_policy"],
+  ["550 5.7.0 Account suspended", "provider_policy"],
+  ["550 5.7.1 Sending exceeded for this mailbox", "provider_policy"],
+  ["550 ratelimit exceeded", "provider_policy"],
+  ["552 5.2.2 over quota", "provider_policy"],
+  ["550 5.1.1 User unknown", "rejected"],
+  ["550 5.1.2 Bad destination system address", "rejected"],
+  ["550 user unknown", "rejected"],
+  ["550 no such user", "rejected"],
+  ["550 mailbox does not exist", "rejected"],
+  ["550 5.7.1 User unknown to sender authorization policy", "provider_policy"],
+])("classifies SMTP recipient reply %s as %s", async (response, code) => {
+  const { createSmtpProvider } = await import("../src/email/provider.js");
+  const provider = createSmtpProvider({ host: "fake", user: "fake", password: "fake", transport: {
+    sendMail: async () => { throw { responseCode: Number(response.slice(0, 3)), command: "RCPT TO", response }; }, close: () => {},
+  } });
+  await expect(provider.send(JSON.stringify({ to: ["recipient@example.test"] })))
+    .rejects.toMatchObject({ code, permanent: code === "rejected" });
+});
