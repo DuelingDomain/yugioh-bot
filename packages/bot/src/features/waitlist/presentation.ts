@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
-import type { WaitlistAction } from "@yugidraft/shared/services/waitlist-decisions";
+export { waitlistDecisionText as decisionText, waitlistDecisionPayload as decisionPayload } from "@yugidraft/shared/services/waitlist-decisions";
 
 export const noMentions = { parse: [] as never[], repliedUser: false };
 export function normalizeEmail(value: string): string {
@@ -22,10 +22,4 @@ export function emailText(value: string, limit = 320): string {
 }
 export function discordTime(at: number): string {
   return `<t:${Math.floor(at / 1000)}:f>`;
-}
-export function decisionText(action: WaitlistAction): string {
-  return `${action.decision === "approve" ? "Approved" : "Rejected"} by ${safeText(action.actor_name ?? "owner", 80)} · ${discordTime(action.completed_at ?? action.attempted_at ?? action.created_at)} (${action.source === "discord" ? "Discord" : "web"})`;
-}
-export function decisionPayload(action: WaitlistAction): Record<string, unknown> {
-  return { content: decisionText(action), embeds: [], components: [], allowed_mentions: { parse: [] } };
 }

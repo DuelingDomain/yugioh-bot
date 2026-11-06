@@ -174,6 +174,19 @@ const edits = (f: Awaited<ReturnType<typeof fixture>>) => f.requests.filter(r =>
 const clerkDecisions = (f: Awaited<ReturnType<typeof fixture>>) => f.requests.filter(r => r.method === "POST" && r.path.startsWith("/v1/waitlist_entries/"));
 const replyText = (replies: { body: any }[]) => replies.map(r => r.body?.content ?? r.body?.data?.content ?? "").join(" ");
 
+it.each([1, 500])("uses the full Clerk queue count and only a known distinct position with %s older entries", async older => {
+  const f = await fixture();
+  f.enqueue();
+  for (let i = 0; i < older; i++) f.entries.unshift({ id: `wle_old_${i}`, email_address: `older${i}@example.com`, status: "pending", created_at: Date.now() - 60_000 });
+  f.entries.push({ id: "wle_newer", email_address: "newer@example.com", status: "pending", created_at: Date.now() });
+  await f.start(createWaitlistFeature({ backend: f.backend }));
+  await expect.poll(() => posts(f).length).toBe(1);
+  const fields = posts(f)[0].body.embeds[0].fields;
+  expect(fields).toContainEqual({ name: "Still waiting", value: String(older + 2), inline: true });
+  if (older < 500) expect(fields).toContainEqual({ name: "Place in line", value: String(older + 1), inline: true });
+  else expect(fields.some((field: any) => field.name === "Place in line")).toBe(false);
+});
+
 it.each([false, true])("posts waitlist and signup embeds with the email flag %s and no signup buttons", async fullEmail => {
   const f = await fixture();
   vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", fullEmail ? "1" : "0");
@@ -188,22 +201,26 @@ it.each([false, true])("posts waitlist and signup embeds with the email flag %s 
   expect(JSON.stringify(signup.body)).toContain(fullEmail ? "newuser@example.com" : "n***@example.com");
   if (!fullEmail) expect(JSON.stringify(posts(f))).not.toContain("member@example.com");
   expect(pending.body.embeds[0].fields).toEqual(expect.arrayContaining([
-    expect.objectContaining({ name: "Source" }), expect.objectContaining({ name: "When", value: expect.stringContaining("<t:") }),
-    { name: "Position", value: "1", inline: true }, { name: "Pending", value: "1", inline: true },
+    { name: "Where", value: "Clerk: added directly to the waitlist in Clerk" }, expect.objectContaining({ name: "When", value: expect.stringContaining("<t:") }),
+    { name: "Still waiting", value: "1", inline: true },
   ]));
+  expect(pending.body.embeds[0].title).toBe("Waitlist request: needs your decision");
+  expect(pending.body.embeds[0].fields.some((field: any) => field.name === "Place in line")).toBe(false);
+  expect(signup.body.embeds[0].title).toBe("New account created");
   expect(pending.body.components[0].components.map((button: any) => button.label)).toEqual(["Approve", "Reject"]);
   expect(signup.body.components).toEqual([]);
   expect(signup.body.embeds[0].fields).toEqual(expect.arrayContaining([
-    { name: "Creator invite", value: "Kaiba Plays · Launch crew \\(Friends\\)" },
+    { name: "Where", value: "Creator link: Kaiba Plays · Launch crew" },
     { name: "Heard from", value: "YouTube · Launch video" },
   ]));
   for (const post of posts(f)) expect(post.body).toMatchObject({ enforce_nonce: true, nonce: expect.any(String), allowed_mentions: { parse: [] } });
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
   expect(f.db.prepare("select status,payload_json from discord_outbox").all()).toEqual([
     { status: "posted", payload_json: null }, { status: "posted", payload_json: null },
   ]);
 });
 
-it.each(["approve", "reject"] as const)("makes %s idempotent, edits the alert and sends one mod-log line", async decision => {
+it.each(["approve", "reject"] as const)("makes %s idempotent and edits the alert without a duplicate mod-log post", async decision => {
   const f = await fixture();
   const id = f.enqueue();
   const feature = createWaitlistFeature({ backend: f.backend });
@@ -219,7 +236,8 @@ it.each(["approve", "reject"] as const)("makes %s idempotent, edits the alert an
   expect(replyText(again)).toContain("Already decided");
   expect(clerkDecisions(f)).toHaveLength(1);
   expect(f.db.prepare("select guild_id,action,result from mod_actions").all()).toEqual([{ guild_id: dataGuildId, action: `waitlist.${decision}`, result: "success" }]);
-  await expect.poll(() => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`)).length).toBe(1);
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+  expect(f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`))).toHaveLength(0);
   expect(f.db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: expect.any(Number) });
 });
 
@@ -298,6 +316,42 @@ it("posts only a final decision when the web decides before delivery and does no
   expect(posts(f)).toHaveLength(1);
 });
 
+it.each(["no alert", "dead post"] as const)("drains one admin decision mod-log with %s from the web process without posting twice", async alert => {
+  const f = await fixture();
+  if (alert === "dead post") {
+    f.enqueue();
+    const [post] = f.context.shared.claimOutbox(1);
+    expect(f.context.shared.markFailed(post, { code: "rejected", permanent: true })).toBe(true);
+    expect(f.db.prepare("select completed_at from discord_waitlist_actions").get()).toEqual({ completed_at: null });
+  }
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+  vi.stubEnv("DISCORD_BOT_ENABLED", "0");
+  const input = { clerkEntryId: "wle_test", email: "member@example.com", decision: "approve" as const,
+    actor: { siteUserId: 1 }, source: "admin" as const };
+  expect((await decideWaitlistEntry(f.db, input, f.backend)).status).toBe("completed");
+  expect(f.db.prepare("select kind,operation,channel_id,status from discord_outbox where kind='mod_log'").all())
+    .toEqual([{ kind: "mod_log", operation: "post", channel_id: modLogId, status: "pending" }]);
+  const logs = () => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`));
+  const feature = createWaitlistFeature({ backend: f.backend });
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  const stop = await f.start(feature);
+  await expect.poll(() => f.db.prepare("select status,payload_json from discord_outbox where kind='mod_log'").get())
+    .toEqual({ status: "posted", payload_json: null });
+  expect(logs()).toHaveLength(1);
+  expect(logs()[0].body).toMatchObject({ content: expect.stringMatching(/^Approved by Owner · <t:\d+:f> \(admin\)/),
+    enforce_nonce: true, nonce: expect.any(String) });
+  await stop();
+  vi.stubEnv("DISCORD_BOT_ENABLED", "0");
+  expect((await decideWaitlistEntry(f.db, input, f.backend)).status).toBe("already_decided");
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  await f.start(feature);
+  expect(f.db.prepare("select count(*) as n from discord_outbox where kind='mod_log'").get()).toEqual({ n: 1 });
+  expect(clerkDecisions(f)).toHaveLength(1);
+  expect(logs()).toHaveLength(1);
+  expect(posts(f)).toHaveLength(0);
+  expect(edits(f)).toHaveLength(0);
+});
+
 it("lists ten pending entries with per-entry buttons and pages without duplicate custom IDs", async () => {
   const f = await fixture();
   for (let index = 0; index < 12; index++) f.entries.push({ id: `wle_${index}`, email_address: `member${index}@example.com`, status: "pending", created_at: Date.now() });
@@ -328,6 +382,16 @@ it("approves by exact email or ID and refuses partial matches", async () => {
   expect(replyText(await f.dispatch(feature, { action: "approve", entry: "MEMBER@example.com" }))).toContain("Approved");
   expect(replyText(await f.dispatch(feature, { action: "reject", entry: "wle_id" }))).toContain("Rejected");
   expect(clerkDecisions(f).map(r => r.path)).toEqual(["/v1/waitlist_entries/wle_email/invite", "/v1/waitlist_entries/wle_id/reject"]);
+  await f.start(feature);
+  const logs = () => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`));
+  await expect.poll(() => logs().length).toBe(2);
+  expect(logs().map(r => r.body.content)).toEqual([
+    expect.stringContaining("Approved by Owner"), expect.stringContaining("Rejected by Owner"),
+  ]);
+  expect(logs()[0].body.content).toContain("waitlist entry wle\\_email");
+  expect(logs()[1].body.content).toContain("waitlist entry wle\\_id");
+  expect(JSON.stringify(logs())).not.toContain("member@example.com");
+  expect(f.db.prepare("select count(*) as n from mod_actions where result='success'").get()).toEqual({ n: 2 });
 });
 
 it("re-checks admin access on stale alert and pagination buttons and refuses other guilds and DMs", async () => {
@@ -412,7 +476,7 @@ it("delivers masked alerts with a known pending count during a Clerk outage", as
   const feature = createWaitlistFeature({ backend: f.backend });
   await f.start(feature);
   await expect.poll(() => posts(f).length).toBe(1);
-  expect(posts(f)[0].body.embeds[0].fields).toContainEqual({ name: "Pending (known)", value: "1", inline: true });
+  expect(posts(f)[0].body.embeds[0].fields).toContainEqual({ name: "Still waiting (known locally)", value: "1", inline: true });
   expect(posts(f)[0].body.components[0].components).toHaveLength(2);
   const replies = await f.dispatch(feature);
   expect(replyText(replies)).toContain("could not be completed");

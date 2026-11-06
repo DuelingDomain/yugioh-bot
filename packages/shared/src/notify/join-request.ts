@@ -6,7 +6,9 @@ import { enqueueOutbox } from "../discord-admin/outbox.js";
 import { notificationSubjectHash } from "../discord-admin/subject.js";
 import { prepareWaitlistAction, waitlistDecisionPayload } from "../services/waitlist-decisions.js";
 import type { CreatorSignUpAttribution } from "../services/creator-access.js";
-import { HEARD_FROM_LABELS, type HeardFrom } from "../util/heard-from.js";
+import type { HeardFrom } from "../util/heard-from.js";
+import { joinContextFields, type WaitlistNoticeSource } from "./join-context.js";
+export { waitlistNoticeSource } from "./join-context.js";
 
 export interface JoinRequestNotice {
   email?: string;
@@ -14,7 +16,7 @@ export interface JoinRequestNotice {
   subjectId?: string;
   /** Clerk waitlist entry ID, bound even when the form already queued the alert. */
   clerkEntryId?: string;
-  source: "marketing waitlist" | "app waitlist" | "Clerk waitlist" | "sign-up";
+  source: WaitlistNoticeSource | "Clerk waitlist" | "sign-up";
   createdAt?: string;
   creatorInvite?: CreatorSignUpAttribution;
   heardFrom?: { heardFrom: HeardFrom; detail: string | null };
@@ -27,28 +29,6 @@ const MAX_ALERTS_PER_WINDOW = 30;
 let alertWindow = { expiresAt: 0, count: 0, warned: false };
 let warnedMissingOutboxChannel = false;
 const CLERK_DASHBOARD = "https://dashboard.clerk.com/";
-const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~:/]/g, "\\$&");
-
-function signUpContextFields(notice: JoinRequestNotice): { name: string; value: string }[] {
-  if (notice.source !== "sign-up") return [];
-  // Survey details and owner-entered names/labels must not introduce extra email
-  // disclosures. The existing Email field remains the only place for addresses.
-  const text = (value: string) => escapeMarkdown(value.replace(/[^\s<>]+@[^\s<>]+/g, "[email hidden]")
-    .replace(/[\p{Cc}\p{Cf}]/gu, " "));
-  const fields: { name: string; value: string }[] = [];
-  const creator = notice.creatorInvite;
-  if (creator) {
-    const link = creator.linkLabel ? ` · ${creator.linkLabel}` : "";
-    const type = creator.linkType ? ` (${creator.linkType})` : "";
-    fields.push({ name: creator.kind === "allowlist" ? "Creator email invite" : "Creator invite",
-      value: text(creator.creatorName + (creator.kind === "link" ? link + type : "")) });
-  }
-  if (notice.heardFrom) {
-    const { heardFrom, detail } = notice.heardFrom;
-    fields.push({ name: "Heard from", value: text(HEARD_FROM_LABELS[heardFrom] + (detail ? ` · ${detail}` : "")) });
-  }
-  return fields;
-}
 
 function emailCode(value: string): string {
   // Backslashes do not escape backticks inside code. Replace user delimiters
@@ -117,9 +97,9 @@ export function enqueueJoinRequest(db: Database.Database, notice: JoinRequestNot
     if (!inserted.changes) return;
     if (action) db.prepare("update discord_waitlist_actions set channel_id=coalesce(channel_id,?) where id=?").run(channelId, action.id);
     const payload = action?.completed_at !== null && action ? waitlistDecisionPayload(action) : {
-      embeds: [{ title: signup ? "New user sign-up" : "New join request", url: dashboardUrl(), timestamp: notice.createdAt ?? now,
+      embeds: [{ title: signup ? "New account created" : "Waitlist request: needs your decision", url: dashboardUrl(), timestamp: notice.createdAt ?? now,
         fields: [{ name: "Email", value: email ? emailCode(maskedEmail(email)) : "Email unavailable" },
-          { name: "Source", value: escapeMarkdown(notice.source) }, ...signUpContextFields(notice)] }],
+          ...joinContextFields(db, notice)] }],
       ...(action ? { components: [{ type: 1, components: [
         { type: 2, style: 3, label: "Approve", custom_id: `wl:approve:${action.id}` },
         { type: 2, style: 4, label: "Reject", custom_id: `wl:reject:${action.id}` },
@@ -185,12 +165,11 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
     const body = JSON.stringify({
       allowed_mentions: { parse: [] },
       embeds: [{
-        title: signup ? "New user sign-up" : "New join request",
+        title: signup ? "New account created" : "Waitlist request: needs your decision",
         url: dashboardUrl(), timestamp: notice.createdAt ?? now,
         fields: [
           { name: "Email", value: email ? emailCode(emailText) : emailText },
-          { name: "Source", value: escapeMarkdown(notice.source) },
-          ...signUpContextFields(notice),
+          ...joinContextFields(db, notice),
         ],
       }],
     });

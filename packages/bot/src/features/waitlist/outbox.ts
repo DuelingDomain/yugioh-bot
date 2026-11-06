@@ -3,7 +3,7 @@ import { getWaitlistAction } from "@yugidraft/shared/services/waitlist-decisions
 import type { ClaimedOutbox } from "@yugidraft/shared/discord-admin";
 import type { FeatureContext, Stop } from "../../runtime/types.js";
 import { findEntry } from "./clerk.js";
-import { decisionPayload, discordTime, emailHash, emailText, safeText } from "./presentation.js";
+import { decisionPayload, discordTime, emailHash, emailText } from "./presentation.js";
 
 const alertKinds = new Set(["waitlist_alert", "signup_alert"]);
 type Payload = { embeds?: { title?: string; timestamp?: string; fields?: { name: string; value: string; inline?: boolean }[] }[]; [key: string]: unknown };
@@ -14,7 +14,7 @@ async function renderAlert(row: ClaimedOutbox, context: FeatureContext, backend:
   if (action?.completed_at != null) return { ...row, payload_json: JSON.stringify({ ...payload, ...decisionPayload(action) }) };
   const embed = payload.embeds?.[0];
   if (!embed) return row;
-  const fields = (embed.fields ?? []).filter(field => !["When", "Position", "Pending", "Pending (known)"].includes(field.name));
+  const fields = (embed.fields ?? []).filter(field => !["When", "Position", "Pending", "Pending (known)", "Place in line", "Still waiting", "Still waiting (known locally)"].includes(field.name));
   let pending: number | undefined;
   let position: number | undefined;
   let email: string | undefined;
@@ -41,14 +41,12 @@ async function renderAlert(row: ClaimedOutbox, context: FeatureContext, backend:
   }
   const timestamp = Date.parse(embed.timestamp ?? "");
   fields.push({ name: "When", value: discordTime(Number.isFinite(timestamp) ? timestamp : row.created_at), inline: true });
-  if (position !== undefined) fields.push({ name: "Position", value: String(position), inline: true });
-  if (pending !== undefined) fields.push({ name: "Pending", value: String(pending), inline: true });
+  if (position !== undefined && position !== pending) fields.push({ name: "Place in line", value: String(position), inline: true });
+  if (pending !== undefined) fields.push({ name: "Still waiting", value: String(pending), inline: true });
   else {
     const known = context.db.prepare<[], { count: number }>("select count(*) as count from discord_waitlist_actions where completed_at is null").get()!.count;
-    fields.push({ name: "Pending (known)", value: String(known), inline: true });
+    fields.push({ name: "Still waiting (known locally)", value: String(known), inline: true });
   }
-  const source = fields.find(field => field.name === "Source");
-  if (source) source.value = safeText(source.value);
   return { ...row, payload_json: JSON.stringify({ ...payload, embeds: [{ ...embed, fields }],
     ...(row.kind === "signup_alert" ? { components: [] } : {}), allowed_mentions: { parse: [] } }) };
 }

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
+import { enqueueDecisionFallback } from "../services/waitlist-decisions.js";
 
 export interface OutboxRow {
   id: number; idempotency_key: string; kind: string; operation: "post" | "edit";
@@ -66,13 +67,17 @@ export function claimOutbox(db: Database.Database, limit = 10, options: { now?: 
 }
 
 /** Save the Discord response and discard the transient message body. A stale worker cannot finish a new lease. */
-export function markPosted(db: Database.Database, row: ClaimedOutbox, posted: { messageId: string; channelId?: string }, now = Date.now()): boolean {
+export function markPosted(db: Database.Database, row: ClaimedOutbox, posted: { messageId: string; channelId?: string; targetMissing?: boolean }, now = Date.now()): boolean {
   return db.transaction(() => {
     const channelId = posted.channelId ?? row.channel_id;
     const changed = db.prepare(`update discord_outbox set status='posted',message_id=?,channel_id=?,posted_at=?,
       payload_json=null,last_error=null,lease_token=null,lease_expires_at=null
       where id=? and status='processing' and lease_token=?`).run(posted.messageId, channelId, now, row.id, row.lease_token).changes;
     if (!changed) return false;
+    if (posted.targetMissing) {
+      enqueueDecisionFallback(db, row);
+      return true;
+    }
     if (row.waitlist_action_id) {
       if (row.operation === "post") {
         db.prepare("update discord_waitlist_actions set channel_id=?,message_id=? where id=?").run(channelId, posted.messageId, row.waitlist_action_id);
@@ -95,7 +100,13 @@ export function markFailed(db: Database.Database, row: ClaimedOutbox, failure: O
   const delay = Math.max(1000 * 2 ** Math.min(row.attempts - 1, 10),
     Number.isFinite(failure.retryAfterMs) ? Math.max(0, failure.retryAfterMs!) : 0);
   const code = ["transport", "rate_limited", "rejected", "invalid_payload"].includes(failure.code ?? "") ? failure.code! : "transport";
-  return db.prepare(`update discord_outbox set status=?,available_at=?,last_error=?,lease_token=null,lease_expires_at=null,
-    payload_json=case when ? then null else payload_json end
-    where id=? and status='processing' and lease_token=?`).run(dead ? "dead" : "failed", now + delay, code, dead ? 1 : 0, row.id, row.lease_token).changes !== 0;
+  return db.transaction(() => {
+    const changed = db.prepare(`update discord_outbox set status=?,available_at=?,last_error=?,lease_token=null,lease_expires_at=null,
+      payload_json=case when ? then null else payload_json end
+      where id=? and status='processing' and lease_token=?`).run(dead ? "dead" : "failed", now + delay, code, dead ? 1 : 0, row.id, row.lease_token).changes;
+    if (!changed) return false;
+    if (dead && row.waitlist_action_id && ((row.kind === "waitlist_decision" && row.operation === "edit")
+      || (row.operation === "post" && !row.message_id))) enqueueDecisionFallback(db, row);
+    return true;
+  }).immediate();
 }
