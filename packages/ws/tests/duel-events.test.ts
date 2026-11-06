@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server as HttpServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { io as ClientIO, type Socket as ClientSocket } from "socket.io-client";
@@ -375,4 +375,67 @@ describe("registerDuelEventHandlers", () => {
     expect(await seatedSawChange).toEqual({ slug: "alpha" });
     expect(leaked).toBe(false);
   });
+});
+
+import { registerRemoteEventHandlers } from "../src/remote-events.js";
+import { createRemoteConnectionToken } from "@yugidraft/shared/ws";
+import type { RemoteAck } from "@yugidraft/shared/remote";
+describe("remote rooms", () => {
+  it("authenticates rooms, relays bounded recognition messages, rate limits and prunes revoked seats", async () => {
+    const server = await setupTestServer();
+    let revoked = false;
+    const remote = registerRemoteEventHandlers(server.io as any, { secret: SECRET,
+      canRead: claims => !(revoked && claims.userId === 11), readSnapshot: () => null });
+    const a = createClient(server.url); const b = createClient(server.url); const c = createClient(server.url);
+    try {
+      await Promise.all([a, b, c].map(waitForConnect));
+      const mintRemote = (userId: number, seat: number, guildId = "g") => createRemoteConnectionToken({ userId, seat, slug: "remote", guildId, expiresAt: Date.now() + 60_000 }, SECRET);
+      const join = (socket: TestClient, token: string) => new Promise<RemoteAck>(resolve => socket.emit("remote:join", { token }, resolve));
+      expect((await join(a, mint().token)).ok).toBe(false);
+      expect((await join(a, mintRemote(10, 0))).ok).toBe(true);
+      expect((await join(b, mintRemote(11, 1))).ok).toBe(true);
+      expect((await join(c, mintRemote(12, 1, "other"))).ok).toBe(true);
+      const foreign = vi.fn(); c.on("remote:data", foreign);
+      const send = (socket: TestClient, data: any) => new Promise<RemoteAck>(resolve => socket.emit("remote:data", data, resolve));
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "bad", x: 2, y: 0 })).ok).toBe(false);
+      const received = new Promise<any>(resolve => b.once("remote:data", resolve));
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "r", x: 0.5, y: 0.5 })).ok).toBe(true);
+      expect(await received).toMatchObject({ fromSeat: 0, message: { requestId: "r" } });
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "r2", x: 0, y: 0 })).ok).toBe(false);
+      const result = new Promise<any>(resolve => a.once("remote:data", resolve));
+      expect((await send(b, { type: "recognition.result", requestId: "r", candidates: [{ cardId: 1, name: "Card", score: 0.9 }], tier: "sure", faceDown: false, covered: false })).ok).toBe(true);
+      expect(await result).toMatchObject({ fromSeat: 1 }); expect(foreign).not.toHaveBeenCalled();
+      revoked = true; remote.snapshot("remote", "g");
+      expect(roomsFor(server.io, b.id)).not.toContain("remote:g:remote");
+    } finally { a.disconnect(); b.disconnect(); c.disconnect(); await server.io.close(); }
+  });
+});
+
+it.each([true,false])("sends only the chosen Deck identity publicly when publicity is %s", async show => {
+  const { ygoModule, projectRemoteSnapshot }=await import("@yugidraft/shared/remote");
+  const server=await setupTestServer();
+  const state=ygoModule.initialState({seatCount:2});
+  state.deckChecks.registrations[0]={savedDeckId:77,name:"Secret deck",deck:{main:[53582587],extra:[],side:[]},validation:{issues:[]}};
+  state.effectTracking={contexts:{},origins:[{id:"secret",seat:0,ref:"set",destination:"set",source:{cardId:70825459,name:"Trap Tracks"},announceRecommended:false,derivedFrom:"text",chosenCardId:53582587,candidates:[{cardId:53582587,copyKey:53582587,name:"Torrential Tribute",copies:1}]}],notes:[]};
+  state.showCardsSetFromDeck=show;
+  state.seats[0].twin=[{ref:"set",zone:"spell-trap",faceUp:false,position:"attack",cardId:53582587,name:"Torrential Tribute",...(show ? {publicIdentity:true} : {})}];
+  if(show) state.effectTracking.origins[0].announcedCard={cardId:53582587,name:"Torrential Tribute"};
+  const raw={table:{slug:"remote",guildId:"g",lastSeq:2,seats:[{seat:0,deck:state.deckChecks.registrations[0]}]},state,events:[]} as any;
+  const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
+    readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat]))});
+  const a=createClient(server.url), b=createClient(server.url);
+  try {
+    await Promise.all([a,b].map(waitForConnect));
+    for(const [socket,userId,seat] of [[a,10,0],[b,11,1]] as const) await new Promise(resolve=>socket.emit("remote:join",{token:createRemoteConnectionToken({userId,seat,slug:"remote",guildId:"g",expiresAt:Date.now()+60_000},SECRET)},resolve));
+    const own=new Promise<any>(resolve=>a.once("remote:private",resolve));
+    const other=new Promise<any>(resolve=>b.once("remote:private",resolve));
+    const publicUpdate=new Promise<any>(resolve=>b.once("remote:changed",resolve));
+    remote.publish("remote","g");
+    expect((await own).state.effectTracking.origins[0].candidates).toHaveLength(1);
+    for(const update of [await other, await publicUpdate]) {
+      expect(update.state.seats[0].twin[0].cardId).toBe(show ? 53582587 : undefined);
+      expect(update.state.seats[0].twin[0].faceUp).toBe(false);
+      const data=JSON.stringify(update); expect(data).not.toContain("Secret deck"); expect(data).not.toContain('"candidates"'); expect(data).not.toContain('"chosenCardId"');
+    }
+  } finally {a.disconnect();b.disconnect();await server.io.close();}
 });

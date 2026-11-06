@@ -488,6 +488,12 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       yield* remaps.keys();
       if (engineFind) for (const row of engine!.prepare<[], { id: number }>("SELECT id FROM datas").iterate()) yield row.id;
     },
+    byName(name: string): Candidate | undefined {
+      const key=name.trim().toLowerCase();
+      const code=engineNamed?.get(key)?.id ?? namedMetadata.get(key)?.ygoprodeck_id;
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+      return code===undefined ? undefined : candidateFor(code);
+    },
     candidate(code: number): Candidate | undefined {
       prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       return candidateFor(code);

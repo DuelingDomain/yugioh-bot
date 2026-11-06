@@ -1,3 +1,4 @@
+import { createVisionFeedbackService } from "./vision-feedback.js";
 import { suppressDeletedAccountEmail } from "../email/storage.js";
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
@@ -65,7 +66,7 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  * lose their name, email, Discord and Clerk identity.
  *
  * Copied personal data that is scrubbed in the anonymised case: `players.display_name`,
- * `players.discord_user_id`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
+ * `players.discord_user_id`, `remote_seats.display_name`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
  * `setup_json.replayFork.origin.sourceSeats[].displayName`, and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
@@ -74,6 +75,8 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
+    note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
+    db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
     suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);
 
     const players = db.prepare<[number], PlayerRow>("select id, display_name from players where user_id = ?").all(userId);
@@ -165,6 +168,9 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       `update bug_reports set submitter_json = null where player_id in ${owned} and submitter_json is not null`,
     ).run(userId).changes);
 
+    note("remote_seats", db.prepare(
+      "update remote_seats set display_name = ? where user_id = ? and display_name <> ?",
+    ).run(DELETED_PLAYER_NAME, userId, DELETED_PLAYER_NAME).changes);
     note("players", db.prepare(
       "update players set display_name = ?, discord_user_id = null where user_id = ? and (display_name <> ? or discord_user_id is not null)",
     ).run(DELETED_PLAYER_NAME, userId, DELETED_PLAYER_NAME).changes);
@@ -183,5 +189,9 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     }
     return { userId, mode: "anonymised", counts };
   });
-  return run.immediate();
+  const result=run.immediate();
+  // Filesystem cleanup follows the successful account transaction, so a rolled
+  // back deletion leaves both metadata and crop bytes intact.
+  createVisionFeedbackService(db).prune();
+  return result;
 }

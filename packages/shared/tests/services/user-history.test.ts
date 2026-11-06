@@ -97,3 +97,16 @@ it("fails explicitly when a listed table is missing", () => {
   db.exec("drop table bug_reports");
   expect(() => userHistory(db, 1)).toThrow(/bug_reports/);
 });
+
+import { createRemoteDuelService } from "../../src/services/remote-duels.js";
+it("counts remote-only creators, seated users and departed users' immutable events", () => {
+  db.exec("insert into users(id,username,display_name) values(3,'remote-guest','Remote guest')");
+  const remote = createRemoteDuelService(db);
+  const room = remote.create({ guildId: "g", userId: 1, displayName: "Target", gameId: "ygo", seatCount: 2 }, 1000);
+  expect(userHistory(db, 1)).toMatchObject({ "remote_tables.created_by": 1, "remote_seats.user_id": 1, "remote_events.user_id": 2 });
+  remote.join(room.slug, "g", 3, "Remote guest", 1, 1100);
+  expect(userHistory(db, 3)).toMatchObject({ "remote_seats.user_id": 1 });
+  remote.leave(room.slug, "g", 3, 1200);
+  expect(userHistory(db, 3)).toEqual({ "remote_events.user_id": 2 });
+  expect(hasHistory(db, 3)).toBe(true);
+});
