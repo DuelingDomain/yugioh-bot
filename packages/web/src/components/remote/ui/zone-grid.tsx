@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useFieldScan, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { FieldOrientationControls } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import type { FieldCalibration, FieldTrack } from "@yugidraft/vision";
@@ -21,7 +21,6 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
 export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box: Box | null; visible?:boolean }) {
   const grid = useZoneGrid();
   const own = grid.ownSeat === seat;
-  const watching = !!useFieldScan(seat);
   const hub=useVideoHub();
   const [remoteCalibration,setRemoteCalibration]=useState<FieldCalibration>();
   useEffect(()=>{
@@ -56,7 +55,7 @@ export function ZoneGridOverlay({ seat, box, visible=true }: { seat: number; box
     return [{ id: track.id, pair, x, y: top }];
   }).slice(0, 3), [tracks, calibrated, calibration, cells]);
 
-  const needsCalibration = own && watching && !(calibration?.orientation && grid.placed);
+  const needsCalibration = own && !!grid.calibrationNeeded;
   if (!box) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
   const straddle = hints.map(hint => <span key={hint.id} className={s.zghint} style={{ left: `${Math.min(88, Math.max(12, hint.x * 100))}%`, top: `${Math.max(4, hint.y * 100 - 3)}%` }}

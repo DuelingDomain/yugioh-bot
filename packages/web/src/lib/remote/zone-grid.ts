@@ -73,6 +73,8 @@ export interface ZoneGridState {
   ownSeat: number | null; format: FieldFormat; calibration?: FieldCalibration;
   /** The own zones were placed on the mat (the shared "calibrated" rule), not only a side saved. */
   placed?: boolean;
+  /** Auto-detect waits for the player to calibrate. False until the saved record has loaded, so a calibrated player sees no flash of the grid. */
+  calibrationNeeded?: boolean;
   /** Side to guess for the own feed until the player confirms one. */
   defaultSide?: PlayerSide;
   tracks: readonly { id: string; zone: string; quad: readonly Point[] }[];

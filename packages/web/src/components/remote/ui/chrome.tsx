@@ -20,7 +20,7 @@ export function TopBar({ crumb, chip, health, healthOpen, cardOpen, logOpen, log
     <span className={s.cchip}>{chip}</span>
     <span className={s.sp} />
     <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">
-      <button type="button" aria-pressed={!webcamOnly} data-testid="view-both" aria-label="Show cameras and virtual fields" onClick={() => onView(false)} title="Show the cameras and the virtual fields (W)">Both</button>
+      <button type="button" aria-pressed={!webcamOnly} data-testid="view-both" aria-label="Both: show cameras and virtual fields, beta" onClick={() => onView(false)} title="Show the cameras and the virtual fields, beta (W)">Both <span className={s.vbeta}>Beta</span></button>
       <button type="button" aria-pressed={webcamOnly} data-testid="view-webcam" aria-label="Webcam only: hide the virtual fields" onClick={() => onView(true)} title="Hide the virtual fields. The cameras get the space (W).">Webcam<span className={s.vlong}> only</span></button>
     </div>
     <button type="button" className={`${s.tb} ${tone}`} aria-haspopup="dialog" aria-expanded={healthOpen} data-layer-opener data-testid="health-chip" onClick={e => onHealth(e.currentTarget)}>

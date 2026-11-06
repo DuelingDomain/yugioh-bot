@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { placePopup, type Rect } from './ui/popup';
@@ -20,6 +20,8 @@ export type FieldWatcherUIProps={
   dock?:HTMLElement|null;
 };
 const stop=(event:SyntheticEvent)=>event.stopPropagation();
+/** The controls keep only the keys they use. Table shortcuts (W, S, V, Ctrl+Z) still work with focus on them. */
+const keepControlKey=(event:KeyboardEvent)=>{if(event.key==='Enter'||event.key===' '||event.key==='Tab')event.stopPropagation();};
 function zoneName(zone:string):string {
   if(/^M[1-5]$/.test(zone))return `Main Monster Zone ${zone.slice(1)}`;
   if(/^S[1-5]$/.test(zone))return `Spell/Trap Zone ${zone.slice(1)}`;
@@ -70,7 +72,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   const controls=host.querySelector('[data-field-watcher-controls]'),status=host.querySelector('[data-field-watcher-status-slot]');
   const tooltip=[statusTitle,statusLabel,!calibrated?'Calibrate zones for exact columns':null].filter(Boolean).join(' · ');
   return <>
-    {controls?createPortal(<div className={s.controls} onClick={stop} onPointerDown={stop} onKeyDown={stop}>
+    {controls?createPortal(<div className={s.controls} onClick={stop} onPointerDown={stop} onKeyDown={keepControlKey}>
       <label className={`${table.fzbtn} ${s.toggle}`}><input type="checkbox" checked={enabled} onChange={event=>onEnabledChange(event.target.checked)}/>Auto-detect cards</label>
       <button type="button" className={table.fzbtn} disabled={calibrationDisabled} onClick={onCalibrate}>{calibrated?'Recalibrate':'Calibrate zones'}</button>
     </div>,controls):null}

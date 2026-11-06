@@ -316,6 +316,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setWebcamOnlyState(next);
     try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
   }, []);
+  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
+  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
@@ -590,7 +592,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const startAttack = (seat: number, card: TwinCard) => {
     const block = attackBlock(seat, card); if (block) { toast(block); return; }
     layers.close(); setPicking({ seat, ref: card.ref });
-    toast(<>Pick a target for <b>{cardName(card, info(cardCode(card)))}</b>. Click a monster or a name plate. <kbd>Esc</kbd> cancels.</>, 4200);
+    toast(<>Pick a target for <b>{cardName(card, info(cardCode(card)))}</b>. {webcamOnly ? "Click a monster or pick one from the list on its seat, or press Attack directly." : "Click a monster or a name plate."} <kbd>Esc</kbd> cancels.</>, 4200);
   };
   const declare = async (targetSeat: number, targetRef?: string) => {
     if (!picking) return; const at = picking; setPicking(null);
@@ -987,7 +989,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     })() : {}),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
-      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, extraZones,
+      faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, slot: subjectCard.slot, extraZones,
+      onCell: (key: ZoneKey) => { tryMove(subject.seat, subjectCard, landOf(subjectCard, key)); },
       onMove: (zone: string) => {
         // A move into the Extra Monster Zones picks a slot the facing seat has not taken. Pendulum Zones use the outer Spell/Trap cells.
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
@@ -1092,7 +1095,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const onCamPick = (seat: number, x: number, y: number) => {
     if (!picking || seat === picking.seat) return false;
     const card = cardAtPoint(seat, x, y);
-    if (!card || (card.zone !== "monster" && card.zone !== "extra-monster")) return false;
+    // No monster under the click: tell the player. A read here would hide the pick.
+    if (!card || (card.zone !== "monster" && card.zone !== "extra-monster")) { toast("No monster there. Pick one from the list on this seat, or press Attack directly."); return true; }
     void declare(seat, card.ref); return true;
   };
   /** Right click or long press on a card: its actions in the card drawer (move, flip, position, Graveyard, Wrong card?, Undo). True when something opened. */
@@ -1149,7 +1153,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly} onDock={onSeatDock} onToggleView={() => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
@@ -1187,7 +1191,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       onClose={() => layers.close("flag")} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
-    {pile && state.seats[pile.seat] ? <PileViewer seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
+    {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, false, anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
         onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),

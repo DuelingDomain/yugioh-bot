@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
+import type { ZoneKey } from "./model";
 import { cardArt, isLinkInfo, isMonsterInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
@@ -45,6 +46,7 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
 
 export type CardEdit = {
   faceUp: boolean; zone: string; extraZones?: boolean;
+  /** The slot in its zone and a move to another cell of the same row, for when the board is hidden. */ slot?: number; onCell: (key: ZoneKey) => void;
   onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void;
   /** "Equipped to": link a face-up Spell/Trap Zone card to the monster it equips. Keys are `seat:ref`. */
   equip?: { current?: string; options: { key: string; label: string }[]; onEquip: (key: string | null) => void };
@@ -113,6 +115,8 @@ const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monste
 function CardEditRow({ edit }: { edit: CardEdit }) {
   return <div className={s.dedit} role="group" aria-label="Fix this card on the virtual field" data-testid="card-edit">
     {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
+    {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
+      return <button type="button" key={label} className={`${s.btn} ${s.sm} ${s.q}`} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
     {edit.equip ? <label className={z.equipPick}>Equipped to
