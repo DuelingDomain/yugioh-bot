@@ -663,14 +663,14 @@ test.describe("remote lobby camera step", () => {
       const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
-        await page.setViewportSize({width,height}); await page.getByTestId('camera-more').click();
+        await page.setViewportSize({width,height}); await page.getByTestId('camera-settings').click();
         await expect(lock).toContainText('Not supported by this browser or camera');
         await expect(toggle).toContainText('On (not supported)');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
-        const more = await page.getByTestId('camera-more').boundingBox(); expect(more!.width).toBeGreaterThan(40);
-        expect(await page.getByTestId('camera-more').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
+        const more = await page.getByTestId('camera-settings').boundingBox(); expect(more!.width).toBeGreaterThan(40);
+        expect(await page.getByTestId('camera-settings').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }
@@ -1774,8 +1774,8 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
     expect(await boxes()).toEqual(shown);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
-    // Bob changes the mode in the More menu; the checkbox follows.
-    await b.getByTestId('camera-more').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
+    // Bob changes the mode in the Settings menu; the checkbox follows.
+    await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
     await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();

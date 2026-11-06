@@ -100,7 +100,7 @@ function holdsFixedChildren(el: Element): boolean {
 function listHost(trigger: Element | null): Element {
   // A `popover` element sits in the top layer, above everything on the page: a list drawn on the page would open behind it,
   // and a press on that list would light-dismiss the popover. The list goes inside the popover.
-  // The popover is not checked with holdsFixedChildren: it is the top-layer host itself, and the lists here (the camera "More" menu)
+  // The popover is not checked with holdsFixedChildren: it is the top-layer host itself, and the lists here (the camera "Settings" menu)
   // have no transform on it. A popover that gets a transform needs the list placed against its rect.
   const popover = trigger?.closest("[popover]") ?? null;
   try { if (popover && popover.matches(":popover-open")) return popover; } catch { /* No :popover-open support: draw on the page. */ }

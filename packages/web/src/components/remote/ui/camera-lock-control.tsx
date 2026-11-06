@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { useCameraLock } from '@/lib/remote/use-camera-lock';
+import { useZoneGrid } from '@/lib/remote/zone-grid';
+import { FieldOrientationSettings } from '../field-orientation';
 import { CardDetectionSetting, RecognitionSetting } from './recognition-setting';
 import s from './camera-lock-control.module.css';
 
@@ -20,9 +22,10 @@ export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraL
   </div>;
 }
 
-/** The browser popover stays above clipped feed containers and closes with Escape. */
+/** The "Settings" menu under my own camera. The browser popover stays above clipped feed containers and closes with Escape. */
 export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCameraLock> }) {
   const id = useId();
+  const grid = useZoneGrid();
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const place = useCallback(() => {
@@ -37,11 +40,12 @@ export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCamer
     return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
   }, [open, place]);
   return <>
-    <button type="button" ref={trigger} className={s.more} popoverTarget={id} aria-label="More camera settings" data-testid="camera-more">More</button>
+    <button type="button" ref={trigger} className={s.more} popoverTarget={id} aria-label="Camera settings" data-testid="camera-settings">Settings</button>
     <div id={id} ref={panel} popover="auto" className={s.menu} onToggle={event => { setOpen(event.newState === 'open'); if (event.newState === 'open') place(); }}>
       <CardDetectionSetting />
       <RecognitionSetting />
       {lock ? <CameraLockControl lock={lock} /> : null}
+      {grid.setCalibration ? <FieldOrientationSettings calibration={grid.calibration} defaultSide={grid.defaultSide} onChange={grid.setCalibration} /> : null}
     </div>
   </>;
 }
