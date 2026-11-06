@@ -66,7 +66,7 @@ const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after th
 /** The small mark on the camera between a click and the end of the card search. */
 const BEGIN_RETICLE = "begin";
 const FIND_LIMIT_MS = 15_000; // a click search for the card under the pointer
-const READ_LIMIT_MS = 30_000; // a card read, which can wait for a paired phone
+const READ_LIMIT_MS = 75_000; // a card read: longer than the 60 s wait for a paired phone in video-hub.tsx
 const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
@@ -330,6 +330,8 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
   const cancelRead = useCallback(() => {
     const read = inFlight.current; if (!read) return;
     inFlight.current = null; readCounter.current++;
+    // A stopped "Wrong card?" read must not leave its target for the next read.
+    if (read.force && ctx.current) delete ctx.current.cardRef;
     reticle(read.seat, null, BEGIN_RETICLE); if (read.rid) reticle(read.seat, null, read.rid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -431,6 +433,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
     // On a closed table no card can be placed, so a read would end with a popup that closes by itself. Say it at once.
     const now = R.current.room;
     if (now.status !== "active" || now.state.ended) { readCounter.current++; toast("The table is closed. Cards cannot be read here.", 4200); return 0; }
+    cancelRead(); // an older read, maybe in another seat, takes its marks with it
     const id = ++readCounter.current; beginId.current = id;
     inFlight.current = { seat, start };
     setTimeout(() => { if (readCounter.current === id) stopLateRead(); }, FIND_LIMIT_MS);
@@ -447,7 +450,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
   /** A click found no card. Nothing opened for it; the feed shows a small "No card here" note. */
   const noCard = useCallback((seat: number) => {
     if (ctx.current?.seat === seat) delete ctx.current.cardRef;
-    inFlight.current = null; readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
+    cancelRead(); readCounter.current++; setTray(null); layers.close("tray"); reticle(seat, null, BEGIN_RETICLE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers]);
   /** "Search card" on that note: the popup with only the search box, at the click. */
@@ -460,7 +463,10 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
   }, [layers, name]);
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint; force?:boolean;ref?:string }) => {
-    reticle(seat, null, BEGIN_RETICLE); inFlight.current = null;
+    // An older read with its own mark is stopped. A click still at its first step is this read, so only its mark goes.
+    const old = inFlight.current;
+    if (old?.rid) cancelRead(); else if (old) { reticle(old.seat, null, BEGIN_RETICLE); inFlight.current = null; }
+    reticle(seat, null, BEGIN_RETICLE);
     let hit = found?.hit; const extra = hit ?? found?.point;
     { const now = R.current.room; if (now.status !== "active" || now.state.ended) { if (!extra?.live) toast("The table is closed. Cards cannot be read here.", 4200); return; } }
     const cached=hit?.cached&&!found?.force?publicTrackedTwin(hit.cached,R.current.room.state.seats[seat].twin):undefined;
@@ -507,7 +513,8 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
     if (readCounter.current !== id) return;
     const top = result.guesses[0];
     if (ctx.current && ctx.current.id === id) { if (result.tier) ctx.current.tier = result.tier; ctx.current.token = result.aiToken; }
-    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered && !result.covered) {
+    // "Wrong card?" always asks: an own webcam read can return the same wrong card as sure.
+    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered && !result.covered && !found?.force) {
       await loadCards([top.cardId]);
       if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
@@ -1009,7 +1016,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
-    onWrong: () => { if (!subject) return;
+    onWrong: () => { if (!subject) return; cancelRead();
       if(subject.via==='tracked'&&ctx.current&&ctx.current.ref&&ctx.current.ref===subject.ref){
         const at=ctx.current,frozen=(solo||subject.seat===mySeat)&&at.frozenFrame?{x:at.x,y:at.y,frame:at.frozenFrame}:undefined;
         const target=trackedRereadTarget(at.ref!,hub.trackedCards(subject.seat),frozen);
@@ -1017,7 +1024,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
       }
       // A card opened from its zone on the camera: read that spot again. It may be a new physical card.
       if(subject.via==='field'&&subject.ref&&ctx.current?.ref===subject.ref&&ctx.current.seat===subject.seat&&ctx.current.at.anchor&&ctx.current.at.feed){
-        const at=ctx.current;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
+        const at=ctx.current;at.cardRef=subject.ref;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
       }
       const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
       ctx.current={seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{})};
@@ -1140,7 +1147,7 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {
       cancelRead(); openSubject(card, false, at.anchor);
-      ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, cardRef: card.ref, ref: card.ref };
+      ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
       return true;
     }
     if (!webcamOnly) return false;
@@ -1289,7 +1296,8 @@ function Table({ ctl, room, voiceRecognition }: { ctl: RoomController; room: Rem
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
-    <Toasts items={toasts} dock={seatDocks[mySeat] ?? null} />
+    {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
+    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
   </div>;
 }
