@@ -238,7 +238,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     if (live && element && stream.current) { element.srcObject = stream.current; void element.play().catch(() => undefined); }
   }, [live]);
 
-  // The mic only feeds a level bar here. Voice commands open their own mic when the table starts.
+  // The mic only feeds a level bar here. Voice chat and (when enabled) voice commands open their own mic at the table.
   useEffect(() => {
     if (!micWanted) return;
     let off = false; let media: MediaStream | undefined; let context: AudioContext | undefined; let timer = 0; let heard = false;
@@ -304,7 +304,7 @@ function WebcamPanel({ room }: { room: RemoteRoom }) {
     : !live ? <>Turn on the preview to check a card.</>
     : check === "starting" ? <><LoaderCircle size={14} className={s.spin} aria-hidden /> Getting the card reader ready…</>
     : seenOnce ? <>Card check passed. Hold a card to test again.</> : <>Hold a card under the camera.</>;
-  const micLine = !micWanted ? "Not tested yet." : mic === "heard" ? "Hearing you" : mic === "on" ? "Say something. The bar should move." : mic === "off" ? "Microphone blocked or missing. Voice commands need it." : "Starting the microphone…";
+  const micLine = !micWanted ? "Not tested yet." : mic === "heard" ? "Hearing you" : mic === "on" ? "Say something. The bar should move." : mic === "off" ? "Microphone blocked or missing. Voice chat needs it." : "Starting the microphone…";
   const ratio = size.w / size.h;
 
   return <div className={s.stage}>
@@ -513,7 +513,7 @@ export default function LobbyCameraPreview({ room, mode, onModeChange }: { room:
     {error ? <p className={s.err} role="alert">{error}</p> : null}
     {mode === "webcam" ? <WebcamPanel room={room} />
       : mode === "phone" ? <PhonePanel room={room} onUnpaired={() => { last.current = "webcam"; onModeChange("webcam"); }} />
-      : <p className={s.manual} data-testid="lobby-manual-note"><Keyboard size={18} strokeWidth={1.5} aria-hidden /> No camera. You play with your voice, typing and the virtual field. Cards move when you say or type them, or drag them.</p>}
+      : <p className={s.manual} data-testid="lobby-manual-note"><Keyboard size={18} strokeWidth={1.5} aria-hidden /> No camera. You play by typing and on the virtual field. Cards move when you type them or drag them.</p>}
     <OtherSeats room={room} />
   </div>;
 }

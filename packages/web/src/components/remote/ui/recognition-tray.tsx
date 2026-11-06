@@ -28,7 +28,7 @@ export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voi
  * keys 1-5 pick, arrows move the preview, Enter picks the previewed card, typing searches the whole catalog.
  */
 export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, aiAllowed, dock }: {
-  dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
+  dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay?: () => void; saying: boolean;
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
@@ -96,7 +96,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
             {inDeck(current.cardId) === false ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span> : null}
           </div>
         </CardText>
-      </> : <div className={s.bsk}><b className={s.skbig}>{tray.faceDown ? "Face-down card" : "No match"}</b><p className={s.bdetails}>{tray.faceDown ? "The reader sees a card back. Search for the card below or say its name." : tray.note || "Search for the card below or say its name."}</p></div>}
+      </> : <div className={s.bsk}><b className={s.skbig}>{tray.faceDown ? "Face-down card" : "No match"}</b><p className={s.bdetails}>{tray.faceDown ? `The reader sees a card back. Search for the card below${onSay ? " or say its name" : ""}.` : tray.note || `Search for the card below${onSay ? " or say its name" : ""}.`}</p></div>}
       {strip ? <ul className={s.bstrip} role="listbox" aria-label="Top 5 guesses">
         {list.length === 0 ? <li className={s.noGuess} role="presentation">No guesses. Type the name below.</li> : list.map((g, i) =>
           <li key={g.cardId} role="option" aria-selected={i === cursor} tabIndex={0} data-testid="guess" data-on={i === cursor} aria-label={`${i + 1}. ${nameOf(g)}${g.score === null ? "" : `, ${Math.round(g.score * 100)} percent`}`}
@@ -116,7 +116,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
       <span className={s.sp} />
       {canAsk ? <span data-testid="ask-ai-row"><button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button></span> : null}
       {alone && !reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setWrong(true)} data-testid="wrong-card">Wrong card?</button> : null}
-      {!reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button> : null}
+      {onSay && !reading && !placing ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={saying} onClick={onSay}><Icon name="mic" />{saying ? "Listening…" : "Say the name"}</button> : null}
       {!reading && !placing && current ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={() => choose(current, found ? "typed" : "click")} data-testid="confirm-card"><Icon name="check" />This is it</button> : null}
     </div>
   </PopupFrame>;

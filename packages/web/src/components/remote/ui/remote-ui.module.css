@@ -403,6 +403,7 @@
 .tr .who{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;color:var(--ink3);flex:none;display:inline-flex;align-items:center;gap:5px}
 .tr q{quotes:"\201C" "\201D";overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 .tr q.live{color:var(--gold-ink)}
+.tr .note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;color:var(--ink3)}
 .tr .res{flex:none;font-size:12px;color:var(--ok);white-space:nowrap}.tr .res.ig{color:var(--ink3)}
 .tr time{font:500 12px var(--font-duel-display),Oxanium,sans-serif;color:var(--ink3);flex:none}
 .prop{border-color:var(--gold);background:linear-gradient(90deg,rgb(232 185 79/.14),rgb(0 0 0/.3) 60%);padding:5px 8px 5px 11px;position:relative;overflow:hidden}

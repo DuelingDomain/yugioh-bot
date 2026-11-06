@@ -51,7 +51,7 @@ const env = {
   WS_INTERNAL_SECRET: secret, WS_PORT: String(wsPort), WS_INTERNAL_PORT: String(internalPort),
   WS_INTERNAL_URL: `http://127.0.0.1:${internalPort}`, WEB_URL: `http://localhost:${webPort}`, NEXT_PUBLIC_WS_URL: `http://localhost:${wsPort}`,
   E2E_AUTH: "1", CLERK_SECRET_KEY: "", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
-  VISION_DATA_DIR: process.env.VISION_DATA_DIR ?? "", NEXT_PUBLIC_REMOTE_STT_URL: process.env.NEXT_PUBLIC_REMOTE_STT_URL ?? "ws://localhost:4020/ws",
+  VISION_DATA_DIR: process.env.VISION_DATA_DIR ?? "", REMOTE_VOICE_RECOGNITION: process.env.REMOTE_VOICE_RECOGNITION ?? "1", NEXT_PUBLIC_REMOTE_STT_URL: process.env.NEXT_PUBLIC_REMOTE_STT_URL ?? "ws://localhost:4020/ws",
   LIVEKIT_URL: process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880",
   LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? "devkey", LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? "secret",
 };
