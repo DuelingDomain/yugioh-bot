@@ -89,13 +89,13 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const fresh = useFresh(hand.cards);
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
   const { count, onCount } = hand;
-  // The webcam overlay stays out of the feed until there is something to show.
-  if (!hand.cards.length && !hand.search && !hand.suggest && (hand.overlay || count === undefined)) return null;
+  // The webcam overlay stays out of the feed until there is something to show. Under the board the row is always there, so a card arriving does not move the camera.
+  if (hand.overlay && !hand.cards.length && !hand.search && !hand.suggest) return null;
   return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
     {hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null}
-    <div className={s.hrow}>
+    <div className={s.handrow}>
       <span className={s.hlab}>Revealed in hand</span>
-      <ul className={s.hcards}>
+      <ul className={s.hcards} onWheel={event => { event.currentTarget.scrollLeft += event.deltaY; }}>
         {hand.cards.map(card => <li key={card.id} className={fresh.has(card.id) ? s.hfresh : undefined}>
           <button type="button" className={s.hcard} onClick={() => { setLook(null); hand.onInspect(card); }} onMouseEnter={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setLook(null)} onFocus={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onBlur={() => setLook(null)} data-testid="hand-card">
             <img src={cardArt(card.cardId, "small")} alt="" draggable={false} />

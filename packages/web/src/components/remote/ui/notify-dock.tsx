@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
 type Offset = { dx: number; dy: number };
-const KEY = (seat: number) => `dd-remote-notify-pos:${seat}`;
+// v2: the stack is anchored to the top of the seat, so offsets saved against the old bottom anchor do not apply.
+const KEY = (seat: number) => `dd-remote-notify-pos2:${seat}`;
 const readOffset = (seat: number): Offset => {
   try { const value = JSON.parse(localStorage.getItem(KEY(seat)) ?? "null"); if (value && Number.isFinite(value.dx) && Number.isFinite(value.dy)) return { dx: value.dx, dy: value.dy }; } catch { /* no storage */ }
   return { dx: 0, dy: 0 };
 };
 
 /**
- * The notification stack of one seat: recognition prompts, notices and toasts for that player sit here, beside their own virtual field.
+ * The notification stack of one seat: recognition prompts, notices and toasts for that player sit here, floating above the seat layout.
+ * It is out of flow on every path (appear, update, hide, reset), so it cannot move the camera or the field.
  * A header (shown only while something is waiting) holds the drag handle, a minimize button that leaves a small chip with a count, and a reset.
  * Content is portaled into `data-notify-slot`; the position is kept per device.
  */
@@ -24,8 +27,10 @@ export function NotifyDock({ seat, onSlot }: { seat: number; onSlot: (seat: numb
   useEffect(() => { setOffset(readOffset(seat)); }, [seat]);
   useEffect(() => {
     const node = slot.current; if (!node) return;
-    const update = () => setCount(Array.from(node.children).reduce((sum, child) => sum + (child.getAttribute("data-testid") === "toasts" ? child.childElementCount : child.textContent ? 1 : 0), 0));
-    update(); const observer = new MutationObserver(update); observer.observe(node, { childList: true, subtree: true, characterData: true });
+    const read = () => Array.from(node.children).reduce((sum, child) => sum + (child.getAttribute("data-testid") === "toasts" ? child.childElementCount : child.textContent ? 1 : 0), 0);
+    setCount(read());
+    // Applied before the next paint: the header never shows for a frame with an empty stack.
+    const observer = new MutationObserver(() => { const next = read(); flushSync(() => setCount(next)); }); observer.observe(node, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, []);
   const save = (next: Offset) => { setOffset(next); try { localStorage.setItem(KEY(seat), JSON.stringify(next)); } catch { /* no storage */ } };
