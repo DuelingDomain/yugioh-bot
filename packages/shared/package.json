@@ -19,6 +19,11 @@
       "source": "./src/access/owner-access.ts",
       "default": "./dist/access/owner-access.js"
     },
+    "./access/remote-duel-users": {
+      "types": "./dist/access/remote-duel-users.d.ts",
+      "source": "./src/access/remote-duel-users.ts",
+      "default": "./dist/access/remote-duel-users.js"
+    },
     "./analytics": {
       "types": "./dist/analytics/index.d.ts",
       "source": "./src/analytics/index.ts",

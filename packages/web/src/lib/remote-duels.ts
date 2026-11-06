@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createRemoteDuelService } from "@yugidraft/shared/services";
 import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
+import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
 import { requireWebAccess } from "./web-access";
@@ -8,6 +9,13 @@ import { getDb } from "./db";
 import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
+export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
+/** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
+export async function remoteDuelsForViewer() {
+  if (!remoteDuelsEnabled()) return false;
+  const access = await requireWebAccess();
+  return access.ok && isRemoteDuelUser(access.userId);
+}
 export function remoteJson(value: unknown, status = 200) {
   return NextResponse.json(value, { status, headers: { "cache-control": "private, no-store" } });
 }
@@ -15,6 +23,7 @@ export async function requireRemoteActor() {
   if (!remoteDuelsEnabled()) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
   const access = await requireWebAccess();
   if (!access.ok) { access.response.headers.set("cache-control", "private, no-store"); return access; }
+  if (!isRemoteDuelUser(access.userId)) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
   const guildId = process.env.DISCORD_GUILD_ID;
   if (!guildId) return { ok: false as const, response: remoteJson({ error: "Guild is not configured" }, 500) };
   return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };

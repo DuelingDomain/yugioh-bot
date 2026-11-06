@@ -9,6 +9,7 @@ export async function POST(request:Request,context:RemoteRouteContext) {
     const body = await remoteBody(request,["pair","code","device"]);
     remoteAssert(Object.keys(body).length === 1 && Object.values(body).every(value => typeof value === "string" && value.length>0 && value.length<=4096), "Choose one pairing credential",400);
     if (!body.device) limitPhoneAttempts(request,slug);
-    return remoteJson(await connectPhone(slug,body));
+    const connected = await connectPhone(slug,body);
+    return connected ? remoteJson(connected) : remoteJson({error:"Not found"},404);
   } catch(e) { return remoteError(e); }
 }

@@ -2,7 +2,8 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
-import { visionAssetsEnabled } from "@/lib/fx-lab";
+import { fxLabEnabled, visionAssetsEnabled } from "@/lib/fx-lab";
+import { remoteDuelsForViewer } from "@/lib/remote-duels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ function inside(root: string, candidate: string): boolean {
 /** Local, generated assets stay outside public/ so the request-time lab gate always applies. */
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   if (!visionAssetsEnabled()) return new Response(null, { status: 404 });
+  // Outside the public lab these files belong to Remote Duels, so the rollout list applies.
+  if (!fxLabEnabled() && !await remoteDuelsForViewer()) return new Response(null, { status: 404 });
 
   const { path } = await params;
   if (!path.length || path.some(part => !part || part === "." || part === ".." || /[/\\\0]/.test(part))) {
@@ -61,7 +64,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     const headers = new Headers({
       "Content-Type": mime,
       "Content-Length": String(stat.size),
-      "Cache-Control": "public, max-age=3600, must-revalidate",
+      "Cache-Control": "private, max-age=3600, must-revalidate",
       "ETag": etag,
       "Last-Modified": stat.mtime.toUTCString(),
       "X-Content-Type-Options": "nosniff",
