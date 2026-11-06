@@ -104,15 +104,15 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
   return updated;
 }
 
-/** The face check's write: the track must be the same before and after it. A reveal whose card changed during the save is undone, like any stale reveal. */
-export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:Extract<RemoteActionProposal,{type:'twin.flip'}>) {
+/** The face check's write: the track must be the same before and after it. A reveal whose card changed during the save is undone, like any stale reveal, and so is a flip down that sent materials to the GY. */
+export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:Extract<RemoteActionProposal,{type:'twin.flip'}>,hadMaterials=false) {
   const same=()=>{const now=current();return !!now&&!now.removed&&now.state===track.state&&(now.revision??0)===(track.revision??0)&&now.faceDown===track.faceDown&&now.cardId===track.cardId;};
   if(!same())return null;
   const actionId=crypto.randomUUID(),updated=await act(proposal,actionId);
   if(!updated||same())return updated;
-  if(proposal.faceUp&&proposal.cardId!==undefined){
+  if(proposal.faceUp&&proposal.cardId!==undefined||!proposal.faceUp&&hadMaterials){
     let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:actionId});}catch{/* The caller reports it. */}
-    if(!undone)throw new Error('The card changed during reveal. Undo the reveal before continuing.');
+    if(!undone)throw new Error(proposal.faceUp?'The card changed during reveal. Undo the reveal before continuing.':'The card changed during the flip. Undo the flip before continuing.');
   }
   return null;
 }
