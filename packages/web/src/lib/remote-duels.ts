@@ -1,0 +1,105 @@
+import { NextResponse } from "next/server";
+import { createRemoteDuelService } from "@yugidraft/shared/services";
+import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
+import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
+import { errorResponseBody, log } from "@yugidraft/shared/observability";
+import { requireWebAccess } from "./web-access";
+import { getDb } from "./db";
+import { readSmallJsonObject } from "./read-small-body";
+
+export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
+/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Voice chat is separate. Production never falls back to localhost. */
+export const remoteSttUrl = () => {
+  if (process.env.REMOTE_VOICE_RECOGNITION !== "1") return null;
+  return process.env.NEXT_PUBLIC_REMOTE_STT_URL?.trim() || (process.env.NODE_ENV === "production" ? null : "ws://localhost:4020/ws");
+};
+export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
+/** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
+export async function remoteDuelsForViewer() {
+  if (!remoteDuelsEnabled()) return false;
+  const access = await requireWebAccess();
+  return access.ok && isRemoteDuelUser(access.userId);
+}
+export function remoteJson(value: unknown, status = 200) {
+  return NextResponse.json(value, { status, headers: { "cache-control": "private, no-store" } });
+}
+export async function requireRemoteActor() {
+  if (!remoteDuelsEnabled()) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
+  const access = await requireWebAccess();
+  if (!access.ok) { access.response.headers.set("cache-control", "private, no-store"); return access; }
+  if (!isRemoteDuelUser(access.userId)) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) return { ok: false as const, response: remoteJson({ error: "Guild is not configured" }, 500) };
+  return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };
+}
+export function remoteError(error: unknown) {
+  if (error instanceof RemoteDuelError) return remoteJson({ error: error.message, code: error.code }, error.status);
+  const { body, status } = errorResponseBody(error, { tags: { operation: "remote-api" } });
+  return remoteJson(body, status);
+}
+export async function remoteBody(request: Request, keys: string[]) {
+  const body = await readSmallJsonObject(request, 8192);
+  remoteAssert(body && Object.keys(body).every(key => keys.includes(key)), "Invalid JSON object or unexpected fields");
+  return body;
+}
+/** Commit first; publish only a signed guild/slug reference, never client-supplied state. */
+export async function notifyRemoteChange(slug: string, guildId: string) {
+  const url = process.env.WS_INTERNAL_URL; const secret = process.env.WS_INTERNAL_SECRET;
+  if (!url || !secret) return;
+  const result = await signedTransport({ url, secret, purpose: "ws-broadcast", timeoutMs: 2000 })
+    .post("/internal/remote/changed", JSON.stringify({ slug, guildId }));
+  if (!result.ok) log("warn", "Remote broadcast unavailable", { status: result.status });
+}
+export type RemoteRouteContext = { params: Promise<{ slug: string }> };
+export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format" | "activity") {
+  const started=performance.now(),timings:string[]=[];
+  const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
+  try {
+    const { slug } = await context.params;
+    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand"] };
+    // Empty bodies are accepted for the bodyless operations.
+    const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
+    let result;
+    switch (operation) {
+      case "format": {
+        remoteAssert(body.format === undefined || typeof body.format === "string", "Choose a format");
+        const bestOf = remoteBestOfSchema.optional().safeParse(body.bestOf);
+        remoteAssert(bestOf.success, "Match bestOf must be 1 or 3");
+        remoteAssert(body.revealedHand === undefined || body.revealedHand === 'until-played' || body.revealedHand === 'one-turn', 'Invalid revealed hand setting');
+        remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined }); break;
+      }
+      case "deck":
+        remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");
+        remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
+        result = actor.remote.selectDeck(slug, actor.guildId, actor.userId, { savedDeckId: body.savedDeckId as number | null, seat: body.seat as number | undefined }); break;
+      case "seat":
+        remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
+        result = actor.remote.join(slug, actor.guildId, actor.userId, actor.displayName, body.seat as number | undefined); break;
+      case "leave": result = actor.remote.leave(slug, actor.guildId, actor.userId); break;
+      // Presence only: nothing changed for other viewers, so skip the phone cleanup and the broadcast.
+      case "activity": return remoteJson(actor.remote.touch(slug, actor.guildId, actor.userId));
+      case "ready": remoteAssert(typeof body.ready === "boolean", "Invalid readiness");
+        result = actor.remote.ready(slug, actor.guildId, actor.userId, body.ready); break;
+      case "start": result = actor.remote.start(slug, actor.guildId, actor.userId); break;
+      case "actions": {
+        const action = remoteActionSchema.safeParse(body.action); remoteAssert(action.success, "Invalid action");
+        remoteAssert(typeof body.baseSeq === "number" && Number.isSafeInteger(body.baseSeq) && body.baseSeq >= 0, "Invalid base sequence");
+        const commitAt=performance.now();
+        result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
+        timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;
+      }
+    }
+    // SQLite phone triggers revoke capabilities in the same transaction as leave/end.
+    // Retry durable SFU cleanup here; failures do not roll back an accepted game action.
+    const { cleanupPhones } = await import("./remote/phone-server");
+    await cleanupPhones(slug).catch(() => log("warn", "Phone participant cleanup pending", { slug }));
+    const publishAt=performance.now();await notifyRemoteChange(slug, actor.guildId);
+    timings.push(`remote-publish;dur=${(performance.now()-publishAt).toFixed(2)}`,`remote-route;dur=${(performance.now()-started).toFixed(2)}`);
+    const response=remoteJson(result);response.headers.set('server-timing',timings.join(', '));return response;
+  } catch (error) { return remoteError(error); }
+}
+export function remoteSeatCount(value: unknown): SeatCount {
+  remoteAssert(value === 2 || value === 3 || value === 4, "Seat count must be 2, 3 or 4"); return value;
+}

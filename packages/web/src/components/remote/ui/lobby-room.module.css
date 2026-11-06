@@ -1,0 +1,63 @@
+/* Remote table setup room. Panels, seat cards, chips, buttons and fields come from the online table lobby
+   (room-lobby.module.css and sheet-ui.module.css); this file only adds the layout and the few remote parts. */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 344px;
+  grid-template-areas: "seats side" "camera side";
+  grid-template-rows: auto 1fr;
+  gap: 20px clamp(20px, 2.6vw, 32px);
+  align-items: start;
+}
+.seatsPanel { grid-area: seats; }
+.cameraPanel { grid-area: camera; }
+/* Ready and Start sit on top of the sticky column, so they stay on screen while the camera step scrolls. */
+.side { grid-area: side; position: sticky; top: 24px; display: grid; gap: 16px; min-width: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 16px 18px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
+.primary { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions > :nth-child(2) { margin-left: auto; }
+.startHint { flex-basis: 100%; margin: 0; color: var(--duel-ink-3); font-size: 13.5px; }
+.seatsPanel ul > li { align-content: start; }
+
+/* ---------- seats and decks ---------- */
+.dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; vertical-align: 0.5px; }
+.deck { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--duel-rule-lo); }
+.valid { display: flex; align-items: center; gap: 7px; color: var(--duel-ok); font-size: 13px; }
+.valid > svg { flex: none; }
+.issues { display: grid; gap: 4px; padding-left: 16px; list-style: disc; color: var(--duel-loss-ink); font-size: 13px; }
+.issues li::marker { color: var(--duel-loss-ink); }
+.footnote { margin: 0; }
+
+/* ---------- rules ---------- */
+.fieldset { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.fieldset:disabled { opacity: 0.7; }
+.toggleRow { display: grid; gap: 6px; }
+.toggle { display: flex; align-items: center; gap: 10px; color: var(--duel-ink); font-size: 14px; cursor: pointer; }
+.toggle input { flex: none; width: 18px; height: 18px; accent-color: var(--duel-pen); }
+.fieldset:disabled .toggle { cursor: default; }
+
+/* ---------- camera step ---------- */
+.camHead { display: grid; gap: 4px; }
+
+@media (max-width: 1040px) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "seats" "rules" "camera" "actions"; grid-template-rows: none; }
+  .side { display: contents; }
+  .rulesPanel { grid-area: rules; }
+  .actions { grid-area: actions; }
+}
+
+/* ---------- header ---------- */
+.code { color: var(--duel-ink); font-weight: 500; letter-spacing: 0.04em; }
+.invite { display: grid; gap: 8px; min-width: 0; justify-items: end; }
+.manual { display: grid; gap: 6px; width: min(320px, 100%); color: var(--duel-ink-3); font-size: 12.5px; }
+.alert { margin-bottom: 20px; }
+
+/* The deck list step and the "Deck list: on" label under a seat's deck picker. */
+.deckList { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px dashed var(--duel-rule-lo); border-radius: 8px; }
+.deckListHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 13px; }
+.deckListText { display: grid; gap: 2px; min-width: 0; }
+.deckListText b { font-weight: 600; }
+.deckListText small { font-size: 12px; opacity: .7; }
+.deckListBody { display: grid; gap: 8px; }
+.deckListActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.listOn { margin: 0; font-size: 13px; color: var(--duel-ok); }

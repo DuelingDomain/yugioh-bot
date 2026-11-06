@@ -4,12 +4,14 @@ import { SheetRoot } from "@/components/sheet";
 import { DeleteAccountSection } from "@/components/account/delete-account-section";
 import { SignOutRow } from "@/components/account/sign-out-row";
 import { LegalLinks } from "@/components/layout/legal-links";
+import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { DuelViewToggle } from "@/components/settings/duel-view-toggle";
 import { createUserService } from "@yugidraft/shared/services";
 import { DEFAULT_MARKETING_URL } from "@/components/auth/marketing-links";
 import { marketingUrlFromEnv } from "@/lib/auth-page-params";
 import { getDb } from "@/lib/db";
 import { isE2EAuthEnabled } from "@/lib/e2e-auth";
+import { remoteDuelsForViewer } from "@/lib/remote-duels";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 import styles from "@/components/account/account-page.module.css";
 import { AccountPanel } from "./account-panel";
@@ -24,6 +26,7 @@ export default async function AccountPage() {
   const result = await resolveSessionIdentity();
   const identity = result.ok ? result.identity : null;
   const username = identity ? createUserService(getDb()).findById(identity.userId)?.username ?? null : null;
+  const remoteDuels = await remoteDuelsForViewer();
   return (
     <SheetRoot>
       <header className="page-h sheet-head">
@@ -43,6 +46,7 @@ export default async function AccountPage() {
           </Suspense>
         </section>
         <DuelViewToggle />
+        {remoteDuels ? <VisionFeedbackSetting /> : null}
         <section className="set-sec" aria-labelledby="set-session">
           <div className="set-intro">
             <h2 id="set-session">This session</h2>

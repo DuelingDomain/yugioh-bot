@@ -13,6 +13,7 @@ import { WaitlistView } from "./views/waitlist";
 import { CreatorsView } from "./views/creators";
 import { UpdatesView } from "./views/updates";
 import { HealthView } from "./views/health";
+import { VisionView } from "./views/vision";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
 
@@ -223,6 +224,7 @@ export function AdminConsole() {
               : view === "creators" ? <CreatorsView s={s} actions={actions} />
               : view === "updates" ? <UpdatesView actions={actions} />
               : view === "health" ? <HealthView s={s} />
+              : view === "vision" ? <VisionView />
               : <InsightsView s={s} />}
           </section>
         </div>
