@@ -60,12 +60,11 @@ The watcher integration includes the privacy/effect-origin prerequisite from `or
 The deterministic offline script reads existing fixtures; it makes no downloads, opens no ports, writes only a small JSON report, and retains no generated images. Run from this worktree with Node 22:
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 ./packages/vision/node_modules/.bin/tsx scripts/vision/calibrate-face-state.ts \
-  --data /home/sulman633/repos/yugioh-bot/.worktrees/remote-vision/data/vision \
-  --feedback /home/sulman633/repos/yugioh-bot/.worktrees/remote-vision-feedback/data/vision-feedback-smoke/vision-feedback \
-  --fronts /home/sulman633/repos/yugioh-bot/data/card-images \
-  --diagnostics /home/sulman633/repos/yugioh-bot/.worktrees/remote-autodetect/data/vision/diagnostics/nibiru-investigation
+  --data data/vision \
+  --feedback data/vision-feedback \
+  --fronts data/card-images \
+  --diagnostics data/vision/diagnostics/<capture>
 ./packages/vision/node_modules/.bin/tsx --test packages/vision/src/face-state.test.ts
 npm run typecheck --workspace=@yugidraft/vision
 ```

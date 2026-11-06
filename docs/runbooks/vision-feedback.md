@@ -89,7 +89,6 @@ consumed directly by the existing trainer. `mCrop=0` because these crops are
 already exact card warps, unlike upstream's padded video harvest.
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 export DATABASE_PATH=/absolute/data/bot.sqlite
 export VISION_DATA_DIR=/absolute/data/vision
 export VISION_TRAINING_DIR=/absolute/data/vision/training

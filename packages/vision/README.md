@@ -9,7 +9,6 @@ with game data separated from the recognition engine. Local recognition keeps im
 From this worktree, with Node 22 on PATH:
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npm ci
 npx tsx scripts/vision/prepare.ts
 npx tsx scripts/vision/build-index.ts --selection full
@@ -841,7 +840,6 @@ Reproduce the offline benchmark using the existing prepared full index and
 `benchmark/board/board-2.jpg` (generate it with `benchmark-board.ts` if absent):
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npx tsx scripts/vision/prepare.ts --bundle-only
 npx tsx scripts/vision/benchmark-field-watcher.ts
 LATENCY_LABEL=release-60 LATENCY_TRIALS=20 npx tsx scripts/vision/benchmark-latency.ts

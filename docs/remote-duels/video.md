@@ -7,7 +7,6 @@ Multiplayer tables use one LiveKit room per table: `remote-{slug}` (the public t
 From the `feat/remote-video` worktree with Node 22:
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npm ci
 npm run build --workspace=packages/shared
 # Confirm these listeners are free before starting (TCP 7880/7881, UDP 7882).
@@ -78,7 +77,6 @@ For an actual phone, serve the web app on an HTTPS origin reachable by both devi
 Focused proof, from the phone worktree with Node 22 (web 3436, WS 3437, internal 4437; no engine or STT service):
 
 ```sh
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npm ci
 npm run build --workspace=packages/shared
 # Reuse already prepared assets read-only, or prepare data/vision per its README.

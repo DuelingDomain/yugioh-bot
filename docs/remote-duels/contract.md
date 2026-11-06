@@ -294,11 +294,9 @@ Remote tables, including active solo tables, never enter engine `duels`/`drafts`
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Web only, multiplayer video provider config. Never needed for solo. Local: `ws://127.0.0.1:7880`, `devkey`, `secret`; or a Cloud URL and project credentials. See [video runbook](video.md). |
 | existing Clerk config | Existing sign-in flow; or repository's explicitly enabled offline E2E session for local smoke tests. |
 
-From the new worktree, using separate terminals with the same exported environment:
+From the repo root with Node 22, using separate terminals with the same exported environment:
 
 ```sh
-cd /home/sulman633/repos/yugioh-bot/.worktrees/remote-duels
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npm ci
 npm run build --workspace=packages/shared
 export REMOTE_DUELS=1

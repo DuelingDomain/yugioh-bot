@@ -3,6 +3,9 @@ import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { pickSelect } from "../helpers/themed-select";
 
 const base = "http://localhost:3436";
+// Paths from packages/e2e, where Playwright runs. Set E2E_PHONE_FRAME and E2E_PHONE_SHOTS for other paths.
+const phoneShots = process.env.E2E_PHONE_SHOTS ?? "test-results/phone-shots";
+const phoneFrame = process.env.E2E_PHONE_FRAME ?? "../../data/vision/benchmark/photo-00.jpg";
 // Next dev recompiles shared server modules as API routes are first requested.
 // Its document reloads tear down media mid-proof; these tests exercise one fixed client build.
 const noHmr = (context:import("@playwright/test").BrowserContext) => context.routeWebSocket(/\/_next\/hmr/,socket=>{
@@ -34,8 +37,8 @@ async function installPhoneFrame(mobile:import("@playwright/test").Page,bytes:st
 
 test("phone latency: prewarm, native crop, video coordinates and pointerdown at 4x",async({context,page,browser},testInfo)=>{
   const {readFileSync,mkdirSync,writeFileSync}=await import("node:fs");
-  const shots=process.env.E2E_PHONE_SHOTS??"/home/sulman633/repos/yugioh-bot/data/briefs/remote-duels/phone-shots";mkdirSync(shots,{recursive:true});
-  const bytes=readFileSync(process.env.E2E_PHONE_FRAME??"/home/sulman633/repos/yugioh-bot/.worktrees/remote-vision/data/vision/benchmark/photo-00.jpg").toString("base64");
+  const shots=phoneShots;mkdirSync(shots,{recursive:true});
+  const bytes=readFileSync(phoneFrame).toString("base64");
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,base);
   await page.addInitScript(()=>{
     const reads:unknown[]=[],warmups:unknown[]=[];Object.assign(window,{phoneReads:reads,recognizerWarmups:warmups});
@@ -168,8 +171,8 @@ test("expired invitations and short codes cannot be redeemed; concurrent redempt
 
 test("no-camera desktop pairs an unsigned-in mobile, scans a real still and confirms exactly one twin",async({context,page,browser},testInfo)=>{
   const {readFileSync,mkdirSync,writeFileSync}=await import("node:fs");
-  const shots=process.env.E2E_PHONE_SHOTS??"/home/sulman633/repos/yugioh-bot/data/briefs/remote-duels/phone-shots";mkdirSync(shots,{recursive:true});
-  const frame=process.env.E2E_PHONE_FRAME??"/home/sulman633/repos/yugioh-bot/.worktrees/remote-vision/data/vision/benchmark/photo-00.jpg";
+  const shots=phoneShots;mkdirSync(shots,{recursive:true});
+  const frame=phoneFrame;
   const bytes=readFileSync(frame).toString("base64");
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,base);
   // Deny camera on desktop: receiving phone video and running recognition must not call getUserMedia.
@@ -285,7 +288,7 @@ test("invalid code is explained on the public phone page",async({browser})=>{
 
 test("another player clicks the phone feed and receives recognition from its owner's desktop",async({context,page,browser})=>{
   const {readFileSync}=await import("node:fs");
-  const bytes=readFileSync(process.env.E2E_PHONE_FRAME??"/home/sulman633/repos/yugioh-bot/.worktrees/remote-vision/data/vision/benchmark/photo-00.jpg").toString("base64");
+  const bytes=readFileSync(phoneFrame).toString("base64");
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,base);
   const {slug}=await(await context.request.post("/api/remote",{data:{gameId:"ygo",seatCount:2}})).json();
   const peer=await browser.newContext();const phone=await browser.newContext({viewport:{width:390,height:844},isMobile:true,permissions:["camera"]});

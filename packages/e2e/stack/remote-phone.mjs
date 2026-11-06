@@ -14,7 +14,7 @@ for (const port of [3436, 3437, 4437, 7890, 7891]) await new Promise((done, fail
 mkdirSync(directory, { recursive: true });
 // Reuse immutable prepared model/index bytes without rebuilding or writing to another worktree.
 // The worker MUST be bundled from this checkout, otherwise perf tests silently exercise old code.
-const sourceAssets=process.env.VISION_DATA_DIR ?? "/home/sulman633/repos/yugioh-bot/.worktrees/remote-vision/data/vision";
+const sourceAssets=process.env.VISION_DATA_DIR ?? resolve(root,"data/vision");
 const assets=resolve(directory,"vision-assets");mkdirSync(assets,{recursive:true});
 for(const sub of ["models","ort",""]) {
   const from=resolve(sourceAssets,sub),to=resolve(assets,sub);mkdirSync(to,{recursive:true});
