@@ -220,7 +220,7 @@ it.each([false, true])("posts waitlist and signup embeds with the email flag %s 
   ]);
 });
 
-it.each(["approve", "reject"] as const)("makes %s idempotent, edits the alert and sends one mod-log line", async decision => {
+it.each(["approve", "reject"] as const)("makes %s idempotent and edits the alert without a duplicate mod-log post", async decision => {
   const f = await fixture();
   const id = f.enqueue();
   const feature = createWaitlistFeature({ backend: f.backend });
@@ -236,7 +236,8 @@ it.each(["approve", "reject"] as const)("makes %s idempotent, edits the alert an
   expect(replyText(again)).toContain("Already decided");
   expect(clerkDecisions(f)).toHaveLength(1);
   expect(f.db.prepare("select guild_id,action,result from mod_actions").all()).toEqual([{ guild_id: dataGuildId, action: `waitlist.${decision}`, result: "success" }]);
-  await expect.poll(() => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`)).length).toBe(1);
+  expect(f.db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
+  expect(f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`))).toHaveLength(0);
   expect(f.db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: expect.any(Number) });
 });
 
@@ -345,7 +346,16 @@ it("approves by exact email or ID and refuses partial matches", async () => {
   expect(replyText(await f.dispatch(feature, { action: "approve", entry: "MEMBER@example.com" }))).toContain("Approved");
   expect(replyText(await f.dispatch(feature, { action: "reject", entry: "wle_id" }))).toContain("Rejected");
   expect(clerkDecisions(f).map(r => r.path)).toEqual(["/v1/waitlist_entries/wle_email/invite", "/v1/waitlist_entries/wle_id/reject"]);
-
+  await f.start(feature);
+  const logs = () => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`));
+  await expect.poll(() => logs().length).toBe(2);
+  expect(logs().map(r => r.body.content)).toEqual([
+    expect.stringContaining("Approved by Owner"), expect.stringContaining("Rejected by Owner"),
+  ]);
+  expect(logs()[0].body.content).toContain("waitlist entry wle\\_email");
+  expect(logs()[1].body.content).toContain("waitlist entry wle\\_id");
+  expect(JSON.stringify(logs())).not.toContain("member@example.com");
+  expect(f.db.prepare("select count(*) as n from mod_actions where result='success'").get()).toEqual({ n: 2 });
 });
 
 it("re-checks admin access on stale alert and pagination buttons and refuses other guilds and DMs", async () => {

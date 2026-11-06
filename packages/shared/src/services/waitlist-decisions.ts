@@ -5,6 +5,7 @@ import { isAdminActor, lookupSiteAccount, type AdminActor } from "../discord-adm
 import { enqueueOutbox } from "../discord-admin/outbox.js";
 import { recordModAction } from "../discord-admin/moderation.js";
 import { notificationSubjectHash, normalizedNoticeEmail } from "../discord-admin/subject.js";
+import { discordContextText } from "../util/discord-text.js";
 
 export type WaitlistDecision = "approve" | "reject";
 export interface WaitlistAction {
@@ -24,13 +25,19 @@ export function getWaitlistAction(db: Database.Database, id: string): WaitlistAc
   return db.prepare<[string], WaitlistAction>("select * from discord_waitlist_actions where id=?").get(id) ?? null;
 }
 
+export function waitlistDecisionText(row: WaitlistAction): string {
+  const name = discordContextText((row.actor_name ?? "owner").slice(0, 80));
+  const time = Math.floor((row.completed_at ?? row.attempted_at ?? row.created_at) / 1000);
+  return `${row.decision === "approve" ? "Approved" : "Rejected"} by ${name} · <t:${time}:f> (${row.source === "discord" ? "Discord" : row.source === "admin" ? "admin" : "web"})`;
+}
+
 export function waitlistDecisionPayload(row: WaitlistAction): Record<string, unknown> {
-  const name = (row.actor_name ?? "owner").replace(/[\\`*_~|<>\r\n]/g, " ").slice(0, 80);
-  return { content: `${row.decision === "approve" ? "Approved" : "Rejected"} by ${name} (${row.source === "discord" ? "Discord" : row.source === "admin" ? "admin" : "web"})`,
+  return { content: waitlistDecisionText(row),
     embeds: [], components: [], allowed_mentions: { parse: [] } };
 }
 
-function enqueueDecisionEdit(db: Database.Database, row: WaitlistAction): void {
+/** Return whether a durable alert post/edit carries the decision. */
+function enqueueDecisionEdit(db: Database.Database, row: WaitlistAction): boolean {
   const channelId = row.channel_id ?? process.env.DISCORD_WAITLIST_CHANNEL_ID?.trim();
   const payload = waitlistDecisionPayload(row);
   // A decision made before posting must never send an actionable or email-bearing alert.
@@ -40,9 +47,11 @@ function enqueueDecisionEdit(db: Database.Database, row: WaitlistAction): void {
   // A web-first decision may have no Discord alert to update.
   const hasPost = row.message_id !== null || db.prepare(`select 1 from discord_outbox
     where waitlist_action_id=? and operation='post' and status!='dead' limit 1`).get(row.id);
-  if (channelId && hasPost) enqueueOutbox(db, { idempotencyKey: `waitlist-decision:${row.id}`, kind: "waitlist_decision",
+  if (!channelId || !hasPost) return false;
+  enqueueOutbox(db, { idempotencyKey: `waitlist-decision:${row.id}`, kind: "waitlist_decision",
     operation: "edit", channelId, messageId: row.message_id, waitlistActionId: row.id,
     subjectHash: row.subject_hash ?? undefined, payload });
+  return true;
 }
 
 /** Bind local joins and Clerk deliveries before alert dedupe. Store hashes, not email text. */
@@ -137,11 +146,24 @@ export async function decideWaitlistEntry(db: Database.Database, input: Waitlist
     // Deletion or a newer lease during HTTP must not resurrect the row or overwrite its result.
     if (!changed) throw new WaitlistDecisionError(409, "decision_lease_lost");
     const complete = getWaitlistAction(db, row.id)!;
-    enqueueDecisionEdit(db, complete);
-    recordModAction(db, { guildId: process.env.DISCORD_GUILD_ID ?? "", actorSiteUserId: complete.actor_user_id!,
+    const hasDecisionCard = enqueueDecisionEdit(db, complete);
+    const auditId = recordModAction(db, { guildId: process.env.DISCORD_GUILD_ID ?? "", actorSiteUserId: complete.actor_user_id!,
       targetSiteUserId: complete.subject_user_id ?? undefined,
       actorDiscordId: complete.actor_discord_id ?? undefined, action: `waitlist.${complete.decision}`, result: "success",
-      params: { actionId: complete.id, source: complete.source } });
+      notifyDiscord: false, params: { actionId: complete.id, source: complete.source } });
+    const channelId = process.env.DISCORD_MOD_LOG_CHANNEL_ID?.trim();
+    if (!hasDecisionCard && process.env.DISCORD_BOT_ENABLED === "1" && channelId) {
+      // A command or web-first decision may have no public card. Keep one short
+      // audit line; even full-email mode must not persist a complete address.
+      const email = input.email ? normalizedNoticeEmail(input.email) : null;
+      const at = email?.lastIndexOf("@") ?? -1;
+      const target = email && at > 0 ? "`" + `${Array.from(email)[0]}***${email.slice(at)}`
+        .replace(/`/g, "ˋ").replace(/[\r\n\u2028\u2029]/g, " ") + "`"
+        : `waitlist entry ${discordContextText(complete.clerk_entry_id!)}`;
+      enqueueOutbox(db, { idempotencyKey: `mod-action:${auditId}`, kind: "mod_log", channelId, modActionId: auditId,
+        subjectHash: complete.subject_hash ?? undefined,
+        payload: { content: `${waitlistDecisionText(complete)} · ${target}` } });
+    }
     return { status: "completed" as const, action: complete };
   }).immediate();
 }

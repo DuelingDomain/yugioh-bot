@@ -149,6 +149,8 @@ it("answers 404 to a non-owner, 401 signed out, and refuses a bad Origin", async
 });
 
 it.each(["approve", "reject"] as const)("%s through /admin queues an edit for the existing local alert using the server email", async (action) => {
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");
   const alert = prepareWaitlistAction(db, { email: "new@example.test" });
   db.prepare("update discord_waitlist_actions set channel_id='alerts',message_id='message-1' where id=?").run(alert.id);
   await list();
@@ -166,15 +168,27 @@ it.each(["approve", "reject"] as const)("%s through /admin queues an edit for th
   expect(JSON.stringify(edit)).toContain("Operator");
   expect(JSON.stringify(edit)).toContain("(admin)");
   expect(db.prepare("select result,params_json from mod_actions").get()).toMatchObject({ result: "success", params_json: expect.stringContaining('"source":"admin"') });
+  expect(db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
 });
 
 it("records an admin decision but queues no Discord edit when there is no alert", async () => {
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", "alerts");
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");
+  vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", "1");
   const response = await act("wle_new", { action: "approve" });
   expect(await response.json()).toEqual({ status: "ok", decision: "approve" });
   expect(db.prepare("select source,actor_user_id,subject_hash from discord_waitlist_actions").get())
     .toMatchObject({ source: "admin", actor_user_id: 1, subject_hash: expect.any(String) });
   expect(db.prepare("select * from discord_outbox where kind='waitlist_decision'").all()).toEqual([]);
+  const logs = db.prepare<[], { payload_json: string }>("select payload_json from discord_outbox where kind='mod_log'").all();
+  expect(logs).toHaveLength(1);
+  expect(JSON.parse(logs[0].payload_json)).toMatchObject({ content: expect.stringMatching(/^Approved by Operator · <t:\d+:f> \(admin\) · `n\*\*\*@example.test`$/),
+    allowed_mentions: { parse: [] } });
+  expect(logs[0].payload_json).not.toContain("new@example.test");
+  await act("wle_new", { action: "approve" });
+  expect(db.prepare("select count(*) as n from discord_outbox where kind='mod_log'").get()).toEqual({ n: 1 });
+  expect(db.prepare("select count(*) as n from mod_actions").get()).toEqual({ n: 1 });
 });
 
 it("returns already_decided without a second Clerk call and keeps the first decision", async () => {

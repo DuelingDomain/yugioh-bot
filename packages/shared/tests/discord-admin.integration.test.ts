@@ -235,6 +235,7 @@ describe("one leased Clerk decision for web and Discord", () => {
     expect(db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: expect.any(Number) });
     expect((await decide("reject")).status).toBe("already_decided");
     expect(requests).toHaveLength(1);
+    expect(db.prepare("select * from discord_outbox where kind='mod_log'").all()).toEqual([]);
     await notifyJoinRequest(db, { email, subjectId: "user_member", source: "sign-up" });
     const [signup] = claimOutbox(db, 1);
     expect(JSON.parse(signup.payload_json).embeds[0].fields).toContainEqual({ name: "Where",
