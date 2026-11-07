@@ -108,3 +108,4 @@ export { pruneRemoteDuels } from "./remote-retention.js";
 
 export * from "./tournament-remote-access.js";
 export * from "./tournament-remote.js";
+export * from "./tournament-remote-evidence.js";

@@ -9,6 +9,7 @@ import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFo
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
+import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
@@ -183,10 +184,14 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   const api = {
     /** Explicit retention policy: remove at most `limit` ended rooms per transaction.
      * Until this boundary, all GET/event/replay/Undo semantics remain available. */
-    purgeEnded(before: number, limit = 100): number {
+    purgeEnded(before: number, limit = 100, now = Date.now()): number {
       remoteAssert(Number.isSafeInteger(before) && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, "Invalid retention boundary");
-      return transaction(() => deleteRemoteRooms(db, db.prepare("select id,slug from remote_tables where status='ended' and ended_at<? order by ended_at limit ?")
-        .all(before,limit) as {id: number; slug: string}[]));
+      return transaction(() => {
+        const rooms = db.prepare("select id,slug from remote_tables where status='ended' and ended_at<? order by ended_at limit ?")
+          .all(before,limit) as {id: number; slug: string}[];
+        for (const room of rooms) captureRemoteTournamentEvidence(db, room.id, now);
+        return deleteRemoteRooms(db, rooms);
+      });
     },
     pruneSessions(now = Date.now()): void { transaction(() => pruneRemoteSessions(db, now)); },
     create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
@@ -366,6 +371,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         if (row.created_by === userId) {
           append(row, { type: "table.ended", reason: "creator-left" }, now, userId, s.seat);
           db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='creator-left' where id=?").run(now, row.id);
+          captureRemoteTournamentEvidence(db, row.id, now);
         } else {
           db.prepare("delete from remote_seats where table_id=? and user_id=?").run(row.id, userId);
           const state = readState(row); delete state.deckChecks.registrations[s.seat];
@@ -508,6 +514,8 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
           .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
+        if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
+        else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);
         return room(load(slug, guildId), userId, undefined, state);
       });
     },
@@ -586,6 +594,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           if (now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS && !startedRecently) {
             append(row, { type: "table.ended", reason: "idle" }, now, null, null, false);
             db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where id=?").run(now, row.id);
+            captureRemoteTournamentEvidence(db, row.id, now);
           } else if (row.idle_warning_at === null) {
             append(row, { type: "idle.warning", closesAt: row.last_event_at + REMOTE_IDLE_CLOSE_MS }, now, null, null, false);
             db.prepare("update remote_tables set idle_warning_at=? where id=?").run(now, row.id);
