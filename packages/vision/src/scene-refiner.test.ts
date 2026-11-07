@@ -14,3 +14,12 @@ test('refinement reuse is bounded by two native pixels, kind, dimensions and the
   pass(card(2),{...image,width:200});assert.equal(calls,4);
   refiner.begin(100,100);refiner.begin(100,100);pass(card(2));assert.equal(calls,5,'a missing detection expires');
 });
+
+test('stationary boxes refit after 1.5 seconds even while the detector stays identical',()=>{
+ let at=0,calls=0;
+ const refiner=new SceneRefiner(c=>{calls++;return c.pts.map(([x,y])=>({x:x+calls,y}));},()=>at);
+ const pass=()=>{refiner.begin(100,100);return refiner.refine(card(),image);};
+ const first=pass();at=1499;assert.deepEqual(pass(),first);assert.equal(calls,1);
+ at=1500;assert.notDeepEqual(pass(),first);assert.equal(calls,2);
+ at=1501;pass();assert.equal(calls,2);
+});
