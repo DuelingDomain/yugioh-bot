@@ -3,11 +3,15 @@
 import type { KwsHit } from "./kws-glue";
 import { resumeAudioContext } from "./audio-resume";
 import type { KwsWorkerIn, KwsWorkerOut } from "./kws-worker";
+import type { AsrWorkerOut } from "./asr-worker";
 
 /** Where prepare.mts puts the module, the model and the worker; served by /dev/vision-assets. */
 export const KWS_BASE = "/dev/vision-assets/kws/";
+/** Where prepare-asr.mts puts the speech model worker (Method B of the voice check); it speaks the same messages. */
+export const ASR_BASE = "/dev/vision-assets/asr/";
 
-export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number };
+/** `text` and `passes` come from the speech model worker only. */
+export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number };
 export type KwsReady = { fetchMs: number; initMs: number; totalMs: number; bytes: number; heapBytes: number; accepted: boolean };
 /** What the mic path is doing right now, so a silent mic can be told apart from a suspended context or a muted track. */
 export type KwsStatus = { micName: string; contextState: AudioContextState; sampleRate: number; muted: boolean; enabled: boolean; framesPerSecond: number; silentMs: number };
@@ -52,11 +56,14 @@ export class KwsClient {
     const worker = new Worker(`${base}worker.js`, { type: "module" });
     this.worker = worker;
     worker.onerror = event => o.onError(event.message || "Speech worker failed");
-    worker.onmessage = (event: MessageEvent<KwsWorkerOut>) => {
+    worker.onmessage = (event: MessageEvent<KwsWorkerOut | AsrWorkerOut>) => {
       const m = event.data;
       if (m.type === "ready") o.onReady({ fetchMs: m.fetchMs, initMs: m.initMs, totalMs: performance.now() - this.started, bytes: m.bytes, heapBytes: m.heapBytes, accepted: m.accepted });
       else if (m.type === "keywords") o.onKeywords?.(m.accepted);
-      else if (m.type === "utterance") { const speechMs = this.spoken.get(m.id) ?? 0; this.spoken.delete(m.id); o.onUtterance({ id: m.id, hits: m.hits, speechMs, busyMs: m.busyMs, audioMs: m.audioMs }); }
+      else if (m.type === "utterance") {
+        const speechMs = this.spoken.get(m.id) ?? 0; this.spoken.delete(m.id);
+        o.onUtterance({ id: m.id, hits: m.hits, speechMs, busyMs: m.busyMs, audioMs: m.audioMs, ...("text" in m ? { text: m.text, passes: m.passes } : {}) });
+      }
       else if (m.type === "error") o.onError(m.message);
     };
     this.send({ type: "init", base, defaultKeywords: o.defaultKeywords, keywords: o.keywords, boost: o.boost, threshold: o.threshold });
