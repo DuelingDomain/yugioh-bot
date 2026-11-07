@@ -114,7 +114,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   function startLane(lane: Lane, threads?: number) {
     if (!lane.initial) {
       if (lane !== read) detectorBackend = undefined;
-      const worker = lane.worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=gpu-split-v1', { type: 'module', name: lane.role === 'both' ? 'card-recognition' : `card-recognition-${lane.role}` });
+      const worker = lane.worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=gpu-check-v1', { type: 'module', name: lane.role === 'both' ? 'card-recognition' : `card-recognition-${lane.role}` });
       worker.onmessage = event => {
         const { id, result, error, detectorBackend: backend, timingsMs, backendStatus: status } = event.data;
         const value = lane.pending.get(id); if (!value) return; lane.pending.delete(id);
