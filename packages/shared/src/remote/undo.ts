@@ -127,6 +127,8 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   // the same result twice. Declarations still follow normal inverse semantics.
   const withoutDerivedState = (position: RemotePosition) => {
     const copy = structuredClone(position);
+    // Device reports belong to the table; even a coalesced camera action must not undo them.
+    copy.detection = structuredClone(state.detection ?? {});
     for (const origin of copy.effectTracking?.origins ?? []) if (origin.pool) delete origin.candidates;
     copy.ended = state.ended; copy.winnerSeat = state.winnerSeat;
     copy.match = structuredClone(state.match);

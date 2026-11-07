@@ -85,6 +85,7 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   for (const seat of next.seats) seat.resources.lp = state.deckChecks.format.settings.startingLP;
   next.showCardsSetFromDeck = state.showCardsSetFromDeck;
   next.revealedHand = state.revealedHand;
+  next.detection = structuredClone(state.detection ?? {});
   next.updatedAt = at;
   return next;
 }
