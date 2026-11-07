@@ -5,7 +5,7 @@ import { freezeRemoteValue } from "../remote/position.js";
 import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteSpectator, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
@@ -17,7 +17,7 @@ import { isOwnerUser } from "../access/owner-access.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemotePosition, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
-import { ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, validateRemoteSideChange } from "../remote/match.js";
+import { applyRemoteOpening, ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, rollRemoteOpening, validateRemoteSideChange } from "../remote/match.js";
 import type { RemoteBestOf, RemoteMatch } from "../remote/match-contract.js";
 
 export const REMOTE_IDLE_WARNING_MS = 8 * 60_000;
@@ -37,7 +37,11 @@ type EventRow = { seq: number; idempotency_key: string; actor_seat: number | nul
 type EventMessage = { seat: number; text: string };
 
 /** All writes serialize through BEGIN IMMEDIATE; a successful return is already committed. */
-export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string; openFormats?: readonly string[] } = {}) {
+export function createRemoteDuelService(db: Database.Database, options: {
+  dataDirectory?: string; openFormats?: readonly string[];
+  /** Roll a die at start to decide who chooses the first player of game 1. Off unless the caller asks; the web app turns it on. */
+  openingRoll?: boolean;
+} = {}) {
   const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempotency_key, seq: e.seq, actorSeat: e.actor_seat, userId: e.user_id, at: e.created_at, action: JSON.parse(e.action_json),
   ...((e.effects_json || e.facts_hash) ? { effects: readRemoteEffects(db,e.effects_json,e.facts_hash) } : {}),
   ...(e.messages_json ? { messages: (JSON.parse(e.messages_json) as EventMessage[]).map(message =>
@@ -122,7 +126,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
         state.revealedHand = action.revealedHand ?? state.revealedHand ?? "until-played";
       }
-      else if (action.type === "table.started" && action.handCounts===1) initializeRemoteHandCounts(state);
+      else if (action.type === "table.started" && action.handCounts===1) { initializeRemoteHandCounts(state); if (action.opening) applyRemoteOpening(state, action.opening); }
       else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; delete state.undoHistory; }
       else if (action.type === "seat.left") delete state.deckChecks.registrations[action.seat];
     }
@@ -405,8 +409,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         remoteAssert(all.length === row.seat_count && all.every(s => s.ready), "All seats must be filled and ready", 409);
         for (const seat of all) assertDeckReady(row, seat);
         const state=readState(row);initializeRemoteHandCounts(state);
+        // The server rolls with crypto randomness and writes the dice into the public start event, so a replay or undo never re-rolls.
+        const opening = options.openingRoll ? rollRemoteOpening(row.seat_count, now, () => randomInt(1, 7)) : undefined;
+        // A bot cannot choose: its roll decides the first player at once.
+        if (opening && all.find(s => s.seat === opening.winnerSeat)?.bot) opening.chosenSeat = opening.winnerSeat;
+        if (opening) applyRemoteOpening(state, opening);
         db.prepare("update remote_tables set status='active',started_at=?,state_json=? where id=?").run(now, writeRemoteState(db,row.id,state), row.id);
-        append(row, { type: "table.started", handCounts:1 }, now, userId, member(row, userId).seat);
+        append(row, { type: "table.started", handCounts:1, ...(opening ? { opening } : {}) }, now, userId, member(row, userId).seat);
         return room(load(slug, guildId), userId);
       });
     },
@@ -581,7 +590,8 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const changed: RemoteTable[] = [];
         db.prepare("delete from remote_spectators where last_seen_at<=?").run(now - REMOTE_SPECTATOR_SLOT_MS);
         // The existing WS sweep publishes every changed table, including timer transitions.
-        const sidingRows = db.prepare("select slug,guild_id,seat_count,json_extract(state_json,'$.match') as match_json from remote_tables where status='active' and json_extract(state_json,'$.match.phase')='siding'")
+        const sidingRows = db.prepare(`select slug,guild_id,seat_count,json_extract(state_json,'$.match') as match_json from remote_tables where status='active'
+          and (json_extract(state_json,'$.match.phase')='siding' or json_extract(state_json,'$.match.opening.deadline') is not null and json_extract(state_json,'$.match.opening.chosenSeat') is null)`)
           .all() as { slug: string; guild_id: string; seat_count: SeatCount; match_json: string }[];
         for (const candidate of sidingRows) {
           if (!remoteSideTimeoutDue({ match: JSON.parse(candidate.match_json) as RemoteMatch, seatCount: candidate.seat_count }, now)) continue;

@@ -2,8 +2,9 @@ import { cloneRemoteCurrent } from "./position.js";
 import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
-import { REMOTE_FIRST_CHOICE_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteBestOfSchema, remoteMatchActionSchema,
-  type RemoteGameResult, type RemoteMatch, type RemoteSiding } from "./match-contract.js";
+import { initializeRemoteHandCounts } from "./hand.js";
+import { REMOTE_FIRST_CHOICE_MS, REMOTE_OPENING_ROUND_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteBestOfSchema, remoteMatchActionSchema,
+  type RemoteGameResult, type RemoteMatch, type RemoteOpening, type RemoteSiding } from "./match-contract.js";
 import type { GameModule, RemoteState } from "./types.js";
 
 export function initialRemoteMatch(seatCount: number, bestOf: unknown = seatCount === 2 ? 3 : 1): RemoteMatch {
@@ -46,7 +47,49 @@ export function remoteSideDeadline(siding: RemoteSiding, seat: number): number {
   return siding.seatDeadlines?.[seat] ?? siding.deadline - (siding.extendedFor.length && !siding.extendedFor.includes(seat) ? REMOTE_SIDE_DECK_MS - REMOTE_SIDE_MS : 0);
 }
 
+/**
+ * Rolls one die per seat; the tied top seats roll again until a single seat is highest. `rollDie` returns 1 to 6
+ * and must be a fair source on the server. The winner chooses who goes first before the returned deadline.
+ */
+export function rollRemoteOpening(seatCount: number, at: number, rollDie: () => number): RemoteOpening {
+  const rounds: (number | null)[][] = [];
+  let contenders = Array.from({ length: seatCount }, (_, seat) => seat);
+  while (contenders.length > 1) {
+    remoteAssert(rounds.length < 100, "The opening roll did not settle");
+    const round = Array.from({ length: seatCount }, (_, seat) => contenders.includes(seat) ? rollDie() : null);
+    const top = Math.max(...round.filter((roll): roll is number => roll !== null));
+    contenders = contenders.filter(seat => round[seat] === top);
+    rounds.push(round);
+  }
+  return { rounds, winnerSeat: contenders[0], startedAt: at, deadline: at + rounds.length * REMOTE_OPENING_ROUND_MS + REMOTE_FIRST_CHOICE_MS };
+}
+
+/** Game 1 waits for the die-roll winner. Tables without an opening never wait. */
+export function remoteOpeningPending(match: RemoteMatch | undefined): match is RemoteMatch & { opening: RemoteOpening } {
+  return match?.phase === "duel" && match.opening !== undefined && match.opening.chosenSeat === undefined;
+}
+
+/** Nothing has been played before the choice, so the opening hands can be counted again for the seat that now goes first. */
+function startWithSeat(state: RemoteState, seat: number): void {
+  state.turnSeat = seat; state.startedSeats = [seat];
+  for (const s of state.seats) { delete s.handCount; delete s.deckCount; }
+  initializeRemoteHandCounts(state);
+}
+
+/** Writes the roll into a fresh state (table start, and every replay of the table.started event). */
+export function applyRemoteOpening(state: RemoteState, opening: RemoteOpening): void {
+  state.match.opening = structuredClone(opening);
+  if (opening.chosenSeat !== undefined) startWithSeat(state, opening.chosenSeat);
+}
+
+function chooseRemoteOpening(state: RemoteState, seat: number): RemoteState {
+  state.match.opening!.chosenSeat = seat;
+  startWithSeat(state, seat);
+  return state;
+}
+
 export function remoteSideTimeoutDue(state: Pick<RemoteState, "match" | "seatCount">, at: number): boolean {
+  if (remoteOpeningPending(state.match)) return at >= state.match.opening.deadline;
   const siding = state.match?.phase === "siding" ? state.match.siding : undefined;
   return !!siding && (at >= siding.deadline ||
     siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline ||
@@ -79,7 +122,7 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   const firstSeat = match.firstSeat ?? match.firstChooser ?? 0;
   const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf, tournament: state.tournament });
   next.match = match; next.match.phase = "duel";
-  delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat;
+  delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat; delete next.match.opening;
   next.deckChecks = initialDeckChecks(structuredClone(state.deckChecks.format));
   next.deckChecks.registrations = structuredClone(state.deckChecks.registrations);
   for (const seat of next.seats) seat.resources.lp = state.deckChecks.format.settings.startingLP;
@@ -133,6 +176,16 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
     const confirmed = legacyReplay ? pending.confirmed.length === next.seatCount : next.seats.every(s => s.eliminated || pending.confirmed.includes(s.seat));
     if (confirmed) finishRemoteGame(next, pending.winnerSeat, "declared", at);
     return next;
+  }
+  if (remoteOpeningPending(match)) {
+    const opening = match.opening;
+    if (action.type === "side.timeout") return chooseRemoteOpening(next, opening.winnerSeat);
+    if (action.type === "match.first") {
+      remoteAssert(opening.winnerSeat === action.actorSeat, "Only the die-roll winner can choose the first player", 403);
+      validSeat(action.seatGoesFirst);
+      remoteAssert(at < opening.deadline, "The choice deadline has elapsed", 409);
+      return chooseRemoteOpening(next, action.seatGoesFirst);
+    }
   }
   // Entering siding closes this game's undo window. Declarations keep it intact.
   next.undo = null; delete next.undoHistory;

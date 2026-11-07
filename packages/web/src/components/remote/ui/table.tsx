@@ -44,6 +44,7 @@ import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
+import { OpeningRollScreen } from "./opening-roll";
 import { matchOf } from "./match-model";
 import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
@@ -1414,6 +1415,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+    {match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined && !state.ended && room.status === "active"
+      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />
