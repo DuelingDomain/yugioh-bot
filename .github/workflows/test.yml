@@ -3,8 +3,8 @@ name: Test
 # Path-selected app groups: web, bot, ws, worker, shared, duel (no core), e2e and CI scripts.
 # Shared source selects all app consumers; only shared imports reachable from engine host/test roots
 # select engine suites. Root build/install/workflow configuration selects app/engine groups.
-# PR changes confined to imported tournament/series/Remote helpers use one focused
-# host/recording + dependent web engine job, instead of every engine shard.
+# Small PR selections for imported tournament/series/Remote helpers use focused shards.
+# Slow suites or selections over half the duel suites use the tuned full engine lane.
 # Native/differential checks select only core source/pin/patch/build inputs and their CI wiring.
 # Docs-only changes run detection and the final CI result, with no test groups.
 # Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.

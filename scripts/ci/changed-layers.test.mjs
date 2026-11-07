@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changedLayers as classify, engineSharedFiles, remoteBarrelEdit } from "./changed-layers.mjs";
+import { changedLayers as classify, engineSharedFiles, remoteBarrelEdit, applicationSelectionNeedsFullEngine } from "./changed-layers.mjs";
 
 // Existing engine assertions remain focused on the engine contract.
 const changedLayers = (files, event) => {
@@ -16,7 +16,7 @@ const script = new URL("./changed-layers.mjs", import.meta.url).pathname;
 const noEngine = { engine: false, golden: false, tests_only: false };
 const allLayers = { engine: true, golden: true, tests_only: false };
 
-test("PR application helpers use focused engine coverage only when imported", () => {
+test("broad application helpers use the tuned full engine lane without enabling core checks", () => {
   for (const file of [
     "packages/shared/src/services/duel-series.ts",
     "packages/shared/src/services/matches.ts",
@@ -26,13 +26,16 @@ test("PR application helpers use focused engine coverage only when imported", ()
     "packages/shared/src/remote/match.ts",
   ]) {
     const result = classify([file], "pull_request");
-    assert.equal(result.engine, false, file);
-    assert.equal(result.engine_app, true, file);
+    assert.equal(result.engine, true, file);
+    assert.equal(result.engine_app, false, file);
     assert.equal(result.core, false, file);
     const main = classify([file], "push");
     assert.equal(main.engine, true, file);
     assert.equal(main.engine_app, false, file);
   }
+});
+
+test("unimported Remote changes skip both engine lanes", () => {
   for (const file of [
     "packages/shared/src/remote/future.ts",
     "packages/shared/src/services/remote-retention.ts",
@@ -48,6 +51,20 @@ test("PR application helpers use focused engine coverage only when imported", ()
   }
 });
 
+test("focused application lane excludes slow files even in small selections", () => {
+  for (const file of [
+    "tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts",
+    "tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts",
+  ]) assert.equal(applicationSelectionNeedsFullEngine([file], 100), true, file);
+});
+
+test("focused application lane permits at most half the duel suites", () => {
+  const files = ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"];
+  assert.equal(applicationSelectionNeedsFullEngine(files, 6), false);
+  assert.equal(applicationSelectionNeedsFullEngine(files, 5), true);
+  assert.equal(applicationSelectionNeedsFullEngine([], 6), false);
+});
+
 test("service barrel narrowing requires a proven Remote-only export edit", () => {
   const file = "packages/shared/src/services/index.ts";
   const before = 'export * from "./duels.js";\n';
@@ -58,8 +75,8 @@ test("service barrel narrowing requires a proven Remote-only export edit", () =>
   }
   assert.equal(classify([file], "pull_request").engine, true);
   const focused = classify([file], "pull_request", { serviceBarrelAppOnly: remoteBarrelEdit(before, remote) });
-  assert.equal(focused.engine, false);
-  assert.equal(focused.engine_app, true);
+  assert.equal(focused.engine, true);
+  assert.equal(focused.engine_app, false);
   assert.equal(classify([file], "push", { serviceBarrelAppOnly: true }).engine, true);
 });
 
@@ -686,8 +703,8 @@ esac
     BASE_FILE: JSON.stringify({ content: Buffer.from(before).toString("base64") }),
   };
   const focused = f.run(f.base, head, env);
-  assert.equal(focused.engine, "false");
-  assert.equal(focused.engine_app, "true");
+  assert.equal(focused.engine, "true");
+  assert.equal(focused.engine_app, "false");
   for (const extra of [
     { BASE_FAIL: "1" },
     { BASE_FILE: "{}" },
@@ -697,4 +714,36 @@ esac
     assert.equal(full.engine, "true");
     assert.equal(full.engine_app, "false");
   }
+});
+
+// Run the detection CLI before dependencies are installed, as the changes job does.
+test("a small application diff stays focused in the dependency-free detection CLI", t => {
+  const f = fixture(t);
+  for (const dir of ["scripts/ci", "packages/duel-server/src", "packages/duel-server/tests",
+    "packages/duel-server/scripts", "packages/shared/src/services", "packages/web/src",
+    "packages/web/tests", "packages/web/app", "packages/web/e2e"]) mkdirSync(join(f.root, dir), { recursive: true });
+  for (const file of ["changed-layers.mjs", "engine-test-plan.mjs", "engine-test-times.json"]) {
+    copyFileSync(new URL(file, import.meta.url), join(f.root, "scripts/ci", file));
+  }
+  writeFileSync(join(f.root, "packages/shared/package.json"), '{"exports":{}}');
+  writeFileSync(join(f.root, "packages/shared/src/services/duel-series.ts"), 'export const series = true;');
+  writeFileSync(join(f.root, "packages/duel-server/src/host.ts"), 'import "@yugidraft/shared/services/duel-series";');
+  for (const name of ["host", "host-series", "draft-deck-legality", ...Array.from({ length: 7 }, (_, i) => `unrelated-${i}`)]) {
+    writeFileSync(join(f.root, `packages/duel-server/tests/${name}.test.ts`),
+      name === "host" ? 'import "../src/host.js";' : 'export const test = true;');
+  }
+  f.git("add", ".");
+  f.git("commit", "-m", "Small application graph");
+  const base = f.git("rev-parse", "HEAD");
+  const head = f.commit("packages/shared/src/services/duel-series.ts");
+  const output = join(f.root, "small-outputs");
+  const result = spawnSync(process.execPath, [join(f.root, "scripts/ci/changed-layers.mjs")], {
+    cwd: f.root, encoding: "utf8",
+    env: { ...process.env, EVENT: "pull_request", BASE: base, HEAD: head, PR_NUMBER: "", GITHUB_OUTPUT: output },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
+  assert.equal(outputs.engine, "false");
+  assert.equal(outputs.engine_app, "true");
+  assert.equal(outputs.core, "false");
 });

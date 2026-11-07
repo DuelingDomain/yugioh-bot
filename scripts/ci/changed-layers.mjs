@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { posix } from "node:path";
 import { pathToFileURL } from "node:url";
-import { NEEDS_ENGINE } from "./engine-test-plan.mjs";
+import { NEEDS_ENGINE, SURRENDER_FILES, DIFFERENTIAL_FILES } from "./engine-test-plan.mjs";
 
 const ZERO_SHA = /^0+$/;
 const AREAS = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
@@ -48,6 +48,40 @@ export function remoteBarrelEdit(before, after) {
 }
 export const webEngineTest = (file, source) => file.startsWith("packages/web/tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) &&
   /duel-server\/tests\/support\/cores(?:\.js)?["']/.test(source);
+
+const prefix = "packages/duel-server/tests/";
+const webPrefix = "packages/web/tests/";
+const isTest = file => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !file.startsWith(prefix + "support/fixtures/");
+
+/** Follow changed application inputs from every duel and web engine test root.
+ * Fixture-worker host tests matter too: they exercise the same service calls.
+ * Keep lifecycle/recording gates as a minimum for engine-imported inputs.
+ */
+export function selectApplicationTests(sources, changed, exports) {
+  // Unit-only Remote consumers do not make an application input engine-relevant.
+  const engineInputs = engineSharedFiles(sources, exports);
+  const inputs = changed.filter(input => engineInputs.has(input));
+  if (!inputs.length) return { files: [], webFiles: [] };
+  const affected = Object.entries(sources).filter(([file, source]) => {
+    if (!(file.startsWith(prefix) && isTest(file)) && !webEngineTest(file, source)) return false;
+    const dependencies = engineSharedFiles(sources, exports, [file]);
+    return inputs.some(input => dependencies.has(input));
+  }).map(([file]) => file).sort();
+  return {
+    files: [...new Set([
+      "tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts",
+      ...affected.filter(file => file.startsWith(prefix)).map(file => file.slice("packages/duel-server/".length)),
+    ])],
+    webFiles: affected.filter(file => file.startsWith(webPrefix)).map(file => file.slice("packages/web/".length)),
+  };
+}
+
+// Focused shards run whole files with plain Vitest sharding. Slow suites need
+// the full lane's surrender legs/differential jobs; broad selections need its LPT plan.
+export function applicationSelectionNeedsFullEngine(files, duelSuiteCount) {
+  return files.some(file => SURRENDER_FILES.includes(file) || DIFFERENTIAL_FILES.includes(file)) ||
+    files.length > duelSuiteCount / 2;
+}
 
 /** Follow literal imports, re-exports and file readers; keep missing paths for deletions.
  * Namespace/dynamic imports and unknown exports conservatively retain the whole barrel.
@@ -136,6 +170,8 @@ export function engineSharedFiles(sources, exports, roots) {
 }
 
 let sharedDependencies;
+let sharedSources;
+const applicationSelections = new Map();
 export function engineSources() {
   const root = new URL("../../", import.meta.url);
   const sources = {};
@@ -155,25 +191,40 @@ function sharedEngineInput(file) {
   if (file.startsWith("packages/shared/src/duels/")) return true;
   if (!file.startsWith("packages/shared/src/")) return false;
   if (!sharedDependencies) {
-    const { sources, exports } = engineSources();
+    sharedSources = engineSources();
+    const { sources, exports } = sharedSources;
     sharedDependencies = engineSharedFiles(sources, exports);
   }
   return sharedDependencies.has(file);
 }
 
-// Main retains full suites for imported application helpers. Only PRs split
-// those helpers into a focused lane. Missing diffs and nightly/manual stay full.
+// Main retains full suites for imported application helpers. Only small PR
+// selections use the focused lane. Missing diffs and nightly/manual stay full.
 export function changedLayers(files, event, { serviceBarrelAppOnly = false } = {}) {
   if (!["pull_request", "push"].includes(event) || files === null) return allLayers();
   const core = files.some(file => !isDoc(file) && coreInput(file));
   const focusedInput = file => applicationEngineInput(file) && (file !== serviceBarrel || serviceBarrelAppOnly);
-  const engine = core || files.some((file) => !isDoc(file) && (
+  let engine = core || files.some((file) => !isDoc(file) && (
     docTestInputs.get(file) === "engine" || globalInput(file) ||
     (sharedEngineInput(file) && !(event === "pull_request" && focusedInput(file))) ||
     file === "packages/web/src/components/duel/table/seat-state.ts" ||
     /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|engine-test-plan|engine-test-times|duel-test-files|check-engine-test-coverage|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
   ));
-  const engine_app = event === "pull_request" && !engine && files.some(file => focusedInput(file) && sharedEngineInput(file));
+  let engine_app = event === "pull_request" && !engine && files.some(file => focusedInput(file) && sharedEngineInput(file));
+  if (engine_app) {
+    const { sources, exports } = sharedSources;
+    const inputs = files.filter(file => focusedInput(file) && sharedDependencies.has(file)).sort();
+    const key = JSON.stringify(inputs);
+    if (!applicationSelections.has(key)) {
+      const selected = selectApplicationTests(sources, inputs, exports);
+      const total = Object.keys(sources).filter(file => file.startsWith(prefix) && isTest(file)).length;
+      applicationSelections.set(key, applicationSelectionNeedsFullEngine(selected.files, total));
+    }
+    if (applicationSelections.get(key)) {
+      engine = true;
+      engine_app = false;
+    }
+  }
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
   const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(card-script-patches\/|domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data|card-script-patches)\.ts$))/.test(file));
   // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
