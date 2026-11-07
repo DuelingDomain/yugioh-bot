@@ -272,6 +272,27 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
 
+test('moving, turning and sizing the grid moves the zones the tracker reads; a record without rotation is unchanged',()=>{
+  const base=[{x:.2,y:.2},{x:.8,y:.2},{x:.8,y:.8},{x:.2,y:.8}],aspect=16/9,t={dx:.03,dy:-.02,scale:.9,width:1,height:1,rotation:10};
+  const out=zones.transformFieldCorners(base,t,aspect)!,moved=zones.createFieldCalibration(out.corners);
+  const rad=10*Math.PI/180;
+  // Where a mat point lands in the picture, worked out by hand: size around the centre, turn in pixels about it, then move.
+  const where=(mx:number,my:number)=>{
+    const x=(.2+.6*(.5+(mx-.5)*.9)-.5)*aspect,y=.2+.6*(.5+(my-.5)*.9)-.5;
+    return {x:.5+(x*Math.cos(rad)-y*Math.sin(rad))/aspect+t.dx,y:.5+x*Math.sin(rad)+y*Math.cos(rad)+t.dy};
+  };
+  for(const zone of ['M1','S5','DECK','GY','EXTRA']){
+    const cell=zones.fieldZoneCells().find(c=>c.zone===zone)!,p=where(cell.x+cell.w/2,cell.y+cell.h/2);
+    assert.equal(zones.mapFieldZone(card(p.x-.01,p.y-.01,.02,.02),moved).zone,zone);
+  }
+  assert.equal(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.applied.rotation,undefined);
+  assert.deepEqual(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.corners.map(c=>({x:+c.x.toFixed(6),y:+c.y.toFixed(6)})),base);
+  assert.equal(zones.transformFieldCorners(base,{...t,rotation:zones.FIELD_ROTATION_MAX+1},aspect),null);
+  // A grid that fills the picture shrinks a little to turn instead of refusing.
+  const full=zones.transformFieldCorners([{x:.02,y:.02},{x:.98,y:.02},{x:.98,y:.98},{x:.02,y:.98}],{dx:0,dy:0,scale:1,width:1,height:1,rotation:8},aspect)!;
+  assert.ok(full.applied.scale<1&&full.corners.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1));
+});
+
 test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}]);
   for(const format of ['normal','domain','genesys','genesys-domain'] as const) {

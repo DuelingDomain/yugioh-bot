@@ -165,19 +165,34 @@ export function createFieldCalibration(points: Point[], orientation?:FieldOrient
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
   return {version:1,layout:FIELD_ZONE_LAYOUT,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }
-/** The whole-field transform the calibration screen edits. `scale` grows both axes, `width` and `height` stretch one axis each; all are factors around the grid centre (1 = unchanged). */
-export interface FieldTransform { dx: number; dy: number; scale: number; width: number; height: number }
-export const IDENTITY_FIELD_TRANSFORM: FieldTransform = { dx: 0, dy: 0, scale: 1, width: 1, height: 1 };
+/** The whole-field transform the calibration screen edits. `scale` grows both axes, `width` and `height` stretch one axis each; all are factors around the grid centre (1 = unchanged). `rotation` turns the grid clockwise in the picture, in degrees; a record without it counts as 0. */
+export interface FieldTransform { dx: number; dy: number; scale: number; width: number; height: number; rotation?: number }
+export const IDENTITY_FIELD_TRANSFORM: FieldTransform = { dx: 0, dy: 0, scale: 1, width: 1, height: 1, rotation: 0 };
+/** The grid can be turned this far (degrees) either way: enough to match a mat that sits a little crooked, not a different side. */
+export const FIELD_ROTATION_MAX = 15;
 /**
  * Apply a whole-field transform to a base quad. Stretching follows the mat axes (so perspective stays right).
  * The result is shifted to stay inside the image; `applied` is the transform with that shift folded into dx/dy (so repeated
  * nudges at the edge do not pile up). Null when the field cannot fit.
+ * This is the one place where move, rotate and size meet: the result is a new quad, and drawing, detection and tap
+ * identification all read zones from that quad. Rotation turns the quad about its centre in picture pixels (`aspect` = width / height
+ * of the picture, so the turn is not sheared on a wide picture).
  */
-export function transformFieldCorners(base: Point[], t: FieldTransform): { corners: Point[]; applied: FieldTransform } | null {
+export function transformFieldCorners(base: Point[], t: FieldTransform, aspect = 1): { corners: Point[]; applied: FieldTransform } | null {
+  // A turned grid needs more room: when it would leave the picture, it gets a little smaller instead of refusing the turn.
+  for (let attempt = 0, next = t; attempt < 40; attempt++, next = { ...next, scale: next.scale * .97 }) {
+    const out = placeFieldCorners(base, next, aspect);
+    if (out || !t.rotation) return out;
+  }
+  return null;
+}
+function placeFieldCorners(base: Point[], t: FieldTransform, aspect: number): { corners: Point[]; applied: FieldTransform } | null {
   const flat: FieldCalibration = { version: 1, corners: base };
-  const kx = t.scale * t.width, ky = t.scale * t.height;
-  if (![t.dx, t.dy, kx, ky].every(Number.isFinite) || kx < .2 || ky < .2 || kx > 4 || ky > 4) return null;
-  const moved = unitCorners.map(u => { const p = fieldMatPoint({ x: .5 + (u.x - .5) * kx, y: .5 + (u.y - .5) * ky }, flat); return { x: p.x + t.dx, y: p.y + t.dy }; });
+  const kx = t.scale * t.width, ky = t.scale * t.height, rotation = t.rotation ?? 0;
+  if (![t.dx, t.dy, kx, ky, rotation, aspect].every(Number.isFinite) || kx < .2 || ky < .2 || kx > 4 || ky > 4 || Math.abs(rotation) > FIELD_ROTATION_MAX + 1e-9 || aspect <= 0) return null;
+  const centre = fieldMatPoint({ x: .5, y: .5 }, flat), radians = rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+  const turn = (p: Point): Point => { const x = (p.x - centre.x) * aspect, y = p.y - centre.y; return { x: centre.x + (x * cos - y * sin) / aspect, y: centre.y + x * sin + y * cos }; };
+  const moved = unitCorners.map(u => { const p = turn(fieldMatPoint({ x: .5 + (u.x - .5) * kx, y: .5 + (u.y - .5) * ky }, flat)); return { x: p.x + t.dx, y: p.y + t.dy }; });
   if (moved.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
   const b = boundsOf(moved);
   if (b.w > 1 || b.h > 1) return null;
