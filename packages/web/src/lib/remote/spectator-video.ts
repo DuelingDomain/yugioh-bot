@@ -1,10 +1,11 @@
 import { ConnectionState, DisconnectReason, Room, RoomEvent, Track, VideoQuality, type RemoteTrackPublication, type RemoteVideoTrack } from "livekit-client";
 import { participantSeat, type VideoMember } from "./video-protocol";
 import { FIELD_TRACKS_TOPIC, FieldTrackCache } from "./field-track-cache";
+import { CAMERA_PUBLISH } from "./video-profile";
 
 export type SpectatorVideoSnapshot = { connection: ConnectionState; feeds: { seat: number; video: RemoteVideoTrack }[]; error: string; /** Another tab of this person holds the video: only a click takes it back, else the two tabs would remove each other for ever. */ needsClick?: boolean };
-/** Spectator traffic has a ceiling: the 720p simulcast layer, and the 360p layer on a phone screen. Adaptive stream stays off because it would choose the layer by tile size. */
-const spectatorLayer = () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches ? VideoQuality.LOW : VideoQuality.MEDIUM;
+/** A spectator asks for the same top simulcast layer as a seated player (`CAMERA_PUBLISH.receiverLayer`). LiveKit alone falls back to a lower layer when the network cannot carry it. Adaptive stream stays off so a small tile does not pick a lower layer. */
+const spectatorLayer = () => CAMERA_PUBLISH.receiverLayer;
 
 /** A server-minted phone identity. A spectator has no phone roster, and the server removes a revoked phone from the room. */
 function phoneSeat(identity: string, metadata: string | undefined, guildId: string, slug: string, members: VideoMember[]): number | undefined {
@@ -44,8 +45,8 @@ export class SpectatorVideo {
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
-  /** The layer this browser asks for: the check that a spectator stays on the lower layer. */
-  get layerName() { return this.layer === VideoQuality.LOW ? "low" : "medium"; }
+  /** The layer this browser asks for: the check that a spectator asks for the same layer as a player. */
+  get layerName() { return this.layer === VideoQuality.HIGH ? "high" : this.layer === VideoQuality.LOW ? "low" : "medium"; }
   private seatOf(participant: { identity: string; metadata?: string }) {
     const { guildId, slug, members } = this.options;
     return phoneSeat(participant.identity, participant.metadata, guildId, slug, members) ?? participantSeat(participant.identity, participant.metadata, guildId, slug, members);
