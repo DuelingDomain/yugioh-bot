@@ -138,6 +138,54 @@ describe("tournament match duel and result routes", () => {
     s.db.close();
   });
 
+  it("remote evidence: only the organizer or an admin can read a guild-scoped match copy", async () => {
+    const s = seed();
+    try {
+      vi.stubEnv("OWNER_USER_IDS", String(fixtureUserId("u-x")));
+      const { GET } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote-evidence/route");
+      const as = (key: typeof FIXTURE_KEYS[number]) => auth.mockResolvedValue({ user: {
+        id: String(fixtureUserId(key)), discordUserId: fixtureDiscordId(key), name: key,
+      } });
+      const get = (tmId = s.tmId) => GET(new Request("http://localhost/x"), ctx(tmId));
+      auth.mockResolvedValue(null);
+      expect((await get()).status).toBe(401);
+      as("u-org");
+      expect((await get()).status).toBe(404);
+      s.db.prepare(`insert into tournament_remote_evidence(tournament_match_id,table_slug,
+        player_one_user_id,player_two_user_id,players_json,table_ended_at,end_reason,
+        games_json,result_events_json,final_lp_json,public_board_json,reports_json,
+        detection_summary_json,captured_at,hard_delete_at)
+        values(?,'deleted-table',?,?,'[]',1000,'concede','[]','[]','[]','[]','[]','[]',1001,9999999999999)`)
+        .run(s.tmId, fixtureUserId("u-a"), fixtureUserId("u-b"));
+      const evidence = s.db.prepare("select * from tournament_remote_evidence where tournament_match_id=?").get(s.tmId);
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toEqual({ evidence });
+      for (const key of ["u-a", "u-b"] as const) {
+        as(key);
+        expect((await get()).status).toBe(403);
+      }
+      as("u-x");
+      vi.stubEnv("OWNER_USER_IDS", "");
+      expect((await get()).status).toBe(404);
+      s.db.prepare("update tournaments set visibility='open' where id=?").run(s.tournamentId);
+      expect((await get()).status).toBe(403);
+      vi.stubEnv("OWNER_USER_IDS", String(fixtureUserId("u-x")));
+      s.db.prepare("update tournaments set visibility='private' where id=?").run(s.tournamentId);
+      expect((await get()).status).toBe(200);
+      expect((await get(s.tmId + 999)).status).toBe(404);
+      expect((await GET(new Request("http://localhost/x"), { params: Promise.resolve({ slug: "cup", tmId: "bad" }) })).status).toBe(404);
+      const other = createTournamentService(s.db).create("g1", "Other cup", "round_robin", fixtureUserId("u-org"));
+      s.db.prepare("update tournaments set web_slug='other-cup' where id=?").run(other.id);
+      expect((await GET(new Request("http://localhost/x"), { params: Promise.resolve({ slug: "other-cup", tmId: String(s.tmId) }) })).status).toBe(404);
+      s.db.prepare("update tournaments set guild_id='g2' where id=?").run(s.tournamentId);
+      expect((await get()).status).toBe(404);
+    } finally {
+      s.db.close();
+    }
+  });
+
   it("result: rejects an unauthenticated caller and a bad body", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");

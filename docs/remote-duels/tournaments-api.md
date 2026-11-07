@@ -132,9 +132,25 @@ Planned errors: 403 `REMOTE_RESULT_PLAYER_REQUIRED` or `ORGANIZER_REQUIRED`;
 reject live Remote tables with 409 `REMOTE_MATCH_OPEN`; it remains a fallback
 when no table or unresolved proposal/dispute is open. B3 owns these block rules.
 
-B4 supplies internal evidence capture and deletion; organizer evidence HTTP reads
-remain integration/UI work. No evidence endpoint is implemented by B1 or B4. Evidence survives normal table deletion through
+B4 supplies evidence capture, deletion and the organizer evidence read route below.
+Evidence survives normal table deletion through
 nullable table references and copied minimal facts, never videos/images or decks.
+
+## B4: organizer evidence read
+
+`GET /api/tournaments/{slug}/matches/{tmId}/remote-evidence` requires an
+authenticated tournament organizer or admin (`OWNER_USER_IDS`). Players and
+spectators cannot read evidence unless they also hold one of these roles. The
+tournament slug is scoped to the configured guild, and the match must belong to
+that tournament. Admins may also read private tournaments in that guild.
+
+Returns 200 with `{"evidence": row}`, where `row` is the stored
+`tournament_remote_evidence` row described below: column names use snake_case,
+and the `*_json` fields remain JSON strings. `table_id` may be null after room
+deletion. Returns 404 when no evidence exists (including after retention cleanup),
+the tournament is unavailable, or the match is invalid or belongs elsewhere;
+unauthorized readers receive 403 (404 for an unreadable private tournament).
+Responses use `Cache-Control: private, no-store`.
 
 ## Storage handoff for B3 and B4
 
