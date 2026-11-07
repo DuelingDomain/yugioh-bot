@@ -69,7 +69,8 @@ export function DisputePanel({ match, result, tournamentSlug, onDone, evidenceOv
   const name = (playerId: number | null) => (playerId === null ? "No winner" : names.get(playerId) ?? `Player ${playerId}`);
   const evidence = useEvidence(tournamentSlug, match, evidenceOverride);
   const winnerName = result.winnerPlayerId === null ? null : name(result.winnerPlayerId);
-  const score = result.score ? `${result.score.playerOne} to ${result.score.playerTwo}` : null;
+  // The winner's score first: "Bob was proposed as the winner, 1 to 0".
+  const score = result.score ? (result.winnerPlayerId === match.playerTwoId ? `${result.score.playerTwo} to ${result.score.playerOne}` : `${result.score.playerOne} to ${result.score.playerTwo}`) : null;
   return <div className={styles.panel}>
     <p className={styles.claim} data-testid="dispute-claim">
       {winnerName ? <><b>{winnerName}</b> was proposed as the winner{score ? `, ${score}` : ""}{result.source ? `, by ${SOURCE_TEXT[result.source]}` : ""}.</> : "No winner was proposed."}

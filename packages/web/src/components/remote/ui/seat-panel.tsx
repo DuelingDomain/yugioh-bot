@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
-import { ScanLine } from "lucide-react";
+import { CircleHelp, Hand, Pencil, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
@@ -11,7 +11,7 @@ import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
 import { HandCount, HandStrip, type HandProps } from "./hand-ui";
-import { modeLabel, type TournamentMode } from "@/lib/remote/tournament-detection";
+import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -27,7 +27,9 @@ export function parseLpInput(raw: string): number | null {
 
 /** Tournament table: the mode a player announced, shown on the nameplate. */
 export function DetectionBadge({ seat, name, mode }: { seat: number; name: string; mode?: TournamentMode }) {
-  return <span className={`${s.tag} ${s.dmode} ${mode === "auto" ? "" : s.tap}`} data-testid={`detection-mode-${seat}`} title={`${name} detection: ${modeLabel(mode)}`}>{modeLabel(mode)}</span>;
+  const Glyph = mode === "tap" ? Hand : mode === "auto" ? ScanLine : mode === "manual" ? Pencil : CircleHelp;
+  return <span className={`${s.tag} ${s.dmode} ${mode === "auto" ? "" : s.tap}`} data-testid={`detection-mode-${seat}`} role="img" aria-label={`${name} detection: ${modeLabel(mode)}`} title={`${name} detection: ${modeLabel(mode)}`}>
+    <Glyph size={11} strokeWidth={2} aria-hidden />{modeShort(mode)}</span>;
 }
 
 export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };

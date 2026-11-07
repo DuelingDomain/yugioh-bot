@@ -63,9 +63,10 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
     const game = getRemoteGame(row.game_id);
     let state = game.initialState({seatCount:row.seat_count,bestOf:1,tournament:current.tournament});
     const players = db.prepare('select user_id as userId,seat from remote_seats where table_id=? order by seat').all(tableId);
-    const summary = current.seats.map(s => ({seat:s.seat,autoSeconds:0,tapSeconds:0,manualSeconds:0,identifiedByClick:0,identifiedByTyped:0,
+    const summary = current.seats.map(s => ({seat:s.seat,unknownSeconds:0,autoSeconds:0,tapSeconds:0,manualSeconds:0,identifiedByClick:0,identifiedByTyped:0,
       manualCorrections:0,unknownAtGameEnd:[] as {n:number;count:number}[]}));
-    const modes = current.seats.map(() => ({mode:'auto' as Extract<RemoteAction, {type:'detection.mode'}>['mode'],since:row.started_at ?? row.ended_at}));
+    // Until a seat announces its mode nobody knows how it identified cards, so that time is "unknown", not Auto-detect.
+    const modes = current.seats.map(() => ({mode:null as Extract<RemoteAction, {type:'detection.mode'}>['mode'] | null,since:row.started_at ?? row.ended_at}));
     const perGame = new Map<string, {seats:{seat:number;lp:number}[];unknown:number[]}>();
     const eliminatedBoards = new Map<number, ReturnType<typeof publicCards>>();
     const excerpt: {seq:number;at:number;userId:number|null;seat:number|null;action:object}[] = [];
@@ -87,7 +88,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
           const seat = event.actor_seat;
           if (seat !== null && modes[seat]) {
             const mode=modes[seat], at=Math.max(mode.since,Math.min(event.created_at,row.ended_at));
-            summary[seat][modeSeconds[mode.mode]] += (at-mode.since)/1000;
+            summary[seat][mode.mode ? modeSeconds[mode.mode] : 'unknownSeconds'] += (at-mode.since)/1000;
             mode.mode=action.mode; mode.since=at;
           }
           break;
@@ -141,7 +142,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
     });
     for (const seat of summary) {
       const mode=modes[seat.seat];
-      seat[modeSeconds[mode.mode]] += Math.max(0,row.ended_at-mode.since)/1000;
+      seat[mode.mode ? modeSeconds[mode.mode] : 'unknownSeconds'] += Math.max(0,row.ended_at-mode.since)/1000;
     }
     const board=current.seats.map(s=>({seat:s.seat,cards:s.eliminated ? eliminatedBoards.get(s.seat) ?? publicCards(s) : publicCards(s)}));
     db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(row.tournament_match_id);

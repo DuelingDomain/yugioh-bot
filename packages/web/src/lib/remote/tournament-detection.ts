@@ -34,3 +34,5 @@ export const ownDetectionMode=(input:{ownsSource:boolean;cameraOn:boolean;enable
   !input.ownsSource||!input.cameraOn?'manual':input.enabled?'auto':'tap';
 
 export const modeLabel=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap to identify':mode==='auto'?'Auto-detect':mode==='manual'?'Manual':'Unknown';
+/** The nameplate badge: a short word so a long player name stays readable on a phone. The full label is the tooltip and the screen reader text. */
+export const modeShort=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap':mode==='auto'?'Auto':mode==='manual'?'Manual':'Unknown';

@@ -3574,7 +3574,7 @@ it.each(['tap','manual'] as const)('keeps only tournament result evidence throug
     expect(excerpt.map((e:{action:{type:string}})=>e.action.type)).toEqual(['detection.mode','lp.change','lp.change','undo','match.declare','match.confirm','lp.change','player.concede']);
     expect(excerpt[1]).toMatchObject({userId:actors[0].userId,seat:0,action:{type:'lp.change',seat:0,delta:-500,reason:'cost'}});
     expect(JSON.stringify(copy)).not.toMatch(/secret-set|hand.add|deckChecks|factsHash|idempotencyKey|departedFrom/);
-    expect(JSON.parse(copy.detection_summary_json)[0]).toMatchObject({seat:0,autoSeconds:1.997,tapSeconds:mode === 'tap' ? 18 : 0,manualSeconds:mode === 'manual' ? 18 : 0,identifiedByClick:1,identifiedByTyped:0,manualCorrections:3,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
+    expect(JSON.parse(copy.detection_summary_json)[0]).toMatchObject({seat:0,autoSeconds:0,unknownSeconds:1.997,tapSeconds:mode === 'tap' ? 18 : 0,manualSeconds:mode === 'manual' ? 18 : 0,identifiedByClick:1,identifiedByTyped:0,manualCorrections:3,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
     expect(JSON.parse(copy.detection_summary_json)[1]).toMatchObject({seat:1,manualCorrections:2,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
     captureRemoteTournamentEvidence(db, timeout.tableId);
     expect(evidence(timeout.matchId)).toEqual(copy);
