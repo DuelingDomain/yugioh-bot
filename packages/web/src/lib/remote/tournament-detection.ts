@@ -1,8 +1,9 @@
-import { useMemo, useRef } from 'react';
-import type { RemoteEvent, RemoteRoom } from '@yugidraft/shared/remote';
+import type { RemoteRoom } from '@yugidraft/shared/remote';
 
 /** Card detection in a tournament table. Auto-detect is the default and the opponent sees each player's mode. */
-export type TournamentMode='auto'|'tap';
+/** What a player can pick. Manual is set by the app when no camera feed reads the board. */
+export type PlayerMode='auto'|'tap';
+export type TournamentMode=PlayerMode|'manual';
 export type TournamentModeReason='start'|'player'|'slow-offer';
 
 /** A tournament table has a match link. A normal Remote table has none and keeps the device preference. */
@@ -10,35 +11,30 @@ export const isTournamentTable=(room:Pick<RemoteRoom,'tournamentMatchId'>)=>room
 
 const modeKey=(slug:string,seat:number)=>`dd-remote-tournament-mode:v1:${slug}:${seat}`;
 /** The player's own choice for this table only. It never touches the device preference, and a reload keeps it. */
-export function readTournamentMode(slug:string,seat:number):TournamentMode|null {
+export function readTournamentMode(slug:string,seat:number):PlayerMode|null {
   try{const value=sessionStorage.getItem(modeKey(slug,seat));return value==='auto'||value==='tap'?value:null;}catch{return null;}
 }
-export function saveTournamentMode(slug:string,seat:number,mode:TournamentMode) {
+export function saveTournamentMode(slug:string,seat:number,mode:PlayerMode) {
   try{sessionStorage.setItem(modeKey(slug,seat),mode);}catch{/* Memory-only fallback. */}
 }
 
-/** The newest announced mode of each seat. The reducer keeps no mode, so it is read from the public events. */
-export function announcedModes(events:readonly Pick<RemoteEvent,'seq'|'actorSeat'|'action'>[],into=new Map<number,TournamentMode>()) {
-  for(const event of [...events].sort((a,b)=>a.seq-b.seq)){
-    const action=event.action;
-    if(action.type==='detection.mode'&&event.actorSeat!==null)into.set(event.actorSeat,action.mode);
-  }
-  return into;
+/** Where the board is read from: a camera feed (auto), the player's taps (tap), or by hand with no camera feed (manual). */
+type Detection={mode:TournamentMode;at:number};
+/**
+ * The mode a seat last announced. The table state keeps it (`state.detection[seat]`), so a reload shows the same answer.
+ * Undefined when the seat never announced one: show "Unknown", never a default.
+ */
+export function stateMode(state:unknown,seat:number):TournamentMode|undefined {
+  const all=(state as {detection?:Record<number,Detection|undefined>|readonly (Detection|undefined)[]}|null|undefined)?.detection;
+  const mode=all?.[seat]?.mode;
+  return mode==='auto'||mode==='tap'||mode==='manual'?mode:undefined;
 }
 
 /**
- * Mode of each seat for this table. The events window is short, so an announcement seen once stays in memory.
- * A seat with no announcement yet shows the tournament default, Auto-detect.
+ * The mode this player announces. No camera feed on the board (camera off, no camera, or a phone in scan mode) is "manual",
+ * whatever the Auto-detect switch says. Otherwise the switch decides between Auto-detect and Tap.
  */
-export function useAnnouncedModes(room:Pick<RemoteRoom,'slug'|'events'>):ReadonlyMap<number,TournamentMode> {
-  const memory=useRef({slug:room.slug,modes:new Map<number,TournamentMode>(),seq:-1});
-  if(memory.current.slug!==room.slug)memory.current={slug:room.slug,modes:new Map(),seq:-1};
-  const known=memory.current;
-  return useMemo(()=>{
-    const fresh=room.events.filter(event=>event.seq>known.seq);
-    if(fresh.length){announcedModes(fresh,known.modes);known.seq=Math.max(known.seq,...fresh.map(event=>event.seq));}
-    return new Map(known.modes);
-  },[room.events,known]);
-}
+export const ownDetectionMode=(input:{ownsSource:boolean;cameraOn:boolean;enabled:boolean}):TournamentMode=>
+  !input.ownsSource||!input.cameraOn?'manual':input.enabled?'auto':'tap';
 
-export const modeLabel=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap to identify':'Auto-detect';
+export const modeLabel=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap to identify':mode==='auto'?'Auto-detect':mode==='manual'?'Manual':'Unknown';

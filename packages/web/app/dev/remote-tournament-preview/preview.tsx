@@ -47,7 +47,7 @@ export function RemoteTournamentPreview({ view }: { view: "dispute" | "table" })
   }
   return <div className={`${duelFontClasses} ${remoteUi.app}`} style={{ minHeight: "100vh", padding: 24, display: "grid", gap: 24, alignContent: "start" }}>
     <section aria-label="Nameplate badges" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <b>Bob</b><DetectionBadge seat={1} name="Bob" mode="auto" /><b>Alice</b><DetectionBadge seat={0} name="Alice" mode="tap" />
+      <b>Bob</b><DetectionBadge seat={1} name="Bob" mode="auto" /><b>Alice</b><DetectionBadge seat={0} name="Alice" mode="tap" /><DetectionBadge seat={2} name="Cy" mode="manual" /><DetectionBadge seat={3} name="Dee" />
     </section>
     <section aria-label="Pre-match check" style={{ maxWidth: 520 }}>
       <TournamentCheck camera zones={false} />

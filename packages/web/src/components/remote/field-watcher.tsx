@@ -5,7 +5,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
-import {isTournamentTable,readTournamentMode,saveTournamentMode,useAnnouncedModes,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
+import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
 import {remoteHandReadDecision,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
@@ -726,7 +726,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     watch.setEnabled(on);
   },[watch.setEnabled,watch.enabled,seat,setSyncHold,tournament,room.slug]);
   const modeReason=useRef<TournamentModeReason>('player');
-  const answerTapOffer=(choice:TapChoice)=>{modeReason.current='slow-offer';setDetection(choice==='keep');};
+  // Only a switch is a slow-offer change. Keep changes nothing, so the next manual switch stays a player change.
+  const answerTapOffer=(choice:TapChoice)=>{modeReason.current=choice==='switch'?'slow-offer':'player';setDetection(choice==='keep');};
   const offerable=watch.enabled&&ownsSource&&hub.cameraOn&&room.status==='active';
   useEffect(()=>{
     if(tapOffer&&!offerable)setTapOffer(false);
@@ -734,15 +735,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
     if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
-  // Tournament: the table gets my detection mode when it starts and on every switch, so the opponent can see it. The tell is public and changes no state.
-  const announced=useAnnouncedModes(room),sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
-  const mode:TournamentMode=watch.enabled?'auto':'tap';
+  // Tournament: the table state keeps my detection mode. I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
+  const sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
+  const mode=ownDetectionMode({ownsSource,cameraOn:hub.cameraOn,enabled:watch.enabled});
   useEffect(()=>{
     if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
-    sentMode.current=mode;
-    if(announced.get(modeSeat)===mode)return;
-    const reason=announced.has(modeSeat)?modeReason.current:'start';modeReason.current='player';
-    void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason});}).catch(()=>{sentMode.current=null;});
+    // Short wait: the camera and the phone link settle a moment after the page opens, and the first answer should be the real one.
+    const timer=setTimeout(()=>{
+      const known=stateMode(current.current.room.state,modeSeat);
+      sentMode.current=mode;
+      if(known===mode){modeReason.current='player';return;}
+      const reason=known?modeReason.current:'start';modeReason.current='player';
+      // 'manual' is part of the B2 action; the shared type is widened there.
+      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason} as Parameters<typeof act>[0]);}).catch(()=>{sentMode.current=null;});
+    },mode==='manual'||sentMode.current===null?1500:0);
+    return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[tournament,modeSeat,watch.settingsLoaded,room.status,mode]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.

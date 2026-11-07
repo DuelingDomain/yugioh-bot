@@ -26,8 +26,8 @@ export function parseLpInput(raw: string): number | null {
 }
 
 /** Tournament table: the mode a player announced, shown on the nameplate. */
-export function DetectionBadge({ seat, name, mode }: { seat: number; name: string; mode: TournamentMode }) {
-  return <span className={`${s.tag} ${s.dmode} ${mode === "tap" ? s.tap : ""}`} data-testid={`detection-mode-${seat}`} title={`${name} identifies cards with ${modeLabel(mode)}`}>{modeLabel(mode)}</span>;
+export function DetectionBadge({ seat, name, mode }: { seat: number; name: string; mode?: TournamentMode }) {
+  return <span className={`${s.tag} ${s.dmode} ${mode === "auto" ? "" : s.tap}`} data-testid={`detection-mode-${seat}`} title={`${name} detection: ${modeLabel(mode)}`}>{modeLabel(mode)}</span>;
 }
 
 export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
@@ -56,7 +56,7 @@ export type SeatPanelProps = {
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
-  /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode;
+  /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode | "unknown";
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -119,7 +119,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </> : null}
       </span> : null}
       {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
-      {p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode} /> : null}
+      {p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />

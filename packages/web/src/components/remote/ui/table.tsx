@@ -55,7 +55,7 @@ const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
-import { isTournamentTable, useAnnouncedModes } from "@/lib/remote/tournament-detection";
+import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
@@ -329,7 +329,6 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
   // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. The default follows my detection mode: hidden in Tap to identify (the board does not follow the camera), shown with Auto-detect.
   // A choice in either direction is remembered in this browser with the mode it was made in. It wins while the mode stays the same; a mode change applies the new default once.
-  const announcedModes = useAnnouncedModes(room);
   const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
   const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
   useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
@@ -1334,7 +1333,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? announcedModes.get(seat) ?? "auto" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
