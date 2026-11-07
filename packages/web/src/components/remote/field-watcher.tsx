@@ -113,6 +113,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // probably shifted by one row. One hint per table and seat.
   // 'placed' events seen while auto-placement was off: held by the sync hold (placed when it ends), or dropped (debug line).
   const syncHoldRef=useRef(false),heldPlaced=useRef({deferred:0,dropped:0});
+  /** Prompts waiting for a choice (set each render) and the time of the last automatic Scan field. */
+  const promptCount=useRef(0),autoScanAt=useRef(-Infinity);
   const rowFixes=useRef(new Map<string,number>()),[shiftHint,setShiftHint]=useState(false),shiftHinted=useRef(false);
   useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);},[room.slug,seat]);
   const noteRowFix=(ref:string)=>{
@@ -1112,6 +1114,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
+  // Auto resync: when the board has been still for 3 s and the camera disagrees with it (a board card whose cell shows nothing, or a resting
+  // card no track follows), run Scan field once by itself, at most every 20 s. Never with a prompt or the sync hold waiting.
+  const scanFieldRef=useRef(scanField);scanFieldRef.current=scanField;
+  useEffect(()=>{
+    const timer=setInterval(()=>{
+      if(document.hidden||!live()||syncHoldRef.current||promptCount.current>0||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
+      const now=performance.now(),snap=watch.getSnapshot?.();
+      if(now-autoScanAt.current<20_000||!snap||snap.status!=='watching'||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
+      if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return;
+      if(!snap.missingTwins?.length&&!snap.untracked)return;
+      autoScanAt.current=now;scanFieldRef.current();
+    },1000);
+    return()=>clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.slug,seat,watch.getSnapshot]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
   useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics,boardTwin=current.current.room.state.seats[seat].twin;publishFieldDebug({faces:Object.fromEntries(watch.snapshot.tracks.flatMap(t=>{const card=t.state==='identified'&&!t.removed?boardTwin.find(c=>c.ref===(bindings.current.get(t.id)??t.id)&&publicField(c.zone)):undefined;return card&&card.faceUp===t.faceDown?[[t.id,`board: ${card.faceUp?'up':'down'} · track: ${t.faceDown?'down':'up'}`]]:[];})),blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend(),gate:{live:live(),enabled:watch.enabled,syncHold,calibrationNeeded:watch.calibrationNeeded,deferred:heldPlaced.current.deferred,dropped:heldPlaced.current.dropped},gridShift:watch.snapshot.gridShift});},[watch.snapshot,syncHold]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
@@ -1119,6 +1136,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0);});
+  promptCount.current=activePrompts.length;
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
