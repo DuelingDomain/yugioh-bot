@@ -37,24 +37,24 @@ export const applyRoomPatch=(room:RemoteRoom,patch:RoomPatch):RemoteRoom=>({...a
 /**
  * One repair GET at a time, never a storm. Every trigger (gap, bad patch, reconnect, tab shown, a notice with no data) asks here.
  * Asks that come while one is waiting join it. The GET starts after a random delay, and it is skipped when the sequence it was
- * asked for has arrived meanwhile (`wantedSeq` 0 means always run). An ask during the GET adds nothing, because that GET reads the newest
- * state when it answers; only a wanted sequence still missing afterwards starts one more.
+ * asked for has arrived meanwhile (`wantedSeq` 0 means always run). An ask during the GET adds nothing for a wanted sequence the GET may already cover; only a wanted sequence still missing afterwards starts one more.
+ * An ask with `wantedSeq` 0 during the GET (join ack, tab shown) always starts one more afterwards, because the GET may have been read before the socket joined.
  */
 export function createRepairScheduler(run:()=>Promise<unknown>,held:()=>number,options:{random?:()=>number;timers?:{set:(fn:()=>void,ms:number)=>unknown;clear:(id:unknown)=>void}}={}){
   const random=options.random??Math.random,timers=options.timers??{set:(fn:()=>void,ms:number)=>setTimeout(fn,ms),clear:(id:unknown)=>clearTimeout(id as ReturnType<typeof setTimeout>)};
-  let timer:unknown,need:number|undefined,running=false,laterNeed=0;
+  let timer:unknown,need:number|undefined,running=false,laterNeed=0,rerun=false;
   const start=()=>{
     timer=undefined;const wanted=need;need=undefined;
     if(wanted!==undefined&&wanted>0&&held()>=wanted)return;
     running=true;
-    void run().catch(()=>undefined).finally(()=>{running=false;const later=laterNeed;laterNeed=0;if(later>held())ask(later,300);});
+    void run().catch(()=>undefined).finally(()=>{running=false;const later=laterNeed,again=rerun;laterNeed=0;rerun=false;if(again)ask(0,300);else if(later>held())ask(later,300);});
   };
   /** `wantedSeq`: the sequence that makes the GET useless once held. `jitterMs`: the longest random delay. */
   function ask(wantedSeq:number,jitterMs:number){
-    if(running){laterNeed=Math.max(laterNeed,wantedSeq);return;}
+    if(running){if(wantedSeq===0)rerun=true;else laterNeed=Math.max(laterNeed,wantedSeq);return;}
     need=need===undefined?wantedSeq:need===0||wantedSeq===0?0:Math.max(need,wantedSeq);
     if(timer!==undefined)return;
     timer=timers.set(start,Math.floor(random()*jitterMs));
   }
-  return {ask,cancel(){if(timer!==undefined)timers.clear(timer);timer=undefined;need=undefined;laterNeed=0;}};
+  return {ask,cancel(){if(timer!==undefined)timers.clear(timer);timer=undefined;need=undefined;laterNeed=0;rerun=false;}};
 }

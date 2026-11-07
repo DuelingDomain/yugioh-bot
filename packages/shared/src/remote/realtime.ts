@@ -36,7 +36,7 @@ export type RemoteAck = { ok: true } | { ok: false; error: string; retryAfterMs?
 /**
  * A small patch of one viewer's own projected view. The ops are relative to that viewer's `RemoteSnapshot` (`{ table, state, events }`).
  * Apply it only when `base` equals the `table.lastSeq` the client holds. A socket that did not join with `patch: 1` never gets one.
- * Some changes keep the same sequence number (idle clock, idle warning): then `seq === base`.
+ * Some changes keep the same sequence number (idle clock, idle warning): those go as a full `remote:private`, never as a patch, because a browser drops a patch whose `seq` is not above its `base`.
  */
 export type RemotePatchMessage = RoomPatch & { slug: string };
 export interface RemoteServerEvents {

@@ -1229,7 +1229,7 @@ it('fetches the room after remote:changed only when the announced sequence is ne
   expect(remoteChangeNeedsFetch(0, 1)).toBe(true); // nothing held yet
 });
 
-it('applies an in-order patch without touching the old room, and repairs a gap with one jittered GET', () => {
+it('applies an in-order patch without touching the old room, and repairs a gap with one jittered GET', async () => {
   const room = { slug: 't', lastSeq: 5, events: [{ id: 1 }], state: { lp: [8000, 8000], log: ['a'] } } as never as import('@yugidraft/shared/remote').RemoteRoom;
   const patch = { base: 5, seq: 6, ops: [{ p: ['state', 'lp', 1], v: 7000 }, { p: ['state', 'log', 1], v: 'b' }] };
   expect([classifyPatch(5, patch), classifyPatch(6, patch), classifyPatch(4, patch)]).toEqual(['apply', 'stale', 'repair']);
@@ -1243,4 +1243,12 @@ it('applies an in-order patch without touching the old room, and repairs a gap w
   repair.ask(7, 300); repair.ask(8, 300); repair.ask(0, 1000); // three reasons, one timer
   expect(waits).toEqual([150]); timers[0](); expect(run).toHaveBeenCalledTimes(1);
   repair.ask(9, 300); held = 9; timers[1]?.(); expect(run).toHaveBeenCalledTimes(1); // the wanted sequence arrived first: no GET
+
+  // An ask(0) while a GET runs (join ack, tab shown) must start one more GET afterwards.
+  let finish: () => void = () => undefined; const slow = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const timers2: (() => void)[] = [];
+  const again = createRepairScheduler(slow, () => 9, { random: () => 0.5, timers: { set: fn => { timers2.push(fn); return timers2.length; }, clear: () => undefined } });
+  again.ask(0, 300); timers2[0](); expect(slow).toHaveBeenCalledTimes(1);
+  again.ask(0, 300); finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  expect(timers2).toHaveLength(2); timers2[1](); expect(slow).toHaveBeenCalledTimes(2);
 });
