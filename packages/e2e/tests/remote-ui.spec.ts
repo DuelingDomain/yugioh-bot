@@ -701,6 +701,24 @@ test.describe("remote duels screen, moving cards by hand", () => {
     } finally { await alice.close(); await bob.close(); }
   });
 
+  test("Rescan sits on the opponent's seat only, and shows what the other side answered", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const page = await alice.newPage(); await page.goto(`/duels/remote/${slug}`);
+      const rescan = page.getByTestId("field-rescan-1");
+      await expect(rescan).toBeVisible(); await expect(page.getByTestId("field-rescan-0")).toHaveCount(0);
+      await rescan.click();
+      // Bob has no camera on, so he answers "off", or nothing arrives in time. Either way the button says so.
+      await expect(rescan.getByRole("status")).toHaveText(/Their Auto-detect is off|Could not reach them/);
+      if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `rescan-button-${w}`); }
+    } finally { await alice.close(); await bob.close(); }
+  });
+
   test("webcam only hides the virtual field and is remembered; a camera card shows its name and opens its actions; right click never shows the browser menu", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2); await seed(context, slug);
