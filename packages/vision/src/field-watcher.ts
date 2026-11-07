@@ -227,11 +227,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** Frame area of one field zone (median), for the "larger than two zones" outline check. */
   const zoneArea=()=>{const areas=fieldCells().filter(c=>fieldZoneName(c.zone)).map(c=>{const b=boundsOf(cellQuad(c).quad);return b.w*b.h;}).sort((a,b)=>a-b);return areas.length?areas[Math.floor(areas.length/2)]:undefined;};
   /** Lower-score outlines: settled or automatically dismissed tracks, and field twins with no live track. */
-  const keepOutlines=()=>{
+  const keepOutlines=(shadowOnly=false)=>{
     // Only a quad that lies on the mat plane: a stale box over an arm or a held card must not keep weak outlines alive.
-    const quads=tracks.filter(t=>!t.view.removed&&(t.view.state==='identified'||t.view.state==='prompt'||t.placeholder||t.view.state==='dismissed'&&!t.userDismissed)).flatMap(t=>{const q=plausible(t)?t.view.card:t.restQuad;return q?[q.quad.map(p=>({...p}))]:[];});
+    const quads=tracks.filter(t=>!t.view.removed&&(t.view.state==='identified'||t.view.state==='prompt'||t.placeholder||!shadowOnly&&t.view.state==='dismissed'&&!t.userDismissed)).flatMap(t=>{const q=plausible(t)?t.view.card:shadowOnly?undefined:t.restQuad;return q?[q.quad.map(p=>({...p}))]:[];});
     const cells=fieldCells();
-    for(const k of options.getKnownCards?.()??[])if(k.zone!=='HAND'&&fieldZoneName(k.zone)&&!tracks.some(t=>!t.view.removed&&(t.view.id===k.id||t.binding?.id===k.id))){const cell=cells.find(c=>c.zone===k.zone);if(cell)quads.push(cellQuad(cell).quad);}
+    for(const k of shadowOnly?[]:options.getKnownCards?.()??[])if(k.zone!=='HAND'&&fieldZoneName(k.zone)&&!tracks.some(t=>!t.view.removed&&(t.view.id===k.id||t.binding?.id===k.id))){const cell=cells.find(c=>c.zone===k.zone);if(cell)quads.push(cellQuad(cell).quad);}
     return quads.slice(0,60);
   };
   /** Calibrated Deck/Extra cells: the detector returns weaker outlines there (coloured sleeves on a dark mat score low). */
@@ -698,9 +698,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const detectStart=now();
       // Known cards keep weaker outlines (hysteresis, shadow-lifted pass); kept outlines never start a card.
       const keep=keepOutlines(),pileQuads=pileCells(),slotQuads=fieldCells().filter(c=>fieldZoneName(c.zone)).map(c=>cellQuad(c).quad).slice(0,20);
-      // CPU: on a dim mat darkShare is always high, so one lost card doubled every pass. A second pass needs a measured shadow, or waits 3 s.
-      const shadowPass=!pacing||urgentScan||scanSweep>0||shadowShare>=.03||sample.at-lastShadowPassAt>=SHADOW_PASS_EVERY_MS;if(pacing&&shadowPass)lastShadowPassAt=sample.at;
-      const detectOpts=(r?:FractionalBox)=>r||keep.length||pileQuads.length||slotQuads.length?{...(shadowPass?{}:{shadowPass:false}),...(r?{region:r}:{}),...(keep.length?{keep}:{}),...(pileQuads.length?{piles:pileQuads.map(p=>p.quad)}:{}),...(slotQuads.length?{cells:slotQuads}:{})}:undefined;
+      // A dim mat is always dark: rescue only live tracks, on measured shadow or at most every 3 s.
+      const shadowPass=shadowShare>=.03||sample.at-lastShadowPassAt>=SHADOW_PASS_EVERY_MS||options.recognizer.detectorBackend!=='webgpu'&&(urgentScan||scanSweep>0);if(shadowPass)lastShadowPassAt=sample.at;
+      const detectOpts=(r?:FractionalBox)=>r||keep.length||pileQuads.length||slotQuads.length?{shadowKeep:keepOutlines(true),...(shadowPass?{}:{shadowPass:false}),...(r?{region:r}:{}),...(keep.length?{keep}:{}),...(pileQuads.length?{piles:pileQuads.map(p=>p.quad)}:{}),...(slotQuads.length?{cells:slotQuads}:{})}:undefined;
       detected=await options.recognizer.detectCards(detectFrame,detectOpts(region));
       // A crop changes the detector's context. In particular, a plain sleeve
       // may be found only in the full frame. A missed crop must not add the

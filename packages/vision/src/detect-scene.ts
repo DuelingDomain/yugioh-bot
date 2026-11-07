@@ -22,7 +22,6 @@ const overlap=(a:Point[],b:Point[])=>{const p=boundsOf(a),q=boundsOf(b);return M
 export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:ModelSession,Tensor:TensorCtor,opts:DetectOptions={},refiner?:SceneRefiner):Promise<DetectedQuad[]> {
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000 || frame.data.length!==frame.width*frame.height*4) throw new Error('Invalid frame');
     validateOptions({region:opts.region});
-    const region=opts.region,x=region?Math.floor(region.x*frame.width):0,y=region?Math.floor(region.y*frame.height):0;
     const keep=(opts.keep??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const piles=(opts.piles??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const cells=(opts.cells??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
@@ -30,8 +29,10 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
     const qualifies=(c:DetectedQuad)=>c.confidence>=CARD_DETECTOR.minConfidence||
       c.confidence>=KEEP_MIN_CONFIDENCE&&keep.some(q=>overlap(c.quad,q)>=.6)||
       piles.some(q=>overlap(c.quad,q)>=.6)||c.kind==='face-down'&&cells.some(q=>overlap(c.quad,q)>=.6);
-    const pass=async(source:RGBAImage)=>{
-      const input=region?cropRGBA(source,x,y,Math.max(3,Math.ceil(region.w*source.width)),Math.max(3,Math.ceil(region.h*source.height))):source;
+    const pass=async(source:RGBAImage,region=opts.region,lift=false)=>{
+      const x=region?Math.floor(region.x*source.width):0,y=region?Math.floor(region.y*source.height):0;
+      let input=region?cropRGBA(source,x,y,Math.max(3,Math.ceil(region.w*source.width)),Math.max(3,Math.ceil(region.h*source.height))):source;
+      if(lift)input=shadowLift(input);
       const cards=(await detect(detector,Tensor,input,region?448:profile.detector.longSide,CARD_DETECTOR.minScore,!!region)).map(card=>region?{...card,cx:card.cx+x,cy:card.cy+y,pts:card.pts.map(([px,py])=>[px+x,py+y] as [number,number])}:card);
       return cards.map(card=>{
         // Rejected decode-floor boxes still contribute to the covered guard, without edge fitting.
@@ -49,10 +50,14 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
     const result=quads.flatMap(c=>c.confidence>=CARD_DETECTOR.minConfidence?[c]:c.confidence>=KEEP_MIN_CONFIDENCE&&known(c)?[Object.assign(c,{kept:true})]:inPile(c)?[Object.assign(c,{kept:true,pile:true})]:inCell(c)?[Object.assign(c,{cell:true})]:[]),scene=[...quads];
     // A big dark region (a player's shadow, or a shadow from above): one more pass on the
     // shadow-lifted frame, only for known cards that the normal pass lost.
-    if(opts.shadowPass!==false&&keep.length&&keep.some(q=>!result.some(c=>overlap(c.quad,q)>=.6))&&darkShare(frame)>=SHADOW_PASS_SHARE){
+    const lost=(opts.shadowKeep??keep).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))&&!result.some(c=>overlap(c.quad,q)>=.6));
+    if(opts.shadowPass!==false&&lost.length&&darkShare(frame)>=SHADOW_PASS_SHARE){
       shadowPasses=1;
-      const lifted=await pass(shadowLift(frame));
-      for(const c of lifted)if(c.confidence>=KEEP_MIN_CONFIDENCE&&known(c)&&!result.some(r=>overlap(r.quad,c.quad)>=.5)){const held=Object.assign(c,{kept:true});result.push(held);scene.push(held);}
+      const boxes=lost.map(boundsOf);
+      const left=Math.max(0,Math.min(...boxes.map(b=>b.x-b.w*.2))-.02),top=Math.max(0,Math.min(...boxes.map(b=>b.y-b.h*.2))-.02);
+      const right=Math.min(1,Math.max(...boxes.map(b=>b.x+b.w*1.2))+.02),bottom=Math.min(1,Math.max(...boxes.map(b=>b.y+b.h*1.2))+.02);
+      const lifted=right>left&&bottom>top?await pass(frame,{x:left,y:top,w:right-left,h:bottom-top},true):[];
+      for(const c of lifted)if(c.confidence>=KEEP_MIN_CONFIDENCE&&lost.some(q=>overlap(c.quad,q)>=.6)&&!result.some(r=>overlap(r.quad,c.quad)>=.5)){const held=Object.assign(c,{kept:true});result.push(held);scene.push(held);}
     }
     return result.map(c=>({...c,covered:isCovered(c,scene)})).sort((a,b)=>{const ay=Math.min(...a.quad.map(p=>p.y)),by=Math.min(...b.quad.map(p=>p.y));return Math.abs(ay-by)>.04?ay-by:Math.min(...a.quad.map(p=>p.x))-Math.min(...b.quad.map(p=>p.x));});
 }

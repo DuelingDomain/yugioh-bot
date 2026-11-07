@@ -29,3 +29,13 @@ test('decode-floor rejects skip refinement while kept and pile outlines still re
  assert.equal(held.length,3);assert.equal(fits,3,'the strong outline reuses its fit');
  assert.equal(held[1].kept,true);assert.equal(held[2].pile,true);
 });
+test('shadow rescue detects only a padded crop of lost live outlines',async()=>{
+ const {session,sizes}=detector();
+ const dark={width:1280,height:768,data:new Uint8ClampedArray(1280*768*4).fill(35)},large={...profile,detector:{...profile.detector,longSide:960}};
+ const lost=[[{x:.08,y:.05},{x:.18,y:.05},{x:.18,y:.3},{x:.08,y:.3}]];
+ await detectScene(dark,large,session,Tensor as unknown as TensorCtor,{keep:lost});
+ assert.equal(sizes.length,2);assert.ok(sizes[1][0]<=448&&sizes[1][1]<=448&&sizes[0][0]===960,JSON.stringify(sizes));
+ const other=detector();
+ await detectScene(dark,large,other.session,Tensor as unknown as TensorCtor,{keep:lost,shadowKeep:[]});
+ assert.equal(other.sizes.length,1,'twin-only keep regions do not trigger shadow rescue');
+});
