@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
+import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
@@ -165,8 +166,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
      * Until this boundary, all GET/event/replay/Undo semantics remain available. */
     purgeEnded(before: number, limit = 100): number {
       remoteAssert(Number.isSafeInteger(before) && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, "Invalid retention boundary");
-      return transaction(() => db.prepare("delete from remote_tables where id in (select id from remote_tables where status='ended' and ended_at<? order by ended_at limit ?)").run(before,limit).changes);
+      return transaction(() => deleteRemoteRooms(db, db.prepare("select id,slug from remote_tables where status='ended' and ended_at<? order by ended_at limit ?")
+        .all(before,limit) as {id: number; slug: string}[]));
     },
+    pruneSessions(now = Date.now()): void { transaction(() => pruneRemoteSessions(db, now)); },
     create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);

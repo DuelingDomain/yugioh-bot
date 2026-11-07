@@ -31,6 +31,7 @@ beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "7,8");
   vi.stubEnv("REMOTE_DUELS", "1");
   vi.stubEnv("REMOTE_VISION_AI", "1");
+  vi.stubEnv("REMOTE_VISION_FEEDBACK", "1");
   vi.stubEnv("REMOTE_DUELS", "1");
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   vi.stubEnv("NEXT_PUBLIC_REMOTE_VISION_LAB", "1");
@@ -53,6 +54,9 @@ it('local field diagnostics require the owner and loopback origin, validate crop
     const {POST}=await import('../app/api/remote-vision/diagnostics/route');
     const value={jpegBase64,tier:'not sure',reason:'uncertain',zone:'M2',top5:[{cardId:'27204311',name:'Nibiru, the Primal Being',score:.73}],quad:[{x:.2,y:.2},{x:.3,y:.2},{x:.3,y:.4},{x:.2,y:.4}],priors:{decklist:['27204311'],seen:['25311006']},backend:'wasm',runtime:{crossOriginIsolated:true,wasmThreads:2,simd:true},quality:{hypothesis:'art-box',fallback:false},timingsMs:{total:120}};
     const req=(body:unknown=value,origin='http://localhost')=>new Request(`${origin}/api/remote-vision/diagnostics`,{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    vi.stubEnv('REMOTE_VISION_FEEDBACK','0');
+    expect((await POST(req())).status).toBe(404);
+    vi.stubEnv('REMOTE_VISION_FEEDBACK','1');
     state.auth.mockResolvedValue(null);expect((await POST(req())).status).toBe(401);
     state.auth.mockResolvedValue({user:{id:'9'}});expect((await POST(req())).status).toBe(404);
     state.auth.mockResolvedValue({user:{id:'7'}});expect((await POST(req(value,'https://example.com'))).status).toBe(404);
@@ -93,7 +97,7 @@ describe("owner remote vision AI route", () => {
     expect((await post()).status).toBe(404);
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it.each(["REMOTE_VISION_AI", "ANTHROPIC_API_KEY"])("requires %s", async (key) => {
+  it.each(["REMOTE_VISION_AI", "REMOTE_VISION_FEEDBACK", "ANTHROPIC_API_KEY"])("requires %s", async (key) => {
     vi.stubEnv(key, "");
     expect((await post()).status).toBe(404);
     expect(fetcher).not.toHaveBeenCalled();

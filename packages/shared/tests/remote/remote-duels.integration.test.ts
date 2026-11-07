@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
-import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/account-deletion.js";
+import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
@@ -700,7 +700,7 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.events.at(-1)?.messages).toContain("Sulman added Ash Blossom to their decklist");
     expect(JSON.stringify(s.db.prepare("select * from remote_events").all())).not.toContain("Sulman");
     deleteUserAccount(s.db,s.users[0]);
-    expect(s.service.get(s.room.slug,"g",s.users[0]).events.at(-1)?.messages).toContain(DELETED_PLAYER_NAME+" added Ash Blossom to their decklist");
+    expect(() => s.service.get(s.room.slug,"g",s.users[0])).toThrow(/not found/i);
   });
 });
 describe("B3 physical field slot guard", () => {
@@ -2995,4 +2995,68 @@ it('upgrades the event deletion guard atomically and leaves current SQL untouche
     expect(()=>db.prepare('delete from remote_events where table_id=(select id from remote_tables where slug=?)').run(table.slug)).toThrow(/append.only/);
     expect(service.get(table.slug,'g',users[0]).lastSeq).toBe(table.lastSeq);
   } finally {spy.mockRestore();}
+});
+
+it('expires all room storage after 24 hours across batches and removes account remote data', async () => {
+  const {pruneRemoteDuels} = await import('../../src/services/remote-retention.js');
+  const s=deckSession();s.start();s.place('retention-card');
+  const {db,service,users,room:table}=s;
+  const day=86_400_000, now=3*day;
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
+  try {
+    // Web-owned optional tables have no foreign keys into the room schema.
+    db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer);
+      create table remote_phone_modes(slug text,user_id integer);
+      create table remote_phone_attempts(bucket text primary key,started_at integer,count integer);
+      create table remote_vision_ai_limits(user_id integer primary key,window_started_at integer,attempts integer);`);
+    db.prepare('insert into remote_phone_attempts values(?,?,1)').run('legacy-hash',now-day);
+    migrate(db); // Existing pairing buckets predate the room association.
+    const roomId=(slug:string)=>(db.prepare('select id from remote_tables where slug=?').get(slug) as {id:number}).id;
+    const attach=(slug:string)=>{
+      db.prepare('insert into remote_phone_pairs values(?,?,?)').run(slug,slug,users[0]);
+      db.prepare('insert into remote_phone_modes values(?,?)').run(slug,users[0]);
+      db.prepare('insert into remote_phone_attempts(bucket,started_at,count,slug) values(?,?,1,?)').run(slug,now,slug);
+      db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(slug),users[1],now);
+    };
+    for(let i=0;i<101;i++) {
+      const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2,solo:true},1000);
+      attach(room.slug);
+      db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day-1,room.slug);
+    }
+    // Real board/Undo positions and content-addressed facts must go as well.
+    expect(db.prepare('select count(*) n from remote_state_values').get()).not.toEqual({n:0});
+    expect(db.prepare('select count(*) n from remote_events where facts_hash is not null').get()).not.toEqual({n:0});
+    attach(table.slug);
+    db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day,table.slug);
+    const idle=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},1000);
+    expect(service.sweepIdle(now).find(t=>t.slug===idle.slug)?.endReason).toBe('idle');
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now-day);
+    expect(pruneRemoteDuels(db,now)).toBe(101);
+    expect(service.get(table.slug,'g',users[0])).toBeDefined();
+    expect(pruneRemoteDuels(db,now+1)).toBe(1);
+    expect(()=>service.replay(table.slug,'g',users[0])).toThrow(/not found/i);
+    expect(pruneRemoteDuels(db,now+day+1)).toBe(2); // Includes deckSession's initial lobby.
+    const names=()=> (db.prepare("select name from sqlite_master where type='table' and name glob 'remote_*'").all() as {name:string}[]).map(r=>r.name);
+    const empty=()=>{for(const name of names())expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});};
+    empty();
+    const owned=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now);
+    attach(owned.slug);
+    const other=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    service.join(other.slug,'g',users[0],'Owner',undefined,now);
+    service.leave(other.slug,'g',users[0],now); // Past actors must not retain a room after account deletion.
+    const unrelated=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(unrelated.slug),users[0],now);
+    db.prepare('insert into remote_phone_pairs values(?,?,?)').run('stale-pair',unrelated.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(unrelated.slug,users[0]);
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now);
+    deleteUserAccount(db,users[0]);
+    expect(service.get(unrelated.slug,'g',users[1])).toBeDefined();
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:1});
+    for(const name of ['remote_spectators','remote_phone_pairs','remote_phone_modes','remote_vision_ai_limits']) {
+      expect(db.prepare(`select count(*) n from ${name} where user_id=?`).get(users[0]),name).toEqual({n:0});
+    }
+    deleteUserAccount(db,users[1]);
+    empty();
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {vi.unstubAllEnvs();}
 });
