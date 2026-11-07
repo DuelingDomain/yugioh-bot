@@ -57,7 +57,7 @@ const server=createServer(async(req,res)=>{
   res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Embedder-Policy','require-corp');
   if(req.url==='/dev/vision-lab'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Offline board benchmark</title>');return;}
   try {
-    const file=resolve(data,decodeURIComponent(req.url!.replace(/^\/dev\/(?:vision-assets|vision-lab\/assets)\//,'')));
+    const file=resolve(data,decodeURIComponent(new URL(req.url!, 'http://localhost').pathname.replace(/^\/dev\/(?:vision-assets|vision-lab\/assets)\//,'')));
     if(!file.startsWith(data+'/') || !(await stat(file)).isFile()) throw new Error('missing');
     res.setHeader('Content-Type',mime[extname(file)]??'application/octet-stream');res.end(await readFile(file));
   } catch {res.statusCode=404;res.end('missing');}
