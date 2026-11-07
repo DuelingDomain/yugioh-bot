@@ -3,6 +3,7 @@ import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } fro
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline, type DeferredAICrop } from './pipeline';
 import { embedImages } from './embed';
+import { embeddingGpuCheck } from './gpu-check';
 import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
 import { CARD_DETECTOR } from './detector/spec';
@@ -98,7 +99,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     // Sequential session creation avoids simultaneous WASM runtime initialization.
     const role=configuration!.role;
     const detector = role==='read' ? lazyDetector : detectorSession!;
-    const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads:configuration!.threads});
+    const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads:configuration!.threads,gpuCheck:embeddingGpuCheck(profile.embedding)});
     let fullArtIndex:LoadedIndex|undefined;
     if(profile.fullArtIndex) {
       const reply=await fetch(profile.fullArtIndex.metaUrl);
@@ -174,7 +175,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(!configuration)throw new Error('Recognizer has not initialized');
         if (message.type === 'checkWebGpu') {
           const { profile, backend, runtimeBase, threads } = configuration;
-          const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads});
+          const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads,gpuCheck:embeddingGpuCheck(profile.embedding)});
           const detectorSession = await ensureDetector();
           const timings: Record<string, number> = {};
           let start = performance.now();

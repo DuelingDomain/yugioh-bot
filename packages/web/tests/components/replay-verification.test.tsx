@@ -160,6 +160,21 @@ describe("Open unchecked replay", () => {
     await waitFor(() => expect(document.activeElement).toBe(group));
   });
 
+  it("keeps the focus handover when unchecked is opened before the failure effects flush", async () => {
+    server((url) => url.searchParams.get("unchecked") === "1"
+      ? json({ ...replayV2(), verification: "unverified" })
+      : json(unverifiedBody({ canOpenUnchecked: true }), 409));
+    let clicked = false;
+    // The commit callback clicks as soon as the button exists, before passive
+    // effects from the checked failure run. A fast user can hit this ordering.
+    render(<React.Profiler id="fast-unchecked" onRender={() => {
+      const button = document.querySelector<HTMLButtonElement>("[data-replay-open-unchecked]");
+      if (!clicked && button) { clicked = true; button.click(); }
+    }}><DuelReplayView slug="game-1" canInspectSource /></React.Profiler>);
+    const group = await screen.findByRole("group", { name: "Replay controls" });
+    await waitFor(() => expect(document.activeElement).toBe(group));
+  });
+
   it("moves focus to the failure when the unchecked request is refused", async () => {
     server((url) => json(url.searchParams.get("unchecked") === "1"
       ? unverifiedBody({ reason: "command_mismatch", canOpenUnchecked: false })
