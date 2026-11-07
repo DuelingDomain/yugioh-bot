@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { recognizeLocalCard } from "../src/components/remote/recognize-card";
+import { remoteChangeNeedsFetch } from "../src/lib/remote/room-mutations";
 
 const ocr = { text: "Dark Magician\n46986414", terminate: vi.fn(), post: vi.fn(), fail: false };
 const canvas = { toBlob: (callback: (blob: Blob) => void) => callback(new Blob(["local frame"])) } as HTMLCanvasElement;
@@ -1219,4 +1220,11 @@ for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] 
     expect(r.watcher.getSnapshot().tracks.find(t=>t.id==='bottom')).toMatchObject({zone,cardId:'300',removed:false});
     await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(2);
   }finally{r.dispose();}
+});
+
+it('fetches the room after remote:changed only when the announced sequence is newer than the one held', () => {
+  expect(remoteChangeNeedsFetch(7, 7)).toBe(false); // the private snapshot or our own reply already gave it
+  expect(remoteChangeNeedsFetch(8, 7)).toBe(false); // a late notice
+  expect(remoteChangeNeedsFetch(6, 7)).toBe(true); // the private snapshot was lost: recover with a GET
+  expect(remoteChangeNeedsFetch(0, 1)).toBe(true); // nothing held yet
 });

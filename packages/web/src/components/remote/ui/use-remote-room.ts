@@ -9,7 +9,7 @@ import { remoteApi } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
-import {createRoomMutationQueue} from '@/lib/remote/room-mutations';
+import {createRoomMutationQueue,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
 /** Loads one table, keeps it fresh from the socket (poll as backup: 30 s while the socket is joined, else 5 s) and posts actions. */
@@ -30,8 +30,8 @@ export function useRemoteRoom(slug: string) {
   const [error, setError] = useState("");
   const roomRef = useRef<RemoteRoom | undefined>(room);
   if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;
-  const lastSeq = useRef(0),tableKey=useRef(slug);
-  if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
+  const lastSeq = useRef(0),tableKey=useRef(slug),socketSeq=useRef(0);
+  if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;socketSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
   const socketRef = useRef<Socket<RemoteServerEvents, RemoteClientEvents> | null>(null);
   const dataHandlers = useRef(new Set<(payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void>());
@@ -59,11 +59,18 @@ export function useRemoteRoom(slug: string) {
     socket.on("disconnect", () => setRealtime("Reconnecting…"));
     socket.on("remote:subscription-expired", () => void join());
     socket.on("remote:data", payload => { if (payload.slug === slug) for (const handler of dataHandlers.current) handler(payload); });
-    // Public notifications never replace the viewer's private state. GET also recovers a lost private delivery.
-    socket.on("remote:changed", snapshot => { if(snapshot.table.slug===slug) void mutate(); });
+    // Public notifications never replace the viewer's private state. The private snapshot of the same sequence normally arrived just before,
+    // so the GET runs only when this browser holds an older sequence: that is how a lost private delivery recovers.
+    socket.on("remote:changed", snapshot => {
+      if(snapshot.table.slug!==slug) return;
+      const held=Math.max(socketSeq.current,roomRef.current?.slug===slug?roomRef.current.lastSeq:0);
+      if(remoteChangeNeedsFetch(held,snapshot.table.lastSeq)) void mutate();
+    });
     socket.on("remote:private", snapshot => {
       if (snapshot.table.slug !== slug) return;
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
+      const held=roomRef.current;
+      if(held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq)socketSeq.current=Math.max(socketSeq.current,snapshot.table.lastSeq);
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq
         ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: current.spectatorCount } : current, { revalidate: false });
     });
