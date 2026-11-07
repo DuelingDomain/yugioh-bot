@@ -50,6 +50,12 @@ function diffInto(prev: unknown, next: unknown, path: PatchPath, ops: PatchOp[])
     return;
   }
   if (Array.isArray(prev) && Array.isArray(next)) {
+    // A window that slides (the event list): items that carry an `id` are aligned by it, so dropping the oldest items is one splice.
+    const first = next[0];
+    if (prev.length && isObject(first) && typeof first.id === "string" && !(isObject(prev[0]) && prev[0].id === first.id)) {
+      const dropped = prev.findIndex(item => isObject(item) && item.id === first.id);
+      if (dropped > 0) { ops.push({ p: path, x: [0, dropped, []] }); prev = prev.slice(dropped); }
+    }
     if (prev.length === next.length) {
       for (let i = 0; i < next.length; i++) diffInto(prev[i], next[i], [...path, i], ops);
       return;
