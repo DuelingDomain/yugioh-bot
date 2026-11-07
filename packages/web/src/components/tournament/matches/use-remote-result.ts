@@ -58,6 +58,8 @@ export function useRemoteResult({ tournamentSlug, tournamentMatchId, enabled, re
     if (enabled) return;
     lastStatus.current = null;
     setResult(null);
+    // Enabled again later (a reopened slot): wait for the new read before Start and Report show.
+    setLoaded(false);
   }, [enabled]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
