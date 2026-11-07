@@ -307,16 +307,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const humanChoice=!!chosen&&event.type==='prompt';
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,track,humanChoice);
     const mutate=(proposal:Parameters<typeof applyVerifiedFieldMutation>[3])=>applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal,humanChoice);
-    const observed=watch.getTrack(event.track.id);
-    if(!live()||!matchesEvidence(observed)){
+    // Nothing is written yet: a card that is moving or covered defers its identification.
+    const defer=(observed:FieldTrack|undefined)=>{
       console.warn('[remote field] identification deferred',event.track.id,observed?.state,observed?.visible,observed?.revision,attempt);
       if(chosen){setNotice('Card is moving or covered. Keep it still, then choose again.');return;}
       // A hand passing over the card hides it for a moment. Retry the same
       // evidence quietly; a changed card brings its own fresh event.
       if(live()&&observed&&!observed.removed&&attempt<6&&(observed.revision??0)===(event.track.revision??0)&&observed.cardId===event.track.cardId)
         setTimeout(()=>{void queue(next=>apply(event,next,undefined,attempt+1),event);},400);
-      return;
-    }
+    };
+    const observed=watch.getTrack(event.track.id);
+    if(!live()||!matchesEvidence(observed)){defer(observed);return;}
     let track={...observed!,id:bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
     const entry=track.cardId?entries.current.get(track.cardId):undefined;
     let twins=current.current.room.state.seats[seat].twin;
@@ -362,7 +363,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const metadata=loadCards([code]);
       if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);else await metadata;
     }
-    const latest=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(latest))throw new Error('Card changed while loading its details. Keep it still, then try again.');
+    // The card can move while its details load. Defer like the check above; there is nothing to save yet.
+    const latest=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(latest)){defer(latest);return;}
     // Keep the reserved physical ref while refreshing geometry and occupancy after I/O.
     track={...latest!,id:existing?.ref??placementRef,...(chosen?{cardId:chosen,faceDown:false}:{})};
     twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));

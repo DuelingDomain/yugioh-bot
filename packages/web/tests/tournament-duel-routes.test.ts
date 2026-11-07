@@ -1,9 +1,6 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createTournamentService } from "@yugidraft/shared/services";
 
@@ -17,17 +14,16 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
-const tempDirs: string[] = [];
+let schema: Buffer;
+let routeDb: Database.Database;
+vi.mock("@/lib/db", () => ({ getDb: () => routeDb }));
 
 function seed() {
-  const dir = mkdtempSync(join(tmpdir(), "tduel-"));
-  tempDirs.push(dir);
-  process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   process.env.DISCORD_GUILD_ID = "g1";
   process.env.DISCORD_TOKEN = "bot-token";
   process.env.WEB_URL = "https://duel.example.com/";
-  const db = new Database(process.env.DATABASE_PATH);
-  migrate(db);
+  const db = routeDb = new Database(schema);
+  db.pragma("foreign_keys = ON");
   seedFixtureUsers(db, FIXTURE_KEYS);
   const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
   const organizer = Number(insert.run(fixtureUserId("u-org"), fixtureDiscordId("u-org"), "Organizer").lastInsertRowid);
@@ -51,8 +47,18 @@ const post = (body: unknown) =>
   new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body) });
 
 describe("tournament match duel and result routes", () => {
+  beforeAll(async () => {
+    // Keep the full schema, but pay its migration cost only once per file.
+    const db = new Database(":memory:");
+    try { migrate(db); schema = db.serialize(); } finally { db.close(); }
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+    vi.stubEnv("WEB_URL", "https://duel.example.com/");
+    await import("../app/api/tournaments/[slug]/matches/[tmId]/remote/route");
+    await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
+    await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
+  });
   beforeEach(() => {
-    vi.resetModules();
     vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
@@ -61,13 +67,11 @@ describe("tournament match duel and result routes", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "WEB_URL"]) delete process.env[key];
     vi.unstubAllGlobals();
-    while (tempDirs.length) {
-      const d = tempDirs.pop();
-      if (d) rmSync(d, { recursive: true, force: true });
-    }
+    if (routeDb?.open) routeDb.close();
   });
 
   it("remote: paired players start one private reserved table with tournament rules and no registered deck", async () => {
@@ -248,7 +252,7 @@ describe("tournament match duel and result routes", () => {
       expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:1});
     } finally {s.db.close();}
 
-  });
+  }, 20_000); // Imports the shared services and runs two routes: 6-7 s on CI runners.
   it("remote evidence: only the organizer or an admin can read a guild-scoped match copy", async () => {
     const s = seed();
     try {
@@ -389,12 +393,11 @@ describe("tournament match duel and result routes", () => {
 
   it("duel: maps the decks of both seats before it starts the series", async () => {
     const s = seed();
-    const mapDraftTournamentDecks = vi.fn(async (..._args: unknown[]) => ({ ok: true as const }));
-    vi.doMock("@/lib/draft-deck-codes", () => ({ mapDraftTournamentDecks }));
+    const deckCodes = await import("@/lib/draft-deck-codes");
+    const mapDraftTournamentDecks = vi.spyOn(deckCodes, "mapDraftTournamentDecks").mockResolvedValue({ ok: true });
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const res = await POST(post({}), ctx(s.tmId));
-    vi.doUnmock("@/lib/draft-deck-codes");
     expect(res.status).toBe(201);
     expect(mapDraftTournamentDecks).toHaveBeenCalledWith(
       expect.anything(),
