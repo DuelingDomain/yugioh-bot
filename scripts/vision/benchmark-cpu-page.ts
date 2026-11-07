@@ -9,15 +9,17 @@ let recording = false;
 const add = (name: string, ms: number) => { if (!recording) return; const s = stages[name] ??= { ms: 0, n: 0, max: 0 }; s.ms += ms; s.n++; s.max = Math.max(s.max, ms); };
 const clock = () => performance.now();
 
-let NOISE = 7, cardScale = 1;
-function noiseTable() { const t = new Int8Array(1 << 16); for (let i = 0; i < t.length; i++) t[i] = Math.round((Math.random() + Math.random() - 1) * NOISE); return t; }
+let seed = 633;
+const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+let NOISE = 7, cardScale = 1, cardCount = 5;
+function noiseTable() { const t = new Int8Array(1 << 16); for (let i = 0; i < t.length; i++) t[i] = Math.round((random() + random() - 1) * NOISE); return t; }
 let noise = noiseTable();
 interface Card { image: ImageBitmap; id: string }
 const canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 let matBase: ImageBitmap;
 async function makeMat() {
   ctx.fillStyle = '#24282a'; ctx.fillRect(0, 0, W, H);
-  for (let i = 0; i < 40; i++) { const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 160); const x = Math.random() * W, y = Math.random() * H; g.addColorStop(0, `rgba(${90 + Math.random() * 40},${90 + Math.random() * 40},${120},.05)`); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.save(); ctx.translate(x, y); ctx.fillStyle = g; ctx.fillRect(-160, -160, 320, 320); ctx.restore(); }
+  for (let i = 0; i < 40; i++) { const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 160); const x = random() * W, y = random() * H; g.addColorStop(0, `rgba(${90 + random() * 40},${90 + random() * 40},${120},.05)`); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.save(); ctx.translate(x, y); ctx.fillStyle = g; ctx.fillRect(-160, -160, 320, 320); ctx.restore(); }
   matBase = await createImageBitmap(canvas);
 }
 const calibration = createFieldCalibration([{ x: .08, y: .04 }, { x: .92, y: .04 }, { x: .92, y: .96 }, { x: .08, y: .96 }], { playerSide: 'bottom', mirrored: false });
@@ -31,7 +33,7 @@ function renderFrame(cards: { card: Card; x: number; y: number; h: number }[], h
   ctx.drawImage(matBase, 0, 0);
   for (const c of cards) { const w = c.h * c.card.image.width / c.card.image.height; ctx.drawImage(c.card.image, c.x - w / 2, c.y - c.h / 2, w, c.h); }
   if (hand) drawHand(hand.x, hand.y);
-  const image = ctx.getImageData(0, 0, W, H), d = image.data; let n = Math.floor(Math.random() * 60000);
+  const image = ctx.getImageData(0, 0, W, H), d = image.data; let n = Math.floor(random() * 60000);
   for (let i = 0; i < d.length; i += 4) { const v = noise[(n++) & 65535]; d[i] += v; d[i + 1] += v; d[i + 2] += noise[(n += 3) & 65535]; }
   return createImageBitmap(image);
 }
@@ -63,7 +65,7 @@ async function startCamera() {
   (video as any).requestVideoFrameCallback(onVideo);
   void video.play();
 }
-function board(cards: Card[], placed: number[]) { return placed.map(i => { const c = cellCenter(SLOTS[i]); return { card: cards[i], x: c.x, y: c.y, h: c.cellH * .78 * cardScale }; }); }
+function board(cards: Card[], placed: number[]) { return placed.map(i => { const c = cardCount > 5 ? { x: 250 + (i % 6) * 280, y: 320 + Math.floor(i / 6) * 440, cellH: 244 } : cellCenter(SLOTS[i]); return { card: cards[i % cards.length], x: c.x, y: c.y, h: c.cellH * .78 * cardScale }; }); }
 async function loopFrames(cards: Card[], placed: number[], n = 3) { const f: ImageBitmap[] = []; for (let i = 0; i < n; i++) f.push(await renderFrame(board(cards, placed))); return f; }
 async function placeFrames(cards: Card[], before: number[], i: number) {
   const c = cellCenter(SLOTS[i]), h = c.cellH * .78, f: ImageBitmap[] = [], base = board(cards, before);
@@ -88,7 +90,8 @@ function timedAnalyzer() {
   };
   return Object.assign(wrap, { reset: base.reset });
 }
-export async function setup(config: { cards: { id: string; url: string }[]; scene: string; threads?: number; profile?: Record<string, unknown>; workers?: 'auto' | 'single' | 'split'; backend?: 'auto' | 'wasm'; opts?: Record<string, unknown>; noise?: number; spinning?: boolean; longSide?: number; detector?: { url: string; sha256: string } }) {
+export async function setup(config: { cards: { id: string; url: string }[]; scene: string; cardCount?: number; threads?: number; profile?: Record<string, unknown>; workers?: 'auto' | 'single' | 'split'; backend?: 'auto' | 'wasm'; opts?: Record<string, unknown>; noise?: number; spinning?: boolean; longSide?: number; detector?: { url: string; sha256: string } }) {
+  cardCount = config.cardCount ?? 5;
   if ((config as any).cardScale) cardScale = (config as any).cardScale;
   if (config.noise !== undefined) { NOISE = config.noise; noise = noiseTable(); }
   const cards: Card[] = [];
@@ -97,7 +100,7 @@ export async function setup(config: { cards: { id: string; url: string }[]; scen
   new PerformanceObserver(list => { if (!recording) return; for (const e of list.getEntries()) { if (e.startTime < beganAt) continue; longTasks.n++; longTasks.ms += e.duration; longTasks.max = Math.max(longTasks.max, e.duration); } }).observe({ entryTypes: ['longtask'] });
   let last = clock(); setInterval(() => { const at = clock(); if (recording) lag.push(Math.max(0, at - last - 50)); last = at; }, 50);
   const empty = await loopFrames(cards, [], 3);
-  const all = [0, 1, 2, 3, 4];
+  const all = Array.from({ length: cardCount }, (_, i) => i);
   (window as any).__scene = { cards, empty, all };
   if (config.scene === 'steady' || config.scene === 'pass' || config.scene === 'grab') await play(await loopFrames(cards, all, 3), true); else await play(empty, true);
   await startCamera();
@@ -169,7 +172,7 @@ export async function passBench(n: number) {
   await reader.prepare({ priors: { decklist: ((window as any).__scene.cards as Card[]).map(c => c.id) } } as any);
   const first = await reader.detectCards(await createImageBitmap(video)); begin(); const walls: number[] = [], timing: Record<string, number> = {};
   for (let i = 0; i < n; i++) { const frame = await createImageBitmap(video), t = clock(); await reader.detectCards(frame); walls.push(clock() - t); for (const [k, v] of Object.entries(reader.detectorTimingsMs ?? {})) timing[k] = (timing[k] ?? 0) + v / n; }
-  walls.sort((a, b) => a - b); return { found: first.length, conf: first.map(c => Number(c.confidence.toFixed(2))), wallP50: walls[n >> 1], wallP90: walls[Math.floor(n * .9)], timing, n };
+  walls.sort((a, b) => a - b); return { found: first.length, outlines: first, conf: first.map(c => Number(c.confidence.toFixed(2))), wallP50: walls[n >> 1], wallP90: walls[Math.floor(n * .9)], timing, n };
 }
 export async function readBench(n: number) {
   const cards = await reader.detectCards(await createImageBitmap(video)), walls: number[] = [], timing: Record<string, number> = {}; let top = '';
