@@ -288,9 +288,21 @@ test('moving, turning and sizing the grid moves the zones the tracker reads; a r
   assert.equal(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.applied.rotation,undefined);
   assert.deepEqual(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.corners.map(c=>({x:+c.x.toFixed(6),y:+c.y.toFixed(6)})),base);
   assert.equal(zones.transformFieldCorners(base,{...t,rotation:zones.FIELD_ROTATION_MAX+1},aspect),null);
-  // A grid that fills the picture shrinks a little to turn instead of refusing.
-  const full=zones.transformFieldCorners([{x:.02,y:.02},{x:.98,y:.02},{x:.98,y:.98},{x:.02,y:.98}],{dx:0,dy:0,scale:1,width:1,height:1,rotation:8},aspect)!;
-  assert.ok(full.applied.scale<1&&full.corners.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1));
+  // A grid that fills the picture shrinks a little to turn instead of refusing; any other change that does not fit is refused, not shrunk.
+  const wide=[{x:.02,y:.02},{x:.98,y:.02},{x:.98,y:.98},{x:.02,y:.98}],flat={dx:0,dy:0,scale:1,width:1,height:1},inside=(cs:{x:number;y:number}[])=>cs.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1);
+  const full=zones.transformFieldCorners(wide,{...flat,rotation:8},aspect,true)!;
+  assert.ok(full.applied.scale<1&&inside(full.corners));
+  assert.equal(zones.transformFieldCorners(wide,{...flat,rotation:8},aspect),null);
+  assert.equal(zones.transformFieldCorners(wide,{...full.applied,scale:full.applied.scale*1.04},aspect),null);
+  // Turning back asks for the size the owner chose, so it returns in full.
+  assert.equal(zones.transformFieldCorners(wide,{...flat,rotation:0},aspect,true)!.applied.scale,1);
+  // A saved quad opens at its own turn: the base is the quad turned back, a turn of 0 straightens it, and the angle does not pile up.
+  const saved=zones.straightenFieldCorners(out.corners,aspect);
+  assert.ok(Math.abs(saved.rotation-10)<1e-6);
+  const again=zones.transformFieldCorners(saved.base,{...flat,rotation:saved.rotation},aspect)!.corners;
+  assert.ok(again.every((c,i)=>Math.abs(c.x-out.corners[i].x)<1e-9&&Math.abs(c.y-out.corners[i].y)<1e-9));
+  const straight=zones.transformFieldCorners(saved.base,{...flat,rotation:0},aspect)!.corners;
+  assert.ok(Math.abs(straight[0].y-straight[1].y)<1e-9&&Math.abs(zones.straightenFieldCorners(straight,aspect).rotation)<1e-6);
 });
 
 test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{

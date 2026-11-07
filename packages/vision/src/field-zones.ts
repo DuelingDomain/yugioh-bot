@@ -178,20 +178,40 @@ export const FIELD_ROTATION_MAX = 15;
  * identification all read zones from that quad. Rotation turns the quad about its centre in picture pixels (`aspect` = width / height
  * of the picture, so the turn is not sheared on a wide picture).
  */
-export function transformFieldCorners(base: Point[], t: FieldTransform, aspect = 1): { corners: Point[]; applied: FieldTransform } | null {
-  // A turned grid needs more room: when it would leave the picture, it gets a little smaller instead of refusing the turn.
-  for (let attempt = 0, next = t; attempt < 40; attempt++, next = { ...next, scale: next.scale * .97 }) {
+export function transformFieldCorners(base: Point[], t: FieldTransform, aspect = 1, fit = false): { corners: Point[]; applied: FieldTransform } | null {
+  // `fit` (a turn) lets a grid that would leave the picture get a little smaller instead of refusing; every other change is refused as is.
+  for (let attempt = 0, next = t; attempt < (fit ? 40 : 1); attempt++, next = { ...next, scale: next.scale * .97 }) {
     const out = placeFieldCorners(base, next, aspect);
-    if (out || !t.rotation) return out;
+    if (out) return out;
   }
   return null;
+}
+/** Turn a picture point about `centre` by `degrees` clockwise; `aspect` = width / height keeps the turn from shearing a wide picture. */
+function turnAbout(p: Point, centre: Point, degrees: number, aspect: number): Point {
+  const radians = degrees * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians), x = (p.x - centre.x) * aspect, y = p.y - centre.y;
+  return { x: centre.x + (x * cos - y * sin) / aspect, y: centre.y + x * sin + y * cos };
+}
+/**
+ * The turn (degrees, clockwise, limited to the grid's turn range) a saved quad already has: the slope of its top and bottom edges in picture
+ * pixels, added together so the slant of perspective cancels. `base` is the quad turned back by that much, so `transformFieldCorners(base, { ...,
+ * rotation })` gives the saved quad again, a turn of 0 straightens it, and turning never stacks on a turn from an earlier session.
+ */
+export function straightenFieldCorners(corners: Point[], aspect = 1): { base: Point[]; rotation: number } {
+  const vx = (corners[1].x - corners[0].x + corners[2].x - corners[3].x) * aspect, vy = corners[1].y - corners[0].y + corners[2].y - corners[3].y;
+  const found = Math.atan2(vy, vx) * 180 / Math.PI, rotation = Number.isFinite(found) ? Math.max(-FIELD_ROTATION_MAX, Math.min(FIELD_ROTATION_MAX, found)) : 0;
+  if (!rotation) return { base: corners.map(p => ({ ...p })), rotation: 0 };
+  try {
+    const centre = fieldMatPoint({ x: .5, y: .5 }, { version: 1, corners });
+    if (![centre.x, centre.y].every(Number.isFinite)) throw new Error('No centre');
+    return { base: corners.map(p => turnAbout(p, centre, -rotation, aspect)), rotation };
+  } catch { return { base: corners.map(p => ({ ...p })), rotation: 0 }; }
 }
 function placeFieldCorners(base: Point[], t: FieldTransform, aspect: number): { corners: Point[]; applied: FieldTransform } | null {
   const flat: FieldCalibration = { version: 1, corners: base };
   const kx = t.scale * t.width, ky = t.scale * t.height, rotation = t.rotation ?? 0;
   if (![t.dx, t.dy, kx, ky, rotation, aspect].every(Number.isFinite) || kx < .2 || ky < .2 || kx > 4 || ky > 4 || Math.abs(rotation) > FIELD_ROTATION_MAX + 1e-9 || aspect <= 0) return null;
-  const centre = fieldMatPoint({ x: .5, y: .5 }, flat), radians = rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
-  const turn = (p: Point): Point => { const x = (p.x - centre.x) * aspect, y = p.y - centre.y; return { x: centre.x + (x * cos - y * sin) / aspect, y: centre.y + x * sin + y * cos }; };
+  const centre = fieldMatPoint({ x: .5, y: .5 }, flat);
+  const turn = (p: Point): Point => turnAbout(p, centre, rotation, aspect);
   const moved = unitCorners.map(u => { const p = turn(fieldMatPoint({ x: .5 + (u.x - .5) * kx, y: .5 + (u.y - .5) * ky }, flat)); return { x: p.x + t.dx, y: p.y + t.dy }; });
   if (moved.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
   const b = boundsOf(moved);

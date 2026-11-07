@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { FIELD_ROTATION_MAX, IDENTITY_FIELD_TRANSFORM, transformFieldCorners, type FieldTransform } from '@yugidraft/vision';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { FIELD_ROTATION_MAX, IDENTITY_FIELD_TRANSFORM, straightenFieldCorners, transformFieldCorners, type FieldTransform } from '@yugidraft/vision';
 import { DEFAULT_GRID_CORNERS } from '@/lib/remote/zone-grid';
 import s from './field-transform.module.css';
 
 type Point={x:number;y:number};
-interface State {base:Point[];t:FieldTransform}
+/** `size` is the size the owner asked for; `t.scale` can be smaller while a turn leaves no room, and it grows back to `size` when the turn eases. */
+interface State {base:Point[];t:FieldTransform;size:number}
 /** Slider limits. A step that would push the field out of the picture is ignored, so the thumb stops there. */
 export const FIELD_SIZE={min:.5,max:1.6,step:.01} as const;
 export const FIELD_STRETCH={min:.6,max:1.5,step:.01} as const;
@@ -14,23 +15,37 @@ export const FIELD_ROTATE={min:-FIELD_ROTATION_MAX,max:FIELD_ROTATION_MAX,step:.
 /** Fine steps for the buttons and keys: 1% of the picture to move, half a degree to turn. */
 export const MOVE_STEP=.01,ROTATE_STEP=.5;
 const clampTurn=(degrees:number)=>Math.max(-FIELD_ROTATION_MAX,Math.min(FIELD_ROTATION_MAX,degrees));
-const fresh=():State=>({base:DEFAULT_GRID_CORNERS.map(p=>({...p})),t:IDENTITY_FIELD_TRANSFORM});
+const fresh=():State=>({base:DEFAULT_GRID_CORNERS.map(p=>({...p})),t:IDENTITY_FIELD_TRANSFORM,size:1});
+/** A saved quad opens at the turn it already has (the record holds only the corners), so 0 degrees straightens it and turns never pile up. */
+const startState=(corners:Point[]|undefined,aspect:number):State=>{
+  if(corners?.length!==4)return fresh();
+  const {base,rotation}=straightenFieldCorners(corners,aspect);
+  return {base,t:{...IDENTITY_FIELD_TRANSFORM,rotation},size:1};
+};
 
 /**
  * The whole-field calibration: one quad (the base) plus move, turn, size, width and height. The zones inside keep their fixed
  * proportions; nothing here edits a single zone. Undo keeps the last few states (changes within half a second count as one).
- * Only the resulting corners are saved (the saved record is the quad), so a record from before the turn control opens at 0 degrees,
- * and the turn shown is the turn made since the screen opened. `aspect` is picture width / height, so a turn is not sheared.
+ * Only the resulting corners are saved (the saved record is the quad), so the turn shown at the start is read back from the quad's
+ * edges. A turn that leaves no room makes the grid smaller for as long as it lasts; other changes that do not fit are ignored.
+ * `aspect` is picture width / height, so a turn is not sheared.
  */
 export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=>void,aspect=16/9) {
   const aspectRef=useRef(aspect);aspectRef.current=aspect;
-  const [state,setState]=useState<State>(()=>initial?.length===4?{base:initial.map(p=>({...p})),t:IDENTITY_FIELD_TRANSFORM}:fresh());
+  const [state,setState]=useState<State>(()=>startState(initial,aspect));
   const ref=useRef(state);ref.current=state;
   const history=useRef<State[]>([]),lastPush=useRef(0),[depth,setDepth]=useState(0);
   const notify=useRef(onCorners);notify.current=onCorners;
-  const result=useMemo(()=>transformFieldCorners(state.base,state.t,aspect),[state,aspect]);
+  const seed=useRef({initial,aspect,touched:false});seed.current.initial=initial;
+  // The picture's real size can arrive after the first render; until the owner changes something, read the turn again with it.
+  useEffect(()=>{
+    if(seed.current.touched||seed.current.aspect===aspect)return;
+    seed.current.aspect=aspect;const next=startState(seed.current.initial,aspect);ref.current=next;setState(next);
+  },[aspect]);
+  const result=useMemo(()=>transformFieldCorners(state.base,state.t,aspect,true),[state,aspect]);
   const corners=result?.corners??state.base;
   const commit=useCallback((next:State,push:boolean)=>{
+    seed.current.touched=true;
     if(push){
       const now=Date.now();
       if(now-lastPush.current>500){history.current=[...history.current.slice(-19),ref.current];setDepth(history.current.length);}
@@ -39,22 +54,27 @@ export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=
     ref.current=next;setState(next);
     notify.current?.(transformFieldCorners(next.base,next.t,aspectRef.current)?.corners??next.base);
   },[]);
-  const patch=useCallback((change:(t:FieldTransform)=>FieldTransform)=>{
+  const patch=useCallback((change:(t:FieldTransform)=>FieldTransform,resize=false)=>{
     const before=ref.current,out=transformFieldCorners(before.base,change(before.t),aspectRef.current);
     if(!out)return;
-    commit({base:before.base,t:out.applied},true);
+    commit({base:before.base,t:out.applied,size:resize?out.applied.scale:before.size},true);
+  },[commit]);
+  const turn=useCallback((rotation:(t:FieldTransform)=>number)=>{
+    const before=ref.current,out=transformFieldCorners(before.base,{...before.t,scale:before.size,rotation:clampTurn(rotation(before.t))},aspectRef.current,true);
+    if(!out)return;
+    commit({base:before.base,t:out.applied,size:before.size},true);
   },[commit]);
   return {
     corners,t:state.t,canUndo:depth>0,
     move:useCallback((dx:number,dy:number)=>patch(t=>({...t,dx:t.dx+dx,dy:t.dy+dy})),[patch]),
     /** Turn the grid clockwise by `degrees` (negative = anticlockwise); it stops at the limit. */
-    rotateBy:useCallback((degrees:number)=>patch(t=>({...t,rotation:clampTurn((t.rotation??0)+degrees)})),[patch]),
-    setRotation:useCallback((rotation:number)=>patch(t=>({...t,rotation:clampTurn(rotation)})),[patch]),
-    setScale:useCallback((scale:number)=>patch(t=>({...t,scale})),[patch]),
+    rotateBy:useCallback((degrees:number)=>turn(t=>(t.rotation??0)+degrees),[turn]),
+    setRotation:useCallback((rotation:number)=>turn(()=>rotation),[turn]),
+    setScale:useCallback((scale:number)=>patch(t=>({...t,scale}),true),[patch]),
     setWidth:useCallback((width:number)=>patch(t=>({...t,width})),[patch]),
     setHeight:useCallback((height:number)=>patch(t=>({...t,height})),[patch]),
     /** A new base quad (for example from the two-card setup); the sliders start over from it. */
-    rebase:useCallback((next:Point[])=>{lastPush.current=0;commit({base:next.map(p=>({...p})),t:IDENTITY_FIELD_TRANSFORM},true);},[commit]),
+    rebase:useCallback((next:Point[])=>{lastPush.current=0;commit(startState(next,aspectRef.current),true);},[commit]),
     reset:useCallback(()=>{lastPush.current=0;commit(fresh(),true);},[commit]),
     undo:useCallback(()=>{
       const previous=history.current.pop();setDepth(history.current.length);
