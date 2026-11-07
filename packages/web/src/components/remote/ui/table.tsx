@@ -51,11 +51,13 @@ import s from "./remote-ui.module.css";
 import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
+/** The detection mode a stored Webcam only choice was made in. */
+const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
@@ -324,17 +326,32 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
-  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. This is the default. A choice in either direction is remembered in this browser.
-  const [webcamOnly, setWebcamOnlyState] = useState(true);
-  useLayoutEffect(() => { try { setWebcamOnlyState(localStorage.getItem(WEBCAM_ONLY_KEY) !== "0"); } catch { /* storage blocked: the default */ } }, []);
+  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. The default follows my detection mode: hidden in Tap to identify (the board does not follow the camera), shown with Auto-detect.
+  // A choice in either direction is remembered in this browser with the mode it was made in. It wins while the mode stays the same; a mode change applies the new default once.
+  const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
+  const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
+  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
+  const lastMode = useRef<DetectionMode | null>(null);
+  useEffect(() => {
+    if (!detectMode) return;
+    const was = lastMode.current; lastMode.current = detectMode;
+    if (!was || was === detectMode) return;
+    // The player switched mode here: the old choice is dropped, the new mode's default applies.
+    setChoice({ hidden: null, mode: detectMode });
+    try { localStorage.removeItem(WEBCAM_ONLY_KEY); localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked */ }
+  }, [detectMode]);
+  const webcamOnly = resolveWebcamOnly(choice, detectMode);
   const setWebcamOnly = useCallback((next: boolean) => {
-    setWebcamOnlyState(next);
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
-  }, []);
+    setChoice({ hidden: next, mode: detectMode });
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (detectMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, detectMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
+  }, [detectMode]);
   /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
   // Another player in Tap to identify: the camera names no zones, so attacks need the board. Not my own seat: my camera stays where it is.
   const tapSeats = useSyncExternalStore(hub.subscribeFieldBacks, () => room.seats.filter(item => item.seat !== room.mySeat && hub.tapMode(item.seat)).map(item => item.seat).join(","), () => "");
-  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat));
+  // My Tap to identify default hides the fields. An opponent's field that has cards stays shown (it follows their camera), unless I hid the fields by hand.
+  const opponentFieldShown = (seat: number) => detectMode === "tap" && choice.hidden === null && seat !== mySeat && !solo
+    && !!state.seats[seat]?.twin.some(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
+  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat)) || opponentFieldShown(seat);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
   /** The read in progress. No popup is open for it, so Esc, another layer and the time limit stop it here. */
