@@ -114,6 +114,7 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
   },[]);
   const point=(event:PointerEvent<HTMLElement>)=>({x:event.clientX,y:event.clientY});
   const onKey=(event:KeyboardEvent)=>{
+    if(event.ctrlKey||event.metaKey)return;// browser zoom and other shortcuts
     const big=event.shiftKey;
     if(event.key==='['||event.key===']'){event.preventDefault();tf.turnBy((event.key==='['?-1:1)*(big?ROTATE_BIG:ROTATE_STEP));return;}
     // "+" is Shift plus the Equal key on a US keyboard, so Shift cannot mean "bigger" here: Alt does.
@@ -143,17 +144,22 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
   // One gesture owns the grid at a time: a handle or the knob drags alone, and a second finger elsewhere is ignored (it would commit from a stale snapshot).
   const busy=()=>!!resizing.current||!!turning.current;
   const refuse=(event:PointerEvent<HTMLElement>)=>{event.preventDefault();event.stopPropagation();};
+  // A finger on the grid body, or a second finger on a handle or the knob while one is already down: it joins the move or the pinch.
+  const startFinger=(event:PointerEvent<HTMLElement>,focus:boolean)=>{
+    event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture?.(event.pointerId);if(focus)event.currentTarget.focus({preventScroll:true});
+    fingers.current.set(event.pointerId,point(event));
+    if(fingers.current.size===2){const [a,b]=[...fingers.current.values()];pinch.current={from:tf.grab(),distance:Math.hypot(b.x-a.x,b.y-a.y),angle:angleOf(a,b)};drag.current=null;}
+    else if(fingers.current.size===1)drag.current=point(event);
+  };
   const finish=(event:PointerEvent<HTMLElement>)=>{fingers.current.delete(event.pointerId);drag.current=null;pinch.current=null;};
   return <div ref={surfaceRef} className={s.surface} tabIndex={disabled?-1:0} role="group" aria-label="Edit field grid. Drag it to move; drag a corner or edge to resize; turn it with the round handle or two fingers. Arrow keys move, [ and ] turn, plus and minus resize; hold Shift (Alt for resize) for larger steps." data-testid="field-move-surface" aria-disabled={disabled||undefined}
     onKeyDown={disabled?undefined:onKey}
     onPointerDown={event=>{
-      if(disabled||event.button>0)return;if(busy()){refuse(event);return;}event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture?.(event.pointerId);event.currentTarget.focus({preventScroll:true});
-      fingers.current.set(event.pointerId,point(event));
-      if(fingers.current.size===2){const [a,b]=[...fingers.current.values()];pinch.current={from:tf.grab(),distance:Math.hypot(b.x-a.x,b.y-a.y),angle:angleOf(a,b)};drag.current=null;}
-      else if(fingers.current.size===1)drag.current=point(event);
+      if(disabled||event.button>0)return;if(busy()){refuse(event);return;}startFinger(event,true);
     }}
     onPointerMove={event=>{
-      if(fingers.current.has(event.pointerId))fingers.current.set(event.pointerId,point(event));
+      if(!fingers.current.has(event.pointerId))return;
+      fingers.current.set(event.pointerId,point(event));
       const two=pinch.current;
       if(fingers.current.size===2&&two){
         const [a,b]=[...fingers.current.values()],distance=Math.hypot(b.x-a.x,b.y-a.y);
@@ -170,18 +176,18 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
       {HANDLES.map(h=>{
         const at=fieldQuadPoint(tf.corners,h.at),corner=h.at.x!==.5&&h.at.y!==.5;
         return <button key={h.id} type="button" tabIndex={-1} className={`${s.handle} ${corner?s.corner:s.edge}`} style={{left:`${at.x*100}%`,top:`${at.y*100}%`,cursor:h.cursor}} data-testid={`field-handle-${h.id}`} aria-label={`Resize from the ${h.label}`}
-          onPointerDown={event=>{if(event.button>0)return;if(busy()||fingers.current.size>0){refuse(event);return;}stop(event);resizing.current={id:event.pointerId,from:tf.grab(),at:h.at};}}
+          onPointerDown={event=>{if(event.button>0)return;if(busy()){refuse(event);return;}if(fingers.current.size>0){startFinger(event,false);return;}stop(event);resizing.current={id:event.pointerId,from:tf.grab(),at:h.at};}}
           onPointerMove={event=>{
             const active=resizing.current;if(!active||active.id!==event.pointerId)return;event.stopPropagation();
             const box=surfaceBox(event);if(!box.width||!box.height)return;
             tf.resizeFrom(active.from,active.at,{x:(event.clientX-box.left)/box.width,y:(event.clientY-box.top)/box.height},event.shiftKey);
           }}
-          onPointerUp={event=>{event.stopPropagation();if(resizing.current?.id===event.pointerId)resizing.current=null;}} onPointerCancel={event=>{if(resizing.current?.id===event.pointerId)resizing.current=null;}}/>;
+          onPointerUp={event=>{if(resizing.current?.id===event.pointerId){event.stopPropagation();resizing.current=null;}}} onPointerCancel={event=>{if(resizing.current?.id===event.pointerId)resizing.current=null;}}/>;
       })}
       <button type="button" className={s.knob} style={knobStyle} data-testid="field-rotate-handle" aria-label="Turn the grid to any angle. Drag around the grid; it sticks at quarter turns. Arrow keys turn it a degree."
         onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();event.stopPropagation();tf.turnBy((event.key==='ArrowLeft'?-1:1)*(event.shiftKey?ROTATE_BIG:ROTATE_STEP));}}}
         onPointerDown={event=>{
-          if(event.button>0)return;if(busy()||fingers.current.size>0){refuse(event);return;}stop(event);
+          if(event.button>0)return;if(busy()){refuse(event);return;}if(fingers.current.size>0){startFinger(event,false);return;}stop(event);
           const box=surfaceBox(event),from=tf.grab(),mid=fieldQuadPoint(from.quad,{x:.5,y:.5}),c={x:box.left+mid.x*box.width,y:box.top+mid.y*box.height};
           turning.current={id:event.pointerId,from,last:angleOf(c,point(event)),total:0,centre:c};setShowAngle(true);
         }}
@@ -190,7 +196,7 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
           const next=angleOf(active.centre,point(event));active.total+=wrap(next-active.last);active.last=next;
           tf.turnFrom(active.from,dragTurn(active.from.angle,active.total)-active.from.angle);
         }}
-        onPointerUp={event=>{event.stopPropagation();if(turning.current?.id===event.pointerId){turning.current=null;setShowAngle(false);}}} onPointerCancel={event=>{if(turning.current?.id===event.pointerId){turning.current=null;setShowAngle(false);}}}/>
+        onPointerUp={event=>{if(turning.current?.id===event.pointerId){event.stopPropagation();turning.current=null;setShowAngle(false);}}} onPointerCancel={event=>{if(turning.current?.id===event.pointerId){turning.current=null;setShowAngle(false);}}}/>
       {showAngle?<output className={s.angle} style={knobStyle} data-testid="field-angle-bubble">{Math.round(tf.angle)}°</output>:null}
     </>}
   </div>;
