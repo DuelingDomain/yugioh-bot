@@ -22,7 +22,7 @@ export const pileCards = (twin: readonly TwinCard[], zone: PileZone): TwinCard[]
  * The owner sees the name of a face-down banished card; the others get a card back (the server never sends them the name).
  * The owner can drag a card from the pile to a zone of the field, or to the hand chip, with the same rules as the field.
  */
-export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, onZone, info, drag: dnd, onOpenCard, onOrder, onName, onRemove, onClose }: {
+export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, onZone, info, drag: dragProp, onOpenCard, onOrder, onName, onRemove, onClose }: {
   /** The virtual field of this seat is hidden: only the hand is a drop target. */ fieldHidden?: boolean;
   seat: number; name: string; mine: boolean; twin: readonly TwinCard[]; zone: PileZone; onZone: (zone: PileZone) => void;
   info: (id: number | undefined) => CardInfo | undefined; drag?: FieldDrag;
@@ -33,11 +33,13 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   /** Owner only. Names an unnamed face-up card (`card.identified` with its ref), and removes a card (`twin.remove`). */
   onName?: (card: TwinCard, cardId: number, name: string) => void; onRemove?: (card: TwinCard) => void;
 }) {
+  // Only Graveyard and Banished are ordered piles (newest first, a top card, drag back to play). Deck and Extra list what the table holds, nothing more.
+  const ordered = zone === "graveyard" || zone === "banished";
+  const dnd = ordered ? dragProp : undefined;
   // An opponent's Deck and Extra Deck stay private, even if the viewer is pointed at them.
   const cards = !mine && (zone === "deck" || zone === "extra") ? [] : pileCards(twin, zone);
   const counts: Record<PileZone, number> = { graveyard: pileCards(twin, "graveyard").length, banished: pileCards(twin, "banished").length, deck: pileCards(twin, "deck").length, extra: pileCards(twin, "extra").length };
-  // Only Graveyard and Banished have an order the table can change.
-  const canOrder = !!onOrder && (zone === "graveyard" || zone === "banished");
+  const canOrder = !!onOrder && ordered;
   const list = useRef<HTMLUListElement>(null);
   const [active, setActive] = useState(0);
   const [hot, setHot] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   const previewCard = cards.find(card => card.ref === hot) ?? cards[at];
   const shown = (card: TwinCard) => card.faceUp || mine;
   /** An unnamed face-up card the owner can name or remove. */
-  const nameable = !!onName && !!previewCard && previewCard.faceUp && !cardCode(previewCard) && !previewCard.name;
+  const nameable = !!onName && ordered && !!previewCard && previewCard.faceUp && !cardCode(previewCard) && !previewCard.name;
   const previewCode = previewCard && shown(previewCard) ? cardCode(previewCard) : undefined;
 
   /** Pointer drag (mouse and pen). A press that moves less than 6 px stays a click. */
@@ -117,14 +119,14 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         <button type="button" className={s.ibtn} aria-label="Close pile" onClick={onClose} data-testid="pile-close"><Icon name="x" /></button>
       </div>
       <div className={s.pileBody}>
-        {cards.length ? <ul className={s.pileList} ref={list} role="list" aria-label={`${PILE_LABEL[zone]}, newest first, ${cards.length} card${cards.length === 1 ? "" : "s"}`} onKeyDown={keys}
+        {cards.length ? <ul className={s.pileList} ref={list} role="list" aria-label={`${PILE_LABEL[zone]}${ordered ? ", newest first" : ""}, ${cards.length} card${cards.length === 1 ? "" : "s"}`} onKeyDown={keys}
           onClickCapture={event => { if (swallow.current) { event.stopPropagation(); event.preventDefault(); } }}>
           {cards.map((card, index) => {
             const code = cardCode(card); const open = shown(card); const known = open && !!code; const title = open ? cardName(card, info(code)) : "Face-down card";
             const down = !card.faceUp;
             return <li key={card.ref} className={s.pileItem}>
               <button type="button" data-tile data-testid="pile-card" data-ref={card.ref} data-down={down ? "on" : undefined} className={`${s.pileTile} ${dnd?.can(card) ? s.drg : ""} ${dragging?.ref === card.ref ? s.dragSrc : ""}`}
-                tabIndex={index === at ? 0 : -1} data-autofocus={index === at ? "" : undefined} aria-label={`${index + 1}. ${title}${down && open ? ", face-down" : ""}${index === 0 ? ", top of the pile" : ""}`}
+                tabIndex={index === at ? 0 : -1} data-autofocus={index === at ? "" : undefined} aria-label={`${index + 1}. ${title}${down && open ? ", face-down" : ""}${ordered && index === 0 ? ", top of the pile" : ""}`}
                 onFocus={() => { setActive(index); setHot(card.ref); }} onMouseEnter={() => setHot(card.ref)} onMouseLeave={() => setHot(null)} onBlur={() => setHot(null)}
                 onPointerDown={event => begin(event, card)}
                 onClick={event => { const box = event.currentTarget.getBoundingClientRect(); onOpenCard(card, { left: box.left, top: box.top, right: box.right, bottom: box.bottom }); }}>
@@ -132,7 +134,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
                   {known ? <img src={cardArt(code!, "small")} alt="" draggable={false} loading="lazy" /> : open && card.faceUp ? <span className={s.pileUnk}>?</span> : <span className={`${s.cd} ${s.back} ${s.pileBack}`} />}
                   {down ? <i className={s.pileDown}>{open ? "Face-down" : ""}</i> : null}
                 </span>
-                <span className={s.pileNo}>{index === 0 ? "TOP" : index + 1}</span>
+                <span className={s.pileNo}>{ordered && index === 0 ? "TOP" : index + 1}</span>
                 <span className={s.pileName}>{title}</span>
               </button>
               {canOrder && cards.length > 1 ? <span className={s.pileOrd}>
@@ -155,7 +157,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         <p className={s.dmeta}>Selected: card {at + 1} of {cards.length}</p>
         <NameIt key={previewCard!.ref} onName={(id, nm) => onName!(previewCard!, id, nm)} onRemove={onRemove ? () => onRemove(previewCard!) : undefined} />
       </div> : null}
-      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{canOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? `, drag a card to ${fieldHidden ? "the hand" : "the field or hand"} to bring it back` : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
+      <p className={s.pileHint}>{cards.length ? <>{ordered ? "Newest first. " : ""}<kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{canOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? `, drag a card to ${fieldHidden ? "the hand" : "the field or hand"} to bring it back` : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
     </div>
     {dnd ? <div className={s.pileHand} data-hand-drop data-testid="pile-hand-drop" aria-hidden="true"><Icon name="hand" />Drop here: to hand</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}

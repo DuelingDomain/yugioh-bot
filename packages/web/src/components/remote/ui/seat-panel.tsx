@@ -35,6 +35,7 @@ export type SeatPanelProps = {
   twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; extraZones?: boolean; facing?: { name: string; twin: readonly TwinCard[] } | null; boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[]; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
+  /** The table is live (not in a match break): only then is my own Deck and Extra shown as mine. */ live?: boolean;
   onPile?: (zone: "graveyard" | "banished" | "deck" | "extra", opener: HTMLElement | null) => void;
   drag?: FieldDrag;
   /** Cards with a same-identity twin on this field (ref to count). */
@@ -105,7 +106,7 @@ export function SeatPanel(p: SeatPanelProps) {
       {p.webcamOnly && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
         <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
         <button type="button" onClick={event => p.onPile?.("banished", event.currentTarget)} aria-label={`${p.name} Banished: ${banished} cards. Open`}>BAN <b className={s.num}>{banished}</b></button>
-        {p.you ? <>
+        {p.you && p.live ? <>
           <button type="button" onClick={event => p.onPile?.("deck", event.currentTarget)} aria-label={`${p.name} Deck: ${deckHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered deck: ${p.deckListSizes.deck} cards` : undefined}>DECK <b className={s.num}>{deckHeld}</b></button>
           <button type="button" onClick={event => p.onPile?.("extra", event.currentTarget)} aria-label={`${p.name} Extra Deck: ${extraHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered Extra Deck: ${p.deckListSizes.extra} cards` : undefined}>EX <b className={s.num}>{extraHeld}</b></button>
         </> : null}
