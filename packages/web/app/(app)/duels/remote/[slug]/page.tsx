@@ -11,6 +11,6 @@ export default async function RemoteDuelPage({ params }: { params: Promise<{ slu
   const { slug } = await params;
   // A tournament match's table shows its Confirm or Dispute panel to the two paired players.
   const access = await requireWebAccess();
-  const tournament = access.ok && access.discordUserId ? findRemoteTournamentLink(getDb(), env.discordGuildId, access.discordUserId, slug) : null;
+  const tournament = access.ok ? findRemoteTournamentLink(getDb(), env.discordGuildId, access.userId, slug) : null;
   return <RemoteTableScreen slug={slug} sttUrl={remoteSttUrl()} tournament={tournament} />;
 }

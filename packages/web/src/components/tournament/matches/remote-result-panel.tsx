@@ -73,7 +73,7 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
             {proposalLine(result, pair)}
             {result.status === "proposed" && viewerId !== null && !mine?.choice && <span className={styles.ask}> Confirm or Dispute.</span>}
           </p>
-          {sourceText(result.source) && <p className={styles.sub}>{sourceText(result.source)}</p>}
+          {sourceText(result, pair) && <p className={styles.sub}>{sourceText(result, pair)}</p>}
 
           <ul className={styles.answers} aria-label="Answers">
             {players.map((id) => {
@@ -89,7 +89,7 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
 
           {result.status === "proposed" && (
             <p className={styles.time} data-testid="remote-result-time" data-up={timeUp || undefined}>
-              {timeUp ? (finalizesAtDeadline(result) ? "Time is up. It is being finalized." : "Time is up. Without a confirm it does not finalize. The organizer can decide.") : left ? <><b>{left}</b> left to answer</> : null}
+              {timeUp ? (finalizesAtDeadline(result) ? "Time is up. It is being finalized." : "Time is up. Without a confirm it does not finalize. Dispute it to send it to the organizer.") : left ? <><b>{left}</b> left to answer</> : null}
             </p>
           )}
           {clock && <p className={styles.sub}>{clock}</p>}

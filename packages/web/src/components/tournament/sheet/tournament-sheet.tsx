@@ -8,6 +8,7 @@ import { LocatorFly, type Moment } from "../fx/locator-fly";
 import { useAnimations } from "../fx/use-animations";
 import { finishedSeries, pickMoment, tournamentEnding } from "../floor/floor-model";
 import { LiveView } from "../floor/live-view";
+import { RemoteSlotsProvider } from "../matches/remote-slots";
 import { CancelTournamentDialog } from "../cancel-tournament-dialog";
 import { hostToolsAvailable } from "../sheet-rules";
 import { StandingsFloor } from "../standings/standings-floor";
@@ -82,6 +83,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
 
   return (
     <div data-testid="tournament-page-shell" data-motion={motion} ref={root}>
+      <RemoteSlotsProvider tournament={tournament} tournamentSlug={tournamentSlug} viewerId={tournament.currentUserPlayerId} isHost={isHost}>
       <SheetRoot>
         <TournamentBar
           tournament={tournament}
@@ -123,6 +125,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
         )}
         <LocatorFly moment={moment} motion={motion} root={root} />
       </SheetRoot>
+      </RemoteSlotsProvider>
     </div>
   );
 }

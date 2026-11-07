@@ -93,10 +93,12 @@ export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChange
               {matches.length === 0 ? <p className={styles.none}>No matches yet.</p> : matches.map((match) => <MatchRow key={match.id} match={match} {...props} />)}
             </div>
           </section>
-          <section className={styles.dSec} aria-label="Decks">
-            <h3 className={styles.dSecH}>Decks</h3>
-            <PlayersPanel tournament={tournament} ratings={ratings} />
-          </section>
+          {!remote && (
+            <section className={styles.dSec} aria-label="Decks">
+              <h3 className={styles.dSecH}>Decks</h3>
+              <PlayersPanel tournament={tournament} ratings={ratings} />
+            </section>
+          )}
           {tournament.canManageInvite === true && tournament.visibility && (
             <section className={styles.dSec} aria-label="Invite">
               <h3 className={styles.dSecH}>Invite</h3>

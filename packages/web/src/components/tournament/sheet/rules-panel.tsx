@@ -28,6 +28,8 @@ export function RulesPanel({
   const summary = rulesSummary(tournament);
   const open = tournament.status === "pending" || tournament.status === "active";
   const canEdit = isHost && open;
+  // A Remote tournament has no banlist or turn clock to edit; its rules are fixed when it is created.
+  const canEditRules = !tournament.duelType || tournament.duelType === "online";
   const closes = formatWhen(tournament.deadlineAt) ?? "No deadline";
   const hours = tournament.reportConfirmWindowHours;
   const started = formatWhen(tournament.startedAt);
@@ -55,13 +57,13 @@ export function RulesPanel({
         {open && <><dt>Confirm window</dt><dd>{hours != null ? `${hours} hours` : "Default"}{canEdit && edit("timing", "Edit confirm window")}</dd></>}
         {!open && started && <><dt>Started</dt><dd>{started}</dd></>}
       </dl>
-      {canEdit && !tournament.rulesLocked && (
+      {canEdit && canEditRules && !tournament.rulesLocked && (
         <p className={styles.editNote}>
           Every rule is open until the first online duel opens.{" "}
           <button type="button" className={styles.edit} style={{ marginLeft: 0 }} aria-expanded={editing === "rules"} onClick={() => setEditing(editing === "rules" ? null : "rules")}>Edit rules</button>
         </p>
       )}
-      {canEdit && tournament.rulesLocked && <p className={styles.editNote}>Only you can edit the last two. Duel rules stay locked once a duel has been opened.</p>}
+      {canEdit && canEditRules && tournament.rulesLocked && <p className={styles.editNote}>Only you can edit the last two. Duel rules stay locked once a duel has been opened.</p>}
       {canEdit && editing === "timing" && (
         <TournamentSettingsForm
           key={`${tournament.deadlineAt ?? ""}:${tournament.reportConfirmWindowHours ?? ""}`}
@@ -71,7 +73,7 @@ export function RulesPanel({
           onSaved={done}
         />
       )}
-      {canEdit && editing === "rules" && <TournamentRulesForm tournament={tournament} tournamentSlug={tournamentSlug} onSaved={done} />}
+      {canEdit && canEditRules && editing === "rules" && <TournamentRulesForm tournament={tournament} tournamentSlug={tournamentSlug} onSaved={done} />}
     </RailSection>
   );
 }

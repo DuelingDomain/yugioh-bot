@@ -107,11 +107,31 @@ export function timeLeftText(deadlineAt: number, now: number): string | null {
 }
 
 /** How the last game ended, in a few words. */
-export function sourceText(source: RemoteResultSource | null): string | null {
-  if (source === "concede") return "A player conceded.";
+export function sourceText(result: RemoteResult, pair: RemotePair): string | null {
+  const { source, winnerPlayerId } = result;
+  if (source === "concede") {
+    // The player who conceded is the one who did not win.
+    const loser = winnerPlayerId === pair.playerOneId ? pair.playerTwoId : winnerPlayerId === pair.playerTwoId ? pair.playerOneId : null;
+    return loser === null ? "A player conceded." : `${nameOf(pair, loser)} conceded.`;
+  }
   if (source === "declared") return "Both players agreed on the winner at the table.";
   if (source === "lp") return "Life Points were entered by hand.";
   return null;
+}
+
+/** The slot's Remote state as one short line for strips and rows: "Bob won 1–0. Waiting for answers." Null when the slot has no open Remote result. */
+export function remoteSlotLine(result: RemoteResult | null, pair: RemotePair): string | null {
+  if (!result) return null;
+  if (result.status === "playing") return "Playing on a Remote table.";
+  if (result.status === "proposed") return `${proposalLine(result, pair)} Waiting for answers.`;
+  if (result.status === "disputed") return `${proposalLine(result, pair)} Disputed. The organizer decides.`;
+  return null;
+}
+
+/** The games won as [player one, player two] for a proposed or disputed result, else null. */
+export function remoteWins(result: RemoteResult | null): [number, number] | null {
+  if (!result || (result.status !== "proposed" && result.status !== "disputed") || !result.score) return null;
+  return [result.score.playerOne, result.score.playerTwo];
 }
 
 /** API rule: both confirms finalize now; one confirm, or a concede or declared admission, finalizes at the deadline; LP alone never does. */
@@ -126,5 +146,5 @@ export function clockNote(result: RemoteResult): string | null {
   if (result.reports.filter((report) => report.choice === "confirm").length >= 2) return null;
   return finalizesAtDeadline(result)
     ? "If nobody disputes, it becomes final when the time ends."
-    : "Without a confirm it does not finalize on its own. The organizer can decide.";
+    : "Without a confirm it does not finalize on its own. Dispute it to send it to the organizer.";
 }

@@ -97,7 +97,7 @@ export function RemoteTableScreen({ slug, sttUrl, tournament = null }: { slug: s
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
   // No VideoHubProvider for a spectator: it holds the camera and the card reader.
   if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} tournament={tournament} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -1411,7 +1411,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
-        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
+        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />

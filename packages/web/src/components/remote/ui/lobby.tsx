@@ -12,6 +12,8 @@ import ui from "@/components/duel/sheet-ui.module.css";
 import room_ from "@/components/duel/room-lobby.module.css";
 import { COLORS } from "./model";
 import { remoteApi } from "./api";
+import { isTournamentTable } from "@/lib/remote/tournament-detection";
+import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
 import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
 import { LobbyDeckList } from "./lobby-deck-list";
@@ -90,7 +92,7 @@ function ReadyCameraStep({ room, voiceRecognition }: { room: RemoteRoom; voiceRe
 }
 
 /** The setup room of a table that has not started: seats, decks, rules, camera, ready, start. */
-export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: RoomController; room: RemoteRoom; voiceRecognition?: boolean }) {
+export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournament = null }: { ctl: RoomController; room: RemoteRoom; voiceRecognition?: boolean; /** Set for a paired player of a tournament match on this table. */ tournament?: RemoteTournamentLink | null }) {
   const { operation, busy, error } = ctl;
   const saved = useSavedDecks();
   // The create screen leaves a note here when it made the room but could not seat the chosen deck.
@@ -118,6 +120,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
   const decks = saved.data?.decks ?? [];
   const blocked = !me?.ready && ((!room.solo && !me?.deck) || !!me?.deck?.validation.issues.length);
   const alert = error ?? (deckNote ? `Your deck was not seated: ${deckNote} Pick a deck below.` : saved.error?.message ?? null);
+  // The tournament sets the rules; the server refuses a change (TOURNAMENT_RULES_LOCKED), so they show read-only.
+  const rulesLocked = isTournamentTable(room);
   const canStart = host && room.seats.length === room.seatCount && room.seats.every(seat => seat.ready);
   const open = room.seatCount - room.seats.length;
   const seatNames = ["Seat 1", "Seat 2", "Seat 3", "Seat 4"];
@@ -126,6 +130,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
       <header className={room_.head}>
         <div className={room_.titleBlock}>
           <h1 className={ui.title}>{room.solo ? "Solo test" : "Remote table"}</h1>
+          {tournament ? <p className={ui.hint} data-testid="lobby-tournament"><a href={`/tournament/${encodeURIComponent(tournament.tournamentSlug)}`}>{tournament.tournamentName}</a> tournament match</p> : null}
           <p className={room_.chips}>
             <span className={cx(ui.chip, ui.chipAccent)}>{formatName(current.id)}</span>
             <span className={ui.chip}>{room.seatCount === 2 ? "1v1" : `${room.seatCount}-way`}</span>
@@ -203,7 +208,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
           <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
             void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
             <h2 className={ui.sectionTitle}>Rules</h2>
-            <fieldset disabled={busy || !host} className={r.fieldset}>
+            <fieldset disabled={busy || !host || rulesLocked} className={r.fieldset}>
               <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
                 choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
                 onChange={setBestOf} />
@@ -218,9 +223,9 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false }: { ctl: 
                 <label className={r.toggle}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e => setPublicityDraft(e.target.checked)} /><span>Cards Set from Deck are shown to all</span></label>
                 <p className={ui.hint}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
               </div>
-              {host ? <SheetButton type="submit" kind="secondary" block data-testid="apply-rules">Apply rules</SheetButton> : null}
+              {host && !rulesLocked ? <SheetButton type="submit" kind="secondary" block data-testid="apply-rules">Apply rules</SheetButton> : null}
             </fieldset>
-            <p className={ui.hint}>{host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
+            <p className={ui.hint}>{rulesLocked ? "The tournament sets these rules. They cannot change here." : host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
           </form>
         </div>
       </div>

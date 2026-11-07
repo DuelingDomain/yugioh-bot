@@ -167,21 +167,25 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
     </>
   ) : null;
 
+  // On a phone the panel is far below the field: while this player still has to answer, it sits in the sticky bar with its countdown.
+  const resultPanel = view.remote && pair && remoteResult ? <RemoteResultPanel state={remoteState} pair={pair} viewerId={viewerId} /> : null;
+  const answerInBar = narrow && resultPanel !== null && remoteResult?.status === "proposed" && !remoteResult.reports.some((report) => report.playerId === viewerId && report.choice);
   const useBar = narrow && bar !== null;
   return (
     <div className={styles.nearbox} data-testid="near-box">
       {stakesLine}
       {useBar ? <SheetPortal><BugFabLift className={styles.actionBar}>{bar}</BugFabLift></SheetPortal> : bar}
+      {answerInBar && <SheetPortal><BugFabLift className={`${styles.actionBar} ${styles.answerBar}`}>{resultPanel}</BugFabLift></SheetPortal>}
       {note && <p className={styles.note}>{note}</p>}
       {deckBlock}
-      {view.remote && pair && remoteResult && <RemoteResultPanel state={remoteState} pair={pair} viewerId={viewerId} />}
+      {!answerInBar && resultPanel}
       {actions.reporting && view.canReport && projection && (
         <div className={styles.panel}>
           <ReportPanel projection={projection} opponentName={opp.name} confirmWindowHours={hours} loading={disabled} onReport={actions.report} />
         </div>
       )}
       <MatchError error={actions.error} onOpenDeck={deckBlock && !me?.deckLocked ? openDeck : undefined} />
-      {useBar && <div className={styles.spacer} aria-hidden="true" />}
+      {(useBar || answerInBar) && <div className={answerInBar ? styles.spacerTall : styles.spacer} aria-hidden="true" />}
     </div>
   );
 }
