@@ -33,12 +33,12 @@ export function chooseCard(cards: DetectedCard[], image: RGBAImage, click?: Poin
   // Do not select a different card elsewhere on the table when the click misses.
   return click ? undefined : cards.filter(b => b.kind === 'face-up').sort((a, b) => Math.hypot(a.cx - p.x, a.cy - p.y) - Math.hypot(b.cx - p.x, b.cy - p.y))[0];
 }
-export function refinedCorners(card: DetectedCard, image: RGBAImage): Point[] {
+export function refinedCorners(card: DetectedCard, image: RGBAImage, frameArea = image.width * image.height): Point[] {
   const refined = refineCard(image, card);
   // Preserve upstream edge-fit tilt as well as full side/corner refinement.
   const pts = refined.refined !== 'none' ? refined.pts : card.pts;
   const quad = pts.map(([x, y]) => ({ x, y }));
   const area = polygonArea(quad);
-  if (!Number.isFinite(area) || area < 16 || area > image.width * image.height * 1.2 || clipToConvex(quad, [{x:0,y:0},{x:image.width,y:0},{x:image.width,y:image.height},{x:0,y:image.height}]).length < 3) return [];
+  if (!Number.isFinite(area) || area < 16 || area > frameArea * 1.2 || clipToConvex(quad, [{x:0,y:0},{x:image.width,y:0},{x:image.width,y:image.height},{x:0,y:image.height}]).length < 3) return [];
   return quad;
 }

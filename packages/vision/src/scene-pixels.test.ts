@@ -33,3 +33,21 @@ test('face sampling draws only the card rectangle and reads a 96 by 140 patch',a
   assert.ok(reads.every(([w,h])=>w<=320&&h<=180));
  }finally{globalThis.OffscreenCanvas=original;}
 });
+
+test('cards centered beyond each frame corner retain their visible outline',()=>{
+ const original=globalThis.OffscreenCanvas;
+ class Canvas {
+  constructor(public width:number,public height:number){}
+  getContext(){return {drawImage(){},getImageData:(_x:number,_y:number,w:number,h:number)=>({width:w,height:h,data:new Uint8ClampedArray(w*h*4).fill(120)})};}
+ }
+ globalThis.OffscreenCanvas=Canvas as unknown as typeof OffscreenCanvas;
+ try{
+  const pixels=new ScenePixels({width:1920,height:1080} as ImageBitmap);
+  for(const cx of [-40,1960])for(const cy of [-50,1130]){
+   const pts:[number,number][]=[[cx-60,cy-90],[cx+60,cy-90],[cx+60,cy+90],[cx-60,cy+90]];
+   const result=pixels.refine({cx,cy,w:120,h:180,angle:0,conf:.9,kind:'face-up',scores:{'face-up':.9,'face-down':0},pts});
+   assert.equal(result.length,4,`visible card at ${cx},${cy} survives`);
+   assert.deepEqual(result,pts.map(([x,y])=>({x,y})));
+  }
+ }finally{globalThis.OffscreenCanvas=original;}
+});

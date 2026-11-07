@@ -38,6 +38,6 @@ export class ScenePixels implements ScenePixelSource {
     const w=Math.min(this.width,Math.ceil(card.cx+radius))-x,h=Math.min(this.height,Math.ceil(card.cy+radius))-y;
     if(w<3||h<3)return [];
     const image=this.read(x,y,w,h,w,h);
-    return refinedCorners({...card,cx:card.cx-x,cy:card.cy-y,pts:card.pts.map(([px,py])=>[px-x,py-y])},image).map(p=>({x:p.x+x,y:p.y+y}));
+    return refinedCorners({...card,cx:card.cx-x,cy:card.cy-y,pts:card.pts.map(([px,py])=>[px-x,py-y])},image,this.width*this.height).map(p=>({x:p.x+x,y:p.y+y}));
   }
 }
