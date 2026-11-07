@@ -488,6 +488,24 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) },userId===undefined ? new Set() : privateSeats(row,userId));
       })();
     },
+    /**
+     * Trusted server transport only: the views a socket publish needs, from one read of the table.
+     * Each seated user gets that user's own projection (null when the user has no seat now), the spectators get theirs,
+     * and `publicView` is the no-seat projection that old tabs expect. Every view is projected from the same raw snapshot.
+     */
+    views(slug: string, guildId: string, want: { userIds: readonly number[]; spectator: boolean; publicView: boolean }) {
+      return db.transaction(() => {
+        const row = load(slug, guildId), metadata = table(row);
+        const raw = { table: metadata, state: readState(row),
+          events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) };
+        const players = new Map<number, ReturnType<typeof projectRemoteSnapshot> | null>();
+        for (const userId of want.userIds) {
+          const mine = metadata.seats.filter(s => s.userId === userId || (!!row.solo && row.created_by === userId && s.bot)).map(s => s.seat);
+          players.set(userId, metadata.seats.some(s => s.userId === userId) ? projectRemoteSnapshot(raw, new Set(mine)) : null);
+        }
+        return { players, spectator: want.spectator ? projectRemoteSpectator(raw) : undefined, publicView: want.publicView ? projectRemoteSnapshot(raw) : undefined };
+      })();
+    },
     /** Trusted server transport only: what the socket pushes to the spectators of a table. */
     spectatorSnapshot(slug: string, guildId: string) {
       return db.transaction(() => spectatorView(load(slug, guildId)))();
