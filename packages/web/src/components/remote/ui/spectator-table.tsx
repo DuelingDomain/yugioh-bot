@@ -45,7 +45,8 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
     <p role="status" style={{ margin: 0 }}><span className={v.badge} data-testid="spectator-badge">Spectator</span> Waiting for the table to start. {room.spectatorCount ?? 0} watching.</p>
     <ul>{room.seats.map(seat => <li key={seat.seat}><span>{seat.displayName}</span><span>{seat.ready ? "Ready" : "Not ready"}</span></li>)}</ul>
     {ctl.error ? <p role="alert">{ctl.error}</p> : null}
-    {open > 0 ? <SheetButton kind="primary" disabled={ctl.busy} data-testid="spectator-join-seat" onClick={() => void ctl.operation("seat")}>Join · {open} open</SheetButton> : null}
+    {/* A private table has no seat for an admin who watches it: only a public table offers one. */}
+    {open > 0 && room.visibility !== "private" ? <SheetButton kind="primary" disabled={ctl.busy} data-testid="spectator-join-seat" onClick={() => void ctl.operation("seat")}>Join · {open} open</SheetButton> : null}
     <a href="/duels" className={sheetButtonClass("quiet", "sm")} onClick={() => void stopWatching(room.slug)}>Back to duels</a>
   </div></div>;
 }

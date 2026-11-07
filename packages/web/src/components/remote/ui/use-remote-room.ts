@@ -13,7 +13,8 @@ import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQue
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
 /** Loads one table, keeps it fresh from the socket (poll as backup: 30 s while the socket is joined, else 5 s) and posts actions. */
-export function useRemoteRoom(slug: string) {
+export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } = {}) {
+  const watchAsAdmin = options.watchAsAdmin === true;
   const router = useRouter();
   const [realtime, setRealtime] = useState("Connecting…");
   // A person with no seat watches a public table. The spectate request also keeps the spectator slot, so this poll holds it.
@@ -23,11 +24,12 @@ export function useRemoteRoom(slug: string) {
   const roomRef = useRef<RemoteRoom | undefined>(undefined);
   const newest = useCallback((fetched: RemoteRoom) => { const held = roomRef.current; return held && held.slug === slug && held.lastSeq > fetched.lastSeq ? held : fetched; }, [slug]);
   const load = useCallback(async () => {
-    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, {}); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
-    if (spectating.current) return watch();
+    // The Watch button of the admin list asks for the admin view; the server grants it to the owner list only, and a private table stays closed to everyone else.
+    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, watchAsAdmin ? { admin: true } : {}); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
+    if (spectating.current || watchAsAdmin) return watch();
     try { return newest(await remoteApi<RemoteRoom>(`/${slug}`)); }
     catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
-  }, [slug, newest]);
+  }, [slug, newest, watchAsAdmin]);
   const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000, /* A hidden tab still receives video, so it must keep its slot. */ refreshWhenHidden: watching });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

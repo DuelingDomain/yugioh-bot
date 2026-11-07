@@ -19,6 +19,7 @@ import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from 
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
+import { AdminWatchList } from "./admin-watch-list";
 import l from "./remote-lobby.module.css";
 import r from "./lobby-room.module.css";
 
@@ -54,6 +55,7 @@ export function RemoteLobby() {
     <div className={l.lists}>
       <TableLinks title="Your tables" tables={mine.data?.tables} error={mine.error?.message} />
       <TableLinks title="Open tables" tables={open.data?.tables} error={open.error?.message} />
+      <AdminWatchList />
     </div>
   </div>;
 }

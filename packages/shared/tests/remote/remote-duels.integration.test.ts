@@ -1082,6 +1082,35 @@ describe("solo remote tables", () => {
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
   });
 
+  it("lets an owner-list admin spectate a private table with a visible badge; others and actions stay closed", () => {
+    const { service, users, db } = setup();
+    vi.stubEnv("OWNER_USER_IDS", String(users[3]));
+    const t = Date.now();
+    try {
+      const slug = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 2 as SeatCount }, t + 0).slug;
+      expect(service.get(slug, "g", users[0]).visibility).toBe("private");
+      // A non-admin, and an admin who did not ask, get the public-only rule.
+      expect(() => service.spectate(slug, "g", users[2], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[3], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[2], t + 1, { admin: true })).toThrow("This table is private");
+      expect(() => service.list("g", users[2], "all")).toThrow();
+      const view = service.spectate(slug, "g", users[3], t + 2, { admin: true });
+      expect(view.spectator).toBe(true);
+      expect(view.spectatorCount).toBe(1);
+      // The players see the badge data; the log has one public line without camera data.
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([{ userId: users[3], name: expect.any(String) }]);
+      service.spectate(slug, "g", users[3], t + 3, { admin: true });
+      expect(service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching")).toHaveLength(1);
+      expect(service.list("g", users[3], "all").map(t => t.slug)).toContain(slug);
+      // The admin cannot act or take a seat.
+      expect(() => service.act(slug, "g", users[3], { baseSeq: 0, action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "x", type: "turn.end" }) }, t + 4)).toThrow();
+      expect(() => service.join(slug, "g", users[3], "Admin", 1, t + 4)).toThrow("cannot take a seat");
+      service.stopSpectating(slug, "g", users[3], t + 5);
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([]);
+      expect(service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching").map(e => (e.action as { watching: boolean }).watching)).toEqual([true, false]);
+      expect(db.prepare("select count(*) as n from remote_spectators").get()).toEqual({ n: 0 });
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
     const { service, users, db } = setup();
     db.prepare("update remote_tables set status='ended'").run();

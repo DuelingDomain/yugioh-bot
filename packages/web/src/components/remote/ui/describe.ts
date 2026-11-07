@@ -43,6 +43,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
     case "table.started": return { kind: "PH", text: "The duel started", undoable: false };
+    case "admin.watching": return { kind: "PH", text: a.watching ? `Admin ${a.name} started watching` : `Admin ${a.name} stopped watching`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
     default: return null;
   }
