@@ -130,6 +130,7 @@ export function VoiceCheck() {
   const cell = { border: "1px solid #444", padding: "2px 6px", textAlign: "left" as const, verticalAlign: "top" as const };
   return (
     <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", fontFamily: "system-ui, sans-serif", color: "#eee", background: "#111", minHeight: "100vh" }} data-testid="voice-check">
+      <style>{`[data-testid="voice-check"] button{padding:8px 16px;margin:2px 6px 2px 0;border:1px solid #8ab4f8;border-radius:6px;background:#1a3a6b;color:#fff;font-weight:600;cursor:pointer}[data-testid="voice-check"] button:disabled{opacity:.45;cursor:not-allowed}[data-testid="voice-check"] button:hover:not(:disabled){background:#25508f}`}</style>
       <h1 style={{ fontSize: 22 }}>Voice command check</h1>
       <p style={{ opacity: 0.8 }}>Keyword spotting in this page only (sherpa-onnx WASM in a worker). Audio never leaves the page; only the model files are downloaded. Not wired to any table.</p>
       <section style={{ display: "grid", gap: 8 }}>
