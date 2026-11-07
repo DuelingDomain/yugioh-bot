@@ -397,6 +397,8 @@ const OWN_SAMPLE_GAP_MS = 100;
 export async function ownFieldResources(getPriors: () => Priors) {
   const [reader, found] = await Promise.all([loadRecognizer(), loadMeta()]);
   if (!reader || !found) return null;
+  // A new watcher starts without a last frame: the previous one closed the cached throttle frame.
+  lastOwnSample = undefined;
   return {
     recognizer: {
       get detectorBackend() { return reader.detectorBackend; },
