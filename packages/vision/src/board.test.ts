@@ -301,6 +301,9 @@ test('moving, turning and sizing the grid moves the zones the tracker reads; a r
   assert.ok(Math.abs(saved.rotation-10)<1e-6);
   const again=zones.transformFieldCorners(saved.base,{...flat,rotation:saved.rotation},aspect)!.corners;
   assert.ok(again.every((c,i)=>Math.abs(c.x-out.corners[i].x)<1e-9&&Math.abs(c.y-out.corners[i].y)<1e-9));
+  // A quad that starts at another corner reads as a turn beyond the range: it is left alone at 0.
+  const other=zones.straightenFieldCorners([wide[1],wide[2],wide[3],wide[0]],aspect);
+  assert.equal(other.rotation,0);assert.deepEqual(other.base,[wide[1],wide[2],wide[3],wide[0]]);
   const straight=zones.transformFieldCorners(saved.base,{...flat,rotation:0},aspect)!.corners;
   assert.ok(Math.abs(straight[0].y-straight[1].y)<1e-9&&Math.abs(zones.straightenFieldCorners(straight,aspect).rotation)<1e-6);
 });

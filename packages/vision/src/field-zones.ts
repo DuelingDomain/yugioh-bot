@@ -192,13 +192,13 @@ function turnAbout(p: Point, centre: Point, degrees: number, aspect: number): Po
   return { x: centre.x + (x * cos - y * sin) / aspect, y: centre.y + x * sin + y * cos };
 }
 /**
- * The turn (degrees, clockwise, limited to the grid's turn range) a saved quad already has: the slope of its top and bottom edges in picture
+ * The turn (degrees, clockwise) a saved quad already has, or 0 when it is beyond the grid's turn range (a quad not stored from the picture's top-left): the slope of its top and bottom edges in picture
  * pixels, added together so the slant of perspective cancels. `base` is the quad turned back by that much, so `transformFieldCorners(base, { ...,
  * rotation })` gives the saved quad again, a turn of 0 straightens it, and turning never stacks on a turn from an earlier session.
  */
 export function straightenFieldCorners(corners: Point[], aspect = 1): { base: Point[]; rotation: number } {
   const vx = (corners[1].x - corners[0].x + corners[2].x - corners[3].x) * aspect, vy = corners[1].y - corners[0].y + corners[2].y - corners[3].y;
-  const found = Math.atan2(vy, vx) * 180 / Math.PI, rotation = Number.isFinite(found) ? Math.max(-FIELD_ROTATION_MAX, Math.min(FIELD_ROTATION_MAX, found)) : 0;
+  const found = Math.atan2(vy, vx) * 180 / Math.PI, rotation = Number.isFinite(found) && Math.abs(found) <= FIELD_ROTATION_MAX ? found : 0;
   if (!rotation) return { base: corners.map(p => ({ ...p })), rotation: 0 };
   try {
     const centre = fieldMatPoint({ x: .5, y: .5 }, { version: 1, corners });
