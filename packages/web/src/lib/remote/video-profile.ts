@@ -96,10 +96,18 @@ const publisherConnected = (participant: LocalParticipant) => (participant as un
  * Publish again as VP8 after the first publish went bad. If the SDK stopped the capture (its publish timeout does that), capture again first,
  * so card reading keeps a live local track. Throws when this does not work.
  */
+/** A capture restart waits for the browser (camera permission, busy device): after this long the publish step fails instead of blocking the queue. */
+const RESTART_MS = 10_000;
+async function restartWithin(camera: LocalVideoTrack) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([camera.restartTrack(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Camera restart timed out")), RESTART_MS); })]);
+  } finally { clearTimeout(timer); }
+}
 export async function republishAsFallback(participant: LocalParticipant, camera: LocalVideoTrack, closed: () => boolean, rate: VideoRate = DEFAULT_VIDEO_RATE): Promise<void> {
   await discard(participant, camera);
   if (closed()) return;
-  if (camera.mediaStreamTrack.readyState === "ended") await camera.restartTrack();
+  if (camera.mediaStreamTrack.readyState === "ended") await restartWithin(camera);
   if (closed()) return;
   await participant.publishTrack(camera, { ...cameraPublishOptions(CAMERA_PUBLISH.fallbackCodec, rate), source: Track.Source.Camera });
 }
@@ -170,7 +178,7 @@ export async function applyCameraRate(participant: LocalParticipant, camera: Loc
   } catch {
     await discard(participant, camera);
     if (closed()) return "republished";
-    if (camera.mediaStreamTrack.readyState === "ended") await camera.restartTrack();
+    if (camera.mediaStreamTrack.readyState === "ended") await restartWithin(camera);
     await participant.publishTrack(camera, { ...cameraPublishOptions(codec, rate), source: Track.Source.Camera });
     return "republished";
   }

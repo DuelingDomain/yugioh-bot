@@ -138,7 +138,8 @@ export class RemoteVideo {
   }
   private async stopCamera(camera: LocalVideoTrack | undefined) {
     if (!camera) return;
-    this.cameraGone();
+    // A stale camera (replaced while it was starting) must not wipe the state of the current one.
+    if (!this.camera || this.camera === camera) this.cameraGone();
     await releaseCameraLock(camera.mediaStreamTrack);
     camera.stop();
   }
@@ -294,12 +295,19 @@ export class RemoteVideo {
   private codec = "";
   /** The rate the published camera is set to. */
   private sentRate: VideoRate | undefined;
+  /** The rate the last republish read: it is what that publish used. */
+  private rateRead: VideoRate | undefined;
   private watchEncoder(camera: LocalVideoTrack) {
     const participant = this.room.localParticipant, here = () => this.closed || this.camera !== camera;
     this.stopEncoderWatch = watchEncoder(participant, camera, this.codec, {
-      closed: here, connected: () => this.room.state === ConnectionState.Connected, rate: () => this.snapshot.videoRate,
+      closed: here, connected: () => this.room.state === ConnectionState.Connected,
+      rate: () => (this.rateRead = this.snapshot.videoRate),
       run: work => this.serial(work),
-      republished: () => { this.codec = CAMERA_PUBLISH.fallbackCodec; this.sync(); },
+      republished: () => {
+        this.codec = CAMERA_PUBLISH.fallbackCodec; this.sentRate = this.rateRead;
+        if (this.snapshot.sendFailed || this.snapshot.error) this.patch({ sendFailed: false, error: "" });
+        this.sync();
+      },
       // Both tries failed: the state is shown (health, message, Retry video). The capture is kept alive for card reading.
       failed: () => this.sendFailed(),
     });
@@ -313,12 +321,16 @@ export class RemoteVideo {
     const camera = this.camera;
     if (!camera || this.closed) return Promise.resolve();
     return this.serial(async () => {
-      if (this.closed || this.camera !== camera) return;
+      // A second click waits in the queue; by then the first retry may have worked, and good video must stay.
+      if (this.closed || this.camera !== camera || !this.snapshot.sendFailed) return;
+      this.patch({ error: "" });
+      const rate = this.snapshot.videoRate;
       try {
-        await republishAsFallback(this.room.localParticipant, camera, () => this.closed || this.camera !== camera, this.snapshot.videoRate);
-        this.codec = CAMERA_PUBLISH.fallbackCodec; this.patch({ sendFailed: false, error: "" });
-        if (!this.closed && this.camera === camera) this.sync();
-      } catch { this.sendFailed(); }
+        await republishAsFallback(this.room.localParticipant, camera, () => this.closed || this.camera !== camera, rate);
+        if (this.closed || this.camera !== camera) return;
+        this.codec = CAMERA_PUBLISH.fallbackCodec; this.sentRate = rate; this.patch({ sendFailed: false, error: "" });
+        this.sync();
+      } catch { if (!this.closed && this.camera === camera) this.sendFailed(); }
     });
   }
   /** The player's choice of frames per second. Saved; applied to the running camera without a reconnect or a stop of the capture. */

@@ -743,9 +743,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const videoOfferShowing=videoOffer&&!failedUpdate&&!recovery&&!syncHold&&!shiftHint&&!notice&&!tapOffer;
   useEffect(()=>{
     if(!videoOfferShowing)return;
-    markVideoOfferShown();
-    const timer=setTimeout(()=>setVideoOffer(false),VIDEO_OFFER_MS);return()=>clearTimeout(timer);
-  },[videoOfferShowing]);
+    // Sample again as the offer comes on screen: a limit that ended while another notice was up must not raise it.
+    let live=true,timer:ReturnType<typeof setTimeout>|undefined;
+    void hub.cpuStillLimited().then(still=>{
+      if(!live)return;
+      if(!still||document.hidden){setVideoOffer(false);return;}
+      markVideoOfferShown();
+      timer=setTimeout(()=>setVideoOffer(false),VIDEO_OFFER_MS);
+    });
+    return()=>{live=false;clearTimeout(timer);};
+  },[videoOfferShowing,hub.cpuStillLimited]);
   const answerVideoOffer=(rate:15|30)=>{hub.setVideoRate(rate);setVideoOffer(false);};
   // No answer in time: the offer goes and nothing is saved.
   useEffect(()=>{if(!tapOffer)return;const timer=setTimeout(()=>setTapOffer(false),TAP_OFFER_MS);return()=>clearTimeout(timer);},[tapOffer]);
