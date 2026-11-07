@@ -4,10 +4,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelCardInfo, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 import { PromptCenter, isStripPrompt, optionsOnBoard } from "@/components/duel/prompt-center";
 import { usePromptDraft } from "@/components/duel/prompts";

@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { LinkStub, fontMock, ready, stubFetch } from "./helpers";
+import { LinkStub, ready, stubFetch } from "./helpers";
 
-vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn(() => "/settings/card-data") }));
 vi.mock("next/link", () => ({ default: LinkStub }));
 vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));

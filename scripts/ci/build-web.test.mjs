@@ -8,10 +8,10 @@ import { test } from 'node:test';
 for (const [failure, expectedCalls, expectedStatus] of [
   ['', 1, 0],
   ['Type error: property is missing', 1, 7],
-  ['Failed to fetch `Oxanium` from Google Fonts.', 2, 0],
-  ['Failed to download font from https://fonts.gstatic.com/font.woff2', 2, 0],
+  ['Failed to fetch `Oxanium` from Google Fonts.', 1, 7],
+  ['Failed to download font from https://fonts.gstatic.com/font.woff2', 1, 7],
 ]) {
-  test(`web build retry: ${failure || 'success'}`, t => {
+  test(`web build exit status: ${failure || 'success'}`, t => {
     const dir = mkdtempSync(join(tmpdir(), 'ci-web-build-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     writeFileSync(join(dir, 'npm'), `#!/bin/bash\necho call >> "$CALLS"\nif [ ! -e "$ONCE" ] && [ -n "$FAILURE" ]; then touch "$ONCE"; echo "$FAILURE" >&2; exit 7; fi\n`);

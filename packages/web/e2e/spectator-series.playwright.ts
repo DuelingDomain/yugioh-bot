@@ -57,9 +57,9 @@ const stubs: Record<string, string> = {
     export default function Image({ src, fill, priority, quality, sizes, unoptimized, placeholder, blurDataURL, loader, ...rest }) {
       return React.createElement("img", { ...rest, src: typeof src === "string" ? src : src?.src });
     }`,
-  "next/font/google": `
+  "next/font/local": `
     const font = () => ({ className: "", variable: "", style: {} });
-    export { font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed };`,
+    export default font;`,
   // The socket only tells the room "something changed"; the room then refetches. Stand in for it with a hook
   // the test can fire, calling the same refresh the real socket calls.
   websocket: `

@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "../../../../shared/src/db/schema";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font-class", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("../../fixtures/session");
