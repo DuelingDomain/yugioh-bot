@@ -172,7 +172,9 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   // replay controls, or the failure) instead of leaving it on the body.
   const refocus = useRef(false);
   useEffect(() => {
-    if (!refocus.current) return;
+    // A click can precede the checked failure's passive effect. That stale
+    // effect must not consume the handover intended for the unchecked answer.
+    if (!refocus.current || !unchecked) return;
     const answered = model != null && settled;
     const failed = !answered && error != null && model == null;
     if (!answered && !failed) return;
@@ -184,7 +186,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     if (!target) return;
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
-  }, [model, settled, error]);
+  }, [model, settled, error, unchecked]);
 
   useEffect(() => {
     setUnchecked(uncheckedInUrl);
