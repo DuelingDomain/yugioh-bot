@@ -22,7 +22,7 @@ export const parseRemoteCommand: GameModule["parseCommand"] = (input) => {
   if(draw) return {type:'hand.draw',actorSeat,count:Number(draw[1]??1)};
   const phase = parsePhaseCommand(text, state);
   if (phase?.kind === "undo") {
-    const entry = remoteUndoHistory(state, actorSeat)[0];
+    const entry = remoteUndoHistory(state, actorSeat, "newest")[0];
     if (entry && !entry.reason) proposal = { type: "undo", actorSeat, targetActionId: entry.actionId };
   }
   if (phase?.kind === "phase") proposal = { type: "phase.set", actorSeat, phase: phase.phase };
