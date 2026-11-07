@@ -9,19 +9,26 @@ const prefix = "packages/duel-server/tests/";
 const webPrefix = "packages/web/tests/";
 const isTest = (file) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !file.startsWith(prefix + "support/fixtures/");
 
-/** App service changes exercise host admission/results and tournament/series
- * recording together on one runner. Unit/shared consumer suites still run too.
- * Web real-core tests are included only if their imports reach a changed input.
+/** Follow changed application inputs from every duel and web engine test root.
+ * Fixture-worker host tests matter too: they exercise the same service calls.
+ * Keep lifecycle/recording gates as a minimum for engine-imported inputs.
  */
 export function selectApplicationTests(sources, changed, exports) {
+  // Unit-only Remote consumers do not make an application input engine-relevant.
+  const engineInputs = engineSharedFiles(sources, exports);
+  const inputs = changed.filter(input => engineInputs.has(input));
+  if (!inputs.length) return { files: [], webFiles: [] };
+  const affected = Object.entries(sources).filter(([file, source]) => {
+    if (!(file.startsWith(prefix) && isTest(file)) && !webEngineTest(file, source)) return false;
+    const dependencies = engineSharedFiles(sources, exports, [file]);
+    return inputs.some(input => dependencies.has(input));
+  }).map(([file]) => file).sort();
   return {
-    files: ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"],
-    webFiles: Object.entries(sources).filter(([file, source]) => {
-      if (!webEngineTest(file, source)) return false;
-      const dependencies = engineSharedFiles(sources, exports, [file]);
-      return changed.some(input => dependencies.has(input));
-    })
-      .map(([file]) => file.slice("packages/web/".length)).sort(),
+    files: [...new Set([
+      "tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts",
+      ...affected.filter(file => file.startsWith(prefix)).map(file => file.slice("packages/duel-server/".length)),
+    ])],
+    webFiles: affected.filter(file => file.startsWith(webPrefix)).map(file => file.slice("packages/web/".length)),
   };
 }
 

@@ -755,17 +755,23 @@ jobs:
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml
 
   engine-app:
-    name: Engine application integration
+    name: Engine application integration (${{ matrix.shard }}/8)
     if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine_app == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
       MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
       DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
       NSEAT_LIVE: "1"
+      TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
+      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -781,21 +787,30 @@ jobs:
           BASE: ${{ needs.changes.outputs.base }}
           HEAD: ${{ needs.changes.outputs.head }}
         run: node scripts/ci/select-engine-tests.mjs --application
-      # Use the default config: host-series and draft-deck-legality have fixture
-      # workers, while host.test also exercises the real installed engine.
+      # Use the default config for both fixture-worker and real-core callers.
+      # Shard the complete selection; each suite helper runs through its test roots.
       - name: Host admission, series and tournament recording
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+          SHARD: ${{ matrix.shard }}/8
         run: |
           node --input-type=module <<'JS'
           import { spawnSync } from 'node:child_process';
           const files = JSON.parse(process.env.CI_TEST_FILES);
           if (!files.length) throw new Error('Missing application integration tests');
-          const result = spawnSync('prlimit', ['--core=1:1', '--', 'npm', 'exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...files, '--testTimeout=15000'], { stdio: 'inherit' });
-          if (result.error) throw result.error;
-          process.exit(result.status ?? 1);
+          const run = (args, env = {}) => {
+            const result = spawnSync('prlimit', ['--core=1:1', '--', 'npm', 'exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...args, '--testTimeout=15000', '--passWithNoTests'], { stdio: 'inherit', env: { ...process.env, ...env } });
+            if (result.error) throw result.error;
+            if (result.status !== 0) process.exit(result.status ?? 1);
+          };
+          const table = 'tests/multi-scripts-table.test.ts';
+          const regular = files.filter(file => file !== table);
+          if (regular.length) run([...regular, `--shard=${process.env.SHARD}`, `--exclude=${table}`]);
+          // Table is one long file: distribute its rows across every runner.
+          if (files.includes(table)) run([table], { TABLE_SHARD: process.env.SHARD });
           JS
       - name: Web engine tests that depend on changed application helpers
+        if: matrix.shard == 1
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
