@@ -104,7 +104,7 @@ export const dragTurn=(start:number,total:number)=>Math.abs(total)<SNAP_DEGREES?
  */
 export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;disabled?:boolean}) {
   const drag=useRef<Point|null>(null),fingers=useRef(new Map<number,Point>()),pinch=useRef<{from:FieldGrab;distance:number;angle:number}|null>(null);
-  const turning=useRef<{id:number;from:FieldGrab;last:number;total:number;centre:Point}|null>(null),resizing=useRef<{id:number;from:FieldGrab;at:FieldHandle}|null>(null);
+  const turning=useRef<{id:number;from:FieldGrab;last:number;total:number;centre:Point}|null>(null),resizing=useRef<{id:number;from:FieldGrab;at:FieldHandle;dx:number;dy:number}|null>(null);
   const [showAngle,setShowAngle]=useState(false),[size,setSize]=useState({w:0,h:0}),surfaceRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{
     const el=surfaceRef.current;if(!el)return;
@@ -152,7 +152,7 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
     else if(fingers.current.size===1)drag.current=point(event);
   };
   const finish=(event:PointerEvent<HTMLElement>)=>{fingers.current.delete(event.pointerId);drag.current=null;pinch.current=null;};
-  return <div ref={surfaceRef} className={s.surface} tabIndex={disabled?-1:0} role="group" aria-label="Edit field grid. Drag it to move; drag a corner or edge to resize; turn it with the round handle or two fingers. Arrow keys move, [ and ] turn, plus and minus resize; hold Shift (Alt for resize) for larger steps." data-testid="field-move-surface" aria-disabled={disabled||undefined}
+  return <div ref={surfaceRef} className={s.surface} tabIndex={disabled?-1:0} role="group" aria-label="Edit field grid. Drag it to move; drag a corner or edge to resize; turn it with the round handle or two fingers. Arrow keys move, [ and ] turn, plus and minus resize; hold Shift (Alt for resize) for larger steps." data-testid="field-move" aria-disabled={disabled||undefined}
     onKeyDown={disabled?undefined:onKey}
     onPointerDown={event=>{
       if(disabled||event.button>0)return;if(busy()){refuse(event);return;}startFinger(event,true);
@@ -175,12 +175,14 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
     {disabled?null:<>
       {HANDLES.map(h=>{
         const at=fieldQuadPoint(tf.corners,h.at),corner=h.at.x!==.5&&h.at.y!==.5;
-        return <button key={h.id} type="button" tabIndex={-1} className={`${s.handle} ${corner?s.corner:s.edge}`} style={{left:`${at.x*100}%`,top:`${at.y*100}%`,cursor:h.cursor}} data-testid={`field-handle-${h.id}`} aria-label={`Resize from the ${h.label}`}
-          onPointerDown={event=>{if(event.button>0)return;if(busy()){refuse(event);return;}if(fingers.current.size>0){startFinger(event,false);return;}stop(event);resizing.current={id:event.pointerId,from:tf.grab(),at:h.at};}}
+        return <button key={h.id} type="button" tabIndex={-1} className={`${s.handle} ${corner?s.corner:s.edge}`} style={{left:`clamp(22px, ${at.x*100}%, calc(100% - 22px))`,top:`clamp(22px, ${at.y*100}%, calc(100% - 22px))`,cursor:h.cursor}} data-testid={`field-handle-${h.id}`} aria-label={`Resize from the ${h.label}`}
+          onPointerDown={event=>{if(event.button>0)return;if(busy()){refuse(event);return;}if(fingers.current.size>0){startFinger(event,false);return;}stop(event);
+            // A handle at the picture's edge is drawn a little inside it; remember how far the finger is from the true edge so the drag does not jump.
+            const box=surfaceBox(event);resizing.current={id:event.pointerId,from:tf.grab(),at:h.at,dx:box.width?(event.clientX-box.left)/box.width-at.x:0,dy:box.height?(event.clientY-box.top)/box.height-at.y:0};}}
           onPointerMove={event=>{
             const active=resizing.current;if(!active||active.id!==event.pointerId)return;event.stopPropagation();
             const box=surfaceBox(event);if(!box.width||!box.height)return;
-            tf.resizeFrom(active.from,active.at,{x:(event.clientX-box.left)/box.width,y:(event.clientY-box.top)/box.height},event.shiftKey);
+            tf.resizeFrom(active.from,active.at,{x:(event.clientX-box.left)/box.width-active.dx,y:(event.clientY-box.top)/box.height-active.dy},event.shiftKey);
           }}
           onPointerUp={event=>{if(resizing.current?.id===event.pointerId){event.stopPropagation();resizing.current=null;}}} onPointerCancel={event=>{if(resizing.current?.id===event.pointerId)resizing.current=null;}}/>;
       })}
