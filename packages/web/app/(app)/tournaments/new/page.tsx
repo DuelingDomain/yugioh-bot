@@ -1,9 +1,11 @@
 import { StageLine } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
+import { remoteDuelsForViewer } from "@/lib/remote-duels";
 import { CreateTournamentForm } from "@/components/tournament/create-tournament-form";
 import styles from "../tournaments.module.css";
 
-export default function NewTournamentPage() {
+export default async function NewTournamentPage() {
+  const remoteDuels = await remoteDuelsForViewer();
   return (
     <PageFrame
       back={{ href: "/tournaments", label: "All tournaments" }}
@@ -22,7 +24,7 @@ export default function NewTournamentPage() {
         />
         <p className={styles.stepsNote}>After you create it, you get a lobby with an invite link.</p>
       </div>
-      <CreateTournamentForm />
+      <CreateTournamentForm remoteDuels={remoteDuels} />
     </PageFrame>
   );
 }

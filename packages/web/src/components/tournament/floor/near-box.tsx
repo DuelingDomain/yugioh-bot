@@ -9,8 +9,11 @@ import type { Match, TournamentDetail } from "../types";
 import { MatchError } from "../matches/match-controls";
 import { matchProjection, matchView, opponent } from "../matches/match-model";
 import { MyDeckPanel } from "../my-deck-panel";
+import { RemoteResultPanel } from "../matches/remote-result-panel";
 import { ReportPanel } from "../matches/report-panel";
 import { useMatchActions } from "../matches/use-match-actions";
+import { useRemoteResult } from "../matches/use-remote-result";
+import { remoteBlocksReport, type RemotePair } from "../remote-result";
 import { signed, stakesFor } from "./floor-model";
 import styles from "./floor.module.css";
 
@@ -33,6 +36,17 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
   const actions = useMatchActions(match, tournamentSlug, onChanged);
   const view = matchView(match, viewerId, isHost, tournament, actions);
   const opp = opponent(match, viewerId);
+  // A Remote slot reads its result from the Remote routes; without one the manual report stays as the fallback.
+  const remoteState = useRemoteResult({
+    tournamentSlug, tournamentMatchId: match.id, onChanged,
+    enabled: view.remote && view.player && match.playerTwoId !== null && match.status === "open" && tournament.status === "active",
+    refreshKey: `${match.status}:${match.resolvedAt ?? ""}`,
+  });
+  const remoteResult = remoteState.result;
+  const remoteBlocked = remoteBlocksReport(remoteResult);
+  const remoteAnswering = remoteResult?.status === "proposed" || remoteResult?.status === "disputed";
+  const pair: RemotePair | null = match.playerTwoId === null ? null
+    : { playerOneId: match.playerOneId, playerOneName: match.playerOneName, playerTwoId: match.playerTwoId, playerTwoName: match.playerTwoName ?? "Opponent" };
   const hours = tournament.reportConfirmWindowHours ?? 24;
   const me = tournament.participants.find((p) => p.playerId === viewerId);
   const disabled = actions.loading !== null;
@@ -81,6 +95,12 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
     buttons = <SvButton variant="quiet" big onClick={actions.cancelReport}>Cancel</SvButton>;
   } else if (view.canOpen) {
     buttons = <DuelAction kind="open" big href={`/duels/${match.series!.currentDuelSlug}`} />;
+  } else if (view.canStartRemote && !remoteAnswering) {
+    buttons = (
+      <SvButton variant="primary" big disabled={disabled} onClick={actions.startRemote}>
+        {remoteResult?.status === "playing" ? "Open Remote table" : "Start Remote Duel"}
+      </SvButton>
+    );
   } else if (view.canStart) {
     buttons = <DuelAction kind="start" big disabled={disabled} onClick={actions.start} />;
   } else if (view.canConfirm) {
@@ -96,7 +116,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
   if (owes) note = <>If you do nothing, it approves itself after {hours} hours.</>;
   else if (view.state === "reported") note = <>{opp.name} confirms within {hours} hours, or it approves itself.</>;
 
-  const offsite = view.canReport && !actions.reporting
+  const offsite = view.canReport && !actions.reporting && !remoteBlocked
     ? <p className={styles.offsite}>Played off the site? <button type="button" disabled={disabled} onClick={actions.openReport}>Report a result</button></p>
     : null;
 
@@ -107,7 +127,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
     </div>
   ) : null;
 
-  const deckBlock = view.state === "your-open" || view.state === "live" || view.state === "between-games" ? (
+  const deckBlock = !view.remote && (view.state === "your-open" || view.state === "live" || view.state === "between-games") ? (
     <>
       <p className={styles.deckline}>
         {me?.deckRegistered ? <DeckMark state="in" locked={me.deckLocked} /> : <DeckMark state="none" />}
@@ -154,6 +174,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
       {useBar ? <SheetPortal><BugFabLift className={styles.actionBar}>{bar}</BugFabLift></SheetPortal> : bar}
       {note && <p className={styles.note}>{note}</p>}
       {deckBlock}
+      {view.remote && pair && remoteResult && <RemoteResultPanel state={remoteState} pair={pair} viewerId={viewerId} />}
       {actions.reporting && view.canReport && projection && (
         <div className={styles.panel}>
           <ReportPanel projection={projection} opponentName={opp.name} confirmWindowHours={hours} loading={disabled} onReport={actions.report} />

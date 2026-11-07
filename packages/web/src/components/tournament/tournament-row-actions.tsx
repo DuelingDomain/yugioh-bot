@@ -19,7 +19,7 @@ export function TournamentRowAction({ action, tournamentSlug }: { action: RowAct
   return <MatchButtons action={action} tournamentSlug={tournamentSlug} />;
 }
 
-function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, { kind: "start" | "confirm" }>; tournamentSlug: string }) {
+function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, { kind: "start" | "start-remote" | "confirm" }>; tournamentSlug: string }) {
   const router = useOptionalRouter();
   const actions = useMatchActions(action.match, tournamentSlug, () => router?.refresh());
   const busy = actions.loading !== null;
@@ -28,6 +28,10 @@ function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, {
       <div className={styles.actionBtns}>
         {action.kind === "start" ? (
           <DuelAction kind="start" onClick={actions.start} disabled={busy} />
+        ) : action.kind === "start-remote" ? (
+          <SvButton variant="primary" onClick={actions.startRemote} disabled={busy}>
+            Start Remote Duel
+          </SvButton>
         ) : (
           <>
             <SvButton variant="primary" onClick={actions.approve} disabled={busy}>

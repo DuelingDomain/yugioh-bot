@@ -14,6 +14,7 @@ import { HostDrawer } from "../../src/components/tournament/sheet/host-drawer";
 import { tournamentInviteApi } from "../../src/lib/invite-link";
 import type { TournamentDetail } from "../../src/components/tournament/types";
 import { sheetTournament } from "../fixtures/tournament-sheet";
+import { REMOTE_JOIN_NOTICE } from "../../src/components/tournament/remote-copy";
 
 const pending: TournamentDetail = {
   id: 1, name: "Friday", format: "round_robin", status: "pending", createdByUserId: fixtureUserId("host"),
@@ -280,5 +281,48 @@ describe("the host drawer after the start", () => {
       </SheetRoot>,
     );
     expect(screen.queryByRole("region", { name: "Invite" })).toBeNull();
+  });
+});
+
+describe("a Remote tournament", () => {
+  const sheet = (tournament: TournamentDetail) => render(
+    <TournamentSheet tournament={tournament} tournamentSlug="slug1" isHost={false} ratings={new Map()} onChanged={() => {}} />,
+  );
+  beforeEach(() => { vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false }))); });
+  const proposed = { remoteResult: { tournamentMatchId: 1, tableSlug: "t1", status: "proposed", winnerPlayerId: 5, score: { playerOne: 2, playerTwo: 1 }, source: "declared",
+    proposedAt: Date.now(), confirmDeadlineAt: Date.now() + 2 * 3_600_000, reports: [{ playerId: 5, choice: null, note: null, at: null }, { playerId: 3, choice: null, note: null, at: null }],
+    finalizedAt: null, finalizationReason: null, organizerDecision: null } };
+
+  it("badges the page, explains storage before joining, starts the table, then asks the player to confirm or dispute", async () => {
+    // Join notice and badge, before the start.
+    const lobbyView = sheet({ ...pending, duelType: "remote", canJoin: true });
+    expect(within(document.querySelector("header")!).getByTestId("remote-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("remote-join-notice")).toHaveTextContent(REMOTE_JOIN_NOTICE);
+    lobbyView.unmount();
+
+    // A paired player starts the table through the Remote route, not the online duel route.
+    const calls = mockFetch({
+      "GET /api/tournaments/slug1/matches/1/remote-result": () => ({ remoteResult: null }),
+      "POST /api/tournaments/slug1/matches/1/remote": () => ({ created: true, tableUrl: "/duels/remote/t1", table: {} }),
+    });
+    const remoteSheet: TournamentDetail = { ...sheetTournament, duelType: "remote" };
+    const started = sheet(remoteSheet);
+    fireEvent.click(await screen.findByRole("button", { name: "Start Remote Duel" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/api/tournaments/slug1/matches/1/remote")).toBe(true));
+    expect(calls.some((c) => c.url.endsWith("/duel"))).toBe(false);
+    started.unmount();
+
+    // A proposed result replaces the report: Confirm or Dispute, time left, and the answer posts to the confirm route.
+    const answers = mockFetch({
+      "GET /api/tournaments/slug1/matches/1/remote-result": () => proposed,
+      "POST /api/tournaments/slug1/matches/1/remote-result/confirm": () => ({ remoteResult: { ...proposed.remoteResult, reports: [{ ...proposed.remoteResult.reports[0], choice: "confirm" }, proposed.remoteResult.reports[1]] } }),
+    });
+    sheet(remoteSheet);
+    expect(await screen.findByTestId("remote-result-line")).toHaveTextContent("Imran won 2–1");
+    expect(screen.getByTestId("remote-result-time")).toHaveTextContent("left to answer");
+    expect(screen.getByRole("button", { name: "Dispute" })).toBeInTheDocument();
+    expect(screen.queryByText("Report a result")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(answers.some((c) => c.method === "POST" && c.url.endsWith("/remote-result/confirm"))).toBe(true));
   });
 });

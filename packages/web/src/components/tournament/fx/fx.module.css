@@ -26,3 +26,6 @@
 }
 .popTitle { margin: 0 0 10px; font: 600 17px var(--f-display); color: var(--ink); }
 .popNote { margin: 10px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+
+/* The bar sub of a Remote tournament: the usual sub, then the Remote tag. */
+.remoteSub { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }

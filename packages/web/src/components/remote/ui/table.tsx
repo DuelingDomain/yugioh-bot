@@ -45,6 +45,8 @@ import type { FeedbackPreference } from "@/components/settings/vision-feedback-s
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
 import { matchOf } from "./match-model";
+import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
+import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
@@ -83,7 +85,7 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: string | null }) {
+export function RemoteTableScreen({ slug, sttUrl, tournament = null }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null }) {
   const ctl = useRemoteRoom(slug);
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
@@ -94,7 +96,7 @@ export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: stri
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
   // No VideoHubProvider for a spectator: it holds the camera and the card reader.
   if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -117,7 +119,7 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null }) {
+function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null; tournament: RemoteTournamentLink | null }) {
   const voiceRecognition = sttUrl !== null;
   const sayItsName = voiceRecognition ? " or say its name" : "";
   const hub = useVideoHub();
@@ -1406,6 +1408,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
     {match.phase === "result" || (match.phase === "done" && !boardView)
       ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+        tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
