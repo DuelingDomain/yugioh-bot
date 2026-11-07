@@ -47,6 +47,12 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     document.addEventListener("visibilitychange", shown);
     return () => document.removeEventListener("visibilitychange", shown);
   }, [repair]);
+  // A spectator who closes the tab frees the slot at once, so a watching admin's badge and the count end quickly. A GET poll would take up to 90 s.
+  useEffect(() => {
+    const leave = () => { if (spectating.current) void fetch(`/api/remote/${slug}/spectate`, { method: "DELETE", keepalive: true }).catch(() => undefined); };
+    window.addEventListener("pagehide", leave);
+    return () => window.removeEventListener("pagehide", leave);
+  }, [slug]);
   const socketRef = useRef<Socket<RemoteServerEvents, RemoteClientEvents> | null>(null);
   const dataHandlers = useRef(new Set<(payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void>());
 
@@ -86,7 +92,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       const held=roomRef.current;
       if(held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq)socketSeq.current=Math.max(socketSeq.current,snapshot.table.lastSeq);
-      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: current.spectatorCount });
+      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
       // The held room moves now, so a patch that follows at once builds on this snapshot.
       const built=held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq?fromSnapshot(held):undefined;
       if(built)roomRef.current=built;

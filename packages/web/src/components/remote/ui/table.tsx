@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
-import { Rail, LpStrip, TopBar, type Player } from "./chrome";
+import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
@@ -1311,6 +1311,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
+      <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">

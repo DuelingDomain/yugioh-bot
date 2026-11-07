@@ -117,6 +117,8 @@ export type RemoteTable = {
   visibility?: RemoteVisibility;
   /** Admins who watch now. Shown to the players as "Admin watching". Only on a table read for a room view. */
   adminWatchers?: { userId: number; name: string }[];
+  /** People who watch now. Only on a table read for a room view, so socket updates keep the count current. */
+  spectatorCount?: number;
 };
 /** `isDeveloper` is decided on the server (owner list); the browser only reads it to show developer tools. */
 export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean;

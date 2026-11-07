@@ -86,7 +86,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       where v.table_id=? and v.last_seen_at>? order by v.last_seen_at,v.user_id`).all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { userId: number; name: string }[])
       .filter(watcher => isOwnerUser(watcher.userId));
   }
-  const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now) });
+  const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now), spectatorCount: spectatorCount(row, now) });
   function adminWatchAction(userId: number, watching: boolean): RemoteSystemAction {
     const user = db.prepare("select display_name from users where id=?").get(userId) as { display_name: string } | undefined;
     return { type: "admin.watching", userId, name: user?.display_name ?? "Admin", watching };
@@ -380,9 +380,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         assertTournamentSeat(row, userId, requestedSeat);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
         remoteAssert(!row.solo, "Solo tables only accept their owner", 403, "SOLO_OWNER_ONLY");
-        // A live slot on a private table can only be an admin's. That admin watches; stopping first frees the invite path.
-        remoteAssert(!(row.visibility === "private" && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS)),
-          "An admin who watches a private table cannot take a seat", 403, "ADMIN_SPECTATOR_NO_SEAT");
+        // An admin who watched a private table is not a guest of it. The log keeps that fact, so leaving or an expired slot does not open a seat.
+        remoteAssert(!(row.visibility === "private" && isOwnerUser(userId) && db.prepare("select 1 from remote_events where table_id=? and user_id=? and json_extract(action_json,'$.type')='admin.watching' limit 1").get(row.id, userId)),
+          "An admin who watched a private table cannot take a seat", 403, "ADMIN_SPECTATOR_NO_SEAT");
         remoteAssert(row.status === "lobby", "Table is no longer in its lobby", 409);
         const occupied = seats(row).map(s => s.seat);
         const seat = requestedSeat ?? Array.from({ length: row.seat_count }, (_, n) => n).find(n => !occupied.includes(n));
@@ -457,7 +457,8 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const timeoutState = command.type === "side.timeout" ? readState(row) : undefined;
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
-        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq, "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        // An admin who starts or stops watching adds a log line. That is not a game change, so it never makes a player's move stale.
+        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);

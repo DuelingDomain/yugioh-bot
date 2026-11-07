@@ -7,6 +7,11 @@ import s from "./remote-ui.module.css";
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
+/** The phone copy of the "Admin watching" badge: the header has no room, so it takes its own row. Hidden on wide screens, where TopBar shows it. */
+export function AdminWatchStrip({ names }: { names: string[] }) {
+  return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
+}
+
 export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
   crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[]; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;

@@ -1111,6 +1111,32 @@ describe("solo remote tables", () => {
       expect(db.prepare("select count(*) as n from remote_spectators").get()).toEqual({ n: 0 });
     } finally { vi.unstubAllEnvs(); }
   });
+  it("an admin who starts or stops watching never makes a player's move stale, and a past admin watcher cannot take a seat later", () => {
+    const s = deckSession("normal", false);
+    vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
+    try {
+      s.select(s.save().id);
+      s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+      s.service.ready(s.room.slug, "g", s.users[1], true, 2002); s.start();
+      const t = 3000;
+      const read = s.service.get(s.room.slug, "g", s.users[0], t);
+      // The admin joins after the player read the table and before the player acts.
+      s.service.spectate(s.room.slug, "g", s.users[3], t + 1, { admin: true });
+      const acted = s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-joins", type: "detection.mode", mode: "tap", reason: "slow-offer" }) }, t + 2);
+      expect(acted.lastSeq).toBeGreaterThan(read.lastSeq + 1);
+      // A real game change in between still makes an old baseSeq stale.
+      expect(() => s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "really-stale", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 3)).toThrow("Stale sequence");
+      // Stopping adds a line too and still does not block the next move.
+      const read2 = s.service.get(s.room.slug, "g", s.users[0], t + 4);
+      s.service.stopSpectating(s.room.slug, "g", s.users[3], t + 5);
+      expect(s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read2.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-leaves", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 6).lastSeq).toBeGreaterThan(read2.lastSeq);
+      // After the watch ended and the slot is gone, the admin still cannot take a seat in the private table.
+      expect(() => s.service.join(s.room.slug, "g", s.users[3], "Admin", 1, t + 7)).toThrow("cannot take a seat");
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
     const { service, users, db } = setup();
     db.prepare("update remote_tables set status='ended'").run();
