@@ -1,3 +1,4 @@
+import { visionPaceFactor } from "@/lib/remote/send-health-store";
 import type { RecognizeRawFeed } from "@/lib/remote/video";
 import { relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
 import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
@@ -390,6 +391,8 @@ export function ownFeedFrames(): Promise<ImageBitmap[]> {
   return ownBuffer ? ownBuffer.snapshot() : Promise.reject(new Error("The own feed is not buffered"));
 }
 
+let lastOwnSample = 0;
+const OWN_SAMPLE_GAP_MS = 100;
 /** Minimal shared-reader bridge for the owner-only field watcher. Manual reads take priority. */
 export async function ownFieldResources(getPriors: () => Priors) {
   const [reader, found] = await Promise.all([loadRecognizer(), loadMeta()]);
@@ -403,7 +406,13 @@ export async function ownFieldResources(getPriors: () => Priors) {
       detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
-    buffer: { sample: (options?:{maxAgeMs?:number}) => ownBuffer ? ownBuffer.sample(options) : Promise.reject(new Error("Waiting for the own camera buffer")) },
+    buffer: { sample: async (options?:{maxAgeMs?:number}) => {
+      // While the sent video is CPU limited (lib/remote/send-health.ts) the watcher waits between camera samples: a timer, so the main thread stays free.
+      const slow = visionPaceFactor();
+      if (slow > 1) { const wait = lastOwnSample + slow * OWN_SAMPLE_GAP_MS - Date.now(); if (wait > 0) await new Promise<void>(done => setTimeout(done, wait)); }
+      lastOwnSample = Date.now();
+      return ownBuffer ? ownBuffer.sample(options) : Promise.reject(new Error("Waiting for the own camera buffer"));
+    } },
     getPriors: () => priorsFor(found, getPriors()),
     cpuBusy: () => pendingJobs > 0,
     entries: found.entries,

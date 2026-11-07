@@ -5,7 +5,10 @@ import { Track, VideoPreset, VideoQuality, type LocalParticipant, type LocalVide
  * How a webcam is published to the table. Every number is here; change one place.
  *
  * The owner's raw capture is NOT affected: the field watcher and the click reader read the local camera at 1080p, 30 fps
- * (`FIELD_CAMERA`, `optimizeRecognitionCapture`). The frame rate is a choice (`VideoRate` in `video-rate.ts`: 30 default, 15 lighter) that sets `maxFramerate` on every layer; it limits the
+ * (`FIELD_CAMERA`, `optimizeRecognitionCapture`). What is SENT is capped at 720p (`sendHeight`): the card reader never reads the sent stream, and
+ * three simulcast encodes of 1080p, 720p and 360p cost the browser about 2.5 times the pixels of 720p, 540p and 360p. Under CPU load the encoder
+ * keeps the frame rate and drops pixels (`maintain-framerate`, `contentHint` "motion"): a smaller sharp picture is better than a choppy one. The
+ * frame rate is a choice (`VideoRate` in `video-rate.ts`: 30 default, 15 lighter) that sets `maxFramerate` on every layer; it limits the
  * encoder only, so capture stays at 30 fps (at 15 the encoder drops every second frame). Received frames serve peek, Read all and viewing; they do not identify a click.
  *
  * Measured on a synthetic still mat (codec-measure-2026-11-06.md): H.264 1080p15 at 1.5 Mbps kept 11/11 card reads. A real
@@ -15,15 +18,18 @@ export const CAMERA_PUBLISH = {
   /** Preferred codec. A browser without an H.264 encoder publishes `fallbackCodec` with the same caps. */
   codec: "h264",
   fallbackCodec: "vp8",
-  contentHint: "detail",
-  degradationPreference: "maintain-resolution",
-  /** Top layer: the full 1080p stream. */
-  top: { maxBitrate: 2_500_000 },
-  /** Top layer cap at the lighter rate: 15 fps fits in 1.5 Mbps; 1.5 Mbps cannot carry 30 fps of a busy picture (measured 4 to 12 fps), so `top` is higher. */
-  topLight: { maxBitrate: 1_500_000 },
+  /** "motion" makes the browser keep the frame rate when the CPU is short ("detail" kept the size and cut the frames, which looked choppy and did not recover). */
+  contentHint: "motion",
+  degradationPreference: "maintain-framerate",
+  /** The tallest picture that is sent. Capture may be larger; the top layer is scaled down to this (`capSendResolution`). */
+  sendHeight: 720,
+  /** Top layer: 720p. 1.8 Mbps carries 30 fps of a busy picture at 720p with legible card text on the other side. */
+  top: { maxBitrate: 1_800_000 },
+  /** Top layer cap at the lighter rate (15 fps). */
+  topLight: { maxBitrate: 1_000_000 },
   /** Simulcast layers below the top. Every receiver (player or spectator) asks for the top layer; it falls back to one of these only when LiveKit finds its network cannot carry the top layer. */
-  low: { width: 640, height: 360, maxBitrate: 300_000 },
-  mid: { width: 1280, height: 720, maxBitrate: 1_000_000 },
+  low: { width: 640, height: 360, maxBitrate: 250_000 },
+  mid: { width: 960, height: 540, maxBitrate: 700_000 },
   /** The layer every receiver asks for, seated or spectating. Adaptive stream is off, so a small tile never picks a lower layer. */
   receiverLayer: VideoQuality.HIGH,
   /** The encoder must have made a frame within this time, else the camera is published again as `fallbackCodec`. */
@@ -56,7 +62,7 @@ export function cameraPublishOptions(codec: string = canEncodeH264() ? CAMERA_PU
   };
 }
 
-const sendersOf = (camera: LocalVideoTrack) => [camera.sender, ...[...camera.simulcastCodecs.values()].map(codec => codec.sender)].filter((sender): sender is RTCRtpSender => !!sender);
+export const sendersOf = (camera: LocalVideoTrack) => [camera.sender, ...[...camera.simulcastCodecs.values()].map(codec => codec.sender)].filter((sender): sender is RTCRtpSender => !!sender);
 
 /** Frames the encoders of this camera made so far, over all layers and codecs. */
 export async function framesEncoded(camera: LocalVideoTrack): Promise<number> {
@@ -182,6 +188,64 @@ export async function applyCameraRate(participant: LocalParticipant, camera: Loc
     await participant.publishTrack(camera, { ...cameraPublishOptions(codec, rate), source: Track.Source.Camera });
     return "republished";
   }
+}
+
+/**
+ * Cap the top simulcast layer at `CAMERA_PUBLISH.sendHeight`. LiveKit sizes the top ("f") layer from the capture, so a 1080p capture would be sent
+ * at 1080p; this sets `scaleResolutionDownBy` on it after the publish. Capture and card reading are not touched. Returns true when something changed.
+ * Safe to repeat: the SDK may write its own encodings again after a camera restart or a reconnect, so the sender calls this after those too.
+ */
+export async function capSendResolution(camera: LocalVideoTrack): Promise<boolean> {
+  const captured = camera.mediaStreamTrack.getSettings?.().height ?? 0;
+  if (!captured) return false;
+  const scale = Math.max(1, captured / CAMERA_PUBLISH.sendHeight);
+  let changed = false;
+  for (const sender of sendersOf(camera)) {
+    try {
+      const parameters = sender.getParameters();
+      let dirty = false;
+      for (const encoding of parameters.encodings ?? []) {
+        // Only the top layer: "f" in a simulcast stream, or the single encoding without a rid.
+        if (encoding.rid && encoding.rid !== "f") continue;
+        if (Math.abs((encoding.scaleResolutionDownBy ?? 1) - scale) < 0.01) continue;
+        encoding.scaleResolutionDownBy = scale; dirty = true;
+      }
+      if (dirty) { await sender.setParameters(parameters); changed = true; }
+    } catch { /* A sender that is closing or a browser without the field: the cap is not an error. */ }
+  }
+  return changed;
+}
+
+/**
+ * Make the browser forget a CPU adaptation without a new publish or a capture restart. Soft: the content hint is switched and set back, which
+ * makes the sender build its adaptation again, and the frame rate and size caps are written again. The call stays up and the capture runs.
+ */
+export async function resetEncoderSoft(camera: LocalVideoTrack, rate: VideoRate): Promise<void> {
+  const track = camera.mediaStreamTrack;
+  track.contentHint = "detail";
+  await new Promise(done => setTimeout(done, 50));
+  track.contentHint = CAMERA_PUBLISH.contentHint;
+  for (const sender of sendersOf(camera)) {
+    try {
+      const parameters = sender.getParameters();
+      parameters.encodings?.forEach(encoding => { encoding.maxFramerate = rate; });
+      await sender.setParameters(parameters);
+    } catch { /* The next sample shows whether it helped. */ }
+  }
+  await capSendResolution(camera);
+}
+
+/**
+ * Hard: every sender gets no track and then the same track again. That starts a new video source inside the browser (the same effect as the player
+ * restarting the webcam, which cured the choppy video) without a new negotiation, a new publish or a capture restart. A few frames are skipped.
+ */
+export async function resetEncoderHard(camera: LocalVideoTrack, rate: VideoRate): Promise<void> {
+  const track = camera.mediaStreamTrack;
+  if (track.readyState !== "live") return;
+  for (const sender of sendersOf(camera)) {
+    try { await sender.replaceTrack(null); } finally { await sender.replaceTrack(track).catch(() => undefined); }
+  }
+  await resetEncoderSoft(camera, rate);
 }
 
 /** True when the browser says an encoder of this camera is limited by CPU right now (WebRTC `qualityLimitationReason`). */
