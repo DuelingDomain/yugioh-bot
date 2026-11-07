@@ -272,41 +272,44 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
 
-test('moving, turning and sizing the grid moves the zones the tracker reads; a record without rotation is unchanged',()=>{
-  const base=[{x:.2,y:.2},{x:.8,y:.2},{x:.8,y:.8},{x:.2,y:.8}],aspect=16/9,t={dx:.03,dy:-.02,scale:.9,width:1,height:1,rotation:10};
-  const out=zones.transformFieldCorners(base,t,aspect)!,moved=zones.createFieldCalibration(out.corners);
-  const rad=10*Math.PI/180;
-  // Where a mat point lands in the picture, worked out by hand: size around the centre, turn in pixels about it, then move.
-  const where=(mx:number,my:number)=>{
-    const x=(.2+.6*(.5+(mx-.5)*.9)-.5)*aspect,y=.2+.6*(.5+(my-.5)*.9)-.5;
-    return {x:.5+(x*Math.cos(rad)-y*Math.sin(rad))/aspect+t.dx,y:.5+x*Math.sin(rad)+y*Math.cos(rad)+t.dy};
+test('moving, turning and resizing the grid keep every zone on its cell at any angle and side, and the corner order stays the mat\'s',()=>{
+  const base=[{x:.2,y:.2},{x:.8,y:.2},{x:.8,y:.8},{x:.2,y:.8}],aspect=16/9,orientation={playerSide:'right' as const,mirrored:true};
+  const original=zones.createFieldCalibration(base,orientation),near=(a:number,b:number,eps=1e-6)=>Math.abs(a-b)<eps;
+  const mat=(zone:string)=>{const cell=zones.fieldZoneCells().find(c=>c.zone===zone)!;return {x:cell.x+cell.w/2,y:cell.y+cell.h/2};};
+  const shows=(cal:ReturnType<typeof zones.createFieldCalibration>,at:(zone:string)=>{x:number;y:number})=>{
+    for(const zone of ['M1','S5','DECK','GY','EXTRA']){const p=at(zone);assert.equal(zones.mapFieldZone(card(p.x-.01,p.y-.01,.02,.02),cal).zone,zone);}
   };
-  for(const zone of ['M1','S5','DECK','GY','EXTRA']){
-    const cell=zones.fieldZoneCells().find(c=>c.zone===zone)!,p=where(cell.x+cell.w/2,cell.y+cell.h/2);
-    assert.equal(zones.mapFieldZone(card(p.x-.01,p.y-.01,.02,.02),moved).zone,zone);
+  // A quarter turn, a half turn, three quarters and odd angles: where each zone lands is worked out by hand (turn in pixels about the centre, then the size the fit left).
+  for(const degrees of [0,90,180,270,37,-100]){
+    const out=zones.turnFieldQuad(base,degrees,aspect)!,k=1/out.restore,rad=degrees*Math.PI/180;
+    shows(zones.createFieldCalibration(out.corners,orientation),zone=>{
+      const p=zones.fieldMatPoint(mat(zone),original),x=(p.x-.5)*aspect,y=p.y-.5;
+      return {x:.5+k*(x*Math.cos(rad)-y*Math.sin(rad))/aspect,y:.5+k*(x*Math.sin(rad)+y*Math.cos(rad))};
+    });
+    assert.ok(near(zones.fieldQuadTurn(out.corners,aspect),(degrees+360)%360,1e-4));
+    assert.ok(out.corners.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1));
   }
-  assert.equal(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.applied.rotation,undefined);
-  assert.deepEqual(zones.transformFieldCorners(base,{dx:0,dy:0,scale:1,width:1,height:1},aspect)!.corners.map(c=>({x:+c.x.toFixed(6),y:+c.y.toFixed(6)})),base);
-  assert.equal(zones.transformFieldCorners(base,{...t,rotation:zones.FIELD_ROTATION_MAX+1},aspect),null);
-  // A grid that fills the picture shrinks a little to turn instead of refusing; any other change that does not fit is refused, not shrunk.
-  const wide=[{x:.02,y:.02},{x:.98,y:.02},{x:.98,y:.98},{x:.02,y:.98}],flat={dx:0,dy:0,scale:1,width:1,height:1},inside=(cs:{x:number;y:number}[])=>cs.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1);
-  const full=zones.transformFieldCorners(wide,{...flat,rotation:8},aspect,true)!;
-  assert.ok(full.applied.scale<1&&inside(full.corners));
-  assert.equal(zones.transformFieldCorners(wide,{...flat,rotation:8},aspect),null);
-  assert.equal(zones.transformFieldCorners(wide,{...full.applied,scale:full.applied.scale*1.04},aspect),null);
-  // Turning back asks for the size the owner chose, so it returns in full.
-  assert.equal(zones.transformFieldCorners(wide,{...flat,rotation:0},aspect,true)!.applied.scale,1);
-  // A saved quad opens at its own turn: the base is the quad turned back, a turn of 0 straightens it, and the angle does not pile up.
-  const saved=zones.straightenFieldCorners(out.corners,aspect);
-  assert.ok(Math.abs(saved.rotation-10)<1e-6);
-  const again=zones.transformFieldCorners(saved.base,{...flat,rotation:saved.rotation},aspect)!.corners;
-  assert.ok(again.every((c,i)=>Math.abs(c.x-out.corners[i].x)<1e-9&&Math.abs(c.y-out.corners[i].y)<1e-9));
-  // A quad that starts at another corner reads as a turn beyond the range: it is left alone at 0.
-  const other=zones.straightenFieldCorners([wide[1],wide[2],wide[3],wide[0]],aspect);
-  assert.equal(other.rotation,0);assert.deepEqual(other.base,[wide[1],wide[2],wide[3],wide[0]]);
-  const straight=zones.transformFieldCorners(saved.base,{...flat,rotation:0},aspect)!.corners;
-  assert.ok(Math.abs(straight[0].y-straight[1].y)<1e-9&&Math.abs(zones.straightenFieldCorners(straight,aspect).rotation)<1e-6);
+  // The grid is wider than the picture is tall, so a quarter turn makes it smaller; turning back returns the size.
+  const quarter=zones.turnFieldQuad(base,90,aspect)!,back=zones.turnFieldQuad(quarter.corners,-90,aspect,quarter.restore)!;
+  assert.ok(quarter.restore>1&&back.restore===1&&back.corners.every((c,i)=>near(c.x,base[i].x,1e-9)&&near(c.y,base[i].y,1e-9)));
+  // Move: exact, and it stops at the picture's edge.
+  const moved=zones.moveFieldQuad(base,.03,-.02)!;
+  assert.ok(moved.every((c,i)=>near(c.x,base[i].x+.03)&&near(c.y,base[i].y-.02)));
+  assert.ok(near(Math.max(...zones.moveFieldQuad(base,1,0)!.map(c=>c.x)),1));
+  // A corner handle: the opposite corner stays put and the dragged corner follows the pointer; Shift keeps the proportions.
+  const corner=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85})!;
+  assert.ok(near(corner[0].x,.2)&&near(corner[0].y,.2)&&near(corner[2].x,.9)&&near(corner[2].y,.85));
+  const kept=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85},true)!;
+  assert.ok(near((kept[2].x-kept[0].x)/(kept[2].y-kept[0].y),(base[2].x-base[0].x)/(base[2].y-base[0].y)));
+  // An edge handle changes one side only.
+  const edge=zones.resizeFieldQuad(base,{x:.5,y:0},{x:.4,y:.1})!;
+  assert.ok(near(edge[0].y,.1)&&near(edge[1].y,.1)&&near(edge[0].x,.2)&&near(edge[2].x,.8)&&near(edge[2].y,.8)&&near(edge[3].y,.8));
+  // Dragging past the picture stops at its edge, and a pinch grows the grid in place.
+  assert.ok(zones.resizeFieldQuad(base,{x:1,y:1},{x:3,y:3})!.every(c=>c.x<=1&&c.y<=1));
+  const grown=zones.pinchFieldQuad(base,1.2,0,aspect)!;
+  assert.ok(grown[2].x-grown[0].x>base[2].x-base[0].x&&near(grown[0].x+grown[2].x,1)&&near(grown[0].y+grown[2].y,1));
 });
+
 
 test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}]);
