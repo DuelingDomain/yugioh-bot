@@ -124,8 +124,8 @@ export function Peek({ peek }: { peek: PeekState }) {
 }
 
 export type ToastItem = { id: number; text: ReactNode };
-export function Toasts({ items, dock }: { items: ToastItem[]; dock?: HTMLElement | null }) {
-  const list = <div className={dock ? s.toastsDocked : s.toasts} role="status" aria-live="polite" data-testid="toasts">{items.map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
+export function Toasts({ items, dock, top = false }: { items: ToastItem[]; dock?: HTMLElement | null; /** Show under the header instead of above the dock, so a dialog in that place stays readable. */ top?: boolean }) {
+  const list = <div className={dock ? s.toastsDocked : top ? s.toastsTop : s.toasts} role="status" aria-live="polite" data-testid="toasts">{items.map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
   return dock ? createPortal(list, dock) : list;
 }
 

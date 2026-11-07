@@ -55,6 +55,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   /** An unnamed face-up card the owner can name or remove. */
   const nameable = !!onName && ordered && !!previewCard && previewCard.faceUp && !cardCode(previewCard) && !previewCard.name;
   const previewCode = previewCard && shown(previewCard) ? cardCode(previewCard) : undefined;
+  const previewArt = previewCard ? <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} /> : null;
 
   /** Pointer drag (mouse and pen). A press that moves less than 6 px stays a click. */
   function begin(event: ReactPointerEvent<HTMLElement>, card: TwinCard) {
@@ -146,9 +147,8 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         </ul> : <p className={s.pileEmpty} data-testid="pile-empty">No cards in the {PILE_LABEL[zone]} yet.</p>}
         <aside className={s.pilePrev} aria-hidden={previewCard ? undefined : true} data-testid="pile-preview">
           {previewCard ? <>
-            <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} />
-            {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} />
-              : <h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2>}
+            {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} art={previewArt} />
+              : <div className={s.bhead}>{previewArt}<div className={s.bheadText}><h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2></div></div>}
             {!narrow && nameable ? <NameIt key={previewCard.ref} onName={(id, nm) => onName!(previewCard, id, nm)} onRemove={onRemove ? () => onRemove(previewCard) : undefined} /> : null}
           </> : null}
         </aside>
