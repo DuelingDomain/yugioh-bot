@@ -1,4 +1,4 @@
-import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions} from './face-state';
+import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions,type FaceStateResult} from './face-state';
 import type {RGBAImage} from './pixels';
 import {createFieldIdentityGallery, type FieldIdentityGallery} from './field-gallery';
 import type { Recognizer } from './client';
@@ -116,7 +116,7 @@ export interface PlaneVerdict { ok:boolean; hard:boolean; text:string; size?:num
 interface RestState { samples:number; since?:number; ok:boolean; text:string; /** This sample's outline lies on the mat plane / is certainly held above it. */ planeOk?:boolean; hard?:boolean }
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
-interface FaceEvidence { setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
+interface FaceEvidence { sample?:{look:number[];card:DetectedQuad;observation:FaceStateResult;reference?:FaceStateOptions['reference']}; setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
 interface InternalTrack { /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 // Periodic full-frame pass: ~300 ms on WebGPU, 500+ ms on CPU (by detector
 // EMA over the duty budget, backing off to 1.5 s). Busy/hidden ticks skip it.
@@ -1146,7 +1146,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const publicIdentity=bound(t)&&!t.view.faceDown?options.getKnownCards?.().find(k=>k.id===t.view.id&&!k.faceDown)?.cardId:undefined;
         if(publicIdentity&&publicIdentity!==t.view.cardId){if(t.face)t.face.setCardId=undefined;gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}
 
-        // A fresh full-card warp, never the tiny appearance patch or a retained read.
+        // Pending face changes always sample fresh card pixels; settled faces can reuse their evidence.
         const faceState=t.face??={gate:createFaceStateHysteresis({sustainMs:120,minSamples:3}),setCardId:t.binding?.faceDown?t.binding.cardId:undefined};
         // The latest detector's appearance validates a new outline or changed
         // face without overwriting identity or re-running inference.
@@ -1163,8 +1163,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const faceClean=freshFront||(c.confidence>=.7||backOutline(c)&&cardAspect(c)||boundOutline||frontOutline(c))&&!c.partial&&!c.covered&&!blocks(t,c)&&!isCovered(c,cards)&&
           // Neighbours that only touch (IoU <= .1) and light flicker (<= .06) do not make it unclean.
           !cards.some(other=>other!==c&&quadIou(c,other)>.1)&&evidence.motion(c)<=.06&&quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012;
-        const crop=faceClean?evidence.crop?.(c):undefined;
-        let observation=crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
+        const cachedFace=faceState.sample;
+        const reuseFace=faceClean&&t.view.state==='identified'&&!t.needsRead&&(!t.read||!!t.read.result)&&faceState.pendingAt===undefined&&faceState.transitionAt===undefined&&
+          t.view.faceDown===(c.kind==='face-down')&&!!cachedFace&&cachedFace.reference===faceState.reference&&cachedFace?.observation.state!=='unknown'&&
+          evidence.motion(c)<=.004&&quadIou(cachedFace.card,c)>=.98&&sameFieldAppearance(cachedFace.look,pixels);
+        const crop=faceClean&&!reuseFace?evidence.crop?.(c):undefined;
+        let observation=reuseFace?cachedFace!.observation:crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
+        if(crop)faceState.sample={look:pixels?.slice()??[],card:structuredClone(c),observation,reference:faceState.reference};
         if(observation.state==='down')t.view.pixelsDown=true;else delete t.view.pixelsDown;
         // Coloured light can leave the pixel classifier undecided on a real
         // front. A steady, confident detector front then overrides a stale

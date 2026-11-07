@@ -17,3 +17,19 @@ test('bitmap scene copies detector-sized pixels and only native refinement subre
   assert.ok(reads.every(([w,h])=>w*h<1920*1080/3),JSON.stringify(reads));
  }finally{globalThis.OffscreenCanvas=original;}
 });
+test('face sampling draws only the card rectangle and reads a 96 by 140 patch',async()=>{
+ const {createFieldAnalyzer}=await import('./field-motion');
+ const original=globalThis.OffscreenCanvas,draws:unknown[][]=[],reads:number[][]=[];
+ class Canvas {
+  constructor(public width:number,public height:number){}
+  getContext(){return {drawImage:(...args:unknown[])=>draws.push(args),getImageData:(x:number,y:number,w:number,h:number)=>{reads.push([w,h]);return {width:w,height:h,data:new Uint8ClampedArray(w*h*4).fill(120)};}};}
+ }
+ globalThis.OffscreenCanvas=Canvas as unknown as typeof OffscreenCanvas;
+ try{
+  const frame={width:1920,height:1080,close(){}} as ImageBitmap;
+  const analysis=createFieldAnalyzer()(frame),quad=[{x:.2,y:.3},{x:.3,y:.3},{x:.3,y:.5},{x:.2,y:.5}];
+  assert.ok(analysis.crop?.({quad,kind:'face-up',confidence:.9,partial:false}));
+  assert.deepEqual(reads.at(-1),[96,140]);assert.equal(draws.at(-1)?.[1],384);
+  assert.ok(reads.every(([w,h])=>w<=320&&h<=180));
+ }finally{globalThis.OffscreenCanvas=original;}
+});

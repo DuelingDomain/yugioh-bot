@@ -13,7 +13,7 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
 }
 /** Only motion/sharpness are downsampled; inference and retained best frames stay native. */
 export function createFieldAnalyzer() {
-  let previous:RGBAImage|undefined,nativeCanvas:OffscreenCanvas|undefined;
+  let previous:RGBAImage|undefined,faceCanvas:OffscreenCanvas|undefined;
   let shadows=createShadowBaseline();
   let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
   /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
@@ -38,16 +38,6 @@ export function createFieldAnalyzer() {
       }
       if(changed>=4)motionRegion={x:left/image.width,y:top/image.height,w:(Math.min(right,image.width)-left)/image.width,h:(Math.min(bottom,image.height)-top)/image.height};
     }
-    let native:RGBAImage|undefined;
-    const nativeImage=()=>{
-      if(native)return native;
-      if(!('close' in frame))return native=frame;
-      nativeCanvas??=new OffscreenCanvas(frame.width,frame.height);
-      if(nativeCanvas.width!==frame.width)nativeCanvas.width=frame.width;
-      if(nativeCanvas.height!==frame.height)nativeCanvas.height=frame.height;
-      const context=nativeCanvas.getContext('2d',{willReadFrequently:true})!;
-      context.drawImage(frame,0,0);return native=context.getImageData(0,0,frame.width,frame.height);
-    };
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>();
     const shadow=shadows(image),means=shadow.means,lastScene=lastMeans,markScene=markMeans;lastMeans=means;
@@ -56,8 +46,16 @@ export function createFieldAnalyzer() {
       scene,motionRegion,shadow,frameSharpness:frameSharpness(image),
       crop(card) {
         // Detector corners are portrait ordered even for a card in Defense Position.
-        const source=nativeImage();
-        return warpQuad(source,card.quad.map(p=>({x:p.x*source.width,y:p.y*source.height})) as Quad,96,140)??undefined;
+        if(!('close' in frame))return warpQuad(frame,card.quad.map(p=>({x:p.x*frame.width,y:p.y*frame.height})) as Quad,96,140)??undefined;
+        const box=boundsOf(card.quad),x=Math.max(0,Math.floor(box.x*frame.width)),y=Math.max(0,Math.floor(box.y*frame.height));
+        const w=Math.min(frame.width,Math.ceil((box.x+box.w)*frame.width))-x,h=Math.min(frame.height,Math.ceil((box.y+box.h)*frame.height))-y;
+        if(w<3||h<3)return undefined;
+        faceCanvas??=new OffscreenCanvas(96,140);
+        const context=faceCanvas.getContext('2d',{willReadFrequently:true})!;
+        context.globalCompositeOperation='copy';
+        context.drawImage(frame,x,y,w,h,0,0,96,140);
+        const patch=context.getImageData(0,0,96,140);
+        return warpQuad(patch,card.quad.map(p=>({x:(p.x*frame.width-x)*96/w,y:(p.y*frame.height-y)*140/h})) as Quad,96,140)??undefined;
       },
       appearance(card) {
         const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
