@@ -1,0 +1,133 @@
+# Remote tournament API
+
+Contract for B1 and UI fixtures; B3 routes below are planned, not implemented by B1.
+All routes require the normal authenticated web session and configured guild. IDs are
+numbers (application user IDs and gameplay player IDs are different). Timestamps in
+Remote result/evidence JSON are Unix milliseconds; existing tournament dates retain
+ISO strings. Errors use `{ "error": "human readable message", "code": "CODE" }`
+for the new Remote checks; existing route validation/auth errors retain their current
+shape. Responses containing private Remote data use `Cache-Control: private, no-store`.
+
+## B1: tournament lifecycle
+
+`POST /api/tournaments`
+
+```json
+{"name":"Physical Cup","format":"round_robin","visibility":"private","duelType":"remote","bestOf":3,"duelRules":{"mode":"normal","masterRule":5}}
+```
+
+`format`: `round_robin | single_elim`; `duelType`: `online | remote` (omitted =
+`online`). Remote supports Advanced (`normal`) only, with no Genesys rules.
+`bestOf`: `1 | 3`. No registered deck is required for Remote entrants.
+201 response:
+
+```json
+{"id":12,"name":"Physical Cup","format":"round_robin","status":"pending","visibility":"private","webSlug":"cup","duelType":"remote"}
+```
+
+`GET /api/tournaments/{slug}` retains the existing tournament payload and adds
+`duelType`. Tournament statuses: `pending | active | completed | cancelled`.
+Duel type is fixed at creation in B1 (no update API); Remote rules lock at start.
+`POST /api/tournaments/{slug}/join` takes no body and returns
+`{"success":true,"playerId":21,"displayName":"Alice"}` (200). Invite entry
+uses this same route. `POST /api/tournaments/{slug}` starts the tournament, takes
+no body, and returns `{"id":12,"status":"active"}` (200).
+
+Remote create/join/start require literal `REMOTE_DUELS=1`. Create and join check
+`REMOTE_DUELS_USERS`; start checks every entrant again. Unset or `*` allows all;
+empty allows nobody. Start refusal includes:
+
+```json
+{"error":"Some entrants do not have Remote Duel access","code":"REMOTE_ENTRANTS_BLOCKED","entrants":[{"playerId":22,"displayName":"Bob"}]}
+```
+
+## B1: start or return a table
+
+`POST /api/tournaments/{slug}/matches/{tmId}/remote` takes no body. Either paired
+player may call; an organizer who is not paired cannot. 201 when created, 200 on
+repeat (same table, including when called by the opponent):
+
+```json
+{"created":true,"table":{"slug":"table-slug","tournamentMatchId":45,"seatCount":2,"status":"lobby","bestOf":3,"format":{"id":"normal"},"visibility":"private","detectionDefault":"auto"},"tableUrl":"/remote/table-slug"}
+```
+
+`table` is the normal RemoteTable metadata (additional normal fields, including
+seats and format rules, are present); it contains no board, events or private decks.
+Table statuses: `lobby | active | ended`. Creator occupies seat 0; seat 1 is
+reserved for the other paired account. Only these accounts can use
+`POST /api/remote/{tableSlug}/seat` with `{}` or `{"seat":1}` (200 normal RemoteRoom
+response, containing `state`, `events`, `mySeat` and table metadata). Existing room,
+ready, start, actions and deck APIs are unchanged. Tournament format/best-of cannot
+be reconfigured through the room API. Private tables have no spectators.
+`detectionDefault: "auto"` is a tournament-only instruction for U4 to override the
+device preference for this table; B1 does not implement detector UI or mode events.
+An ended idle/creator-left table without a winner can be replaced; a finished
+result cannot be bypassed by starting again. One live table per pairing is enforced
+transactionally and by a unique partial index.
+
+New Remote errors (the same codes apply in shared services):
+
+| HTTP | Code | Meaning |
+| --- | --- | --- |
+| 400 | INVALID_DUEL_TYPE | duelType is not online/remote |
+| 400 | REMOTE_FORMAT_UNSUPPORTED | Remote format is not Advanced |
+| 403 | REMOTE_ACCESS_REQUIRED | This tournament uses Remote Duels. Ask for access first. |
+| 403 | REMOTE_MATCH_PLAYER_REQUIRED | Only paired players may start/join |
+| 404 | REMOTE_DISABLED | Remote switch is off |
+| 404 | TOURNAMENT_NOT_FOUND | Missing tournament or unreadable guild/slug |
+| 404 | TOURNAMENT_MATCH_NOT_FOUND | Missing slot or wrong tournament |
+| 409 | REMOTE_ENTRANTS_BLOCKED | Entrants lost access; includes entrants array |
+| 409 | TOURNAMENT_NOT_ACTIVE | Tournament is not active |
+| 409 | WRONG_DUEL_TYPE | Wrong online/Remote start endpoint |
+| 409 | TOURNAMENT_MATCH_UNAVAILABLE | Bye, reported/completed slot, or outstanding result |
+| 409 | TOURNAMENT_RULES_LOCKED | Linked table rules or started Remote tournament rules cannot change |
+| 409 | SEAT_UNAVAILABLE | Requested seat is occupied/unavailable |
+| 409 | TABLE_ENDED / TABLE_IDLE | Existing room ended/expired (normal Remote API) |
+| 409 | REMOTE_TABLES_FULL | Existing rollout room cap reached |
+
+## Planned B3: proposal, confirmation, dispute and organizer decision
+
+These routes are fixture contracts for the next worker. They do not exist in B1.
+Prefix: `/api/tournaments/{slug}/matches/{tmId}`.
+
+`GET {prefix}/remote-result` (paired player or organizer) returns 200:
+
+```json
+{"remoteResult":{"tournamentMatchId":45,"tableSlug":"table-slug","status":"proposed","winnerPlayerId":21,"score":{"playerOne":2,"playerTwo":1},"source":"concede","proposedAt":1794074400000,"confirmDeadlineAt":1794081600000,"reports":[{"playerId":21,"choice":"confirm","note":null,"at":1794074405000},{"playerId":22,"choice":null,"note":null,"at":null}],"finalizedAt":null,"finalizationReason":null,"organizerDecision":null}}
+```
+
+Before any table: `{"remoteResult":null}`. Statuses: `playing | proposed |
+disputed | final | void`. While playing, winner/score/source/proposal/deadline are
+null. Source: `concede | declared | lp`. Finalization reason:
+`both_confirmed | timeout | organizer` (null until final). An organizer decision
+is null or `{"userId":1,"winnerPlayerId":21,"note":null,"at":1794074405000}`;
+void decisions use a null winner. The normal slot remains `open` while playing,
+proposed or disputed, and becomes `completed` through the existing scoring path.
+
+`POST {prefix}/remote-result/confirm` with `{}` and
+`POST {prefix}/remote-result/dispute` with `{"note":"LP entry was incorrect"}`
+(note optional, maximum 280 characters) return 200 with the same `remoteResult`
+envelope. Only paired players may report; repeat same confirmation is idempotent.
+Both confirmations finalize immediately. One confirmation permits finalization
+at the two-hour deadline; a final concede/declared admission permits that same
+timer without a further losing-player response. LP alone with no confirmation
+does not auto-finalize. Any dispute stops the timer until an organizer rules.
+
+Existing `POST {prefix}/result` with `{"winnerPlayerId":21}` is the organizer
+ruling path, returning `{"success":true}` (200). B3 will extend it to resolve a
+Remote dispute and record organizer ID/time. Planned
+`POST {prefix}/remote-result/void` with `{"note":"Replay required"}` is organizer
+only, returns 200 with the void `remoteResult`, and reopens an unresolved slot.
+Completed single-elimination matches cannot be reopened; existing round-robin
+reopen behavior stays authoritative.
+
+Planned errors: 403 `REMOTE_RESULT_PLAYER_REQUIRED` or `ORGANIZER_REQUIRED`;
+404 `REMOTE_RESULT_NOT_FOUND`; 409 `REMOTE_RESULT_NOT_PROPOSED`,
+`REMOTE_RESULT_DISPUTED`, `REMOTE_RESULT_FINAL`, `REMOTE_REPLAY_UNAVAILABLE`;
+400 `INVALID_REMOTE_REPORT` for invalid notes/body. Existing manual report will
+reject live Remote tables with 409 `REMOTE_MATCH_OPEN`; it remains a fallback
+when no table or unresolved proposal/dispute is open. B3 owns these block rules.
+
+B4 supplies organizer evidence reads/capture and deletion; no evidence endpoint
+is implemented or promised by B1. Evidence survives normal table deletion through
+nullable table references and copied minimal facts, never videos/images or decks.
