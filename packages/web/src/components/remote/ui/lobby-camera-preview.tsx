@@ -474,7 +474,7 @@ function OtherSeats({ room }: { room: RemoteRoom }) {
  * Mount it only after the room's saved choice has loaded (`hub.rosterReady`), so no camera starts by mistake.
  */
 /** Two things a tournament match needs for Auto-detect: the camera is on and the zones sit on the mat. */
-function TournamentCheck({ camera, zones }: { camera: boolean; zones: boolean }) {
+export function TournamentCheck({ camera, zones }: { camera: boolean; zones: boolean }) {
   const items = [{ key: "camera", ok: camera, on: "Camera on", off: "Camera off" }, { key: "zones", ok: zones, on: "Zones calibrated", off: "Zones not calibrated" }];
   return <ul className={s.tcheck} aria-label="Before the match" data-testid="tournament-precheck" data-ready={camera && zones ? "true" : "false"}>
     {items.map(item => <li key={item.key} data-ok={item.ok ? "true" : "false"} data-testid={`precheck-${item.key}`}>

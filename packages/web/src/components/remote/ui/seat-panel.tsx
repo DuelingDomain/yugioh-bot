@@ -25,6 +25,11 @@ export function parseLpInput(raw: string): number | null {
   return text.startsWith("+") ? amount : -amount;
 }
 
+/** Tournament table: the mode a player announced, shown on the nameplate. */
+export function DetectionBadge({ seat, name, mode }: { seat: number; name: string; mode: TournamentMode }) {
+  return <span className={`${s.tag} ${s.dmode} ${mode === "tap" ? s.tap : ""}`} data-testid={`detection-mode-${seat}`} title={`${name} identifies cards with ${modeLabel(mode)}`}>{modeLabel(mode)}</span>;
+}
+
 export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
 
 export type SeatPanelProps = {
@@ -114,7 +119,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </> : null}
       </span> : null}
       {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
-      {p.detectionMode ? <span className={`${s.tag} ${s.dmode} ${p.detectionMode === "tap" ? s.tap : ""}`} data-testid={`detection-mode-${p.seat}`} title={`${p.name} identifies cards with ${modeLabel(p.detectionMode)}`}>{modeLabel(p.detectionMode)}</span> : null}
+      {p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
