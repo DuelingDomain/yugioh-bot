@@ -132,8 +132,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
       <header className={room_.head}>
         <div className={room_.titleBlock}>
           <h1 className={ui.title}>{room.solo ? "Solo test" : "Remote table"}</h1>
-          {tournament ? <p className={ui.hint} data-testid="lobby-tournament"><a href={`/tournament/${encodeURIComponent(tournament.tournamentSlug)}`}>{tournament.tournamentName}</a> tournament match</p> : null}
           <p className={room_.chips}>
+            {tournament ? <a className={cx(ui.chip, r.tourneyChip)} href={`/tournament/${encodeURIComponent(tournament.tournamentSlug)}`} data-testid="lobby-tournament" title="Back to the tournament">Tournament · {tournament.tournamentName}</a> : null}
             <span className={cx(ui.chip, ui.chipAccent)}>{formatName(current.id)}</span>
             <span className={ui.chip}>{room.seatCount === 2 ? "1v1" : `${room.seatCount}-way`}</span>
             <span className={ui.chip}>Code <b className={r.code}>{room.slug}</b></span>

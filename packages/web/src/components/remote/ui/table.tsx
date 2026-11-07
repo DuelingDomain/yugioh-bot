@@ -1306,7 +1306,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />

@@ -42,6 +42,8 @@
 .logo b{font:700 17px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.03em}
 .crumb{color:var(--ink3);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .crumb b{color:var(--ink2);font-weight:600}
+.crumbLink{color:var(--gold-ink);text-decoration:underline;text-underline-offset:3px}
+.crumbLink b{color:inherit}
 .cchip{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:13px;color:var(--ink3);border-right:1px solid var(--line)}
