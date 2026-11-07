@@ -33,7 +33,7 @@ export const fieldPacerDevice=():FieldPacerDevice=>{
 };
 export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()=>string|undefined=()=> 'wasm'):FieldPacer {
   const sustain=()=>backend()==='webgpu'?.25:.2;
-  let tokens=2500,last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,lateEma=0,backoff=1;
+  let tokens=2500,last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
   const capacity=()=>Math.max(2500,passMs*6);
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
@@ -42,12 +42,19 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
     allow(at,moving=false){
       refill(at);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
-      return tokens>0&&at-lastEnd>=rest*backoff;
+      return tokens>0&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
     },
     spend(wallMs,at){
       refill(at);tokens-=wallMs;passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
     },
-    changed(at){changedAt=at;},
+    changed(at){
+      if(at-changedAt>1000){
+        movingSince=at;
+        // One fresh change may borrow a pass after a long quiet gap. Never refill on continuous hand motion.
+        if(at-wakeAt>=8000){refill(at);tokens=Math.max(tokens,1);wakeAt=at;}
+      }
+      changedAt=at;
+    },
     stillEvery(at,hasCards){
       const every=hasCards?STILL_CARDS_MS:STILL_EMPTY_MS;
       return at-changedAt<RETRY_FOR_MS?Math.min(every,RETRY_MS*backoff):every;
