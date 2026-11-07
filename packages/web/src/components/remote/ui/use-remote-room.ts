@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
-import { remoteApi } from "./api";
+import { remoteApi, tabId } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
@@ -25,7 +25,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   const newest = useCallback((fetched: RemoteRoom) => { const held = roomRef.current; return held && held.slug === slug && held.lastSeq > fetched.lastSeq ? held : fetched; }, [slug]);
   const load = useCallback(async () => {
     // The Watch button of the admin list asks for the admin view; the server grants it to the owner list only, and a private table stays closed to everyone else.
-    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, watchAsAdmin ? { admin: true } : {}); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
+    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, watchAsAdmin ? { admin: true, tab: tabId } : { tab: tabId }); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
     if (spectating.current || watchAsAdmin) return watch();
     try { return newest(await remoteApi<RemoteRoom>(`/${slug}`)); }
     catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
@@ -49,7 +49,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   }, [repair]);
   // A spectator who closes the tab frees the slot at once, so a watching admin's badge and the count end quickly. A GET poll would take up to 90 s.
   useEffect(() => {
-    const leave = () => { if (spectating.current) void fetch(`/api/remote/${slug}/spectate`, { method: "DELETE", keepalive: true }).catch(() => undefined); };
+    const leave = () => { if (spectating.current) void fetch(`/api/remote/${slug}/spectate?tab=${tabId}`, { method: "DELETE", keepalive: true }).catch(() => undefined); };
     window.addEventListener("pagehide", leave);
     return () => window.removeEventListener("pagehide", leave);
   }, [slug]);

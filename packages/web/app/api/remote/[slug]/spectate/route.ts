@@ -10,20 +10,26 @@ export async function POST(request: Request, context: RemoteRouteContext) {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const asked = ((await request.json().catch(() => null)) as { admin?: unknown } | null)?.admin === true;
+    const body = (await request.json().catch(() => null)) as { admin?: unknown; tab?: unknown } | null;
+    const asked = body?.admin === true;
     const now = Date.now();
-    const view = actor.remote.spectate(slug, actor.guildId, actor.userId, now, { admin: asked && isOwnerUser(actor.userId) });
-    // An admin join adds one public log line (stamped `now`): the players hear of it at once.
-    if (view.events.some(event => event.at === now && event.userId === actor.userId && event.action.type === "admin.watching")) await notifyRemoteChange(slug, actor.guildId);
+    // The first take of a slot by an admin changes the badge, and may add a log line: the players hear of it at once. Polls do not notify.
+    const tookSlot = isOwnerUser(actor.userId) && !actor.remote.isSpectating(slug, actor.guildId, actor.userId, now);
+    const view = actor.remote.spectate(slug, actor.guildId, actor.userId, now, { admin: asked && isOwnerUser(actor.userId), tab: tabId(body?.tab) });
+    if (tookSlot || view.events.some(event => event.at === now && event.action.type === "admin.watching")) await notifyRemoteChange(slug, actor.guildId);
     return remoteJson(view);
   } catch (error) { return remoteError(error); }
 }
-export async function DELETE(_request: Request, context: RemoteRouteContext) {
+/** A tab id is a short token the page makes up; anything else is ignored. */
+const tabId = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value) ? value : undefined;
+export async function DELETE(request: Request, context: RemoteRouteContext) {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    actor.remote.stopSpectating(slug, actor.guildId, actor.userId);
-    await removeSpectatorVideo(slug, actor.userId);
+    const tab = tabId(new URL(request.url).searchParams.get("tab"));
+    actor.remote.stopSpectating(slug, actor.guildId, actor.userId, Date.now(), tab);
+    // Another open tab of this person keeps the slot, and the video with it.
+    if (!actor.remote.isSpectating(slug, actor.guildId, actor.userId)) await removeSpectatorVideo(slug, actor.userId);
     await notifyRemoteChange(slug, actor.guildId);
     return remoteJson({ ok: true });
   } catch (error) { return remoteError(error); }

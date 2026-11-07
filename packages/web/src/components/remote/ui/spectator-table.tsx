@@ -12,6 +12,7 @@ import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { useCardInfo } from "./catalog";
 import { CardPopover, type CardActions, type Subject } from "./card-view";
 import { Rail, LpStrip } from "./chrome";
+import { tabId } from "./api";
 import { describeEvent } from "./describe";
 import { LogDrawer, type LogEntry } from "./drawers";
 import { Icon } from "./icons";
@@ -30,7 +31,7 @@ const DEFAULT_RATIO = 16 / 9;
 const CARD_H = .24; const CARD_ASPECT = 59 / 86;
 
 /** The leave links free the slot at once. A closed tab or a reload keeps it until the poll time ends, so a reload cannot lose it to the next person. */
-const stopWatching = (slug: string) => fetch(`/api/remote/${slug}/spectate`, { method: "DELETE", keepalive: true }).catch(() => undefined);
+const stopWatching = (slug: string) => fetch(`/api/remote/${slug}/spectate?tab=${tabId}`, { method: "DELETE", keepalive: true }).catch(() => undefined);
 
 /** The page of a person who watches. It mounts no camera, no card reader, no field watcher and no voice. */
 export function SpectatorScreen({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {

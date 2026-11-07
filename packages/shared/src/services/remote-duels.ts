@@ -26,6 +26,8 @@ export const REMOTE_IDLE_CLOSE_MS = 10 * 60_000;
 export const REMOTE_SPECTATOR_CAP = 10;
 /** A slot is free this long after the viewer's last room poll (30 s while connected), for a browser that left without saying so. */
 export const REMOTE_SPECTATOR_SLOT_MS = 90_000;
+/** After an admin's last tab leaves, the "stopped watching" line waits this long. A reload returns within it and adds no lines. */
+export const REMOTE_ADMIN_WATCH_GRACE_MS = 15_000;
 type TableRow = { tournament_match_id: number | null; id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
   created_by: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
   last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number; visibility: RemoteVisibility; revealed_hand?: RemoteRevealedHand | null };
@@ -87,6 +89,28 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       .filter(watcher => isOwnerUser(watcher.userId));
   }
   const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now), spectatorCount: spectatorCount(row, now) });
+  /**
+   * Writes the "stopped watching" line of every admin watch that is over: the last tab left more than the grace ago, or the slot ran out.
+   * Returns how many lines it wrote, so the caller reloads its row (each line moves last_seq).
+   */
+  function settleAdminWatch(row: TableRow, now: number): number {
+    const due = db.prepare(`select w.user_id as userId from remote_admin_watch w where w.table_id=? and ((w.ending_at is not null and w.ending_at<=?)
+      or (w.ending_at is null and not exists(select 1 from remote_spectators v where v.table_id=w.table_id and v.user_id=w.user_id and v.last_seen_at>?)))`)
+      .all(row.id, now - REMOTE_ADMIN_WATCH_GRACE_MS, now - REMOTE_SPECTATOR_SLOT_MS) as { userId: number }[];
+    let written = 0;
+    for (const { userId } of due) {
+      db.prepare("delete from remote_admin_watch where table_id=? and user_id=?").run(row.id, userId);
+      if (row.status !== "ended") { append({ ...row, last_seq: row.last_seq + written }, adminWatchAction(userId, false), now, userId, null, false); written += 1; }
+    }
+    return written;
+  }
+  /** A spectator leaves: the slot and the tabs go at once (the badge ends); an admin's stop line follows after the grace. */
+  function releaseSpectator(row: TableRow, userId: number, now: number) {
+    const held = db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS);
+    db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
+    db.prepare("delete from remote_spectator_tabs where table_id=? and user_id=?").run(row.id, userId);
+    if (held) db.prepare("update remote_admin_watch set ending_at=? where table_id=? and user_id=?").run(now, row.id, userId);
+  }
   function adminWatchAction(userId: number, watching: boolean): RemoteSystemAction {
     const user = db.prepare("select display_name from users where id=?").get(userId) as { display_name: string } | undefined;
     return { type: "admin.watching", userId, name: user?.display_name ?? "Admin", watching };
@@ -313,7 +337,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
      * Opens the table for a person with no seat, and keeps their slot while they poll. A seated person gets their normal room.
      * It writes only remote_spectators: no event, no seat change, no idle clock, so a spectator never holds a table open.
      */
-    spectate(slug: string, guildId: string, userId: number, now = Date.now(), options: { admin?: boolean } = {}): RemoteRoom {
+    spectate(slug: string, guildId: string, userId: number, now = Date.now(), options: { admin?: boolean; tab?: string } = {}): RemoteRoom {
       return transaction(() => {
         let row = load(slug, guildId);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
@@ -321,23 +345,38 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         assertWatchable(row, options.admin === true && isOwnerUser(userId));
         if (row.status !== "ended" && now - row.last_event_at < REMOTE_IDLE_CLOSE_MS) {
           db.prepare("delete from remote_spectators where table_id=? and last_seen_at<=?").run(row.id, now - REMOTE_SPECTATOR_SLOT_MS);
+          db.prepare("delete from remote_spectator_tabs where table_id=? and last_seen_at<=?").run(row.id, now - REMOTE_SPECTATOR_SLOT_MS);
+          if (settleAdminWatch(row, now)) row = load(slug, guildId);
           const holding = db.prepare("select 1 from remote_spectators where table_id=? and user_id=?").get(row.id, userId);
           remoteAssert(holding || spectatorCount(row, now) < REMOTE_SPECTATOR_CAP, `This table has reached its limit of ${REMOTE_SPECTATOR_CAP} spectators. Try again soon.`, 409, "SPECTATORS_FULL");
           db.prepare("insert into remote_spectators(table_id,user_id,last_seen_at) values(?,?,?) on conflict(table_id,user_id) do update set last_seen_at=excluded.last_seen_at").run(row.id, userId, now);
-          // One public line per admin join (not per poll). It keeps the idle clock, so an admin never holds a table open.
-          if (!holding && isOwnerUser(userId)) { append(row, adminWatchAction(userId, true), now, userId, null, false); row = load(slug, guildId); }
+          if (options.tab) db.prepare("insert into remote_spectator_tabs(table_id,user_id,tab_id,last_seen_at) values(?,?,?,?) on conflict(table_id,user_id,tab_id) do update set last_seen_at=excluded.last_seen_at").run(row.id, userId, options.tab, now);
+          if (isOwnerUser(userId)) {
+            // One public line per admin watch (not per poll, not per reload within the grace). It keeps the idle clock, so an admin never holds a table open.
+            const open = db.prepare("update remote_admin_watch set ending_at=null where table_id=? and user_id=?").run(row.id, userId).changes;
+            if (!open) { db.prepare("insert into remote_admin_watch(table_id,user_id,ending_at) values(?,?,null)").run(row.id, userId); append(row, adminWatchAction(userId, true), now, userId, null, false); row = load(slug, guildId); }
+          }
         }
         const view = spectatorView(row);
         return { ...view.table, state: view.state, events: view.events, mySeat: -1, spectator: true, isDeveloper: false, spectatorCount: spectatorCount(row, now) };
       });
     },
-    stopSpectating(slug: string, guildId: string, userId: number, now = Date.now()): void {
+    /** With `tab`, only that tab leaves; the slot ends when the person has no other open tab here. Without it, all their tabs leave. */
+    stopSpectating(slug: string, guildId: string, userId: number, now = Date.now(), tab?: string): void {
       transaction(() => {
         const row = loadTable(slug, guildId);
-        const held = db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS);
-        db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
-        if (held && isOwnerUser(userId) && row.status !== "ended") append(row, adminWatchAction(userId, false), now, userId, null, false);
+        if (tab) {
+          db.prepare("delete from remote_spectator_tabs where table_id=? and user_id=? and tab_id=?").run(row.id, userId, tab);
+          if (db.prepare("select 1 from remote_spectator_tabs where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS)) return;
+        }
+        releaseSpectator(row, userId, now);
+        settleAdminWatch(row, now);
       });
+    },
+    /** Whether this person holds a live spectator slot now (the route uses it to tell the players that a watch started). */
+    isSpectating(slug: string, guildId: string, userId: number, now = Date.now()): boolean {
+      const row = loadTable(slug, guildId);
+      return !!db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS);
     },
     /** For the video and socket routes: the seat, null for a spectator with a live slot, a refusal for anyone else. */
     connectionAccess(slug: string, guildId: string, userId: number, now = Date.now()) {
@@ -380,16 +419,18 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         assertTournamentSeat(row, userId, requestedSeat);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
         remoteAssert(!row.solo, "Solo tables only accept their owner", 403, "SOLO_OWNER_ONLY");
-        // An admin who watched a private table is not a guest of it. The log keeps that fact, so leaving or an expired slot does not open a seat.
-        remoteAssert(!(row.visibility === "private" && isOwnerUser(userId) && db.prepare("select 1 from remote_events where table_id=? and user_id=? and json_extract(action_json,'$.type')='admin.watching' limit 1").get(row.id, userId)),
-          "An admin who watched a private table cannot take a seat", 403, "ADMIN_SPECTATOR_NO_SEAT");
+        // A private table has no invite secret: its link is the invite. So the only live slot on it is an admin's watch, and that admin takes no seat
+        // while watching (stop watching first). A paired tournament player always may: assertTournamentSeat above already let only them through.
+        remoteAssert(!(row.visibility === "private" && !row.tournament_match_id
+          && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS)),
+          "An admin who is watching a private table cannot take a seat. Stop watching first.", 403, "ADMIN_SPECTATOR_NO_SEAT");
         remoteAssert(row.status === "lobby", "Table is no longer in its lobby", 409);
         const occupied = seats(row).map(s => s.seat);
         const seat = requestedSeat ?? Array.from({ length: row.seat_count }, (_, n) => n).find(n => !occupied.includes(n));
         remoteAssert(seat !== undefined && Number.isInteger(seat) && seat >= 0 && seat < row.seat_count && !occupied.includes(seat), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
         const display = name(displayName);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,?,?,?)").run(row.id, seat, userId, display);
-        db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
+        releaseSpectator(row, userId, now);
         append(row, { type: "seat.joined", seat, userId }, now, userId, seat);
         return room(load(slug, guildId), userId);
       });
@@ -439,6 +480,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     },
     act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
+        const first = loadTable(slug, guildId); if (first.status === "active") settleAdminWatch(first, now);
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
         const command = parsed.data;
@@ -608,6 +650,13 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       return transaction(() => {
         const changed: RemoteTable[] = [];
         db.prepare("delete from remote_spectators where last_seen_at<=?").run(now - REMOTE_SPECTATOR_SLOT_MS);
+        db.prepare("delete from remote_spectator_tabs where last_seen_at<=?").run(now - REMOTE_SPECTATOR_SLOT_MS);
+        // Admin watches that ended write their "stopped" line here when no one else touched the table.
+        const watched = db.prepare("select distinct w.table_id as id from remote_admin_watch w").all() as { id: number }[];
+        for (const { id } of watched) {
+          const found = db.prepare(`select ${tableColumns} from remote_tables t where t.id=?`).get(id) as TableRow | undefined;
+          if (found && settleAdminWatch(found, now)) changed.push(table(loadTable(found.slug, found.guild_id)));
+        }
         // The existing WS sweep publishes every changed table, including timer transitions.
         const sidingRows = db.prepare("select slug,guild_id,seat_count,json_extract(state_json,'$.match') as match_json from remote_tables where status='active' and json_extract(state_json,'$.match.phase')='siding'")
           .all() as { slug: string; guild_id: string; seat_count: SeatCount; match_json: string }[];
