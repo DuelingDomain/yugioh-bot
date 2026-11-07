@@ -324,7 +324,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
-  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
+  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) {
+    const eliminatedSeat = action.type === "player.concede" ? action.actorSeat : action.seat;
+    if (next.match.pendingResult?.lpSeat === undefined || next.match.pendingResult.lpSeat === eliminatedSeat) delete next.match.pendingResult;
+  }
   // After merges and eliminations, so no hold or link points to a card that is gone.
   clearZoneLinks(next, at);
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.

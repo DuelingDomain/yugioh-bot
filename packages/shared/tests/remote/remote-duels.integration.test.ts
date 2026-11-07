@@ -191,6 +191,31 @@ it('requires the seat owner to confirm tournament LP zero and keeps pending resu
   }
 });
 
+it('preserves a tournament LP request when another FFA seat is eliminated and recomputes the winner on confirmation', () => {
+  for (const concede of [false, true]) {
+    let state = ygoModule.initialState({seatCount:3, tournament:true}), serial = 0;
+    const step = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({
+      actorSeat:0, idempotencyKey:`ffa-pending-lp-${++serial}`, at:serial, ...input,
+    }));
+    step({type:'lp.change', seat:1, delta:-8000, reason:'damage'});
+    const pending = structuredClone(state.match.pendingResult!);
+    expect(pending).toMatchObject({lpSeat:1, winnerSeat:null});
+
+    if (concede) step({type:'player.concede', actorSeat:2});
+    else step({type:'lp.change', actorSeat:2, seat:2, delta:-8000, reason:'own damage'});
+    expect(state.seats[2].eliminated).toBe(true);
+    expect(state.seats[1]).toMatchObject({resources:{lp:0}, eliminated:false});
+    expect(state.match.pendingResult).toEqual(pending);
+    expect(state.ended).toBe(false);
+
+    step({type:'match.confirm', actorSeat:1, declarationId:pending.id, accept:true});
+    expect(state.seats[1].eliminated).toBe(true);
+    expect(state.match.pendingResult).toBeUndefined();
+    expect(state).toMatchObject({ended:true, winnerSeat:0,
+      match:{phase:'done', winnerSeat:0, games:[{reason:'lp', winnerSeat:0}]}});
+  }
+});
+
 it('logs detection mode per seat as a public fact without changing the board or private information', () => {
   const s = deckSession('normal',false);
   s.select(s.save().id);
