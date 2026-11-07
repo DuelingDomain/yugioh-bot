@@ -17,6 +17,7 @@
 // src/offscreen/__measure__/webgpu-parity.ts measures it again.
 import * as ortWasm from 'onnxruntime-web/wasm';
 import type { SessionLike, TensorCtor, TensorLike } from './embed';
+import { checkOutput, type GpuCheck } from './gpu-check';
 import type { WebGpuDiagnostics } from './types';
 
 export type WebOrt = Pick<typeof ortWasm, 'env' | 'InferenceSession' | 'Tensor'>;
@@ -40,8 +41,10 @@ export interface WebRuntimeDeps {
   webgpu?: boolean;
   /** Checked fp16 graph; the WASM graph is fetched only on fallback. */
   gpuModelPath?:string;
-  /** Float32 alternative for adapters without shader-f16 or a rejected fp16 graph. */
+  /** Float32 alternative for adapters without shader-f16 or a rejected fp16 graph; with no gpuModelPath, the one WebGPU graph. */
   gpuFp32ModelPath?: string;
+  /** Output check for the gpuModelPath graph, run once when its session opens; a graph that fails it is replaced by the float32 one. */
+  gpuCheck?: GpuCheck;
   /** How long each WebGPU step may take before WASM is used instead (WEBGPU_TIMEOUTS; tests shorten them). */
   webgpuTimeouts?: Partial<WebGpuTimeouts>;
   ort?: WebOrt;
@@ -280,6 +283,11 @@ const gpuCreates = new WeakMap<WebOrt, Promise<unknown>>();
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A new fp16 session's output check failed (its session is already released, or kept until its run returns when `stuck`). */
+class GpuCheckFailed extends Error {
+  constructor(message: string, readonly stuck = false) { super(message); }
+}
+
 /** False when a float32 output holds a NaN or an infinity (a plain loop: a detector output is about 1M floats). */
 function isFinite32(t: TensorLike | undefined): boolean {
   // A GPU-resident output throws on .data; its reader checks what it reads back.
@@ -327,6 +335,25 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   // The first fetch's bytes while they are whole (a failed WebGPU create may have used them), or a new fetch.
   const openWasm = async () => create(wasm.ort, model && model.byteLength > 0 ? model : await wasm.bytes(path, what), WASM_SESSION_OPTIONS);
 
+  /**
+   * A half-precision graph can run without an error and still be wrong on some GPUs, which no failed run or
+   * non-finite output gives away. The fixed check input goes through the new session once, before it serves a
+   * request, and the output must agree with the float32 reference (gpu-check.ts). On a mismatch, or if the check
+   * throws, the session is released and GpuCheckFailed is thrown: openWebGpu then goes on to the float32 graph.
+   */
+  async function checkGraph(opened: Opened, graphPath: string, check: GpuCheck): Promise<void> {
+    const running = Promise.resolve().then(() => check.output(opened.session, opened.ort.Tensor as unknown as TensorCtor));
+    let result: { ok: boolean; note: string }, stuck = false;
+    try { result = checkOutput(await within(running, limits.firstRunMs, `checking ${graphPath}`), check); }
+    catch (error) { stuck = error instanceof WebGpuTimeout; result = { ok: false, note: `the check run failed with ${errorText(error)}` }; }
+    if (result.ok) { gpuDiagnostics?.attempts.push(`${graphPath}: output check passed (${result.note})`); return; }
+    if (stuck) {
+      stuckGpu.add(opened.ort);
+      void running.then(() => opened.session.release?.(), () => opened.session.release?.()).catch(() => {});
+    } else void opened.session.release?.().catch(() => {});
+    throw new GpuCheckFailed(`output check failed: ${result.note}${stuck ? '' : '; use float32 WebGPU'}`, stuck);
+  }
+
   async function openWebGpu(forceFp32 = false): Promise<Opened | null> {
     if (deps.webgpu === false) return null;
     const start = performance.now();
@@ -337,10 +364,11 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
       console.debug(`[DuelLens] ${what} runs on WASM: ${fallbackReason}`);
       return null;
     }
-    const paths = deps.gpuModelPath
-      ? (gpu.fp16 && !forceFp32 ? [deps.gpuModelPath, deps.gpuFp32ModelPath] : [deps.gpuFp32ModelPath]).filter((p): p is string => Boolean(p))
+    const fp16Path = deps.gpuModelPath, fp32Path = deps.gpuFp32ModelPath;
+    const paths = fp16Path || fp32Path
+      ? (gpu.fp16 && !forceFp32 ? [fp16Path, fp32Path] : [fp32Path]).filter((p): p is string => Boolean(p))
       : [path];
-    if (!gpu.fp16 && deps.gpuModelPath) gpuDiagnostics.attempts.push('shader-f16 unavailable; use float32 WebGPU');
+    if (!gpu.fp16 && fp16Path) gpuDiagnostics.attempts.push('shader-f16 unavailable; use float32 WebGPU');
     if (!paths.length) {
       fallbackReason = 'adapter has no shader-f16 and this model has no float32 WebGPU variant';
       return null;
@@ -353,6 +381,7 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
         if (gpuPath === path) model = bytes;
         creating = createOnGpu(gpu.ort, bytes, gpu.device);
         const got = await within(creating, limits.createMs, `creating the WebGPU session for ${gpuPath}`);
+        if (deps.gpuCheck && gpuPath === fp16Path) await checkGraph(got, gpuPath, deps.gpuCheck);
         gpuDiagnostics.modelPath = gpuPath;
         fallbackReason = undefined;
         gpuDiagnostics.attempts.push(`${gpuPath}: WebGPU session created`);
@@ -366,6 +395,7 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
           creating.then(o => o.session.release?.()).catch(() => {});
           break; // A timed-out runtime cannot safely create another session.
         }
+        if (error instanceof GpuCheckFailed && error.stuck) break; // Its check run never came back: the same.
         console.warn(`[DuelLens] WebGPU session failed: ${failure}`, error);
       }
     }
