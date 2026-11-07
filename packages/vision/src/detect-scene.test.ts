@@ -39,3 +39,10 @@ test('shadow rescue detects only a padded crop of lost live outlines',async()=>{
  await detectScene(dark,large,other.session,Tensor as unknown as TensorCtor,{keep:lost,shadowKeep:[]});
  assert.equal(other.sizes.length,1,'twin-only keep regions do not trigger shadow rescue');
 });
+test('a weak outline near a known card can refine across the hysteresis overlap threshold',async()=>{
+ const {session}=detector();
+ const refiner=new SceneRefiner(c=>c.pts.map(([x,y])=>({x:x+(c.conf<.4?20:0),y})));
+ const keep=[[{x:.515,y:.2},{x:.65,y:.2},{x:.65,y:.8},{x:.515,y:.8}]];
+ const result=await detectScene(image,profile,session,Tensor as unknown as TensorCtor,{keep,shadowPass:false},refiner);
+ assert.equal(result.length,2);assert.equal(result[1].kept,true);
+});

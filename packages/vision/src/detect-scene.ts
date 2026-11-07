@@ -29,8 +29,8 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
     const width=pixels?.width??frame.width,height=pixels?.height??frame.height;
     refiner?.begin(width,height);
     const qualifies=(c:DetectedQuad)=>c.confidence>=CARD_DETECTOR.minConfidence||
-      c.confidence>=KEEP_MIN_CONFIDENCE&&keep.some(q=>overlap(c.quad,q)>=.6)||
-      piles.some(q=>overlap(c.quad,q)>=.6)||c.kind==='face-down'&&cells.some(q=>overlap(c.quad,q)>=.6);
+      c.confidence>=KEEP_MIN_CONFIDENCE&&keep.some(q=>overlap(c.quad,q)>0)||
+      piles.some(q=>overlap(c.quad,q)>0)||c.kind==='face-down'&&cells.some(q=>overlap(c.quad,q)>0);
     const pass=async(source:RGBAImage,region=opts.region,lift=false)=>{
       const x=region?Math.floor(region.x*width):0,y=region?Math.floor(region.y*height):0;
       const w=region?Math.min(width-x,Math.max(3,Math.ceil(region.w*width))):width,h=region?Math.min(height-y,Math.max(3,Math.ceil(region.h*height))):height;
@@ -41,7 +41,10 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
       return cards.map(card=>{
         // Rejected decode-floor boxes still contribute to the covered guard, without edge fitting.
         const raw={quad:card.pts.map(([x,y])=>({x:x/width,y:y/height})),kind:card.kind,confidence:card.conf,partial:false};
-        const quad=qualifies(raw)?(refiner?.refine(card,source,pixels?(c)=>pixels.refine(c):undefined)??(pixels?pixels.refine(card):refinedCorners(card,source))):card.pts.map(([x,y])=>({x,y}));return {quad:quad.map(p=>({x:p.x/width,y:p.y/height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>width || p.y>height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+w-2||py>=y+h-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
+        // Use the entire possible edge-search footprint here. Exact overlap admission follows the fit.
+        const radius=Math.hypot(card.w,card.h)/2+Math.max(card.w,card.h)*.2+3;
+        const search={...raw,quad:[{x:(card.cx-radius)/width,y:(card.cy-radius)/height},{x:(card.cx+radius)/width,y:(card.cy-radius)/height},{x:(card.cx+radius)/width,y:(card.cy+radius)/height},{x:(card.cx-radius)/width,y:(card.cy+radius)/height}]};
+        const quad=qualifies(search)?(refiner?.refine(card,source,pixels?(c)=>pixels.refine(c):undefined)??(pixels?pixels.refine(card):refinedCorners(card,source))):card.pts.map(([x,y])=>({x,y}));return {quad:quad.map(p=>({x:p.x/width,y:p.y/height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>width || p.y>height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+w-2||py>=y+h-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
     };
     shadowPasses=0;
     const quads=await pass(frame);
