@@ -1,3 +1,4 @@
+import { cloneRemoteCurrent } from "./position.js";
 import type { RemoteAction } from "./actions.js";
 import { remoteAssert } from "./actions.js";
 import { flagRemoteCopies, observeRemoteCard, remoteLocationsDistinct, remotePhysicalSlot, remotePublicCard, remotePublicZone, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
@@ -6,7 +7,7 @@ import { remoteFieldZone, sameTwinIdentity } from "./twin-placement.js";
 
 /** Pure. All catalog/validation facts are explicit replay inputs. */
 export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, context: RemoteReductionContext = {}): RemoteState {
-  const next = structuredClone(input);
+  const next = cloneRemoteCurrent(input);
   const checks = next.deckChecks;
   const legacy=context.showCardsSetFromDeck===undefined;
   const isPublic=(card:{zone?:string;faceUp?:boolean;publicIdentity?:boolean})=>legacy ? remotePublicZone(card.zone,card.faceUp) : remotePublicCard(card);

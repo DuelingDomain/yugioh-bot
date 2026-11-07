@@ -298,15 +298,15 @@ it("replaces queued user events with one deletion job in the account transaction
 });
 
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-it("anonymises remote-only history without rewriting append-only events or retaining copied names", () => {
+it("removes remote-only history including append-only events and copied names", () => {
   exec("insert into users(id,clerk_user_id,username,display_name) values(3,'remote_user','remote','Remote Original')");
   const remote = createRemoteDuelService(db);
   const room = remote.create({ guildId: "g", userId: 3, displayName: "Remote Original", gameId: "ygo", seatCount: 2 }, 1000);
   const events = db.prepare("select * from remote_events").all();
-  expect(previewUserDeletion(db, 3).mode).toBe("anonymised");
-  expect(deleteUserAccount(db, 3).mode).toBe("anonymised");
-  expect(remote.get(room.slug, "g", 3).seats[0].displayName).toBe(DELETED_PLAYER_NAME);
-  expect(db.prepare("select * from remote_events").all()).toEqual(events);
+  expect(previewUserDeletion(db, 3).mode).toBe("removed");
+  expect(deleteUserAccount(db, 3).mode).toBe("removed");
+  expect(()=>remote.get(room.slug, "g", 3)).toThrow(/not found/i);
+  expect(db.prepare("select * from remote_events").all()).toEqual([]);
   expect(JSON.stringify(events)).not.toContain("Remote Original");
   expect(deleteUserAccount(db, 3).counts).toEqual({});
   expect(db.pragma("foreign_key_check")).toEqual([]);

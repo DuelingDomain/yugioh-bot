@@ -40,10 +40,12 @@ function withoutUndo<T extends RemoteState>(state:T):T {
   if("undoHistory" in shell)shell.undoHistory=null;
   return shell as T;
 }
-export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>):RemoteState {
+/** `allUndoReasons` runs the slow restore check for every history entry, not only the newest of each seat. */
+export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>,options:{allUndoReasons?:boolean}={}):RemoteState {
   const next=projectPosition(withoutUndo(state),seats);
-  if("undo" in state)next.undo=state.undo ? {...structuredClone({...state.undo,before:null}),before:projectPosition(state.undo.before,seats)} : state.undo;
-  if("undoHistory" in state)next.undoHistory=state.undoHistory ? [...seats].flatMap(seat=>remoteUndoHistory(state,seat)).sort((a,b)=>b.order-a.order) : state.undoHistory;
+  // Clients use only the id and time of the last action; the position before it stays on the server (the cast hides the missing `before`).
+  if("undo" in state)next.undo=state.undo ? {actionId:state.undo.actionId,at:state.undo.at} as RemoteState["undo"] : state.undo;
+  if("undoHistory" in state)next.undoHistory=state.undoHistory ? [...seats].flatMap(seat=>remoteUndoHistory(state,seat,options.allUndoReasons?"all":"newest")).sort((a,b)=>b.order-a.order) : state.undoHistory;
   return next;
 }
 export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=new Set()):RemoteTable {

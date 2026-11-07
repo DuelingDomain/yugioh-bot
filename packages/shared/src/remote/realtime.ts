@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { RemoteEvent, RemoteState, RemoteTable } from "./types.js";
+import type { RoomPatch } from "./delta.js";
 const requestId = z.string().min(1).max(100);
 /** The Visibility choice a new Remote table starts with in the creator and at the API. Solo tables are always private. */
 export const REMOTE_DEFAULT_VISIBILITY = "private" as const;
@@ -32,14 +33,21 @@ export type RemoteFieldCard=RemoteFieldTracks['cards'][number];
 export type RemoteDataPayload = { slug: string; fromSeat: number; message: RemoteDataMessage };
 export type RemoteSnapshot = { table: RemoteTable; state: RemoteState; events: RemoteEvent[] };
 export type RemoteAck = { ok: true } | { ok: false; error: string; retryAfterMs?: number };
+/**
+ * A small patch of one viewer's own projected view. The ops are relative to that viewer's `RemoteSnapshot` (`{ table, state, events }`).
+ * Apply it only when `base` equals the `table.lastSeq` the client holds. A socket that did not join with `patch: 1` never gets one.
+ * Some changes keep the same sequence number (idle clock, idle warning): those go as a full `remote:private`, never as a patch, because a browser drops a patch whose `seq` is not above its `base`.
+ */
+export type RemotePatchMessage = RoomPatch & { slug: string };
 export interface RemoteServerEvents {
+  "remote:patch": (payload: RemotePatchMessage) => void;
   "remote:private": (payload: RemoteSnapshot) => void;
   "remote:changed": (payload: RemoteSnapshot) => void;
   "remote:data": (payload: RemoteDataPayload) => void;
   "remote:subscription-expired": (payload: { slug: string }) => void;
 }
 export interface RemoteClientEvents {
-  "remote:join": (payload: { token: string }, ack?: (result: RemoteAck) => void) => void;
+  "remote:join": (payload: { token: string; patch?: 1 }, ack?: (result: RemoteAck) => void) => void;
   "remote:leave": () => void;
   "remote:data": (payload: RemoteDataMessage, ack?: (result: RemoteAck) => void) => void;
 }

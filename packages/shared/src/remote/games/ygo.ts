@@ -1,3 +1,4 @@
+import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch } from "../match.js";
@@ -87,7 +88,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   const at = action.at ?? state.updatedAt;
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
-  if (!state.match) state = ensureRemoteMatch(structuredClone(state));
+  if (!state.match) state = ensureRemoteMatch(cloneRemoteCurrent(state));
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
   if (matchResult) return matchResult;
   if (action.type === "undo") {
@@ -100,7 +101,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
-  let next: RemoteState = { ...structuredClone(state), updatedAt: at };
+  let next: RemoteState = { ...cloneRemoteCurrent(state), updatedAt: at };
   next.deckChecks ??= initialDeckChecks();
   if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
   else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;

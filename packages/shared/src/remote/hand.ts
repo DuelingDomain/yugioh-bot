@@ -1,3 +1,4 @@
+import { cloneRemoteCurrent } from "./position.js";
 import { remoteAssert, type RemoteAction, type RemoteActionProposal, type TwinCard } from './actions.js';
 import {remotePublicCard, type RemoteReductionContext} from './deck-checks.js';
 import {searchCandidates} from './search-candidates.js';
@@ -125,7 +126,7 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
   if (context?.replay && context.handKnowledge !== 1) return;
   const reviewed=!context?.replay||context.handReview===1;
   if(reviewed&&next.turn!==before.turn) {
-    const opening=structuredClone(before);
+    const opening=cloneRemoteCurrent(before);
     for(const s of next.seats)if(!s.eliminated){
       const prior=counts(opening,s.seat);
       s.handCount??=prior.handCount;s.deckCount??=prior.deckCount;

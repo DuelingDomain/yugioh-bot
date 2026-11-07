@@ -3,7 +3,7 @@ import {afterEach,expect,it,vi} from "vitest";
 import {migrate} from "@yugidraft/shared/db";
 import {createSetSync} from "../src/set-sync.js";
 import {createImageCleanup} from "../src/image-cleanup.js";
-afterEach(()=>vi.useRealTimers());
+afterEach(()=>{vi.useRealTimers();vi.unstubAllEnvs();});
 it("syncs an empty set cache at startup and at 06:00 UTC only",async()=>{
   vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T05:59:58Z"));
   const db=new Database(":memory:");migrate(db);
@@ -51,4 +51,36 @@ it("coalesces cron ticks with a slow startup sync and drains it on stop", async 
   } finally {
     await job.stop();db.close();
   }
+});
+
+
+it("purges only expired remote rooms in bounded hourly cleanup batches", async () => {
+  const {createRemoteDuelService,createUserService}=await import('@yugidraft/shared/services');
+  const {pruneRemoteDuels}=await import('../src/remote-retention.js');
+  const db=new Database(':memory:');db.pragma('foreign_keys=ON');migrate(db);
+  try {
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
+    const user=createUserService(db).createNonLogin('Retention owner');
+    const service=createRemoteDuelService(db), day=86400000, now=40*day;
+    const create=()=>service.create({guildId:'g',userId:user.id,displayName:'Owner',gameId:'ygo',seatCount:2},1000);
+    for(let i=0;i<101;i++) {
+      const room=create();
+      db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day-1,room.slug);
+    }
+    const active=create(), retained=create();
+    db.prepare("update remote_tables set status='active',ended_at=? where slug=?").run(now-31*day,active.slug);
+    db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day,retained.slug);
+    expect(pruneRemoteDuels(db,now)).toBe(101);
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:2});
+    expect(service.replay(retained.slug,'g',user.id)).toBeDefined();
+    expect(service.get(active.slug,'g',user.id).status).toBe('active');
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','0');
+    expect(()=>pruneRemoteDuels(db,now)).toThrow('REMOTE_DUELS_RETENTION_DAYS');
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','bad');
+    expect(()=>pruneRemoteDuels(db,now)).toThrow('REMOTE_DUELS_RETENTION_DAYS');
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:2});
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
+    expect(pruneRemoteDuels(db,now+1)).toBe(1);
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {db.close();}
 });

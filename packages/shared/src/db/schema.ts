@@ -1792,6 +1792,11 @@ function migrateCreatorAccess(db: Database.Database) {
 }
 
 function migrateRemoteDuels(db: Database.Database) {
+  // Pairing tables are web-owned. Associate new buckets with rooms so retention can remove them.
+  if (db.prepare("select 1 from sqlite_master where type='table' and name='remote_phone_attempts'").get()) {
+    addColumnIfMissing(db, "remote_phone_attempts", "slug", "text");
+    db.exec("create index if not exists remote_phone_attempts_room on remote_phone_attempts(slug)");
+  }
   // Independent from engine duels: remote calls never count as deploy-blocking activity.
   db.exec(`
     create table if not exists remote_tables (
@@ -1863,4 +1868,51 @@ function migrateRemoteDuels(db: Database.Database) {
   }
   addColumnIfMissing(db, "remote_events", "effects_json", "text");
   addColumnIfMissing(db, "remote_events", "messages_json", "text");
+  // Immutable JSON addressed by content, shared by undo positions and event facts.
+  db.exec(`
+    create table if not exists remote_values (
+      hash text primary key check(length(hash)=64), json text not null
+    ) without rowid;
+    create trigger if not exists remote_values_no_update before update on remote_values
+      begin select raise(abort, 'remote_values is immutable'); end;
+    create table if not exists remote_state_values (
+      table_id integer not null references remote_tables(id) on delete cascade,
+      value_hash text not null references remote_values(hash),
+      primary key(table_id,value_hash)
+    ) without rowid;
+    create index if not exists remote_state_values_hash on remote_state_values(value_hash);
+  `);
+  addColumnIfMissing(db, "remote_events", "facts_hash", "text references remote_values(hash)");
+  db.exec(`
+    create index if not exists remote_events_facts_hash on remote_events(facts_hash) where facts_hash is not null;
+    create index if not exists remote_tables_retention on remote_tables(ended_at) where status='ended';
+    create trigger if not exists remote_state_values_collect after delete on remote_state_values begin
+      delete from remote_values where hash=old.value_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.value_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.value_hash);
+    end;
+    create trigger if not exists remote_events_collect after delete on remote_events begin
+      delete from remote_values where hash=old.facts_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.facts_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.facts_hash);
+    end;
+    create trigger if not exists remote_tables_collect after delete on remote_tables begin
+      delete from remote_events where table_id=old.id;
+      delete from remote_seats where table_id=old.id;
+      delete from remote_bot_seats where table_id=old.id;
+      delete from remote_state_values where table_id=old.id;
+    end;
+  `);
+  // Serialize the definition check and replacement across processes. Current
+  // databases keep their guard without a schema write on every open.
+  db.transaction(() => {
+    const sql = `CREATE TRIGGER remote_events_no_delete before delete on remote_events
+      when exists(select 1 from remote_tables where id=old.table_id)
+      begin select raise(abort, 'remote_events is append-only'); end`;
+    const existing = db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get() as {sql:string} | undefined;
+    if (existing?.sql !== sql) {
+      db.exec('drop trigger if exists remote_events_no_delete');
+      db.exec(sql);
+    }
+  }).immediate();
 }

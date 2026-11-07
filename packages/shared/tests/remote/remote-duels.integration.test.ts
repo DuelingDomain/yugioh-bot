@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
-import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/account-deletion.js";
+import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
@@ -391,8 +391,8 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin.map(c=>c.ref)).toEqual(["private-first","private-second"]);
     expect(s.service.snapshot(s.room.slug, "g").state.twinConfirmation).toBeUndefined();
     s.act({ type: "phase.set", phase: "main1" });
-    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo?.before.twinConfirmation).toBeUndefined();
-    expect(s.service.snapshot(s.room.slug, "g").state.undo?.before.twinConfirmation).toBeUndefined();
+    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
+    expect(s.service.snapshot(s.room.slug, "g").state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
   });
   it("allows physical multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
     const live = deckSession("normal", false);
@@ -578,9 +578,9 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.lastSeq).toBe(before.lastSeq + 1);
     expect(s.room.events.slice(before.events.length)).toMatchObject([{ action: { type: "twin.place", source: "auto" } }]);
     expect(s.room.events.at(-1)?.effects).toBeUndefined();
-    const persisted = s.db.prepare("select effects_json from remote_events where idempotency_key=? and table_id=(select id from remote_tables where slug=?)")
-      .get("atomic-auto", s.room.slug) as { effects_json: string };
-    expect(JSON.parse(persisted.effects_json)).toMatchObject({ facts: { 14558127: { code: 14558127, name: "Ash Blossom" } } });
+    const persisted = s.db.prepare("select v.json as facts_json from remote_events e join remote_values v on v.hash=e.facts_hash where idempotency_key=? and table_id=(select id from remote_tables where slug=?)")
+      .get("atomic-auto", s.room.slug) as { facts_json: string };
+    expect(JSON.parse(persisted.facts_json)).toMatchObject({ 14558127: { code: 14558127, name: "Ash Blossom" } });
     expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 14558127, zone: "monster", slot: 2 }]);
     expect(s.room.state.deckChecks.instances).toMatchObject([{ code: 14558127, name: "Ash Blossom", refs: ["auto-card"], zone: "monster", slot: 2 }]);
     expect(s.room.state.identified).toBeNull();
@@ -700,7 +700,7 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.events.at(-1)?.messages).toContain("Sulman added Ash Blossom to their decklist");
     expect(JSON.stringify(s.db.prepare("select * from remote_events").all())).not.toContain("Sulman");
     deleteUserAccount(s.db,s.users[0]);
-    expect(s.service.get(s.room.slug,"g",s.users[0]).events.at(-1)?.messages).toContain(DELETED_PLAYER_NAME+" added Ash Blossom to their decklist");
+    expect(() => s.service.get(s.room.slug,"g",s.users[0])).toThrow(/not found/i);
   });
 });
 describe("B3 physical field slot guard", () => {
@@ -717,7 +717,9 @@ describe("B3 physical field slot guard", () => {
     expect(replayed.seats[0].twin.filter(c=>c.zone===zone).map(c=>c.ref)).toEqual(['old-first','old-second']);
     expect(replayed.undo?.actionId).toBe('legacy-conflict');
     expect(()=>ygoModule.reduce(replayed,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone,card:{ref:'live-third',slot:1},idempotencyKey:'live-after-legacy',at:2201}))).toThrow(/occupied/i);
-    const restored=ygoModule.reduce(replayed,{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
+    // A client state has no undo position; give the reducer the one from before the replayed action.
+    const {updatedAt:_at,undo:_undo,undoHistory:_history,...beforeAction}=structuredClone(s.room.state);
+    const restored=ygoModule.reduce({...replayed,undo:{...replayed.undo!,before:beforeAction}},{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
     expect(restored.seats[0].twin).toEqual(s.room.state.seats[0].twin);
   });
   const slots = [
@@ -920,7 +922,7 @@ describe("solo remote tables", () => {
   it("migrates existing remote rows additively and reruns without changing data", () => {
     const { service, table, users, db } = setup();
     // Recreate the exact pre-solo state: no new column or bot storage.
-    db.exec("drop table remote_bot_seats; alter table remote_tables drop column solo");
+    db.exec("drop trigger remote_tables_collect; drop table remote_bot_seats; alter table remote_tables drop column solo");
     migrate(db); migrate(db);
     const existing = service.get(table.slug, "g", users[0]);
     expect(existing.solo).toBe(false);
@@ -1686,7 +1688,8 @@ describe("remote effect origins and hidden information", () => {
       extra.public=true; extra.anchored=true;
     }
     delete legacyState.showCardsSetFromDeck;
-    if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
+    // The room state has no undo position now: an old row kept one, without the rule that this test removes.
+    if(legacyState.undo) { const {updatedAt:_at,undo:_undo,undoHistory:_history,...position}=structuredClone(legacyState); legacyState.undo.before=position as never; }
     const oldId=(s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id;
     const id=s.db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,last_seq,created_at,last_event_at,solo,format_json) select 'legacy','g',game_id,seat_count,status,created_by,?,last_seq,created_at,last_event_at,solo,format_json from remote_tables where id=?")
       .run(JSON.stringify(legacyState),oldId).lastInsertRowid;
@@ -2200,6 +2203,22 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
  expect(state.seats[0].twin.map(card=>card.ref)).toEqual(['older','newer']);
 });
 
+it('sends no undo position and runs the restore check only for the newest undo entry, unless all are asked for',async()=>{
+  const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2});let serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`reasons-${++serial}`,at:serial}),{facts:{}});
+  const place=(ref:string,slot:number)=>reduce({type:'twin.place',seat:0,zone:'monster',card:{ref,cardId:1000+slot,faceUp:true,slot}});
+  place('a',1);place('b',2);reduce({type:'twin.move',seat:0,cardRef:'a',zone:'graveyard'});place('c',1);
+  const reasons=(options?:{allUndoReasons?:boolean})=>projectRemoteState(state,new Set([0]),options).undoHistory!.map(entry=>entry.reason);
+  expect(projectRemoteState(state,new Set([0])).undo).toEqual({actionId:'reasons-4',at:4});
+  // Entry 3 (the move back into slot 1) now collides with card c: only the full check sees it.
+  expect(reasons()).toEqual([undefined,undefined,undefined,expect.stringMatching(/same card/)]);
+  expect(reasons({allUndoReasons:true})).toEqual([undefined,expect.stringMatching(/slot is occupied/),expect.stringMatching(/state needed/),expect.stringMatching(/same card/)]);
+  // A saved old-format entry has no positions: its stored reason stays.
+  const saved={...state,undoHistory:state.undoHistory!.map(({before:_b,after:_a,...entry})=>({...entry,reason:'Stored reason'}))};
+  expect(projectRemoteState(saved,new Set([0])).undoHistory!.map(entry=>entry.reason)).toEqual(Array(4).fill('Stored reason'));
+});
+
 it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
   const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
@@ -2257,7 +2276,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(projectRemoteState(state,viewer).seats[0].handCount).toBe(8);
   reduce({type:'undo',targetActionId:countId});expect(state.seats[0].handCount).toBeUndefined();
   state=counted;reduce({type:'hand.count',delta:-2});expect(state.seats[0].handCount).toBe(6);
-  expect(projectRemoteState(state,new Set([1])).undo?.before.seats[0].handCount).toBe(8);
+  expect(projectRemoteState(state,new Set([1])).undo).not.toHaveProperty('before');
   reduce({type:'hand.count',value:0});expect(state.seats[0].handCount).toBe(0);
   expect(()=>reduce({type:'hand.count',delta:-1})).toThrow(/hand count/i);
   reduce({type:'hand.count',value:999999});expect(()=>reduce({type:'hand.count',delta:1})).toThrow(/hand count/i);
@@ -2274,7 +2293,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const opponent=projectRemoteState(state,new Set([1]));
   expect(opponent.seats[0].knownHand).toEqual(state.seats[0].knownHand);
   expect(opponent.seats[0].handCount).toBe(6);
-  expect(opponent.undo?.before.seats[0].handCount).toBeUndefined();
+  expect(opponent.undo).not.toHaveProperty('before');
   reduce({type:'undo',targetActionId:addedId});expect(state.seats[0].knownHand??[]).toEqual([]);
   state=added;
   reduce({type:'hand.count',value:9});
@@ -2720,7 +2739,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const otherCount=countService.act(countRoom.slug,'g',countUsers[1],{baseSeq:publicCount.lastSeq,action:{type:'hand.count',actorSeat:1,value:3,idempotencyKey:'other-count'}},2203);
   expect(otherCount.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(otherCount.state.seats[0].deckCount).toBeUndefined();
-  expect(otherCount.state.undo?.before.seats[0].deckCount).toBeUndefined();
+  expect(otherCount.state.undo).not.toHaveProperty('before');
   const countBroadcast=countService.snapshot(countRoom.slug,'g');
   expect(countBroadcast.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(countBroadcast.state.seats.every(s=>s.deckCount===undefined)).toBe(true);
@@ -2816,9 +2835,228 @@ it('projects a state without copying its undo data, keeping key order and the or
   expect(JSON.stringify(state)).toBe(frozen);
   expect(Object.keys(view)).toEqual(Object.keys(state));
   expect(view.undo?.actionId).toBe(state.undo!.actionId);
-  expect(view.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([undefined]);
+  expect(view.undo).toEqual({actionId:state.undo!.actionId,at:state.undo!.at});
   expect(state.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([46986414]);
   expect(view.undoHistory).toEqual([]);
   const spectator=projectRemoteSpectator({table:{seats:[]} as never,state,events:[]});
   expect(spectator.state.undo).toBeNull();expect(spectator.state.undoHistory).toEqual([]);expect(JSON.stringify(state)).toBe(frozen);
+});
+
+it('stores undo positions once with atomic legacy upgrade and reference lifetime', async () => {
+  const session = deckSession('normal');
+  session.select(session.save().id); session.start();
+  session.act({type:'lp.change',seat:0,reason:'effect',delta:-100});
+  const {db, users} = session;
+  // An in-progress deployment still contains a complete legacy state row.
+  const stateRow = () => (db.prepare('select id,state_json from remote_tables where slug=?').get(session.room.slug) as {id:number;state_json:string});
+  expect(JSON.parse(stateRow().state_json).storageVersion).toBe(1);
+  const {readRemoteState, writeRemoteState, remoteValueCacheStats} = await import('../../src/remote/storage.js');
+  const legacy = readRemoteState(db, stateRow().state_json);
+  expect(Object.isFrozen(legacy.undoHistory![0].before!.seats)).toBe(true);
+  expect(() => legacy.undoHistory![0].before!.seats[0].resources.lp = 1).toThrow();
+  db.prepare('update remote_tables set state_json=? where id=?').run(JSON.stringify(legacy), stateRow().id);
+  const call = () => createRemoteDuelService(db, {dataDirectory:deckData});
+  const act = (id: string) => call().act(session.room.slug,'g',users[0],{baseSeq:call().get(session.room.slug,'g',users[0]).lastSeq,
+    action:remoteActionSchema.parse({type:'lp.change',seat:0,reason:'effect',actorSeat:0,delta:100,idempotencyKey:id})},3000);
+  const count = () => (db.prepare('select count(*) n from remote_values').get() as {n:number}).n;
+  // A rollback can leave a version-1 row with full positions. Roll-forward reads it.
+  db.prepare('update remote_tables set state_json=? where id=?').run(JSON.stringify({...legacy,storageVersion:1}),stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state).toEqual(session.room.state);
+  const fullVersioned=readRemoteState(db,stateRow().state_json);
+  expect(Object.isFrozen(fullVersioned.undo!.before.seats)).toBe(true);
+  expect(Object.isFrozen(fullVersioned.undoHistory![0].after!.seats)).toBe(true);
+  const oldCount=count(), oldJson=stateRow().state_json;
+  const eventsBefore=db.prepare('select count(*) n from remote_events').get();
+  db.exec("create trigger fail_state before update of state_json on remote_tables begin select raise(abort,'forced rollback'); end");
+  expect(()=>act('rollback')).toThrow('forced rollback');
+  expect(count()).toBe(oldCount); expect(stateRow().state_json).toBe(oldJson);
+  expect(db.prepare('select count(*) n from remote_events').get()).toEqual(eventsBefore);
+  db.exec('drop trigger fail_state'); act('upgrade');
+  expect(JSON.parse(stateRow().state_json).storageVersion).toBe(1);
+  for(let i=0;i<45;i++) act('trim-'+i);
+  const state=readRemoteState(db,stateRow().state_json);
+  expect(state.undoHistory).toHaveLength(20);
+  expect(db.prepare(`select count(*) n from remote_values v where
+    not exists(select 1 from remote_state_values r where r.value_hash=v.hash) and
+    not exists(select 1 from remote_events e where e.facts_hash=v.hash)`).get()).toEqual({n:0});
+  expect(()=>readRemoteState(db,JSON.stringify({...state,storageVersion:1,undoHistory:[],
+    undo:{...state.undo,before:{valueHash:'0'.repeat(64)}}}))).toThrow('Missing Remote Duel value');
+  const original=state.undo!.before.showCardsSetFromDeck;
+  db.prepare('update remote_tables set show_cards_set_from_deck=0 where id=?').run(stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state.undo).not.toHaveProperty('before');
+  expect(state.undo!.before.showCardsSetFromDeck).toBe(original);
+
+  const facts=db.prepare('select facts_hash from remote_events where table_id=? and facts_hash is not null').all(stateRow().id);
+  expect(facts.length).toBeGreaterThan(0);
+  const hits=remoteValueCacheStats().hits;
+  call().get(session.room.slug,'g',users[0]); call().get(session.room.slug,'g',users[0]);
+  expect(remoteValueCacheStats().hits).toBeGreaterThan(hits);
+  expect(remoteValueCacheStats().bytes).toBeLessThanOrEqual(remoteValueCacheStats().maxBytes);
+  // Replay facts shared by two rooms survive either owner's deletion.
+  let second=call().create({guildId:'g',userId:users[0],displayName:'A',gameId:'ygo',seatCount:2,solo:true},4000);
+  call().selectDeck(second.slug,'g',users[0],{savedDeckId:session.save().id},4001);
+  call().ready(second.slug,'g',users[0],true,4002);
+  second=call().start(second.slug,'g',users[0],4003);
+  second=call().act(second.slug,'g',users[0],{baseSeq:second.lastSeq,action:remoteActionSchema.parse({
+    type:'lp.change',seat:0,actorSeat:0,reason:'effect',delta:-100,idempotencyKey:'shared-facts'})},4004);
+  const sharedHash=(db.prepare("select facts_hash from remote_events where idempotency_key='shared-facts'").get() as {facts_hash:string}).facts_hash;
+  expect(facts).toContainEqual({facts_hash:sharedHash});
+  // A second connection can trim history between loading its row and hydrating
+  // values. The search must retain the same SQLite read snapshot throughout.
+  const concurrentDir=mkdtempSync(join(tmpdir(),'remote-value-snapshot-'));
+  const concurrentPath=join(concurrentDir,'test.sqlite');
+  writeFileSync(concurrentPath,db.serialize());
+  const reader=new Database(concurrentPath), writer=new Database(concurrentPath);
+  try {
+    for(const connection of [reader,writer]) { connection.pragma('foreign_keys=ON'); connection.pragma('journal_mode=WAL'); }
+    const prepare=reader.prepare.bind(reader);
+    let interleaved=false;
+    vi.spyOn(reader,'prepare').mockImplementation(((sql:string)=>{
+      const statement=prepare(sql);
+      if(sql.startsWith('select *,json_extract')) {
+        const get=statement.get.bind(statement);
+        vi.spyOn(statement,'get').mockImplementation((...args:unknown[])=>{
+          const row=get(...args);
+          if(!interleaved) {
+            interleaved=true;
+            const trimmed=readRemoteState(writer,stateRow().state_json);
+            trimmed.undo=null; delete trimmed.undoHistory;
+            writer.transaction(()=>writer.prepare('update remote_tables set state_json=? where slug=?')
+              .run(writeRemoteState(writer,stateRow().id,trimmed),session.room.slug)).immediate();
+          }
+          return row;
+        });
+      }
+      return statement;
+    }) as typeof reader.prepare);
+    expect(()=>createRemoteDuelService(reader,{dataDirectory:deckData}).searchCandidates(session.room.slug,'g',users[0],0,1)).not.toThrow();
+    expect(interleaved).toBe(true);
+    expect(JSON.parse((prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json).undo).toBeNull();
+    // A replay already reading the room keeps its facts even if retention
+    // removes the room in another process before it reads the event log.
+    writer.prepare("update remote_tables set status='ended',ended_at=2999 where slug=?").run(session.room.slug);
+    const replayService=createRemoteDuelService(reader,{dataDirectory:deckData});
+    const expectedReplay=replayService.replay(session.room.slug,'g',users[0]);
+    let purged=false;
+    vi.mocked(reader.prepare).mockImplementation(((sql:string)=>{
+      if(sql==='select * from remote_events where table_id=? order by seq' && !purged) {
+        purged=true;
+        expect(createRemoteDuelService(writer,{dataDirectory:deckData}).purgeEnded(3000)).toBe(1);
+      }
+      return prepare(sql);
+    }) as typeof reader.prepare);
+    expect(replayService.replay(session.room.slug,'g',users[0])).toEqual(expectedReplay);
+    expect(purged).toBe(true);
+    expect(()=>replayService.get(session.room.slug,'g',users[0])).toThrow('Remote table not found');
+
+  } finally { reader.close(); writer.close(); rmSync(concurrentDir,{recursive:true,force:true}); }
+  // A game end keeps Undo and replay available. Explicit retention owns deletion.
+  db.prepare("update remote_tables set status='ended',ended_at=3000 where id=?").run(stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state.undoHistory!.length).toBe(state.undoHistory!.filter(e=>!e.undone&&e.actorSeat===0).length);
+  expect(()=>db.prepare('delete from remote_events where table_id=?').run(stateRow().id)).toThrow(/append.only/);
+  const endedId=stateRow().id;
+  expect(call().purgeEnded(3001)).toBe(1);
+  expect(db.prepare('select count(*) n from remote_state_values where table_id=?').get(endedId)).toEqual({n:0});
+  expect(db.prepare('select hash from remote_values where hash=?').get(sharedHash)).toBeDefined();
+  db.prepare('delete from remote_tables where slug=?').run(second.slug);
+  expect(count()).toBe(0);
+});
+
+
+it('shares decoded values and counters across separate module graphs', async () => {
+  const session=deckSession('normal');session.select(session.save().id);session.start();
+  session.act({type:'lp.change',seat:0,reason:'effect',delta:-100});
+  const json=(session.db.prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json;
+  const first=await import('../../src/remote/storage.js');
+  const before=first.readRemoteState(session.db,json).undo!.before;
+  const stats=first.remoteValueCacheStats();
+  vi.resetModules();
+  const second=await import('../../src/remote/storage.js');
+  expect(second.remoteValueCacheStats()).toEqual(stats);
+  expect(second.readRemoteState(session.db,json).undo!.before).toBe(before);
+  expect(first.remoteValueCacheStats().hits).toBeGreaterThan(stats.hits);
+});
+
+it('upgrades the event deletion guard atomically and leaves current SQL untouched', () => {
+  const {db,service,table,users}=setup();
+  db.exec("drop trigger remote_events_no_delete; create trigger remote_events_no_delete before delete on remote_events begin select raise(abort, 'remote_events is append-only'); end");
+  const exec=db.exec.bind(db), replaced:boolean[]=[];
+  const spy=vi.spyOn(db,'exec').mockImplementation((sql:string)=>{
+    if(/drop trigger(?: if exists)? remote_events_no_delete/i.test(sql)) replaced.push(db.inTransaction);
+    return exec(sql);
+  });
+  try {
+    migrate(db);
+    expect(replaced).toEqual([true]);
+    const guard=db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get();
+    replaced.length=0;migrate(db);
+    expect(replaced).toEqual([]);
+    expect(db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get()).toEqual(guard);
+    expect(()=>db.prepare('delete from remote_events where table_id=(select id from remote_tables where slug=?)').run(table.slug)).toThrow(/append.only/);
+    expect(service.get(table.slug,'g',users[0]).lastSeq).toBe(table.lastSeq);
+  } finally {spy.mockRestore();}
+});
+
+it('expires all room storage after 24 hours across batches and removes account remote data', async () => {
+  const {pruneRemoteDuels} = await import('../../src/services/remote-retention.js');
+  const s=deckSession();s.start();s.place('retention-card');
+  const {db,service,users,room:table}=s;
+  const day=86_400_000, now=3*day;
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
+  try {
+    // Web-owned optional tables have no foreign keys into the room schema.
+    db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer);
+      create table remote_phone_modes(slug text,user_id integer);
+      create table remote_phone_attempts(bucket text primary key,started_at integer,count integer);
+      create table remote_vision_ai_limits(user_id integer primary key,window_started_at integer,attempts integer);`);
+    db.prepare('insert into remote_phone_attempts values(?,?,1)').run('legacy-hash',now-day);
+    migrate(db); // Existing pairing buckets predate the room association.
+    const roomId=(slug:string)=>(db.prepare('select id from remote_tables where slug=?').get(slug) as {id:number}).id;
+    const attach=(slug:string)=>{
+      db.prepare('insert into remote_phone_pairs values(?,?,?)').run(slug,slug,users[0]);
+      db.prepare('insert into remote_phone_modes values(?,?)').run(slug,users[0]);
+      db.prepare('insert into remote_phone_attempts(bucket,started_at,count,slug) values(?,?,1,?)').run(slug,now,slug);
+      db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(slug),users[1],now);
+    };
+    for(let i=0;i<101;i++) {
+      const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2,solo:true},1000);
+      attach(room.slug);
+      db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day-1,room.slug);
+    }
+    // Real board/Undo positions and content-addressed facts must go as well.
+    expect(db.prepare('select count(*) n from remote_state_values').get()).not.toEqual({n:0});
+    expect(db.prepare('select count(*) n from remote_events where facts_hash is not null').get()).not.toEqual({n:0});
+    attach(table.slug);
+    db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day,table.slug);
+    const idle=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},1000);
+    expect(service.sweepIdle(now).find(t=>t.slug===idle.slug)?.endReason).toBe('idle');
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now-day);
+    expect(pruneRemoteDuels(db,now)).toBe(101);
+    expect(service.get(table.slug,'g',users[0])).toBeDefined();
+    expect(pruneRemoteDuels(db,now+1)).toBe(1);
+    expect(()=>service.replay(table.slug,'g',users[0])).toThrow(/not found/i);
+    expect(pruneRemoteDuels(db,now+day+1)).toBe(2); // Includes deckSession's initial lobby.
+    const names=()=> (db.prepare("select name from sqlite_master where type='table' and name glob 'remote_*'").all() as {name:string}[]).map(r=>r.name);
+    const empty=()=>{for(const name of names())expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});};
+    empty();
+    const owned=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now);
+    attach(owned.slug);
+    const other=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    service.join(other.slug,'g',users[0],'Owner',undefined,now);
+    service.leave(other.slug,'g',users[0],now); // Past actors must not retain a room after account deletion.
+    const unrelated=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(unrelated.slug),users[0],now);
+    db.prepare('insert into remote_phone_pairs values(?,?,?)').run('stale-pair',unrelated.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(unrelated.slug,users[0]);
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now);
+    deleteUserAccount(db,users[0]);
+    expect(service.get(unrelated.slug,'g',users[1])).toBeDefined();
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:1});
+    for(const name of ['remote_spectators','remote_phone_pairs','remote_phone_modes','remote_vision_ai_limits']) {
+      expect(db.prepare(`select count(*) n from ${name} where user_id=?`).get(users[0]),name).toEqual({n:0});
+    }
+    deleteUserAccount(db,users[1]);
+    empty();
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {vi.unstubAllEnvs();}
 });
