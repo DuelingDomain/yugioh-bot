@@ -104,7 +104,19 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
   const list = useRef<HTMLUListElement>(null);
   // A card that arrives scrolls into view at the end of the row (the newest is last).
   const count = hand.cards.length;
-  useEffect(() => { const row = list.current; if (row && hand.tray) row.scrollTo({ left: row.scrollWidth, behavior: "smooth" }); }, [count, hand.tray]);
+  useEffect(() => { const row = list.current; if (row && hand.tray) row.scrollTo({ top: row.scrollHeight, left: row.scrollWidth, behavior: "smooth" }); }, [count, hand.tray]);
+  // Cards past the visible part fade out at that edge, so a clipped list reads as scrollable (a row sideways, a column up and down).
+  useEffect(() => {
+    const row = list.current; if (!row || !hand.tray || typeof ResizeObserver === "undefined") return;
+    const sync = () => {
+      const wide = row.scrollHeight > row.clientHeight + 1; const [pos, size, view] = wide ? [row.scrollTop, row.scrollHeight, row.clientHeight] : [row.scrollLeft, row.scrollWidth, row.clientWidth];
+      const more = size > view + 1; const start = more && pos > 1; const end = more && pos + view < size - 1;
+      row.dataset.fade = start && end ? "both" : start ? "start" : end ? "end" : "";
+      row.dataset.axis = wide ? "y" : "x";
+    };
+    sync(); const observer = new ResizeObserver(sync); observer.observe(row); row.addEventListener("scroll", sync, { passive: true });
+    return () => { observer.disconnect(); row.removeEventListener("scroll", sync); };
+  }, [count, hand.tray]);
   const chip = hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null;
   // Webcam only: the open chip is the one thing over the feed. The cards never are.
   if (hand.overlay) return chip ? <div className={`${s.hstrip} ${s.hover}`}>{chip}</div> : null;
@@ -118,10 +130,13 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
     // Webcam only: one compact row right above life points. More cards than fit scroll in the row, so the tray never grows over the feed.
     return <div className={s.htray} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`} data-tray={seat}>
       <div className={s.htop}>
-        {hand.cards.length ? <span className={s.hlab}>Revealed in hand <b className={s.num}>{hand.cards.length}</b></span> : null}
+        <span className={s.hlab}>Revealed in hand{hand.cards.length ? <b className={s.num}>{hand.cards.length}</b> : null}</span>
         <HandCount seat={seat} hand={hand} />
       </div>
-      {hand.cards.length ? <ul ref={list} className={s.htlist} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY; }}>{hand.cards.map(card)}</ul> : null}
+      <ul ref={list} className={s.htlist} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY; }}>
+        {hand.cards.map(card)}
+        {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
+      </ul>
       {look ? <HandPreview card={look.card} box={look.box} /> : null}
     </div>;
   }
