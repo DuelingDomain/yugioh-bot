@@ -1006,6 +1006,7 @@
 @media (max-width:700px){.pileOrd button{width:32px;height:32px;font-size:14px}.pileOrd{right:0;top:0;gap:0;flex-direction:column}}
 .zglabels>.zgdbg{transform:translate(0,-100%);pointer-events:auto;cursor:pointer;padding:0 3px;background:rgb(20 0 30/.8);color:#b8ffc8;font:600 9px/12px ui-monospace,monospace;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:none}
 .zglabels>.zgdbg[data-hidden="true"]{color:#e2c6ff}
+.zglabels>.zgdbg[data-wide="true"]{max-width:240px;white-space:normal}
 .zglabels>.zgdbg[data-open="true"]{max-width:260px;white-space:normal;z-index:6}
 .zglabels>.zgdbg.zgraw{transform:none;background:rgb(0 0 0/.75);color:#9be8ff}
 .zglabels>.zgdbg.zgraw[data-bad="true"]{color:#ffb0b0}

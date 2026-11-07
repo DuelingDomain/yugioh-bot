@@ -153,6 +153,25 @@ test('field watcher rejects motion, low confidence, partial and covered placemen
     r.watcher.dispose();
   }
 });
+test('a candidate under a hand or arm waits up to 6 s for its outline; a candidate with no hand expires after 1.5 s',async()=>{
+  for(const hand of [false,true]) {
+    const r=fieldRig();r.outlines=[{...card(.3,.3),covered:true}];for(let i=0;i<4;i++)await r.tick(100);
+    assert.ok(r.watcher.getSnapshot().tracks.some(t=>t.state==='candidate'),'a candidate exists');
+    r.outlines=[];if(hand){r.touchedAt=()=>.3;r.occludedAt=()=>true;}const from=r.at;
+    for(let k=0;k<60&&r.at-from<5500;k++)await r.tick(100);
+    assert.equal(r.watcher.getSnapshot().tracks.some(t=>t.state==='candidate'&&!t.removed),hand,hand?'kept while a hand is over its cell':'expired without a hand');
+    if(hand){r.touchedAt=undefined;r.occludedAt=undefined;for(let k=0;k<30;k++)await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks.some(t=>t.state==='candidate'&&!t.removed),false,'expires after the hand leaves');}
+    r.watcher.dispose();
+  }
+});
+test('two resting cards outside the zone grid in three full passes mark the grid as shifted; a recalibration clears it',async()=>{
+  const r=fieldRig();const cal=zones.createFieldCalibration([{x:.25,y:.25},{x:.75,y:.75}]);r.watcher.setCalibration(cal);
+  r.outlines=[card(.08,.4,.06,.09),card(.86,.4,.06,.09)];
+  for(let i=0;i<30;i++)await r.tick(300);
+  assert.equal(r.watcher.getSnapshot().gridShift?.suspect,true,'cards outside the grid');assert.ok((r.watcher.getSnapshot().gridShift?.outside??0)>=2);
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));assert.equal(r.watcher.getSnapshot().gridShift,undefined);
+  r.watcher.dispose();
+});
 test('uncertain results prompt with five alternatives, require confirmation and do not retry',async()=>{
   const r=fieldRig('low match');for(let i=0;i<8;i++)await r.tick();
   assert.equal(r.events.filter(e=>e.type==='placed').length,0);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.reads,1);

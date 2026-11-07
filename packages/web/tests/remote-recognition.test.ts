@@ -577,8 +577,10 @@ it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and
   const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
   expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
  }
- expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBe('M2');
- expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBe('M2');
+ expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Normal Spell Card'},'M2',[],'self')).toBe('S2');
+ expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});
  expect(hardFieldZone({type:'Union Effect Monster'},'S2',[],'self')).toBeUndefined();
 });
 it('field legality: Main Deck monsters in the extra row go to the same column\'s Main Monster Zone; Pendulums are plausible',async()=>{
@@ -601,14 +603,14 @@ it('field legality: unavailable extra zones fall back to a free aligned main mon
  for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
 });
-it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle goes to M2',async()=>{
+it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle stays with Check zone',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const belle=projectFieldZone({zone:'S2',facts:{type:'Effect Monster',effectText:'(Quick Effect): You can discard this card; negate the activation.'},twins:[]});
- expect(belle).toEqual({zone:'M2',label:'Main Monster Zone 2',moved:'Monster → M2'});
+ expect(belle).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});expect(belle.moved).toBeUndefined();
  expect(projectFieldZone({zone:'S3',facts:{type:'Effect Monster',effectText:'You can Set this card from your hand to your Spell & Trap Zone as a Spell.'},twins:[]})).toEqual({zone:'S3',label:'Spell/Trap Zone 3'});
  expect(projectFieldZone({zone:'S2',facts:{type:'Union Effect Monster'},twins:[]}).check).toBeUndefined();
  expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipSource:true}).check).toBeUndefined();
- expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('S2');
 });
 it('field legality: Pendulum monsters keep outer spell/trap columns as scales; inner columns are marked',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
@@ -811,6 +813,25 @@ it('camera writes retry with the same action key and expose a final failure',asy
  post.mockClear();expect(await retryFieldMutation(post,proposal,'stale-key',()=>false,failed)).toBeNull();expect(post).not.toHaveBeenCalled();
 });
 
+it('quick setup: rows placed the wrong way round read as a mirrored mat, and Swap rows / Shift one row fix the grid',async()=>{
+ const {createFieldCalibration,createTwoCardCalibration,fieldMatPoint,mapFieldZone,shiftFieldCalibrationRows,swapFieldCalibrationRows}=await import('@yugidraft/vision');
+ const tilt=({x,y}:{x:number;y:number})=>{const w=1+.12*x+.28*y;/* Half-size mat in the middle of the picture, so a grid shifted by a row stays inside it. */return {x:.25+.5*(.12+.78*x+.06*y)/w,y:.25+.5*(.08+.06*x+.85*y)/w};},aspect=86/59,pitch=1.25,halfW=.136/(2*pitch),halfH=(1/3)*aspect/(2*(aspect+pitch-1));
+ const truth=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(tilt),{playerSide:'bottom',mirrored:false});
+ const card=(x:number,y:number)=>({kind:'face-up' as const,confidence:.99,partial:false,quad:[{x:x-halfW,y:y-halfH},{x:x+halfW,y:y-halfH},{x:x+halfW,y:y+halfH},{x:x-halfW,y:y+halfH}].map(tilt)});
+ const zoneOf=(grid:ReturnType<typeof createFieldCalibration>,c:ReturnType<typeof card>)=>mapFieldZone(c,grid).zone;
+ // Right placement: monster in M1 (middle row), spell/trap in S5 (row nearest the player).
+ const right=createTwoCardCalibration([card(.228,.5),card(.772,5/6)],0);
+ expect(right.orientation?.mirrored).toBe(false);expect(zoneOf(right,card(.228,.5))).toBe('M1');
+ // Swapped rows ("front-left" monster in the row nearest the player): the fit is mirrored, which is the signal to ask.
+ const monster=card(.228,5/6),spell=card(.772,.5),swapped=createTwoCardCalibration([monster,spell],0);
+ expect(swapped.orientation?.mirrored).toBe(true);
+ const fixed=swapFieldCalibrationRows(swapped);
+ expect(fixed.orientation?.mirrored).toBe(false);expect(zoneOf(fixed,monster)).toBe('S1');expect(zoneOf(fixed,spell)).toBe('M5');
+ for(const point of [{x:.3,y:.4},{x:.6,y:.8}]){const a=fieldMatPoint(point,fixed),b=fieldMatPoint(point,truth);expect(a.x).toBeCloseTo(b.x,6);expect(a.y).toBeCloseTo(b.y,6);}
+ // One row toward the player / away from the player.
+ const down=shiftFieldCalibrationRows(right,1);expect(zoneOf(down,card(.228,.5))).toBe('S1');expect(zoneOf(down,card(.228,1/6))).toBe('M1');
+ expect(zoneOf(shiftFieldCalibrationRows(down,-1),card(.228,.5))).toBe('M1');
+});
 it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
  const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');
  const {createFieldCalibration,fieldMatPoint,fieldZoneAt,mapFieldZone,onMat,zoneCellAt,FIELD_ZONE_PITCH,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
