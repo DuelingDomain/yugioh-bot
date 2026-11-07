@@ -160,14 +160,19 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   function assertTournamentSeat(row: TableRow, userId: number, requestedSeat?: number): void {
     if (!row.tournament_match_id) return;
     const slot = db.prepare(`select tm.tournament_id,tm.player_one_id,tm.player_two_id,t.status,
+      tm.status as match_status,trm.status as remote_status,trm.table_id,
       p1.user_id as user_one_id,p2.user_id as user_two_id from tournament_matches tm
       join tournaments t on t.id=tm.tournament_id join players p1 on p1.id=tm.player_one_id
+      left join tournament_remote_matches trm on trm.tournament_match_id=tm.id
       join players p2 on p2.id=tm.player_two_id where tm.id=? and t.guild_id=?`)
-      .get(row.tournament_match_id, row.guild_id) as { tournament_id: number; player_one_id: number; player_two_id: number; status: string; user_one_id: number; user_two_id: number } | undefined;
+      .get(row.tournament_match_id, row.guild_id) as { tournament_id: number; player_one_id: number; player_two_id: number; status: string;
+        match_status: string; remote_status: string | null; table_id: number | null; user_one_id: number; user_two_id: number } | undefined;
     remoteAssert(slot && (userId === slot.user_one_id || userId === slot.user_two_id), "Only the paired players can take a seat", 403, "REMOTE_MATCH_PLAYER_REQUIRED");
     assertRemoteTournamentUser(userId);
     assertRemoteTournamentEntrants(db, slot.tournament_id, [slot.player_one_id, slot.player_two_id]);
     remoteAssert(slot.status === "active", "Tournament is not active", 409, "TOURNAMENT_NOT_ACTIVE");
+    remoteAssert(slot.match_status === "open" && slot.remote_status === "playing" && slot.table_id === row.id,
+      "Tournament match is unavailable", 409, "TOURNAMENT_MATCH_UNAVAILABLE");
     remoteAssert(requestedSeat === undefined || requestedSeat === (userId === row.created_by ? 0 : 1), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
   }
   function assertOpen(row: Row, now: number) {
