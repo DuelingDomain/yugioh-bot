@@ -248,7 +248,7 @@ describe("tournament match duel and result routes", () => {
       expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:1});
     } finally {s.db.close();}
 
-  });
+  }, 20_000); // Imports the shared services and runs two routes: 6-7 s on CI runners.
   it("remote evidence: only the organizer or an admin can read a guild-scoped match copy", async () => {
     const s = seed();
     try {
