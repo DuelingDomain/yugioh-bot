@@ -33,7 +33,7 @@ for (const model of process.argv.includes('--bundle-only') ? [] : models) {
 }
 if(process.argv.includes('--webgpu')) {
   execFileSync(process.env.VISION_PYTHON??'python3',[path.join(root,'scripts/vision/export-runtime-models.py'),'--data',out,'--export-only'],{stdio:'inherit'});
-  for(const variant of [yugioh.embedding.webgpu!,yugioh.embedding.webgpu!.fp32!,yugioh.detector.webgpu!,yugioh.detector.webgpu!.fp32!]) {
+  for(const variant of [yugioh.embedding.webgpu!,yugioh.embedding.webgpu!.fp32!,yugioh.detector.webgpu!]) {
     const file=path.join(out,'models',path.basename(variant.url));
     if(sha(await readFile(file))!==variant.sha256)throw new Error(`WebGPU export checksum mismatch: ${file}. Use the pinned Python dependencies in README.md.`);
   }

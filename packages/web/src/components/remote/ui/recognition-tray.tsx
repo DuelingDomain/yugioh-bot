@@ -78,9 +78,9 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced,
   });
 
   const info = current ? cardInfo(current.cardId) : undefined;
-  return <PopupFrame dock={dock} at={tray.at} layer="tray" label="Which card is this?" testid="recognition-tray" className={s.bigTray}>
+  return <PopupFrame dock={dock} at={tray.at} layer="tray" label="Which card is this?" testid="recognition-tray" className={`${s.bigTray} ${current ? "" : s.noArt}`}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close without choosing" onClick={onClose}><Icon name="x" /></button>
-    <BigArt id={current?.cardId ?? null} label="No card to show" />
+    {current ? <BigArt id={current.cardId} /> : null}
     <div className={s.bmain}>
       {current ? <>
         <CardText id={current.cardId} info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
