@@ -149,7 +149,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     const line = describeEvent(event, name, nameOfCard, refNameOf);
     return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: false }] : [];
   });
-  const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return turnSeat; })();
+  const nextSeat = (() => { if (turnSeat < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return turnSeat; })();
   const players = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
   const startingLp = room.format?.settings.startingLP ?? 8000;
   const formatLabel = REMOTE_FORMATS.find(item => item.value === (room.format ?? normalizeRemoteFormat()).id)?.label ?? "";
