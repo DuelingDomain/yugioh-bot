@@ -16,7 +16,6 @@ import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
 import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
-import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
