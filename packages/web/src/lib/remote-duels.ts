@@ -9,10 +9,16 @@ import { getDb } from "./db";
 import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
-/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Voice chat is separate. Production never falls back to localhost. */
+export { REMOTE_TABLE_TALK } from "./remote/table-talk";
+/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Player talk is separate (REMOTE_TABLE_TALK). Production never falls back to localhost. */
 export const remoteSttUrl = () => {
   if (process.env.REMOTE_VOICE_RECOGNITION !== "1") return null;
   return process.env.NEXT_PUBLIC_REMOTE_STT_URL?.trim() || (process.env.NODE_ENV === "production" ? null : "ws://localhost:4020/ws");
+};
+/** REMOTE_MAX_LIVE_ROOMS: how many multi-seat rooms may be live, for the slow rollout. Unset or not a whole number = no cap. */
+export const remoteMaxLiveRooms = () => {
+  const value = process.env.REMOTE_MAX_LIVE_ROOMS?.trim();
+  return value && /^\d+$/.test(value) ? Number(value) : undefined;
 };
 export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */

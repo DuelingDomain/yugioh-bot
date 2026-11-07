@@ -1,4 +1,4 @@
-import { notifyRemoteChange, remoteBody, remoteError, remoteJson, remoteSeatCount, requireRemoteActor } from "@/lib/remote-duels";
+import { notifyRemoteChange, remoteBody, remoteMaxLiveRooms, remoteError, remoteJson, remoteSeatCount, requireRemoteActor } from "@/lib/remote-duels";
 import { remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, type RemoteVisibility } from "@yugidraft/shared/remote";
 export const runtime = "nodejs";
 export async function GET(request: Request) {
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
     const bestOf = remoteBestOfSchema.optional().safeParse(body.bestOf);
     remoteAssert(bestOf.success, "Match bestOf must be 1 or 3");
-    const room = actor.remote.create({ guildId: actor.guildId, userId: actor.userId, displayName: actor.displayName,
+    const room = actor.remote.create({ maxLiveRooms: remoteMaxLiveRooms(), guildId: actor.guildId, userId: actor.userId, displayName: actor.displayName,
       gameId: body.gameId, seatCount: remoteSeatCount(body.seatCount), bestOf: bestOf.data, solo: body.solo as boolean | undefined, format: body.format, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined, visibility: body.visibility as RemoteVisibility | undefined });
     await notifyRemoteChange(room.slug, actor.guildId);
     return remoteJson(room, 201);

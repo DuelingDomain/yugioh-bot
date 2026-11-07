@@ -158,10 +158,15 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
+    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(input.visibility === undefined || input.visibility === "public" || input.visibility === "private", "Invalid visibility");
+        // In this transaction, so two creates at the same moment cannot both take the last place. A room past the idle close waits only for the sweep, so it does not count.
+        if (!input.solo && input.maxLiveRooms !== undefined) {
+          const live = db.prepare("select count(*) as n from remote_tables where solo=0 and status!='ended' and last_event_at>?").get(now - REMOTE_IDLE_CLOSE_MS) as { n: number };
+          remoteAssert(live.n < input.maxLiveRooms, "Remote tables are full right now. Try again soon.", 409, "REMOTE_TABLES_FULL");
+        }
         remoteAssert(game.seatsAllowed.includes(input.seatCount) && input.guildId, "Invalid table settings");
         remoteAssert(input.solo === undefined || typeof input.solo === "boolean", "Invalid solo setting");
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');

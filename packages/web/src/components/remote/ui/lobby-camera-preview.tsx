@@ -1,5 +1,6 @@
 "use client";
 
+import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Check, Keyboard, LoaderCircle, Maximize2, Mic, RefreshCw, ScanLine, Smartphone, TriangleAlert } from "lucide-react";
 import type { RemoteRoom } from "@yugidraft/shared/remote";
@@ -130,8 +131,8 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
 
 /** Webcam: own preview stream, mic meter and a card check. Everything is released when this unmounts. */
 function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecognition: boolean }) {
-  // A solo table has no voice chat, so without voice commands nothing here needs a mic.
-  const micTest = !room.solo || voiceRecognition;
+  // With no player talk and no voice commands nothing here needs a mic: no test row and no permission check, so the browser never asks.
+  const micTest = voiceRecognition || (REMOTE_TABLE_TALK && !room.solo);
   const video = useRef<HTMLVideoElement>(null);
   const meter = useRef<HTMLSpanElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -241,7 +242,7 @@ function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecogn
     if (live && element && stream.current) { element.srcObject = stream.current; void element.play().catch(() => undefined); }
   }, [live]);
 
-  // The mic only feeds a level bar here. Voice chat and (when enabled) voice commands open their own mic at the table.
+  // The mic only feeds a level bar here. Voice commands (and player talk, when on) open their own mic at the table.
   useEffect(() => {
     if (!micWanted) return;
     let off = false; let media: MediaStream | undefined; let context: AudioContext | undefined; let timer = 0; let heard = false;

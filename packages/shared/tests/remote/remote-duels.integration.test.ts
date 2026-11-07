@@ -681,7 +681,10 @@ describe("remote deck registration and live checks", () => {
   });
   it("preserves twin ownership and keeps saved-deck snapshots out of open listings", () => {
     const s = deckSession(); s.select(s.save().id);
-    expect(s.service.list("g",s.users[1],"open").flatMap(t => t.seats).every(seat => !seat.deck)).toBe(true);
+    s.db.prepare("update remote_tables set visibility='public'").run();
+    const listed = s.service.list("g",s.users[1],"open").flatMap(t => t.seats);
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed.every(seat => !seat.deck)).toBe(true);
     s.start(); s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "bot", slot: 1 } });
     expect(() => s.act({ type: "card.identified", seat: 1, cardRef: "bot", cardId: 14558127, source: "click" })).toThrow(/owner/);
   });
@@ -834,6 +837,19 @@ describe("solo remote tables", () => {
     expect(ygoModule.parseCommand({ text: "nonsense", actorSeat: 1, state })).toBeNull();
     expect(ygoModule.parseCommand({ text: "gain 0 LP", actorSeat: 1, state })).toBeNull();
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
+  });
+
+  it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
+    const { service, users, db } = setup();
+    db.prepare("update remote_tables set status='ended'").run();
+    const base = { guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount: 2 as SeatCount, maxLiveRooms: 1 };
+    service.create({ ...base, solo: true }, 2000);
+    const first = service.create(base, 2000);
+    expect(first.visibility).toBe("private");
+    expect(() => service.create(base, 2001)).toThrow("Remote tables are full right now. Try again soon.");
+    service.create({ ...base, solo: true }, 2001);
+    expect(service.join(first.slug, "g", users[1], "Guest", 1, 2002).seats).toHaveLength(2);
+    expect(service.create(base, 2002 + 10 * 60_000).slug).not.toBe(first.slug);
   });
 
   it.each([2, 3, 4] as SeatCount[])("fills a %i-seat solo table with userless, ready bots and runs the full action loop", seatCount => {

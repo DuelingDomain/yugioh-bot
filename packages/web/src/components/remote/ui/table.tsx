@@ -1,5 +1,6 @@
 "use client";
 
+import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
@@ -861,7 +862,9 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const micState: MicState = muted ? "muted" : !voiceRecognition ? "off" : myTurn || wakeOpen ? "listen" : "idle";
   useEffect(() => { if (!wake) return; const timer = setTimeout(() => setWakeTick(n => n + 1), Math.max(0, wake - Date.now()) + 50); return () => clearTimeout(timer); }, [wake]);
   const setMic = hub.setMic; const micPublished = hub.micPublished;
-  useEffect(() => { if (!solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
+  useEffect(() => { if (REMOTE_TABLE_TALK && !solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
+  // With no talk and no voice commands there is no mic, so no control for one. PTT stays off, so the V key does nothing.
+  const micSection = voiceRecognition || (REMOTE_TABLE_TALK && !solo);
   const hotwords = useMemo(() => voiceCardNames(room, cardInfo), [room, info]);
 
   const propose = (title: string, sub: string, confirmLabel: string, run: () => void, requestId?: string) => setProposal({ id: ++proposalId.current, title, sub, confirmLabel, run, requestId });
@@ -1318,9 +1321,9 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       </main>
       <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
-      <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
-        <MicSection recognition={voiceRecognition} chat={solo ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
-          onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
+      <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
+        {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
+          onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={!voiceRecognition ? [] : shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
         <UndoSection recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />

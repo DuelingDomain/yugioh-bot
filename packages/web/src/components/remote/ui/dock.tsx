@@ -20,7 +20,7 @@ export function MicSection({ recognition = true, chat = "on", state, level, spea
   const sub = error ? error
     : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Join table video to talk." : "No voice chat at a solo table.")
     : service === "closed" && state !== "muted" ? "Speech service offline. Use the buttons and the keyboard."
-    : state === "muted" ? "Nobody hears you. Unmute to use voice."
+    : state === "muted" ? "Muted. Unmute to use voice commands."
     : ptt ? "Hold V and speak."
     : state === "listen" ? "Say a phase, an LP change or an attack."
     : offTurn ? "Waiting for your turn. Say “chain” or “respond” to speak out of turn." : "Say “chain” to speak.";

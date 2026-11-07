@@ -489,7 +489,8 @@ test.describe("remote lobby camera step", () => {
     await lock.getByRole('button', { name: 'Re-lock' }).click(); await expect(lock).toContainText('Locked:');
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
-    await expect(page.getByTestId("lobby-cam-mic")).toBeVisible();
+    // With talk off, only voice commands use a microphone here.
+    await expect(page.getByTestId("lobby-cam-mic")).toHaveCount(process.env.REMOTE_VOICE_RECOGNITION === "0" ? 0 : 1);
     await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
     // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
     await expect(page.getByTestId("lobby-cam-check")).not.toHaveAttribute("data-state", "starting", { timeout: 60_000 });
@@ -1145,7 +1146,7 @@ test.describe("remote duels, spectators", () => {
     const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
     try {
       for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103], [dave, 104]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
-      const slug = await startTwoPlayerTable(alice!.request, bob!.request), path = `/api/remote/${slug}`;
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public"), path = `/api/remote/${slug}`;
       // Hidden facts of Alice: a Set card, a card known to be in hand. Public: a face-up monster.
       const act = async (action: Record<string, unknown>) => {
         const room = await (await alice!.request.get(path)).json();
@@ -1198,9 +1199,10 @@ test.describe("remote duels, spectators", () => {
       // Voice: a spectator gets no token for its room, and no seated token can put a microphone in the room a spectator enters.
       const noVoice = await carol!.request.post(`${path}/livekit?voice=1`);
       expect([noVoice.status(), (await noVoice.json()).code]).toEqual([403, "SPECTATOR_READ_ONLY"]);
-      const seatGrant = grantOf((await (await alice!.request.post(`${path}/livekit`)).json()).token), voiceGrant = grantOf((await (await alice!.request.post(`${path}/livekit?voice=1`)).json()).token);
+      const seatGrant = grantOf((await (await alice!.request.post(`${path}/livekit`)).json()).token);
+      const seatedVoice = await alice!.request.post(`${path}/livekit?voice=1`);
+      expect([seatedVoice.status(), (await seatedVoice.json()).code]).toEqual([404, "TABLE_TALK_OFF"]);
       expect(JSON.stringify(seatGrant.canPublishSources).toLowerCase()).not.toContain("microphone");
-      expect([voiceGrant.room, JSON.stringify(voiceGrant.canPublishSources).toLowerCase()]).toEqual([`remote-${slug}-voice`, '["microphone"]']);
 
       // The socket: its own projection, no player room event, and it cannot send.
       const credentials = await (await carol!.request.get(`${path}/connection`)).json();
@@ -1241,7 +1243,9 @@ test.describe("remote duels, spectators", () => {
       });
       for (const page of [a, b]) await page.addInitScript(() => {
         const asked = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        (window as unknown as { __audioAsked: number }).__audioAsked = 0;
         navigator.mediaDevices.getUserMedia = async constraints => {
+          if (constraints?.audio) (window as unknown as { __audioAsked: number }).__audioAsked++;
           if (constraints?.video) return asked(constraints);
           const sound = new AudioContext(), out = sound.createMediaStreamDestination(); sound.createOscillator().connect(out);
           return out.stream;
@@ -1262,17 +1266,25 @@ test.describe("remote duels, spectators", () => {
         expect(await video.evaluate((v: HTMLVideoElement) => v.videoHeight)).toBeLessThanOrEqual(720);
         await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "medium");
       }
-      // Talk is in the voice room for both players, comes back after a lost connection, and no audio track exists in the room of the spectator.
-      // A table opens unmuted but publishes the microphone only after a toggle on a connected table (video-hub setMic).
-      for (const page of [a, b]) { await page.getByRole("button", { name: "Mute microphone" }).click(); await page.getByRole("button", { name: "Unmute microphone" }).click(); }
-      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
-      expect((await inRoom(voiceRoom)).map(p => p.identity)).not.toContain(watcher);
+      // Player talk is off: nobody joins the voice room, and no audio track exists in the room of the spectator.
       expect((await inRoom(tableRoom)).map(p => p.identity)).toContain(watcher);
+      expect((await inRoom(voiceRoom)).map(p => p.identity)).toEqual([]);
       expect(await audioIn(tableRoom)).toEqual([]);
-      await lk.removeParticipant(voiceRoom, "remote-user-101");
-      await expect.poll(() => audioIn(voiceRoom), { timeout: 5000, intervals: [100] }).toEqual(["remote-user-102"]);
-      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
-      expect(await audioIn(tableRoom)).toEqual([]);
+      if (process.env.REMOTE_VOICE_RECOGNITION === "0") {
+        // With voice commands off too: no mic section, no mute control, V does nothing, and the table never asks for a microphone.
+        await expect(a.getByTestId("mic")).toHaveCount(0);
+        await expect(a.getByRole("button", { name: /mute/i })).toHaveCount(0);
+        await expect(a.getByText("Talk to the table")).toHaveCount(0);
+        await a.keyboard.press("v");
+        await expect(a.getByTestId("mic")).toHaveCount(0);
+        await expect(a.getByTestId("voice-off")).toBeVisible();
+        expect(await a.evaluate(() => (window as unknown as { __audioAsked: number }).__audioAsked)).toBe(0);
+        for (const [name, width, height] of [["1080p", 1920, 1080], ["768p", 1366, 768], ["mobile", 390, 844]] as const) {
+          await a.setViewportSize({ width, height }); await a.waitForTimeout(300); await shot(a, `no-mic-${name}`);
+          expect(await a.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), name).toBeLessThanOrEqual(0);
+        }
+        await a.setViewportSize({ width: 1920, height: 1080 });
+      }
       // A Set card outline holds the id in its ref: the opponent receives it, the spectator's raw data does not.
       await a.evaluate(() => {
         const quad = [{ x: .2, y: .2 }, { x: .4, y: .2 }, { x: .4, y: .5 }, { x: .2, y: .5 }];
@@ -1398,10 +1410,11 @@ test.describe("remote duels, spectators", () => {
       await expect(privatePage.getByTestId("spectator-table")).toHaveCount(0);
       await privatePage.close();
 
-      // The creator has the same choice, default Public, and the solo test has no such choice.
+      // The creator has the same choice. Its default is REMOTE_DEFAULT_VISIBILITY, Private.
       const creator = await alice!.newPage();
       await creator.goto("/duels/new?type=remote");
-      await expect(creator.getByRole("radio", { name: "Public" })).toBeChecked();
+      await expect(creator.getByRole("radio", { name: "Private" })).toBeChecked();
+      await creator.locator("label", { hasText: "Public" }).click();
       await expect(creator.getByTestId("remote-visibility-hint")).toContainText("can watch");
       await shot(creator, "spectator-creator");
     } finally { db.close(); await Promise.all([alice, bob, carol, dave].map(context => context!.close())); }

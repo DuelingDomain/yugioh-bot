@@ -12,6 +12,7 @@ import {FieldTrackCache,FIELD_BACKS_TOPIC,FIELD_TRACKS_TOPIC,emptyBacks} from '.
 import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
+import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
@@ -253,7 +254,7 @@ export class RemoteVideo {
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
       }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }), Date.now,
         owner => this.phone.forSeat(owner) ? 60_000 : 10_000);
-      this.patch({ connection: this.room.state, microphone: false }); this.sync(); void this.voice.start(); await this.refreshDevices();
+      this.patch({ connection: this.room.state, microphone: false }); this.sync(); if (REMOTE_TABLE_TALK) void this.voice.start(); await this.refreshDevices();
     } catch (error) {
       await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
@@ -272,6 +273,7 @@ export class RemoteVideo {
     this.patch({ cameraId: await camera.getDeviceId() ?? deviceId }); this.sync();
   }
   async setMicrophone(enabled: boolean) {
+    if (!REMOTE_TABLE_TALK) return;
     await this.voice.setMicrophone(enabled);
     if (this.closed) { await this.voice.stop(); return; }
     this.patch({ microphone: enabled });

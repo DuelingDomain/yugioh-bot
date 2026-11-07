@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { RemoteEvent, RemoteState, RemoteTable } from "./types.js";
 const requestId = z.string().min(1).max(100);
 /** The Visibility choice a new Remote table starts with in the creator and at the API. Solo tables are always private. */
-export const REMOTE_DEFAULT_VISIBILITY = "public" as const;
+export const REMOTE_DEFAULT_VISIBILITY = "private" as const;
 /** Shared by the ws relay and the future LiveKit data-channel adapter. Never send frames/audio here. */
 export const remoteDataMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("recognition.request"), feedOwnerSeat: z.number().int().min(0).max(3),
