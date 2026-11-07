@@ -948,9 +948,32 @@ and confidence thresholds are unchanged.
 
 ### WebGPU model assets
 
-The GPU path uses separate fp16 graphs with Float32 IO. Adapters without
-`shader-f16` use the pinned fp32 graphs on WebGPU. A rejected fp16 session or
-inference also tries fp32 before CPU. Software adapters can execute this path
+The embedder's GPU path uses a separate fp16 graph with Float32 IO. Adapters
+without `shader-f16` use the pinned fp32 graph on WebGPU. A rejected fp16
+session or inference also tries fp32 before CPU. The card detector uses only
+its fp32 graph on WebGPU: on an RTX 3070 (Chrome 157) the fp16 detector ran
+without an error and returned finite but wrong numbers (heat peak 0.099 against
+0.881 for fp32 and WASM on the same frame, 2026-11-07), and fp32 was as fast
+(80 ms against 84 ms at 1600 long side). Its `card-detector.fp16.onnx` export is
+no longer loaded.
+
+Because a half-precision graph can be wrong without failing, every new fp16
+session first runs one fixed 224 x 224 picture (`checkImage`, made in code,
+`src/gpu-check.ts`) and must give a vector with cosine >= 0.99 against the
+fp32 graph's vector for it (`src/gpu-check-reference.ts`, from the CPU).
+A mismatch, a non-finite value or a throwing check releases the fp16 session and
+opens the fp32 graph on the same GPU; the reason is in `gpuDiagnostics.attempts`.
+The check runs once per session open, not per request, and an fp32 graph is not
+checked. A model opts in with `gpuCheck` in its spec. After a new embedder export, make
+the reference again (the script also prints the fp16 graph's CPU cosine and how
+far other pictures are):
+
+```sh
+VISION_DATA_DIR=<dir with models/> npx tsx scripts/vision/gpu-check-reference.ts --write
+```
+
+Without `--write` it checks that the stored reference still matches the fp32
+graph. Software adapters can execute this path
 and are identified in diagnostics. CPU fallback uses the original q8 embedder
 and detector. Only selected models are fetched. All variants retain the existing
 index layout identity and have pinned checksums.
