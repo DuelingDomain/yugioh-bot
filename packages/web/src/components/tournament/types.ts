@@ -44,11 +44,15 @@ export interface DeckNote {
   message: string;
 }
 
+/** Online duels run on the site; Remote duels are played with real cards on camera. Older payloads omit it (= online). */
+export type TournamentDuelType = "online" | "remote";
+
 export interface TournamentDetail {
   id: number;
   name: string;
   format: string;
   status: string;
+  duelType?: TournamentDuelType;
   createdByUserId: number;
   participants: Participant[];
   matches: Match[];

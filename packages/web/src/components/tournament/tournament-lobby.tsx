@@ -13,6 +13,7 @@ import { RulesPanel } from "./sheet/rules-panel";
 import { CancelTournamentDialog } from "./cancel-tournament-dialog";
 import { useOptionalRouter } from "./use-optional-router";
 import { formatLabel, rulesSummary } from "./sheet-rules";
+import { REMOTE_JOIN_NOTICE, REMOTE_NO_DECK_NOTE, remoteErrorText } from "./remote-copy";
 import rail from "./sheet/rail.module.css";
 import { UNRATED_ELO, type PlayerRatings } from "./sheet-contracts";
 import type { TournamentDetail } from "./types";
@@ -66,6 +67,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
   const count = players.length;
   const canStart = count >= 2;
   const single = tournament.format === "single_elim";
+  const remote = tournament.duelType === "remote";
   const rules = rulesSummary(tournament);
   const base = `/api/tournaments/${tournamentSlug}`;
 
@@ -76,7 +78,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
       const res = await fetch(url, init);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? fallback);
+        throw new Error(remoteErrorText(body.code, body.error ?? fallback, body.entrants));
       }
       after?.();
       onChanged();
@@ -107,7 +109,14 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
             <div>
               <h2 className={styles.joinT}>Join {tournament.name}</h2>
               <p className={styles.joinN}>{rulesLine}{extra ? `, ${extra}` : ""}. {count} {count === 1 ? "player" : "players"} so far.</p>
-              <p className={styles.note}>You register a deck after joining. You can leave any time before the start.</p>
+              {remote ? (
+                <>
+                  <p className={styles.note}>{REMOTE_NO_DECK_NOTE} You can leave any time before the start.</p>
+                  <p className={styles.note} data-testid="remote-join-notice">{REMOTE_JOIN_NOTICE}</p>
+                </>
+              ) : (
+                <p className={styles.note}>You register a deck after joining. You can leave any time before the start.</p>
+              )}
             </div>
             <SvButton variant="primary" big disabled={busy === "join"} aria-busy={busy === "join"} onClick={() => post("join", "/join", "Failed to join tournament")}>Join tournament</SvButton>
           </section>
@@ -167,7 +176,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
                       trailing={isCreator && you ? <span className={styles.host}>Host</span> : undefined}
                     />
                   </span>
-                  {isCreator ? <DeckMarker participant={p} /> : <span />}
+                  {isCreator && !remote ? <DeckMarker participant={p} /> : <span />}
                   {isCreator && !you ? (
                     <SvButton
                       variant="quiet"
@@ -197,7 +206,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
           )}
         </section>
 
-        {isParticipant && (
+        {isParticipant && !remote && (
           <section id="my-deck" aria-label="Your deck" className={styles.deck}>
             <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
           </section>
@@ -223,7 +232,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
             </div>
             <p className={styles.note}>
               {canStart
-                ? `Starting draws the first round: ${matchCount(tournament.format, count)} matches over ${roundsOf(tournament.format, count)} rounds for the ${count} players here. Nobody can join after this. Players without a deck can still register one later.`
+                ? `Starting draws the first round: ${matchCount(tournament.format, count)} matches over ${roundsOf(tournament.format, count)} rounds for the ${count} players here. Nobody can join after this.${remote ? " Each player needs Remote Duel access." : " Players without a deck can still register one later."}`
                 : `Starting needs 2 or more players. ${needed} more to go.`}
             </p>
           </section>

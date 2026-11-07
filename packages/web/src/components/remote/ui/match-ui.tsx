@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import { formatLp } from "@/components/duel/constants";
@@ -82,10 +82,11 @@ function useNow(now: () => number, on = true): number {
  * the Life Points tray and the match score. A game that did not decide the match offers Continue to side decking;
  * the final screen names the match winner.
  */
-export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, onContinue, onLeave, onClose }: {
+export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, onContinue, onLeave, onClose }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; final: boolean; busy: boolean;
   /** The last action was refused: shown here, above the result. */ error?: string | null;
   /** A wrong result is fixed with Undo; null when there is nothing to undo. */ undo: { label: string; onUndo: () => void } | null;
+  /** The tournament's Confirm or Dispute panel, under the scoreboard, for a tournament match. */ tournamentResult?: ReactNode;
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -146,6 +147,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
         })}
       </ul>
 
+      {tournamentResult}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
       <div className={resultStyles.actions} data-count={final ? 2 : undo ? 3 : 2}>
         {final

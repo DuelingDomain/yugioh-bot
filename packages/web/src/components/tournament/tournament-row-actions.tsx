@@ -19,7 +19,7 @@ export function TournamentRowAction({ action, tournamentSlug }: { action: RowAct
   return <MatchButtons action={action} tournamentSlug={tournamentSlug} />;
 }
 
-function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, { kind: "start" | "confirm" }>; tournamentSlug: string }) {
+function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, { kind: "start" | "start-remote" | "confirm" }>; tournamentSlug: string }) {
   const router = useOptionalRouter();
   const actions = useMatchActions(action.match, tournamentSlug, () => router?.refresh());
   const busy = actions.loading !== null;
@@ -28,6 +28,11 @@ function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, {
       <div className={styles.actionBtns}>
         {action.kind === "start" ? (
           <DuelAction kind="start" onClick={actions.start} disabled={busy} />
+        ) : action.kind === "start-remote" ? (
+          // The list does not know the Remote result of the slot (playing, proposed, disputed), so it links to the match.
+          <SvButton as="a" variant="primary" href={`/tournament/${encodeURIComponent(tournamentSlug)}`}>
+            Open match
+          </SvButton>
         ) : (
           <>
             <SvButton variant="primary" onClick={actions.approve} disabled={busy}>
