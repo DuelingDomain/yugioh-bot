@@ -97,15 +97,41 @@ Prefix: `/api/tournaments/{slug}/matches/{tmId}`.
 `GET {prefix}/remote-result` (paired player or organizer) returns 200:
 
 ```json
-{"remoteResult":{"tournamentMatchId":45,"tableSlug":"table-slug","status":"proposed","winnerPlayerId":21,"score":{"playerOne":2,"playerTwo":1},"source":"concede","proposedAt":1794074400000,"confirmDeadlineAt":1794081600000,"reports":[{"playerId":21,"choice":"confirm","note":null,"at":1794074405000},{"playerId":22,"choice":null,"note":null,"at":null}],"finalizedAt":null,"finalizationReason":null,"organizerDecision":null}}
+{"remoteResult":{"tournamentMatchId":45,"tableSlug":"table-slug","status":"proposed","winnerPlayerId":21,"score":{"playerOne":2,"playerTwo":1},"source":"concede","proposedAt":1794074400000,"confirmDeadlineAt":1794081600000,"reports":[{"playerId":21,"choice":"confirm","note":null,"at":1794074405000},{"playerId":22,"choice":null,"note":null,"at":null}],"finalizedAt":null,"finalizationReason":null,"organizerDecision":null},"now":1794074406000}
 ```
 
-Before any table: `{"remoteResult":null}`. Statuses: `playing | proposed |
+`now` is the server's current Unix time in milliseconds, included on every
+successful GET, including before any table:
+`{"remoteResult":null,"now":1794074406000}`. For a proposed result, start the
+countdown at `Math.max(0, confirmDeadlineAt - now)` and subtract elapsed monotonic
+time (`performance.now()`) since receiving the response. Refresh to resynchronize;
+the client's wall clock is not used. A zero countdown does not imply finalization:
+the response status remains authoritative, including when LP lacks confirmation.
+
+The tournaments list can use this existing GET directly for a slot; no table slug
+or table creation is needed. Use the pairing's `id` as `{tmId}` (the tournament
+slot ID, not its recorded `matchId`). If only the tournament slug is available,
+`GET /api/tournaments/{slug}` returns pairings in `matches`; select the desired
+pairing and request `/api/tournaments/{slug}/matches/{matches[i].id}/remote-result`.
+This returns the latest durable Remote status even after the room is purged.
+Only the two paired players and the organizer can read it; a viewer who can read
+the tournament but is neither receives 403 `REMOTE_RESULT_PLAYER_REQUIRED`.
+The response uses `Cache-Control: private, no-store`; refresh it on the usual
+tournament `match-updated` invalidation. A null result means no Remote table/result
+has been recorded for that slot.
+
+Statuses: `playing | proposed |
 disputed | final | void`. While playing, winner/score/source/proposal/deadline are
 null. Source: `concede | declared | lp`. Finalization reason:
 `both_confirmed | timeout | organizer` (null until final). An organizer decision
-is null or `{"userId":1,"winnerPlayerId":21,"note":null,"at":1794074405000}`;
-void decisions use a null winner. The normal slot remains `open` while playing,
+is null or `{"userId":1,"winnerPlayerId":21,"void":false,"note":null,"at":1794074405000}`;
+void decisions use `{"userId":1,"winnerPlayerId":null,"void":true,"note":"Replay required","at":1794074405000}`.
+When the organizer awards a winner, the result's top-level `winnerPlayerId` and
+the decision's `winnerPlayerId` both reflect that ruling, even if it overturns the
+proposal; `finalizationReason` is `organizer`. A void sets top-level
+`winnerPlayerId` and `finalizationReason` to null. The score and source retain the
+table's original outcome; use the ruling winner for the final result.
+The normal slot remains `open` while playing,
 proposed or disputed, and becomes `completed` through the existing scoring path.
 
 `POST {prefix}/remote-result/confirm` with `{}` and

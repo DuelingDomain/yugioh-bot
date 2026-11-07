@@ -40,7 +40,7 @@ export async function tournamentRemoteResultRequest(request:Request, context:Tou
       throw new TournamentRemoteError("Tournament match not found",404,"TOURNAMENT_MATCH_NOT_FOUND");
     }
     const service=createTournamentRemoteResultService(db), input={tournamentMatchId,actorUserId:actor.userId};
-    if (operation === "get") return remoteJson({remoteResult:service.get(input)});
+    if (operation === "get") return remoteJson({remoteResult:service.get(input),now:Date.now()});
     const body=await readSmallJsonObject(request,8192);
     if (!body || Object.keys(body).some(key=>operation === "confirm" || key !== "note") ||
       (body.note !== undefined && (typeof body.note !== "string" || body.note.length > 280))) {

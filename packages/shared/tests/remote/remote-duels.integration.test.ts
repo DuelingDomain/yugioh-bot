@@ -3357,9 +3357,10 @@ it("a dispute blocks the timer until an organizer records a decision or voids fo
     expect(()=>s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId)).toThrow(expect.objectContaining({code:"REMOTE_MATCH_OPEN"}));
     createTournamentDuelService(s.db).setResultByOrganizer({tournamentMatchId:s.slot.id,organizerUserId:s.actors[0].userId,winnerPlayerId:s.two.playerId});
     expect(s.results.get(s.input)).toMatchObject({status:"final",winnerPlayerId:s.two.playerId,finalizationReason:"organizer",
-      organizerDecision:{userId:s.actors[0].userId,winnerPlayerId:s.two.playerId}});
+      organizerDecision:{userId:s.actors[0].userId,winnerPlayerId:s.two.playerId,void:false,note:null}});
     expect(s.db.prepare("select winner_id from matches where tournament_id=?").get(s.tournament.id)).toEqual({winner_id:s.two.playerId});
-    expect(s.results.void({...s.input,actorUserId:s.actors[0].userId,note:"Replay"})).toMatchObject({status:"void",organizerDecision:{winnerPlayerId:null,note:"Replay"}});
+    expect(s.results.void({...s.input,actorUserId:s.actors[0].userId,note:"Replay"})).toMatchObject({status:"void",winnerPlayerId:null,finalizationReason:null,
+      organizerDecision:{winnerPlayerId:null,void:true,note:"Replay"}});
     expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("open");
     s.refresh();
     expect(s.room.status).toBe("ended");

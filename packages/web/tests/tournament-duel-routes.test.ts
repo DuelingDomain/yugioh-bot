@@ -78,6 +78,7 @@ describe("tournament match duel and result routes", () => {
       .run(JSON.stringify({ mode: "normal", masterRule: 5, settings: { startingLP: 4000 } }), s.tournamentId);
     s.db.prepare("update tournament_participants set deck_json=null where tournament_id=?").run(s.tournamentId);
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote/route");
+    const { GET: getResult } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote-result/route");
     const { POST: seat } = await import("../app/api/remote/[slug]/seat/route");
     const { createRemoteDuelService } = await import("@yugidraft/shared/services");
     const remote = createRemoteDuelService(s.db);
@@ -85,6 +86,14 @@ describe("tournament match duel and result routes", () => {
     as("u-org");
     expect((await POST(post({}), ctx(s.tmId))).status).toBe(403);
     as("u-a");
+    const serverNow = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(serverNow);
+    try {
+      const empty = await getResult(new Request("http://localhost/x"), ctx(s.tmId));
+      expect(empty.status).toBe(200);
+      expect(empty.headers.get("cache-control")).toBe("private, no-store");
+      expect(await empty.json()).toEqual({ remoteResult: null, now: serverNow });
+    } finally { clock.mockRestore(); }
     expect((await POST(post({}), ctx(s.tmId + 999))).status).toBe(404);
     const first = await POST(post({}), ctx(s.tmId));
     expect(first.status).toBe(201);
@@ -93,6 +102,11 @@ describe("tournament match duel and result routes", () => {
       bestOf: 1, status: "lobby", visibility: "private", detectionDefault: "auto", format: { id: "normal", settings: { startingLP: 4000 } } } });
     expect(body.table.state).toBeUndefined();
     expect(body.tableUrl).toBe(`/duels/remote/${body.table.slug}`);
+    const playing = await getResult(new Request("http://localhost/x"), ctx(s.tmId));
+    expect(await playing.json()).toMatchObject({ now: expect.any(Number), remoteResult: {
+      tournamentMatchId: s.tmId, tableSlug: body.table.slug, status: "playing",
+      winnerPlayerId: null, organizerDecision: null, finalizationReason: null,
+    } });
     const linked = s.db.prepare("select id,tournament_match_id from remote_tables where slug=?").get(body.table.slug) as { id: number; tournament_match_id: number };
     expect(linked.tournament_match_id).toBe(s.tmId);
     expect(s.db.prepare("select status,table_id from tournament_remote_matches where tournament_match_id=?").get(s.tmId))
@@ -231,8 +245,18 @@ describe("tournament match duel and result routes", () => {
     expect(broadcaster.tournament).not.toHaveBeenCalled();
   });
 
-  it("result: the organizer sets a winner and the web is told", async () => {
+  it.each(["online", "remote"])("result: the organizer sets a %s winner and the web is told", async duelType => {
     const s = seed();
+    if (duelType === "remote") {
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      s.db.prepare("update tournaments set duel_type='remote' where id=?").run(s.tournamentId);
+      const { createTournamentRemoteService } = await import("@yugidraft/shared/services");
+      createTournamentRemoteService(s.db).startMatch({ guildId: "g1", tournamentId: s.tournamentId,
+        tournamentMatchId: s.tmId, actorUserId: fixtureUserId("u-a") });
+      s.db.prepare("update tournament_remote_matches set status='disputed',winner_player_id=? where tournament_match_id=?")
+        .run(s.b, s.tmId);
+    }
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const res = await POST(post({ winnerPlayerId: s.a }), ctx(s.tmId));
@@ -245,6 +269,26 @@ describe("tournament match duel and result routes", () => {
       .prepare("select m.winner_id from matches m join tournament_matches t on t.match_id = m.id where t.id = ?")
       .get(s.tmId) as { winner_id: number };
     expect(match.winner_id).toBe(s.a);
+    if (duelType === "remote") {
+      const { GET } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote-result/route");
+      const ruled = await GET(new Request("http://localhost/x"), ctx(s.tmId));
+      expect(ruled.status).toBe(200);
+      expect(await ruled.json()).toMatchObject({ now: expect.any(Number), remoteResult: {
+        status: "final", winnerPlayerId: s.a, finalizationReason: "organizer",
+        organizerDecision: { userId: fixtureUserId("u-org"), winnerPlayerId: s.a,
+          void: false, note: null, at: expect.any(Number) },
+      } });
+      const { POST: voidResult } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote-result/void/route");
+      expect((await voidResult(post({ note: "Replay required" }), ctx(s.tmId))).status).toBe(200);
+      const voided = await GET(new Request("http://localhost/x"), ctx(s.tmId));
+      expect(voided.status).toBe(200);
+      expect(await voided.json()).toMatchObject({ now: expect.any(Number), remoteResult: {
+        status: "void", winnerPlayerId: null, finalizationReason: null,
+        organizerDecision: { userId: fixtureUserId("u-org"), winnerPlayerId: null,
+          void: true, note: "Replay required", at: expect.any(Number) },
+      } });
+    }
+    s.db.close();
   });
 
   it("duel: starts a series, DMs the other player once and returns the existing one after", async () => {

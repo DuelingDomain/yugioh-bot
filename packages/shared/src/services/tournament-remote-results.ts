@@ -30,7 +30,7 @@ function mapResult(r: ResultRow) {
       {playerId:r.player_two_id,choice:r.player_two_choice,note:r.player_two_note,at:r.player_two_responded_at}],
     finalizedAt:r.finalized_at, finalizationReason:r.finalization_reason,
     organizerDecision:r.organizer_decided_at === null ? null : {userId:r.organizer_user_id,
-      winnerPlayerId:r.status === "void" ? null : r.winner_player_id,note:r.organizer_note,at:r.organizer_decided_at},
+      winnerPlayerId:r.status === "void" ? null : r.winner_player_id,void:r.status === "void",note:r.organizer_note,at:r.organizer_decided_at},
   };
 }
 function fail(message: string, status: number, code: string): never { throw new TournamentRemoteError(message,status,code); }
