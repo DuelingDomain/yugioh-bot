@@ -125,6 +125,7 @@ confirmations are blocked once either disputes. Any dispute stops the timer unti
 Existing `POST {prefix}/result` with `{"winnerPlayerId":21}` is the organizer
 ruling path, returning `{"success":true}` (200). B3 extends it to resolve a
 Remote dispute and record organizer ID/time.
+This is an organizer override; the player manual-report block does not apply to it.
 `POST {prefix}/remote-result/void` with `{"note":"Replay required"}` is organizer
 only, returns 200 with the void `remoteResult`, and reopens an unresolved slot.
 Completed single-elimination matches cannot be reopened; existing round-robin
@@ -136,6 +137,13 @@ Errors: 403 `REMOTE_RESULT_PLAYER_REQUIRED` or `ORGANIZER_REQUIRED`;
 400 `INVALID_REMOTE_REPORT` for invalid notes/body. Existing manual report will
 reject live Remote tables with 409 `REMOTE_MATCH_OPEN`; it remains a fallback
 when no live table or unresolved proposal/dispute is open. Ended idle/creator-left rooms without a winner do not block manual reporting. The report route also requires an active tournament.
+Both shared reporting methods (`report` and `reportTournamentMatch`) enforce this
+inside their write transaction. The current Discord command registry has no
+tournament report command; any caller of these shared methods gets the same block.
+Confirmation and timeout finalization recheck that the slot is open, so a stale
+proposal cannot replace an already completed result. Lifecycle closure may append
+`table.ended`; clients must refresh its sequence before issuing further actions,
+and a closed table rejects Undo with 409 `TABLE_ENDED`.
 
 B4 supplies organizer evidence reads/capture and deletion; no evidence endpoint
 is implemented or promised by B1. Evidence survives normal table deletion through

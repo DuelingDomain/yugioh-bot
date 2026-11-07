@@ -3215,8 +3215,84 @@ async function tournamentResultSession(format: "single_elim" | "round_robin" = "
       action:remoteActionSchema.parse({...action,actorSeat:seat,idempotencyKey:`result-${room.slug}-${room.lastSeq}`})});
   };
   const input = {tournamentMatchId:slot.id,actorUserId:one.userId};
-  return {db,tournaments,tournament,slot,one,two,actors,remote,tables,results,start,act,input,get room(){return room;}};
+  const refresh = () => room = remote.get(room.slug,"g",two.userId);
+  return {db,tournaments,tournament,slot,one,two,actors,remote,tables,results,start,act,refresh,input,get room(){return room;}};
 }
+
+it("rebuilds tournament rules from table.created before an opponent changes LP to zero", async () => {
+  const s = await tournamentResultSession();
+  try {
+    const created = s.db.prepare("select action_json from remote_events where table_id=(select id from remote_tables where slug=?) and seq=1")
+      .get(s.room.slug) as {action_json:string};
+    expect(JSON.parse(created.action_json)).toMatchObject({type:"table.created",tournament:true});
+    // Rebuild from the log without relying on the table's tournament metadata or cached state.
+    s.db.transaction(() => {
+      s.db.prepare("update remote_tables set tournament_match_id=null where slug=?").run(s.room.slug);
+      const rebuilt = s.remote.replay(s.room.slug,"g",s.two.userId);
+      expect(rebuilt.tournament).toBe(true);
+      s.db.prepare("update remote_tables set tournament_match_id=?,state_json=? where slug=?")
+        .run(s.slot.id,JSON.stringify(rebuilt),s.room.slug);
+    })();
+    s.act(1,{type:"lp.change",seat:0,delta:-8000,reason:"damage"});
+    expect(s.room.state).toMatchObject({tournament:true,ended:false,match:{phase:"duel",
+      pendingResult:{winnerSeat:1,confirmed:[1]}}});
+    expect(s.room.state.seats[0]).toMatchObject({eliminated:false,resources:{lp:0}});
+    const declarationId = s.room.state.match.pendingResult!.id;
+    expect(s.remote.replay(s.room.slug,"g",s.two.userId).match.pendingResult?.id).toBe(declarationId);
+    s.act(0,{type:"match.confirm",declarationId,accept:true});
+    expect(s.results.get(s.input)).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"lp"});
+    s.results.confirm(s.input);
+    expect(s.results.confirm({...s.input,actorUserId:s.two.userId}).status).toBe("final");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it.each(["active", "proposed", "disputed"] as const)("blocks both manual report services for a Remote %s match", async status => {
+  const s = await tournamentResultSession();
+  try {
+    if (status !== "active") s.act(0,{type:"player.concede"});
+    if (status === "disputed") s.results.dispute(s.input);
+    for (const report of [
+      () => s.tournaments.report(s.tournament.id,s.one.playerId,s.two.playerId,s.one.playerId),
+      () => s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId),
+    ]) expect(report).toThrow(expect.objectContaining({status:409,code:"REMOTE_MATCH_OPEN",
+      message:expect.stringMatching(/open Remote table or result/)}));
+    expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+    expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("open");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it.each(["pair", "slot"])("allows the %s manual report fallback after a Remote table ends without a result", async path => {
+  const s = await tournamentResultSession();
+  try {
+    s.remote.sweepIdle(s.room.lastEventAt + 10*60*1000 + 1);
+    const match = path === "pair"
+      ? s.tournaments.report(s.tournament.id,s.one.playerId,s.two.playerId,s.one.playerId)
+      : s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId);
+    expect(match.status).toBe("pending");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("never finalizes a stale Remote proposal over a completed slot", async () => {
+  const s = await tournamentResultSession("round_robin");
+  const {createMatchService} = await import("../../src/services/matches.js");
+  try {
+    s.act(0,{type:"player.concede"});
+    const deadline=s.results.get(s.input)!.confirmDeadlineAt!;
+    s.results.confirm(s.input);
+    const match=createMatchService(s.db).recordConfirmedResult({guildId:"g",playerOneId:s.one.playerId,
+      playerTwoId:s.two.playerId,winnerId:s.two.playerId,source:"tournament",tournamentMatchId:s.slot.id});
+    expect(()=>s.results.confirm({...s.input,actorUserId:s.two.userId}))
+      .toThrow(expect.objectContaining({code:"TOURNAMENT_MATCH_UNAVAILABLE"}));
+    expect(s.results.finalizeDue(deadline+1)).toEqual([]);
+    expect(s.db.prepare("select id,winner_id from matches where tournament_id=?").all(s.tournament.id))
+      .toEqual([{id:match.id,winner_id:s.two.playerId}]);
+    expect(s.results.get(s.input)).toMatchObject({status:"proposed",reports:[{choice:"confirm"},{choice:null}]});
+    // A late terminal reducer action cannot even propose over the completed slot.
+    s.db.prepare("update tournament_remote_matches set status='playing',winner_player_id=null where tournament_match_id=?").run(s.slot.id);
+    s.results.propose((s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id,s.room.state);
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",winnerPlayerId:null});
+  } finally {vi.unstubAllEnvs();}
+});
 
 it("proposes a Remote table winner, confirms both players once and advances single elimination", async () => {
   const s = await tournamentResultSession();
@@ -3248,8 +3324,13 @@ it("proposes a Remote table winner, confirms both players once and advances sing
     s.db.exec("drop trigger fail_remote_scoring");
     expect(s.results.confirm({...s.input,actorUserId:s.two.userId})).toMatchObject({status:"final",finalizationReason:"both_confirmed"});
     expect(s.results.confirm(s.input).status).toBe("final");
+    s.refresh(); // Lifecycle closure may append table.ended and advance the sequence.
+    expect(s.room.status).toBe("ended");
+    const finalizedSeq=s.room.lastSeq;
     expect(()=>s.act(0,{type:"undo",targetActionId:s.room.state.undo!.actionId}))
-      .toThrow(expect.objectContaining({code:"REMOTE_RESULT_FINAL"}));
+      .toThrow(expect.objectContaining({status:409}));
+    expect(s.refresh().lastSeq).toBe(finalizedSeq);
+    expect(s.results.get(s.input)?.status).toBe("final");
     expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("completed");
     expect(s.db.prepare("select * from matches where tournament_id=?").all(s.tournament.id)).toHaveLength(1);
     expect(s.db.prepare("select winner_id,source,status from matches where tournament_id=?").get(s.tournament.id))
@@ -3280,8 +3361,13 @@ it("a dispute blocks the timer until an organizer records a decision or voids fo
     expect(s.db.prepare("select winner_id from matches where tournament_id=?").get(s.tournament.id)).toEqual({winner_id:s.two.playerId});
     expect(s.results.void({...s.input,actorUserId:s.actors[0].userId,note:"Replay"})).toMatchObject({status:"void",organizerDecision:{winnerPlayerId:null,note:"Replay"}});
     expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("open");
+    s.refresh();
+    expect(s.room.status).toBe("ended");
+    const voidedSeq=s.room.lastSeq;
     expect(()=>s.act(0,{type:"undo",targetActionId:s.room.state.undo!.actionId}))
-      .toThrow(expect.objectContaining({code:"REMOTE_RESULT_NOT_PROPOSED"}));
+      .toThrow(expect.objectContaining({status:409}));
+    expect(s.refresh().lastSeq).toBe(voidedSeq);
+    expect(s.results.get(s.input)?.status).toBe("void");
     expect(s.start().state.tournament).toBe(true);
   } finally {vi.unstubAllEnvs();}
 });

@@ -11,7 +11,7 @@ import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
 
-/** The organizer sets a bracket result by hand; this cancels the open online series of the slot. */
+/** Organizer ruling: resolves Remote disputes and closes linked play through the shared service. */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ slug: string; tmId: string }> },

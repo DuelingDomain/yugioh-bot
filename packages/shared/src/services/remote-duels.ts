@@ -109,6 +109,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
       }
       else if (action.type === "table.created") {
+        if (action.tournament ?? (row.tournament_match_id != null)) state.tournament = true;
         state.match = initialRemoteMatch(row.seat_count, action.bestOf ?? 1);
         if(action.format) state = applyRemoteFormat(state, action.format);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? false;
@@ -212,7 +213,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY, input.tournamentMatchId ?? null);
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
-        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
+        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, tournament: input.tournamentMatchId != null, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
         append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
         if (input.solo) for (let seat = 1; seat < input.seatCount; seat++) {
           db.prepare("insert into remote_bot_seats(table_id,seat,display_name) values(?,?,?)").run(row.id, seat, `Test Bot ${seat}`);

@@ -177,9 +177,9 @@ export function createTournamentService(db: Database.Database) {
     order by s.id
   `);
 
-  /** A manual report would race the series result, so the slot refuses it while a series is open. */
+  /** Manual reports must not race an online series, a Remote table or an unresolved Remote result. */
   const assertNoOpenSeries = (tournamentMatchId: number) => {
-    assertNoOpenRemoteMatch(db,tournamentMatchId);
+    assertNoOpenRemoteMatch(db, tournamentMatchId);
     if (selectOpenSeriesForSlot.get(tournamentMatchId)) {
       throw new TournamentDuelError(
         "This match is being played as an online duel series. The result records itself.",

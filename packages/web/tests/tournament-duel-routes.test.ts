@@ -138,6 +138,80 @@ describe("tournament match duel and result routes", () => {
     s.db.close();
   });
 
+  it.each(["lobby", "active", "proposed", "disputed", "purged-proposal"])("report: blocks manual reports for a Remote %s slot", async status => {
+    const s = seed();
+    try {
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      s.db.prepare("update tournaments set duel_type='remote' where id=?").run(s.tournamentId);
+      const {createTournamentRemoteService,createRemoteDuelService} = await import("@yugidraft/shared/services");
+      const {table} = createTournamentRemoteService(s.db).startMatch({guildId:"g1",tournamentId:s.tournamentId,
+        tournamentMatchId:s.tmId,actorUserId:fixtureUserId("u-a")});
+      const remote=createRemoteDuelService(s.db);
+      if (status === "active") {
+        remote.join(table.slug,"g1",fixtureUserId("u-b"),"Bob");
+        remote.ready(table.slug,"g1",fixtureUserId("u-a"),true);
+        remote.ready(table.slug,"g1",fixtureUserId("u-b"),true);
+        remote.start(table.slug,"g1",fixtureUserId("u-a"));
+      } else if (status !== "lobby") {
+        remote.leave(table.slug,"g1",fixtureUserId("u-a"));
+        s.db.prepare("update tournament_remote_matches set status=? where tournament_match_id=?")
+          .run(status === "disputed" ? "disputed" : "proposed",s.tmId);
+        if (status === "purged-proposal") s.db.prepare("delete from remote_tables where slug=?").run(table.slug);
+      }
+      const {POST} = await import("../app/api/tournaments/[slug]/report/route");
+      auth.mockResolvedValue({user:{id:String(fixtureUserId("u-a")),discordUserId:fixtureDiscordId("u-a"),name:"Alice"}});
+      const response=await POST(post({tournamentMatchId:s.tmId,result:"win"}),{params:Promise.resolve({slug:"cup"})});
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({code:"REMOTE_MATCH_OPEN",error:expect.stringMatching(/open Remote table or result/)});
+      expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+      expect(s.db.prepare("select status,match_id from tournament_matches where id=?").get(s.tmId))
+        .toEqual({status:"open",match_id:null});
+      expect(announcer.announce).not.toHaveBeenCalled();
+      expect(broadcaster.tournament).not.toHaveBeenCalled();
+    } finally {s.db.close();}
+  });
+
+  it("report: allows a Remote fallback after a table ends without a result", async () => {
+    const s = seed();
+    try {
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      s.db.prepare("update tournaments set duel_type='remote' where id=?").run(s.tournamentId);
+      const {createTournamentRemoteService,createRemoteDuelService} = await import("@yugidraft/shared/services");
+      const {table}=createTournamentRemoteService(s.db).startMatch({guildId:"g1",tournamentId:s.tournamentId,
+        tournamentMatchId:s.tmId,actorUserId:fixtureUserId("u-a")});
+      createRemoteDuelService(s.db).leave(table.slug,"g1",fixtureUserId("u-a"));
+      const {POST} = await import("../app/api/tournaments/[slug]/report/route");
+      auth.mockResolvedValue({user:{id:String(fixtureUserId("u-a")),discordUserId:fixtureDiscordId("u-a"),name:"Alice"}});
+      const response=await POST(post({tournamentMatchId:s.tmId,result:"win"}),{params:Promise.resolve({slug:"cup"})});
+      expect(response.status).toBe(200);
+      expect(s.db.prepare("select status from tournament_matches where id=?").get(s.tmId)).toEqual({status:"pending_approval"});
+    } finally {s.db.close();}
+  });
+
+  it.each(["lobby", "disputed"])("result: organizer rulings resolve a Remote %s slot and stop its table", async status => {
+    const s = seed();
+    try {
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      s.db.prepare("update tournaments set duel_type='remote' where id=?").run(s.tournamentId);
+      const {createTournamentRemoteService,createRemoteDuelService,createTournamentRemoteResultService} = await import("@yugidraft/shared/services");
+      const {table}=createTournamentRemoteService(s.db).startMatch({guildId:"g1",tournamentId:s.tournamentId,
+        tournamentMatchId:s.tmId,actorUserId:fixtureUserId("u-a")});
+      if (status === "disputed") s.db.prepare("update tournament_remote_matches set status='disputed' where tournament_match_id=?").run(s.tmId);
+      const {POST} = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
+      auth.mockResolvedValue({user:{id:String(fixtureUserId("u-org")),discordUserId:fixtureDiscordId("u-org"),name:"Organizer"}});
+      expect((await POST(post({winnerPlayerId:s.b}),ctx(s.tmId))).status).toBe(200);
+      expect(s.db.prepare("select status from remote_tables where slug=?").get(table.slug)).toEqual({status:"ended"});
+      expect(s.db.prepare("select status,winner_player_id,finalization_reason from tournament_remote_matches where tournament_match_id=?").get(s.tmId))
+        .toEqual({status:"final",winner_player_id:s.b,finalization_reason:"organizer"});
+      expect(()=>createRemoteDuelService(s.db).start(table.slug,"g1",fixtureUserId("u-a"))).toThrow();
+      expect(createTournamentRemoteResultService(s.db).finalizeDue(Date.now()+7200001)).toEqual([]);
+      expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:1});
+    } finally {s.db.close();}
+  });
+
   it("result: rejects an unauthenticated caller and a bad body", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
