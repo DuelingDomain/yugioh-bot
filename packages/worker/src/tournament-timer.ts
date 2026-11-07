@@ -30,6 +30,7 @@ export function createTournamentTimer({ db, matches, tournaments, effects }: {
       // Remote proposals resolve independently of room retention, before tournament closure.
       for (const changed of createTournamentRemoteResultService(db).finalizeDue(now.getTime())) {
         await publish(changed.tournamentId);
+        await safely(() => effects.remote(changed.tableSlug, changed.guildId));
         if (changed.tournamentCompleted && changed.slug) {
           await safely(() => effects.tournament({kind:"completed",slug:changed.slug!}));
         }

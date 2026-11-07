@@ -177,7 +177,7 @@ export function createTournamentRemoteResultService(db: Database.Database) {
               r.confirm_deadline_at === null || r.confirm_deadline_at > now ||
               !(r.player_one_choice === "confirm" || r.player_two_choice === "confirm" || r.result_source === "concede" || r.result_source === "declared")) return null;
             finalize(r,"timeout",now);
-            return {tournamentId:s.tournament_id,slug:s.web_slug,tournamentCompleted:
+            return {tournamentId:s.tournament_id,slug:s.web_slug,tableSlug:r.table_slug,guildId:s.guild_id,tournamentCompleted:
               (db.prepare("select status from tournaments where id=?").get(s.tournament_id) as {status:string}).status === "completed"};
           }).immediate();
           if (change) changes.push(change);

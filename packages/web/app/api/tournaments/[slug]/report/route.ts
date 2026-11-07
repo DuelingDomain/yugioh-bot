@@ -1,4 +1,4 @@
-import { createTournamentService, findTournamentReadAccess } from "@yugidraft/shared/services";
+import { createTournamentService, findTournamentReadAccess, TournamentDuelError } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -179,6 +179,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, matchId });
   } catch (error) {
+    if (error instanceof TournamentDuelError) return remoteJson({ error: error.message }, 409);
     return remoteError(error);
   }
 }

@@ -107,17 +107,24 @@ it("finalizes eligible Remote proposals at two hours, survives room deletion and
       values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(slot.id,`purged-${i}`,slot.playerOneId,slot.playerTwoId,
         i===4?'disputed':'proposed',slot.playerOneId,1,0,i===0?'concede':i===1?'declared':'lp',
         deadline-7200000,deadline,i===3?'confirm':null,0,0);
-    const effects={discordEnabled:false,tournament:vi.fn(async()=>{}),discord:vi.fn(async()=>{}),draft:vi.fn(async()=>{}),duel:vi.fn(async()=>{})};
+    const { recordingTransport } = await import("@yugidraft/shared/notify");
+    const { createEffects } = await import("../src/effects.js");
+    const rec = recordingTransport();
+    const effects = createEffects({ enabled: false, ws: rec.transport, bot: rec.transport });
     const timer=createTournamentTimer({db,tournaments,matches,effects});
     await timer.tick(new Date(deadline-1));
     expect(db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+    expect(rec.calls).toEqual([]);
     await timer.tick(new Date(deadline));
     expect(db.prepare("select count(*) n from tournament_remote_matches where status='final' and finalization_reason='timeout'").get()).toEqual({n:3});
     expect(db.prepare("select status from tournament_matches where id=?").get(slots[2].id)).toEqual({status:"open"});
     expect(db.prepare("select status from tournament_matches where id=?").get(slots[4].id)).toEqual({status:"open"});
-    expect(effects.tournament).toHaveBeenCalledWith({kind:"match-updated",slug:t.webSlug});
+    expect(rec.calls.filter(call => call.path === "/internal/remote/changed"))
+      .toEqual([0,1,3].map(i => ({ path: "/internal/remote/changed", body: JSON.stringify({ slug: `purged-${i}`, guildId: "g" }) })));
     await timer.tick(new Date(deadline+60000));
     expect(db.prepare("select count(*) n from matches").get()).toEqual({n:3});
-    expect(effects.tournament).toHaveBeenCalledTimes(3);
+    expect(rec.calls.filter(call => call.path === "/internal/tournament/match-updated"))
+      .toEqual(Array.from({ length: 3 }, () => ({ path: "/internal/tournament/match-updated", body: JSON.stringify({ slug: t.webSlug }) })));
+    expect(rec.calls.filter(call => call.path === "/internal/remote/changed")).toHaveLength(3);
   } finally {db.close();}
 });

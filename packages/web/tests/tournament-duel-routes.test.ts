@@ -186,6 +186,29 @@ describe("tournament match duel and result routes", () => {
     } finally {s.db.close();}
   });
 
+  it("report: returns a conflict if an online series starts after the precheck", async () => {
+    const s = seed();
+    const services = await import("@yugidraft/shared/services");
+    const errorResponse = vi.spyOn(await import("@yugidraft/shared/observability"), "errorResponseBody");
+    const create = services.createTournamentService;
+    const raced = vi.spyOn(services, "createTournamentService").mockImplementation(db => {
+      services.createDuelSeriesService(s.db).startTournamentMatch({
+        guildId: "g1", tournamentMatchId: s.tmId, actorPlayerId: s.a,
+      });
+      return create(db);
+    });
+    try {
+      const { POST } = await import("../app/api/tournaments/[slug]/report/route");
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
+      const response = await POST(post({ tournamentMatchId: s.tmId, result: "win" }), { params: Promise.resolve({ slug: "cup" }) });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "This match is being played as an online duel series. The result records itself." });
+      expect(errorResponse).not.toHaveBeenCalled();
+      expect(s.db.prepare("select count(*) n from matches").get()).toEqual({ n: 0 });
+      expect(announcer.announce).not.toHaveBeenCalled();
+    } finally { raced.mockRestore(); errorResponse.mockRestore(); s.db.close(); }
+  });
+
   it("report: allows a Remote fallback after a table ends without a result", async () => {
     const s = seed();
     try {
