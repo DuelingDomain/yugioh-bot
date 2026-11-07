@@ -16,21 +16,31 @@ export function migrateTournamentRemoteEvidence(db: Database.Database): void {
       else null end from tournament_remote_matches r
       where r.tournament_match_id=tournament_remote_evidence.tournament_match_id)
     where tournament_match_id=${matchId} and table_slug=(select table_slug from tournament_remote_matches where tournament_match_id=${matchId});`;
-  db.exec(`
-    drop trigger if exists tournament_remote_evidence_insert;
-    drop trigger if exists tournament_remote_evidence_reports;
-    create trigger tournament_remote_evidence_insert after insert on tournament_remote_evidence
-      begin ${refresh("new.tournament_match_id")} end;
-    create trigger tournament_remote_evidence_reports after update of
+  const definitions = new Map([
+    ["tournament_remote_evidence_insert", `CREATE TRIGGER tournament_remote_evidence_insert after insert on tournament_remote_evidence
+      begin ${refresh("new.tournament_match_id")} end`],
+    ["tournament_remote_evidence_reports", `CREATE TRIGGER tournament_remote_evidence_reports after update of
       status,proposed_at,player_one_choice,player_one_note,player_one_responded_at,
       player_two_choice,player_two_note,player_two_responded_at,finalized_at,finalization_reason,organizer_decided_at
-      on tournament_remote_matches begin ${refresh("new.tournament_match_id")} end;
-    create trigger if not exists tournament_remote_evidence_cancel after update of status on tournaments
+      on tournament_remote_matches begin ${refresh("new.tournament_match_id")} end`],
+    ["tournament_remote_evidence_cancel", `CREATE TRIGGER tournament_remote_evidence_cancel after update of status on tournaments
       when new.status='cancelled' begin
         delete from tournament_remote_evidence where tournament_match_id in
           (select id from tournament_matches where tournament_id=new.id);
-      end;
-    -- Apply the deadline to copies created before this migration, preserving older replay copies.
-    ${refresh("tournament_remote_evidence.tournament_match_id")}
-  `);
+      end`],
+  ]);
+  // Check under the write lock so another process cannot repeat the upgrade or backfill.
+  db.transaction(() => {
+    let changed = false;
+    const find = db.prepare("select sql from sqlite_master where type='trigger' and name=?");
+    for (const [name, sql] of definitions) {
+      const existing = find.get(name) as { sql: string } | undefined;
+      if (existing?.sql === sql) continue;
+      if (existing) db.exec(`drop trigger ${name}`);
+      db.exec(sql.replace("CREATE TRIGGER", "CREATE TRIGGER IF NOT EXISTS"));
+      changed = true;
+    }
+    // Apply new deadlines once to existing copies, preserving older replay copies.
+    if (changed) db.exec(refresh("tournament_remote_evidence.tournament_match_id"));
+  }).immediate();
 }

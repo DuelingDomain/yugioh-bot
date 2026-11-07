@@ -98,6 +98,10 @@ describe("replay fork schema", () => {
       expect([heard_from, heard_from_detail, creator_id]).toEqual([null, null, null]);
       return row;
     });
+    after.tournaments = (after.tournaments as Array<Record<string, unknown>>).map(({ duel_type, ...row }) => {
+      expect(duel_type).toBe("online");
+      return row;
+    });
     after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, started_at, turn_count, snapshot_compacted_at, ...row }) => {
       expect(kind).toBe("play");
       expect(started_at).toBeNull();

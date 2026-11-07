@@ -150,6 +150,11 @@ it('upgrades existing evidence triggers and deadlines on migration', () => {
   expect(s.evidence()?.purge_after_at).toBeNull();
   migrate(s.db);
   expect(s.evidence()?.purge_after_at).toBe(ended.endedAt! + 2 * day);
+  const once = s.db.serialize();
+  const changes = s.db.prepare('select total_changes() as n').get();
+  migrate(s.db);
+  expect(s.db.serialize().equals(once)).toBe(true);
+  expect(s.db.prepare('select total_changes() as n').get()).toEqual(changes);
   s.db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(s.matchId);
   captureRemoteTournamentEvidence(s.db, s.tableId, ended.endedAt! + 1);
   expect(s.evidence()?.purge_after_at).toBe(ended.endedAt! + 2 * day);
