@@ -24,6 +24,8 @@ export interface RemoteResult {
   finalizedAt: number | null;
   finalizationReason: "both_confirmed" | "timeout" | "organizer" | null;
   organizerDecision: { userId: number; winnerPlayerId: number | null; note: string | null; at: number } | null;
+  /** The server clock in ms when the result was read. Optional: the countdown falls back to the browser clock. */
+  now?: number;
 }
 
 /** The two paired players of a slot, in the order the tournament holds them (player one first). */
@@ -54,11 +56,38 @@ export function winnerScoreText(result: RemoteResult, pair: RemotePair): string 
   return result.winnerPlayerId === pair.playerOneId ? `${playerOne}–${playerTwo}` : `${playerTwo}–${playerOne}`;
 }
 
-/** The headline: "Alice won 2–1". */
+/** The winner that counts: the organizer's ruling when there is one, else the proposed winner. */
+export function effectiveWinnerId(result: RemoteResult): number | null {
+  const decision = result.organizerDecision;
+  return decision && decision.winnerPlayerId !== null ? decision.winnerPlayerId : result.winnerPlayerId;
+}
+
+/** The headline: "Alice won 2–1". The score shows only while it belongs to the winner that counts. */
 export function proposalLine(result: RemoteResult, pair: RemotePair): string {
-  if (result.winnerPlayerId === null) return "No winner was recorded.";
-  const score = winnerScoreText(result, pair);
-  return `${nameOf(pair, result.winnerPlayerId)} won${score ? ` ${score}` : ""}.`;
+  const winnerId = effectiveWinnerId(result);
+  if (winnerId === null) return "No winner was recorded.";
+  const score = winnerId === result.winnerPlayerId ? winnerScoreText(result, pair) : null;
+  return `${nameOf(pair, winnerId)} won${score ? ` ${score}` : ""}.`;
+}
+
+/** The organizer's ruling in one line, when it changed the proposed winner or has a note. Null otherwise. */
+export function rulingText(result: RemoteResult, pair: RemotePair): string | null {
+  const decision = result.organizerDecision;
+  if (!decision) return null;
+  const parts: string[] = [];
+  if (decision.winnerPlayerId === null) parts.push("The organizer voided the result.");
+  else if (decision.winnerPlayerId !== result.winnerPlayerId) parts.push(`The organizer ruled that ${nameOf(pair, decision.winnerPlayerId)} won (proposed: ${result.winnerPlayerId === null ? "no winner" : nameOf(pair, result.winnerPlayerId)}).`);
+  else parts.push("The organizer confirmed the result.");
+  if (decision.note) parts.push(`Note: ${decision.note}`);
+  return parts.join(" ");
+}
+
+/** Why a final result is final, in a few words. */
+export function finalReasonText(reason: RemoteResult["finalizationReason"]): string | null {
+  if (reason === "both_confirmed") return "Both players confirmed.";
+  if (reason === "timeout") return "Nobody disputed before the time ended.";
+  if (reason === "organizer") return "The organizer decided it.";
+  return null;
 }
 
 export function reportOf(result: RemoteResult, playerId: number): RemoteReport | null {
@@ -85,14 +114,17 @@ export function sourceText(source: RemoteResultSource | null): string | null {
   return null;
 }
 
-/** What the viewer's own answer means for the clock, as one plain line. */
-export function clockNote(result: RemoteResult, viewerId: number, pair: RemotePair): string | null {
+/** API rule: both confirms finalize now; one confirm, or a concede or declared admission, finalizes at the deadline; LP alone never does. */
+export function finalizesAtDeadline(result: RemoteResult): boolean {
+  const confirmed = result.reports.filter((report) => report.choice === "confirm").length;
+  return confirmed >= 1 || result.source === "concede" || result.source === "declared";
+}
+
+/** What the answers so far mean for the clock, as one plain line. */
+export function clockNote(result: RemoteResult): string | null {
   if (result.status !== "proposed") return null;
-  const mine = reportOf(result, viewerId);
-  const otherId = viewerId === pair.playerOneId ? pair.playerTwoId : pair.playerOneId;
-  const other = reportOf(result, otherId);
-  const confirmed = (mine?.choice === "confirm" ? 1 : 0) + (other?.choice === "confirm" ? 1 : 0);
-  if (confirmed === 2) return null;
-  if (confirmed === 1 || result.source === "concede" || result.source === "declared") return "If nobody disputes, it becomes final when the time ends.";
-  return "Without a confirm it does not finalize on its own. The organizer can decide.";
+  if (result.reports.filter((report) => report.choice === "confirm").length >= 2) return null;
+  return finalizesAtDeadline(result)
+    ? "If nobody disputes, it becomes final when the time ends."
+    : "Without a confirm it does not finalize on its own. The organizer can decide.";
 }

@@ -29,8 +29,9 @@ function MatchButtons({ action, tournamentSlug }: { action: Extract<RowAction, {
         {action.kind === "start" ? (
           <DuelAction kind="start" onClick={actions.start} disabled={busy} />
         ) : action.kind === "start-remote" ? (
-          <SvButton variant="primary" onClick={actions.startRemote} disabled={busy}>
-            Start Remote Duel
+          // The list does not know the Remote result of the slot (playing, proposed, disputed), so it links to the match.
+          <SvButton as="a" variant="primary" href={`/tournament/${encodeURIComponent(tournamentSlug)}`}>
+            Open match
           </SvButton>
         ) : (
           <>

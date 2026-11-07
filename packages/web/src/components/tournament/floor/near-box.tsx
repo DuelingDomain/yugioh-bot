@@ -95,7 +95,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
     buttons = <SvButton variant="quiet" big onClick={actions.cancelReport}>Cancel</SvButton>;
   } else if (view.canOpen) {
     buttons = <DuelAction kind="open" big href={`/duels/${match.series!.currentDuelSlug}`} />;
-  } else if (view.canStartRemote && !remoteAnswering) {
+  } else if (view.canStartRemote && !remoteAnswering && remoteState.loaded) {
     buttons = (
       <SvButton variant="primary" big disabled={disabled} onClick={actions.startRemote}>
         {remoteResult?.status === "playing" ? "Open Remote table" : "Start Remote Duel"}
@@ -116,7 +116,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
   if (owes) note = <>If you do nothing, it approves itself after {hours} hours.</>;
   else if (view.state === "reported") note = <>{opp.name} confirms within {hours} hours, or it approves itself.</>;
 
-  const offsite = view.canReport && !actions.reporting && !remoteBlocked
+  const offsite = view.canReport && !actions.reporting && !remoteBlocked && remoteState.loaded
     ? <p className={styles.offsite}>Played off the site? <button type="button" disabled={disabled} onClick={actions.openReport}>Report a result</button></p>
     : null;
 

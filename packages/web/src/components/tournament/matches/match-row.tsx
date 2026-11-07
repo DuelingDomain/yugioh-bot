@@ -31,7 +31,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
   const decided = match.status === "completed" && view.state !== "bye" && match.winnerId !== null;
   const players = decided ? decidedPlayers(match) : { winner: { id: match.playerOneId, name: match.playerOneName }, loser: { id: match.playerTwoId, name: match.playerTwoName } };
   const score = decided ? winnerScore(match) : matchScore(match);
-  const reporting = view.canReport && actions.reporting && !remoteBlocksReport(remoteResult);
+  const reporting = view.canReport && actions.reporting && remoteState.loaded && !remoteBlocksReport(remoteResult);
   const reopening = view.canReopen && actions.reopening;
   // Someone else's open match: the organizer's actions sit inline, with no "Organizer" strip.
   const hostInline = view.state === "open" && !view.player;
@@ -64,7 +64,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
         {showState && <MatchState match={match} state={view.state} format={tournament.format} hours={tournament.reportConfirmWindowHours ?? 24} stakes={stakes} />}
       </div>
       <div className="m-act">
-        <MatchControls match={match} view={view} actions={actions} waitingOn={reportNames(match).other} remoteResult={remoteResult} />
+        <MatchControls match={match} view={view} actions={actions} waitingOn={reportNames(match).other} remoteResult={remoteResult} remoteLoading={!remoteState.loaded} />
         {hostInline && <MatchHostControls view={view} actions={actions} inline />}
       </div>
       {!hostInline && <MatchHostControls view={view} actions={actions} />}

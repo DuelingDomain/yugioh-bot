@@ -2,14 +2,14 @@
 
 import { useEffect, useId, useState } from "react";
 import {
-  clockNote, DISPUTE_NOTE_MAX, nameOf, proposalLine, reportOf, sourceText, timeLeftText,
+  clockNote, DISPUTE_NOTE_MAX, finalizesAtDeadline, finalReasonText, nameOf, proposalLine, reportOf, rulingText, sourceText, timeLeftText,
   type RemotePair, type RemoteReport, type RemoteResult,
 } from "../remote-result";
 import { useRemoteResult, type RemoteResultState } from "./use-remote-result";
 import styles from "./remote-result-panel.module.css";
 
-/** Re-reads the clock every 30 seconds, so "time left" moves without a request. */
-function useNow(active: boolean): number {
+/** Re-reads the clock every 30 seconds, so "time left" moves without a request. `offset` moves the browser clock to the server clock. */
+function useNow(active: boolean, offset: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
@@ -17,7 +17,7 @@ function useNow(active: boolean): number {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, [active]);
-  return now;
+  return now + offset;
 }
 
 function answerText(report: RemoteReport | null): { text: string; tone: "yes" | "no" | "wait" } {
@@ -49,7 +49,8 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
   const canAnswer = viewerId !== null && result.status === "proposed" && !mine?.choice;
   const left = result.confirmDeadlineAt !== null ? timeLeftText(result.confirmDeadlineAt, now) : null;
   const timeUp = result.status === "proposed" && result.confirmDeadlineAt !== null && left === null;
-  const clock = viewerId === null ? null : clockNote(result, viewerId, pair);
+  const clock = viewerId === null ? null : clockNote(result);
+  const ruling = rulingText(result, pair);
   const players = [pair.playerOneId, pair.playerTwoId];
 
   return (
@@ -62,7 +63,10 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
       {result.status === "playing" ? (
         <p className={styles.line}>The table is open. The result shows here when the match ends.</p>
       ) : result.status === "void" ? (
-        <p className={styles.line}>The organizer voided this result. Play the match again.</p>
+        <>
+          <p className={styles.line}>The organizer voided this result. Play the match again.</p>
+          {ruling && result.organizerDecision?.note && <p className={styles.note}>Note: {result.organizerDecision.note}</p>}
+        </>
       ) : (
         <>
           <p className={styles.headline} data-testid="remote-result-line">
@@ -85,12 +89,13 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
 
           {result.status === "proposed" && (
             <p className={styles.time} data-testid="remote-result-time" data-up={timeUp || undefined}>
-              {timeUp ? "Time is up. It is being finalized." : left ? <><b>{left}</b> left to answer</> : null}
+              {timeUp ? (finalizesAtDeadline(result) ? "Time is up. It is being finalized." : "Time is up. Without a confirm it does not finalize. The organizer can decide.") : left ? <><b>{left}</b> left to answer</> : null}
             </p>
           )}
           {clock && <p className={styles.sub}>{clock}</p>}
           {result.status === "disputed" && <p className={styles.line}>A player disputed the result. The organizer will decide.</p>}
-          {result.status === "final" && <p className={styles.line}>This result is final and counts in the standings.</p>}
+          {result.status === "final" && <p className={styles.line}>This result is final and counts in the standings. {finalReasonText(result.finalizationReason)}</p>}
+          {ruling && result.status !== "disputed" && <p className={styles.note} data-testid="remote-result-ruling">{ruling}</p>}
           {mine?.choice === "dispute" && mine.note && <p className={styles.note}>Your note: {mine.note}</p>}
         </>
       )}
@@ -132,7 +137,7 @@ export function RemoteResultView({ result, pair, viewerId, busy, error, onConfir
 /** The panel for a result a parent already loads with `useRemoteResult`. It renders nothing until a Remote result exists. */
 export function RemoteResultPanel({ state, pair, viewerId }: { state: RemoteResultState; pair: RemotePair; viewerId: number | null }) {
   const { result } = state;
-  const now = useNow(result?.status === "proposed");
+  const now = useNow(result?.status === "proposed", state.clockOffset);
   if (!result) return null;
   return <RemoteResultView result={result} pair={pair} viewerId={viewerId} busy={state.busy} error={state.error} onConfirm={state.confirm} onDispute={state.dispute} now={now} />;
 }

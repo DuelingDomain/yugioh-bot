@@ -41,10 +41,12 @@ export function MatchError({ error, onOpenDeck }: { error: string | null; onOpen
 }
 
 /** The buttons for one match: used by the host drawer's match rows. */
-export function MatchControls({ match, view, actions, reportLabel = "Report", reportFirst = false, waitingOn, remoteResult = null }: {
+export function MatchControls({ match, view, actions, reportLabel = "Report", reportFirst = false, waitingOn, remoteResult = null, remoteLoading = false }: {
   match: Match; view: ReturnType<typeof matchView>; actions: MatchActions; small?: boolean; reportLabel?: string; reportFirst?: boolean; waitingOn: string;
   /** The Remote result of a Remote slot, when it has one. An open one replaces the manual report and the start button. */
   remoteResult?: RemoteResult | null;
+  /** The Remote result is still being read: Report and Start stay hidden, so a live or proposed slot never shows them. */
+  remoteLoading?: boolean;
 }) {
   if (actions.reporting && view.canReport) return <MatchButton variant="quiet" onClick={actions.cancelReport}>Cancel</MatchButton>;
   if (view.canOpen) {
@@ -52,11 +54,11 @@ export function MatchControls({ match, view, actions, reportLabel = "Report", re
   }
   const disabled = actions.loading !== null;
   const answering = remoteResult?.status === "proposed" || remoteResult?.status === "disputed";
-  const reportButton = view.canReport && !remoteBlocksReport(remoteResult) && <MatchButton disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>;
+  const reportButton = view.canReport && !remoteLoading && !remoteBlocksReport(remoteResult) && <MatchButton disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>;
   return (
     <>
       {reportFirst && reportButton}
-      {view.canStartRemote && !answering && (
+      {view.canStartRemote && !answering && !remoteLoading && (
         <MatchButton variant="primary" disabled={disabled} onClick={actions.startRemote}>
           {remoteResult?.status === "playing" ? "Open Remote table" : "Start Remote Duel"}
         </MatchButton>
