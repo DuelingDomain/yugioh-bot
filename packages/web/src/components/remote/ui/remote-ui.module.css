@@ -1163,11 +1163,11 @@
 /* A short seat puts the icon-only Scan button in the top-right corner of the side column: the hand count (first line) stays clear of it. */
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
   .htop .hcount{padding-right:32px}
-  /* No room for the caption: the chips say where each card came from, and the region keeps its label for screen readers. */
-  .htop .hlab{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-  .htray{min-height:58px}
+  /* Little room: the caption shortens to "Revealed 3" and the region keeps its full label for screen readers. */
+  .htop .hmore{display:none}
+  .htray{min-height:66px;gap:2px}.htop{gap:0}
   .seat[data-wc] .fside{gap:4px}.seat[data-wc] .lp{gap:4px}
-  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:24px}.seat[data-wc] .lpn{font-size:28px}
+  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{font-size:28px}
   .htop .hcount button{width:20px;height:20px}
 }
 /* Phone: the seat's life points lead, so the tray leads right above them. */

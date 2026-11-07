@@ -130,7 +130,7 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
     // Webcam only: one compact row right above life points. More cards than fit scroll in the row, so the tray never grows over the feed.
     return <div className={s.htray} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`} data-tray={seat}>
       <div className={s.htop}>
-        <span className={s.hlab}>Revealed in hand{hand.cards.length ? <b className={s.num}>{hand.cards.length}</b> : null}</span>
+        <span className={s.hlab}>Revealed<span className={s.hmore}> in hand</span>{hand.cards.length ? <b className={s.num}>{hand.cards.length}</b> : null}</span>
         <HandCount seat={seat} hand={hand} />
       </div>
       <ul ref={list} className={s.htlist} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY; }}>
