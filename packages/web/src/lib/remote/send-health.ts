@@ -46,7 +46,7 @@ export function createSendPolicy() {
     causeChanged(at: number) { causeEndedAt = at; },
     /** A hidden tab throttles timers and encoders: the counts start again. */
     hidden() { cpuSince = clearSince = slowSince = fineSince = softAt = undefined; },
-    step(sample: SendSample, at: number): SendState {
+    step(sample: SendSample, at: number, rate = 30): SendState {
       let action: SendAction | undefined;
       if (sample.cpu) {
         clearSince = undefined; cpuSince ??= at;
@@ -64,10 +64,12 @@ export function createSendPolicy() {
         if (at - clearSince >= SEND_HEALTH.episodeEndMs) softAt = undefined;
       }
       const fps = sample.captureFps;
-      if (fps !== undefined && fps > 0 && fps < SEND_HEALTH.slowCameraBelowFps) {
+      // The 15 fps setting makes the adapter deliver about 15: compare against the chosen rate.
+      const slowBelow = Math.min(SEND_HEALTH.slowCameraBelowFps, rate * 2 / 3), okFrom = Math.min(SEND_HEALTH.cameraOkFps, rate * 0.8);
+      if (fps !== undefined && fps > 0 && fps < slowBelow) {
         fineSince = undefined; slowSince ??= at;
         if (at - slowSince >= SEND_HEALTH.slowCameraAfterMs) slowCamera = true;
-      } else if (fps !== undefined && fps >= SEND_HEALTH.cameraOkFps) {
+      } else if (fps !== undefined && fps >= okFrom) {
         slowSince = undefined; fineSince ??= at;
         if (at - fineSince >= SEND_HEALTH.sampleMs * 2) slowCamera = false;
       }
@@ -112,7 +114,7 @@ export type SendHealthHooks = {
 /** Start the monitor for one published camera. Returns a cancel function; the shared state is cleared on cancel. */
 export function watchSendHealth(camera: LocalVideoTrack, hooks: SendHealthHooks, every: number = SEND_HEALTH.sampleMs): () => void {
   const policy = createSendPolicy(), seen = new Map<string, number>();
-  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, generation = hooks.readerGeneration(), busy = false;
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, generation = hooks.readerGeneration(), busy = false, capping = false;
   const loop = async () => {
     if (stopped || hooks.gone()) return;
     try {
@@ -122,10 +124,10 @@ export function watchSendHealth(camera: LocalVideoTrack, hooks: SendHealthHooks,
         if (hooks.readerGeneration() !== generation) { generation = hooks.readerGeneration(); policy.causeChanged(now); }
         const sample = await readSendSample(camera, seen);
         if (stopped) return;
-        const state = policy.step(sample, now);
+        const state = policy.step(sample, now, hooks.rate());
         setSendHealth({ captureFps: sample.captureFps === undefined ? undefined : Math.round(sample.captureFps), slowCamera: state.slowCamera, visionSlowed: state.visionSlowed });
         // Keep the 720p cap: the SDK writes its own encodings again after a restart or a reconnect.
-        if (!busy && !state.action) void capSendResolution(camera).catch(() => undefined);
+        if (!busy && !capping && !state.action) { capping = true; void hooks.run(async () => { if (!stopped && !hooks.gone()) await capSendResolution(camera); }).catch(() => undefined).finally(() => { capping = false; }); }
         if (state.action && !busy) {
           busy = true;
           const kind = state.action;

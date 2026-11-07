@@ -196,8 +196,10 @@ export async function applyCameraRate(participant: LocalParticipant, camera: Loc
  * Safe to repeat: the SDK may write its own encodings again after a camera restart or a reconnect, so the sender calls this after those too.
  */
 export async function capSendResolution(camera: LocalVideoTrack): Promise<boolean> {
-  const captured = camera.mediaStreamTrack.getSettings?.().height ?? 0;
-  if (!captured) return false;
+  const settings = camera.mediaStreamTrack.getSettings?.();
+  // The short side counts, so a portrait capture is not cut smaller than the layer below it.
+  const captured = Math.min(settings?.height || Infinity, settings?.width || Infinity);
+  if (!Number.isFinite(captured)) return false;
   const scale = Math.max(1, captured / CAMERA_PUBLISH.sendHeight);
   let changed = false;
   for (const sender of sendersOf(camera)) {
@@ -207,6 +209,8 @@ export async function capSendResolution(camera: LocalVideoTrack): Promise<boolea
       for (const encoding of parameters.encodings ?? []) {
         // Only the top layer: "f" in a simulcast stream, or the single encoding without a rid.
         if (encoding.rid && encoding.rid !== "f") continue;
+        // Dynacast switches an unwatched layer off (and may shrink it): leave it as the SDK set it.
+        if (encoding.active === false) continue;
         if (Math.abs((encoding.scaleResolutionDownBy ?? 1) - scale) < 0.01) continue;
         encoding.scaleResolutionDownBy = scale; dirty = true;
       }
