@@ -1,3 +1,4 @@
+import type { ScenePixelSource } from './scene-pixels';
 import type { SceneRefiner } from './scene-refiner';
 import { detect, refinedCorners } from './detector/run';
 import { CARD_DETECTOR } from './detector/spec';
@@ -19,25 +20,28 @@ let shadowPasses=0;
 export const lastShadowPasses=()=>shadowPasses;
 const overlap=(a:Point[],b:Point[])=>{const p=boundsOf(a),q=boundsOf(b);return Math.max(0,Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x))*Math.max(0,Math.min(p.y+p.h,q.y+q.h)-Math.max(p.y,q.y))/Math.max(1e-9,Math.min(p.w*p.h,q.w*q.h));};
 /** Detector only: no index, embedding session or learned-reference requests. */
-export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:ModelSession,Tensor:TensorCtor,opts:DetectOptions={},refiner?:SceneRefiner):Promise<DetectedQuad[]> {
+export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:ModelSession,Tensor:TensorCtor,opts:DetectOptions={},refiner?:SceneRefiner,pixels?:ScenePixelSource):Promise<DetectedQuad[]> {
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000 || frame.data.length!==frame.width*frame.height*4) throw new Error('Invalid frame');
     validateOptions({region:opts.region});
     const keep=(opts.keep??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const piles=(opts.piles??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const cells=(opts.cells??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
-    refiner?.begin(frame.width,frame.height);
+    const width=pixels?.width??frame.width,height=pixels?.height??frame.height;
+    refiner?.begin(width,height);
     const qualifies=(c:DetectedQuad)=>c.confidence>=CARD_DETECTOR.minConfidence||
       c.confidence>=KEEP_MIN_CONFIDENCE&&keep.some(q=>overlap(c.quad,q)>=.6)||
       piles.some(q=>overlap(c.quad,q)>=.6)||c.kind==='face-down'&&cells.some(q=>overlap(c.quad,q)>=.6);
     const pass=async(source:RGBAImage,region=opts.region,lift=false)=>{
-      const x=region?Math.floor(region.x*source.width):0,y=region?Math.floor(region.y*source.height):0;
-      let input=region?cropRGBA(source,x,y,Math.max(3,Math.ceil(region.w*source.width)),Math.max(3,Math.ceil(region.h*source.height))):source;
+      const x=region?Math.floor(region.x*width):0,y=region?Math.floor(region.y*height):0;
+      const w=region?Math.min(width-x,Math.max(3,Math.ceil(region.w*width))):width,h=region?Math.min(height-y,Math.max(3,Math.ceil(region.h*height))):height;
+      let input=region?(pixels?.sample(region,448)??cropRGBA(source,x,y,w,h)):source;
       if(lift)input=shadowLift(input);
-      const cards=(await detect(detector,Tensor,input,region?448:profile.detector.longSide,CARD_DETECTOR.minScore,!!region)).map(card=>region?{...card,cx:card.cx+x,cy:card.cy+y,pts:card.pts.map(([px,py])=>[px+x,py+y] as [number,number])}:card);
+      const sx=w/input.width,sy=h/input.height;
+      const cards=(await detect(detector,Tensor,input,region?448:profile.detector.longSide,CARD_DETECTOR.minScore,!!region)).map(card=>({...card,cx:card.cx*sx+x,cy:card.cy*sy+y,w:card.w*(sx+sy)/2,h:card.h*(sx+sy)/2,pts:card.pts.map(([px,py])=>[px*sx+x,py*sy+y] as [number,number])}));
       return cards.map(card=>{
         // Rejected decode-floor boxes still contribute to the covered guard, without edge fitting.
-        const raw={quad:card.pts.map(([x,y])=>({x:x/source.width,y:y/source.height})),kind:card.kind,confidence:card.conf,partial:false};
-        const quad=qualifies(raw)?(refiner?.refine(card,source)??refinedCorners(card,source)):card.pts.map(([x,y])=>({x,y}));return {quad:quad.map(p=>({x:p.x/source.width,y:p.y/source.height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>source.width || p.y>source.height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+input.width-2||py>=y+input.height-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
+        const raw={quad:card.pts.map(([x,y])=>({x:x/width,y:y/height})),kind:card.kind,confidence:card.conf,partial:false};
+        const quad=qualifies(raw)?(refiner?.refine(card,source,pixels?(c)=>pixels.refine(c):undefined)??(pixels?pixels.refine(card):refinedCorners(card,source))):card.pts.map(([x,y])=>({x,y}));return {quad:quad.map(p=>({x:p.x/width,y:p.y/height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>width || p.y>height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+w-2||py>=y+h-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
     };
     shadowPasses=0;
     const quads=await pass(frame);

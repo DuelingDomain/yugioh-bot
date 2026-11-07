@@ -14,10 +14,10 @@ export class SceneRefiner {
     this.previous=size===this.size?this.current:[];
     this.current=[];this.size=size;
   }
-  refine(card:DetectedCard,image:RGBAImage):Point[] {
+  refine(card:DetectedCard,image:RGBAImage,fit=this.fit):Point[] {
     const index=this.previous.findIndex(e=>e.card.kind===card.kind&&e.card.pts.every(([x,y],i)=>Math.hypot(x-card.pts[i][0],y-card.pts[i][1])<2));
     const cached=index<0?undefined:this.previous.splice(index,1)[0];
-    const entry=cached??{card,quad:this.fit(card,image)};
+    const entry=cached??{card,quad:fit(card,image)};
     this.current.push(entry);
     return entry.quad;
   }
