@@ -737,9 +737,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
   // Tournament: the table state keeps my detection mode. I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
   const sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
+  // A failed send is tried again after 2, 4 and 8 s (then it stops); `retry` re-runs the effect below.
+  const [retry,setRetry]=useState(0),attempts=useRef(0),retryTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+  useEffect(()=>()=>clearTimeout(retryTimer.current),[]);
   const mode=ownDetectionMode({ownsSource,cameraOn:hub.cameraOn,enabled:watch.enabled});
   useEffect(()=>{
     if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
+    // The video hub reports no camera while it connects or reconnects. Say nothing until it settles, so the badge does not flap.
+    if(hub.starting)return;
     // Short wait: the camera and the phone link settle a moment after the page opens, and the first answer should be the real one.
     const timer=setTimeout(()=>{
       const known=stateMode(current.current.room.state,modeSeat);
@@ -747,11 +752,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(known===mode){modeReason.current='player';return;}
       const reason=known?modeReason.current:'start';modeReason.current='player';
       // 'manual' is part of the B2 action; the shared type is widened there.
-      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason} as Parameters<typeof act>[0]);}).catch(()=>{sentMode.current=null;});
+      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason} as Parameters<typeof act>[0]);}).then(()=>{attempts.current=0;}).catch(()=>{
+        sentMode.current=null;if(reason!=='player')modeReason.current=reason;
+        if(attempts.current>=3)return;
+        retryTimer.current=setTimeout(()=>setRetry(count=>count+1),2000*2**attempts.current++);
+      });
     },mode==='manual'||sentMode.current===null?1500:0);
     return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode]);
+  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
   // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
