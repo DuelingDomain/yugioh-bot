@@ -8,7 +8,7 @@ import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 
 const databases: Database.Database[] = [];
@@ -109,6 +109,129 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,room.state.seats[0].twin.length+1),at:room.state.updatedAt},card: { ref, cardId, slot } });
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
+
+it('requires the seat owner to confirm tournament LP zero and keeps pending results undoable', () => {
+  for (const tournament of [undefined, false]) {
+    const initial = ygoModule.initialState({seatCount:2, bestOf:1, tournament});
+    const ended = ygoModule.reduce(initial, {type:'lp.change', actorSeat:0, seat:1, delta:-8000, reason:'damage', idempotencyKey:'casual-zero'});
+    expect(ended).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp', winnerSeat:0}]}});
+  }
+  let state = ygoModule.initialState({seatCount:2, bestOf:3, firstSeat:1, tournament:true}), serial = 0;
+  const step = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({
+    actorSeat:0, idempotencyKey:`tournament-lp-${++serial}`, at:serial, ...input,
+  }));
+  step({type:'twin.place', actorSeat:1, seat:1, zone:'monster', card:{ref:'private-card', cardId:1, name:'Secret', faceUp:false, slot:1}});
+  const zero = () => {
+    step({type:'lp.change', seat:1, delta:-8000, reason:'damage'});
+    expect(state).toMatchObject({tournament:true, ended:false, winnerSeat:null, match:{phase:'duel', games:[],
+      pendingResult:{id:state.undo!.actionId, winnerSeat:0, confirmed:[0]}}});
+    expect(state.seats[1]).toMatchObject({resources:{lp:0}, eliminated:false, twin:[{cardId:1}]});
+    expect(projectRemoteState(state,new Set([0])).seats[1].twin[0]).not.toHaveProperty('cardId');
+    return state.match.pendingResult!.id;
+  };
+  let declarationId = zero();
+  expect(() => step({type:'match.confirm', declarationId, accept:true})).toThrow(/confirm|owner/i);
+  step({type:'undo', targetActionId:declarationId});
+  expect(state.seats[1].resources.lp).toBe(8000);
+  expect(state.match.pendingResult).toBeUndefined();
+  expect(() => step({type:'match.confirm', actorSeat:1, declarationId, accept:true})).toThrow(/pending/i);
+
+  declarationId = zero();
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:false});
+  expect(state.ended).toBe(false); expect(state.match.pendingResult).toBeUndefined();
+  step({type:'undo', targetActionId:declarationId});
+  expect(state.seats[1].resources.lp).toBe(8000);
+
+  declarationId = zero();
+  step({type:'lp.change', actorSeat:1, seat:1, delta:500, reason:'correction'});
+  const correctionId = state.undo!.actionId;
+  expect(state.match.pendingResult).toBeUndefined();
+  expect(() => step({type:'match.confirm', actorSeat:1, declarationId, accept:true})).toThrow(/pending/i);
+  step({type:'undo', actorSeat:1, targetActionId:correctionId});
+  expect(state.match.pendingResult?.id).toBe(declarationId);
+  step({type:'phase.set', actorSeat:1, phase:'main1'});
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:true});
+  expect(state).toMatchObject({ended:true, match:{phase:'result', games:[{reason:'lp', winnerSeat:0}]}});
+  const confirmationId = state.undo!.actionId;
+  expect(() => step({type:'undo', targetActionId:declarationId})).toThrow(/confirmation/i);
+  step({type:'undo', actorSeat:1, targetActionId:confirmationId});
+  expect(state.match.pendingResult?.id).toBe(declarationId);
+  step({type:'undo', targetActionId:declarationId});
+  expect(state).toMatchObject({ended:false, phase:'main1', match:{phase:'duel', games:[]}});
+  expect(state.match.pendingResult).toBeUndefined(); expect(state.seats[1].resources.lp).toBe(8000);
+
+  declarationId = zero();
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:true});
+  step({type:'match.continue'});
+  step({type:'match.first', actorSeat:1, seatGoesFirst:1});
+  step({type:'side.ready', seat:0}); step({type:'side.ready', actorSeat:1, seat:1});
+  expect(state).toMatchObject({tournament:true, ended:false, match:{phase:'duel'}});
+  step({type:'lp.change', actorSeat:1, seat:1, delta:-8000, reason:'own damage'});
+  expect(state).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp'}, {reason:'lp'}]}});
+  expect(state.match.pendingResult).toBeUndefined();
+  step({type:'undo', actorSeat:1, targetActionId:state.undo!.actionId});
+  step({type:'player.concede', actorSeat:1});
+  expect(state).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp'}, {reason:'concede'}]}});
+  expect(state.match.pendingResult).toBeUndefined();
+
+  // A later correction or concession must not become a stale LP request when
+  // another seat undoes the elimination that originally cleared the request.
+  for (const concede of [false,true]) {
+    let ffa = ygoModule.initialState({seatCount:3,tournament:true});
+    const apply = (input:Record<string,unknown>) => ffa = ygoModule.reduce(ffa,remoteActionSchema.parse({
+      actorSeat:0,idempotencyKey:`ffa-lp-${++serial}`,at:serial,...input,
+    }));
+    apply({type:'lp.change',seat:1,delta:-8000,reason:'damage'});
+    apply({type:'player.concede',actorSeat:2});
+    const concessionId = ffa.undo!.actionId;
+    if (concede) apply({type:'player.concede',actorSeat:1});
+    else apply({type:'lp.change',actorSeat:1,seat:1,delta:500,reason:'correction'});
+    apply({type:'undo',actorSeat:2,targetActionId:concessionId});
+    expect(ffa.match.pendingResult).toBeUndefined();
+  }
+});
+
+it('logs detection mode per seat as a public fact without changing the board or private information', () => {
+  const s = deckSession('normal',false);
+  s.select(s.save().id);
+  s.service.join(s.room.slug,'g',s.users[1],'Opponent',1,2001);
+  s.service.ready(s.room.slug,'g',s.users[1],true,2002); s.start();
+  s.act({type:'twin.place',seat:0,zone:'monster',card:{ref:'secret-card',cardId:1,name:'Secret',faceUp:false,slot:1}});
+  const before = s.service.snapshot(s.room.slug,'g').state;
+  const input = {baseSeq:s.room.lastSeq, action:remoteActionSchema.parse({
+    type:'detection.mode', actorSeat:0, mode:'tap', reason:'slow-offer', idempotencyKey:'detection-switch',
+  })};
+  const switched = s.service.act(s.room.slug,'g',s.users[0],input,2200);
+  expect(switched.lastSeq).toBe(input.baseSeq+1);
+  expect(s.service.act(s.room.slug,'g',s.users[0],input,2201).lastSeq).toBe(switched.lastSeq);
+  const raw = s.service.snapshot(s.room.slug,'g');
+  expect({...raw.state,updatedAt:before.updatedAt}).toEqual(before);
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(switched.state);
+  const event = raw.events.at(-1)!;
+  expect(event).toMatchObject({actorSeat:0,userId:s.users[0],at:2200,action:{type:'detection.mode',mode:'tap',reason:'slow-offer'}});
+  expect(JSON.parse((s.db.prepare('select action_json from remote_events where idempotency_key=?').get(event.id) as {action_json:string}).action_json)).toEqual(event.action);
+  expect(s.service.get(s.room.slug,'g',s.users[1]).events.at(-1)?.action).toEqual(event.action);
+  const spectator = projectRemoteSpectator(raw);
+  expect(spectator.events.at(-1)?.action).toEqual(event.action);
+  expect(spectator.state.seats[0].twin[0]).not.toHaveProperty('cardId');
+  expect(spectator.state.deckChecks.registrations).toEqual({});
+  const opponent = s.service.get(s.room.slug,'g',s.users[1]);
+  expect(opponent.state.seats[0].twin[0]).not.toHaveProperty('cardId');
+  expect(opponent.state.deckChecks.registrations[0]).toBeUndefined();
+  for (const mode of ['auto','tap']) for (const reason of ['player','slow-offer','start']) {
+    expect(remoteActionSchema.safeParse({...input.action,mode,reason}).success).toBe(true);
+  }
+  for (const extra of [{mode:'manual'},{reason:'unknown'},{seat:1}]) {
+    expect(remoteActionSchema.safeParse({...input.action,...extra}).success).toBe(false);
+  }
+  expect(() => s.service.act(s.room.slug,'g',s.users[1],{
+    baseSeq:switched.lastSeq,action:{...input.action,idempotencyKey:'spoof-mode'},
+  },2202)).toThrow(/actor seat/i);
+  const own = s.service.act(s.room.slug,'g',s.users[1],{baseSeq:switched.lastSeq,
+    action:remoteActionSchema.parse({...input.action,actorSeat:1,mode:'auto',reason:'start',idempotencyKey:'other-mode'})},2203);
+  expect(own.events.at(-1)).toMatchObject({actorSeat:1,action:{type:'detection.mode',mode:'auto',reason:'start'}});
+});
+
 it('resolves the real Mark search clause including Spell/Traps that mention the named card', async () => {
   const {createRemoteDeckRules}=await import('../../src/services/remote-deck-rules.js');
   const {createInsightCatalog}=await import('../../src/services/card-insight-catalog.js');

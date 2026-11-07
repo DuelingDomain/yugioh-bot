@@ -22,7 +22,9 @@ export type RemoteMatch = {
   phase: "duel" | "result" | "siding" | "done";
   siding?: RemoteSiding;
   winnerSeat?: number | null;
-  pendingResult?: { id: string; winnerSeat: number | null; confirmed: number[] };
+  pendingResult?: { id: string; winnerSeat: number | null; confirmed: number[];
+    /** Opponent-entered LP zero: only this seat can admit or reject the loss. */
+    lpSeat?: number };
   firstChooser?: number | null;
   firstSeat?: number;
 };

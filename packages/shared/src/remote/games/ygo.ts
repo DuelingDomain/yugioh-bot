@@ -89,8 +89,19 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
   if (!state.match) state = ensureRemoteMatch(cloneRemoteCurrent(state));
+  if (action.type === "detection.mode") return { ...cloneRemoteCurrent(state), updatedAt: at };
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
-  if (matchResult) return matchResult;
+  if (matchResult) {
+    if (action.type === "match.confirm" && action.accept && state.match.pendingResult?.lpSeat !== undefined) {
+      clearZoneLinks(matchResult, at);
+      rememberRemoteAction(state, matchResult, action);
+      // Admission is undoable by the owner. Its LP declaration cannot be undone
+      // underneath it; undoing the admission first restores the pending request.
+      const declaration = matchResult.undoHistory?.find(entry => entry.actionId === state.match.pendingResult!.id);
+      if (declaration) (declaration.blockedBy ??= []).push(action.idempotencyKey);
+    }
+    return matchResult;
+  }
   if (action.type === "undo") {
     remoteAssert(state.match.phase !== "siding", "Undo is unavailable during siding", 409, "UNDO_UNAVAILABLE");
     if (!context?.replay || context.undoVersion === 1) return undoRemoteAction(state, action);
@@ -164,7 +175,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = seat(action.seat);
       remoteAssert(s.resources.lp + action.delta <= 999999, "LP exceeds supported maximum");
       s.resources.lp = Math.max(0, s.resources.lp + action.delta);
-      s.eliminated = s.resources.lp === 0;
+      if (next.match.pendingResult?.lpSeat === s.seat && s.resources.lp > 0) delete next.match.pendingResult;
+      if (next.tournament && action.actorSeat !== s.seat && s.resources.lp === 0) {
+        remoteAssert(!next.match.pendingResult, "A result declaration is already pending", 409);
+        const others = next.seats.filter(other => other.seat !== s.seat && !other.eliminated);
+        next.match.pendingResult = { id: action.idempotencyKey, winnerSeat: others.length === 1 ? others[0].seat : null,
+          confirmed: [action.actorSeat], lpSeat: s.seat };
+      } else s.eliminated = s.resources.lp === 0;
       break;
     }
     case "player.concede": next.seats[action.actorSeat].eliminated = true; break;
@@ -319,9 +336,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
 export const ygoModule: GameModule = {
   id: "ygo", name: "Yu-Gi-Oh!", phases, seatsAllowed: [2, 3, 4],
   resources: [{ id: "lp", name: "LP", start: 8000, min: 0, loseAtZero: true }], zones,
-  initialState({ seatCount, firstSeat = 0, bestOf }) {
+  initialState({ seatCount, firstSeat = 0, bestOf, tournament }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
-    return { gameId: "ygo", seatCount, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
+    return { gameId: "ygo", seatCount, ...(tournament ? { tournament: true } : {}), match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [], knownHand: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, revealedHand: "until-played", updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
