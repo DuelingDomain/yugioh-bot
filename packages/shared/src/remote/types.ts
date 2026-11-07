@@ -88,7 +88,7 @@ export type RemoteSystemAction =
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started"; handCounts?: 1 }
   | { type: "idle.warning"; closesAt: number }
-  | { type: "table.ended"; reason: "idle" | "creator-left" };
+  | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
   action: RemoteAction | RemoteSystemAction;

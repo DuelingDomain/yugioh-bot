@@ -14,6 +14,7 @@ import {
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_REPORT_CONFIRM_HOURS, MIN_REPORT_CONFIRM_HOURS } from "./constants.js";
 import { createSeriesStore } from "./duel-series.js";
+import { endTournamentRemoteTables } from "./tournament-remote-tables.js";
 import { resolveTournamentDuelRules, serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
 import { findTournamentReadAccess } from "./tournament-access.js";
 import { CurrentNameTakenError } from "./current-name.js";
@@ -340,6 +341,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
     voidUnconfirmedReports(tournamentId);
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
@@ -356,6 +358,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
     voidUnconfirmedReports(tournamentId);
     recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
 
@@ -371,6 +374,7 @@ export function createTournamentService(db: Database.Database) {
     let changedDuelSlugs: string[] = [];
     if (closed.changes > 0) {
       changedDuelSlugs = cancelOpenSeries(tournamentId);
+      endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
       voidUnconfirmedReports(tournamentId);
       const tournament = findById(tournamentId);
       recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
@@ -869,6 +873,10 @@ export function createTournamentService(db: Database.Database) {
         db.prepare(
           "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
         ).run(tm.match_id);
+
+        endTournamentRemoteTables(db, { tournamentMatchId: tm.id }, "match-voided");
+        db.prepare("update tournament_remote_matches set status='void',updated_at=? where tournament_match_id=?")
+          .run(Date.now(), tm.id);
 
         db.prepare(
           "update tournament_matches set status = 'open', match_id = null where id = ?",
