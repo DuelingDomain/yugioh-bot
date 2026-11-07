@@ -56,7 +56,7 @@ export function Rail({ tournament, tournamentSlug, isHost, closed, onChanged }: 
         <ResultsFeed tournament={tournament} />
       </RailSection>
       <RulesPanel tournament={tournament} tournamentSlug={tournamentSlug} isHost={isHost} onChanged={onChanged} />
-      {active && tournament.isParticipant && (
+      {active && tournament.isParticipant && tournament.duelType !== "remote" && (
         <section id={SECTION_IDS.myDeck} aria-label="Your deck" className={styles.myDeck}>
           <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
         </section>

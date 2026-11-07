@@ -17,6 +17,12 @@
   .where small { font-size: 12.5px; }
   .barButton { width: 38px; padding: 0; justify-content: center; }
   .barLabel { display: none; }
+  /* The sub wraps to two lines on a phone: the format line, then the visibility chip or the Remote tag, whole. */
+  :global(.ms) .bar :global(.sv-bar-sub) { white-space: normal; overflow: visible; }
+  :global(.ms) .bar :global(.sv-bar-sub) [class*="barSub"] { flex-wrap: wrap; gap: 2px 10px; }
+  :global(.ms) .bar :global(.sv-bar-sub) [class*="barName"] { white-space: normal; overflow: visible; }
+  .remoteSub { flex-wrap: wrap; gap: 2px 10px; }
+  .remoteSub > :not(:last-child) { white-space: normal; overflow: visible; }
 }
 
 .pop {

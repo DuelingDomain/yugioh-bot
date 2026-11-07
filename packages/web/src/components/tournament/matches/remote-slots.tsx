@@ -8,6 +8,7 @@ import { remoteBlocksReport, type RemotePair, type RemoteResult } from "../remot
 import type { Match, TournamentDetail } from "../types";
 
 const SLOT_POLL_MS = 20_000;
+const SLOT_IDLE_POLL_MS = 45_000;
 const NONE: ReadonlyMap<number, RemoteResult> = new Map();
 const RemoteSlotsContext = createContext<ReadonlyMap<number, RemoteResult>>(NONE);
 
@@ -39,7 +40,8 @@ export function RemoteSlotsProvider({ tournament, tournamentSlug, viewerId, isHo
   );
   const key = slots.length ? ["remote-slots", tournamentSlug, slots.map((match) => `${match.id}:${match.status}:${match.resolvedAt ?? ""}`).join()] : null;
   const { data } = useSWR(key, async () => new Map((await Promise.all(slots.map((match) => readSlot(tournamentSlug, match)))).filter((entry): entry is [number, RemoteResult] => entry !== null)), {
-    refreshInterval: (latest) => (latest && [...latest.values()].some(remoteBlocksReport) ? SLOT_POLL_MS : 0),
+    // A slot can go from no result to playing or proposed at any time, so poll while the tournament is active: fast with an open result, slowly otherwise.
+    refreshInterval: (latest) => (latest && [...latest.values()].some(remoteBlocksReport) ? SLOT_POLL_MS : SLOT_IDLE_POLL_MS),
   });
   return <RemoteSlotsContext.Provider value={data ?? NONE}>{children}</RemoteSlotsContext.Provider>;
 }
