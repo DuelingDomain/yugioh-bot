@@ -886,6 +886,11 @@
 .bstrip{display:flex;gap:6px;list-style:none;margin:0;padding:0}
 .bstrip li{position:relative;flex:0 0 auto;width:48px;aspect-ratio:59/86;border-radius:5px;overflow:hidden;border:1px solid var(--line2);background:#05030b;cursor:pointer}
 .bstrip li.noGuess{width:auto;aspect-ratio:auto;border:0;background:none}
+/* Nothing to show yet: no empty art tile. The text, the message and the search take the whole popup, and the title clears the close button. */
+.pop.big.show.bigTray.noArt{grid-template-columns:minmax(0,1fr)}
+.pop.big.noArt:not(.docked){width:min(380px,calc(100vw - 16px))}
+.noArt .bsk{padding-right:34px}
+.bigTray.noArt .bstrip li.noGuess{flex:1 1 auto;width:auto;min-width:0;padding:0;line-height:1.35;font-size:12.5px;white-space:normal;overflow-wrap:anywhere}
 .bstrip li img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .bstrip li kbd{position:absolute;left:3px;top:3px;padding:1px 4px;font-size:10px;background:rgb(7 4 14/.85)}
 .bstrip li em{position:absolute;left:0;right:0;bottom:0;padding:2px 0;text-align:center;font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;font-style:normal;background:rgb(7 4 14/.82);color:var(--ink2)}
