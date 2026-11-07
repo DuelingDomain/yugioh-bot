@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_OPENING_ROUND_MS, type RemoteActionProposal, type RemoteOpening } from "@yugidraft/shared/remote";
+import { REMOTE_OPENING_ROUND_MS, remoteOpeningChooser, type RemoteActionProposal, type RemoteOpening } from "@yugidraft/shared/remote";
 import { DiceDie } from "@/components/duel/dice-die";
 import { DICE_TIMELINE, DICE_TIMELINE_REDUCED, dicePlan, landingOf, landsAt } from "@/components/duel/dice-model";
 import { useDiceSkin } from "@/components/duel/dice-skins";
@@ -24,8 +24,13 @@ function valueAt(rounds: RemoteOpening["rounds"], seat: number, round: number): 
  * goes first. The server rolled everything when the table started; this plays the stored rounds on the server clock,
  * so a reload or a late spectator sees the same dice. Skip jumps to the result.
  */
-export function OpeningRollScreen({ opening, mySeat, name, now, act, error: outsideError }: {
-  opening: RemoteOpening; mySeat: number; name: (seat: number) => string; now: () => number; act: Act; error?: string | null;
+export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], error: outsideError }: {
+  opening: RemoteOpening; mySeat: number; name: (seat: number) => string; now: () => number;
+  /** Absent for a spectator: the screen only shows the dice and who chooses. */
+  act?: Act;
+  /** Seats that have left the game: they cannot choose and are not offered as the first player. */
+  out?: readonly boolean[];
+  error?: string | null;
 }) {
   const skin = useDiceSkin();
   const [reduced, setReduced] = useState(false);
@@ -51,20 +56,26 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, error: outs
   const inRound = elapsed - round * REMOTE_OPENING_ROUND_MS;
   const isLast = round === rounds.length - 1;
   const winner = opening.winnerSeat;
-  const iWin = mySeat === winner;
+  const auto = opening.auto === true;
+  // The die-roll winner chooses; if the winner is out of the game, the next living seat by roll order does.
+  const chooser = remoteOpeningChooser(opening, Array.from({ length: seatCount }, (_, seat) => ({ eliminated: !!out[seat] })));
+  const iChoose = mySeat === chooser && !!act && !auto;
   const left = opening.deadline - clock;
+  const [dismissed, setDismissed] = useState(false);
+  // A bot's roll decides at once: the dice stay up for a moment and the table is already live.
+  const finished = auto && (dismissed || clock >= diceEnd + 2500);
 
   // The choice clock ends at the deadline: the server applies the default, a check just asks soon after.
   const sent = useRef(false);
   useEffect(() => {
-    if (sent.current) return undefined;
+    if (sent.current || !act || auto) return undefined;
     const timer = window.setTimeout(() => { sent.current = true; void act({ type: "side.timeout", actorSeat: mySeat >= 0 ? mySeat : 0 }); }, Math.max(0, opening.deadline - now()) + 1500);
     return () => window.clearTimeout(timer);
-  }, [opening.deadline, now, act, mySeat]);
+  }, [opening.deadline, now, act, mySeat, auto]);
 
   const choose = async (seat: number) => {
     setBusy(true); setError(null);
-    try { await act({ type: "match.first", actorSeat: mySeat, seatGoesFirst: seat }); } catch (cause) { setError(cause instanceof Error ? cause.message : "Something went wrong. Try again."); } finally { setBusy(false); }
+    try { await act?.({ type: "match.first", actorSeat: mySeat, seatGoesFirst: seat }); } catch (cause) { setError(cause instanceof Error ? cause.message : "Something went wrong. Try again."); } finally { setBusy(false); }
   };
 
   const landed = (seat: number) => !rolling || inRound >= landsAt(dicePlan(round, seat, timeline), timeline);
@@ -74,12 +85,13 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, error: outs
     ? (topTied ? { main: `Tie: ${tiedSeats.map(name).join(" and ")} roll again`, kind: "tie" }
       : { main: round === 0 ? "Rolling for the first choice" : "Rolling again", kind: "plain" })
     : { main: `${name(winner)} won the roll`, kind: "win" };
-  const note = rolling ? "" : iWin ? "You choose who goes first." : `${name(winner)} chooses who goes first.`;
+  const note = rolling ? "" : auto ? `${name(opening.chosenSeat ?? winner)} goes first.` : iChoose ? "You choose who goes first." : `${name(chooser)} chooses who goes first.`;
   const sampleElapsed = () => now() - opening.startedAt - round * REMOTE_OPENING_ROUND_MS;
 
+  if (finished) return null;
   return (
     <div className={cx(rootStyles.root, duelFontClasses)} role="dialog" aria-modal="true" aria-labelledby="opening-roll-title" data-testid="remote-opening-roll" data-stage={rolling ? "rolling" : "choose"} data-reduced={reduced ? "true" : undefined}>
-      {rolling ? <SheetButton kind="quiet" size="sm" className={s.skip} onClick={() => setSkipped(true)} data-testid="opening-roll-skip">Skip</SheetButton> : null}
+      {rolling ? <SheetButton kind="quiet" size="sm" className={s.skip} onClick={() => { setSkipped(true); if (auto) setDismissed(true); }} data-testid="opening-roll-skip">Skip</SheetButton> : null}
       <div className={styles.stage}>
         <header className={styles.head}>
           <h2 id="opening-roll-title" className={styles.title}>Who goes first?</h2>
@@ -97,14 +109,14 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, error: outs
             const roll = rounds[round]![seat] ?? null;
             const sat = roll == null;
             const isTied = topTied && tiedSeats.includes(seat);
-            const isWinner = !rolling && seat === winner;
+            const isWinner = !rolling && seat === chooser && !auto || !rolling && auto && seat === winner;
             const state = sat ? "kept" : isTied ? "tied" : "landed";
             const shown = landed(seat) || sat;
             return (
               <div key={seat} className={cx(styles.tile, styles[`s${seat}` as "s0"])} role="group" aria-label={`${name(seat)}${seat === mySeat ? " (you)" : ""}, rolled ${valueAt(rounds, seat, round)}`}
                 data-testid={`opening-roll-tile-${seat}`} data-state={state} data-me={seat === mySeat ? "true" : "false"} data-first={isWinner ? "true" : undefined}>
                 <div className={styles.rankrow}>
-                  <span className={styles.chip} data-on={isWinner || isTied ? "true" : "false"} data-kind={isWinner ? "rank" : "tie"} data-first={isWinner ? "true" : undefined}>{isWinner ? "Chooses" : isTied ? "Tie" : ""}</span>
+                  <span className={styles.chip} data-on={isWinner || isTied ? "true" : "false"} data-kind={isWinner ? "rank" : "tie"} data-first={isWinner ? "true" : undefined}>{isWinner ? (auto ? "First" : "Chooses") : isTied ? "Tie" : ""}</span>
                 </div>
                 <div className={styles.dieBox}>
                   <DiceDie value={valueAt(rounds, seat, round)} skin={skin} throwRound={rolling && !sat ? round : null}
@@ -118,19 +130,19 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, error: outs
             );
           })}
         </div>
-        {!rolling ? (
+        {!rolling && !auto ? (
           <div className={s.choice} data-testid="opening-roll-choice">
-            {iWin ? (
+            {iChoose ? (
               <div className={s.actions}>
-                {Array.from({ length: seatCount }, (_, seat) => (
-                  <SheetButton key={seat} kind={seat === winner ? "primary" : "secondary"} size="lg" disabled={busy || left <= 0} onClick={() => void choose(seat)}
-                    data-testid={seat === winner ? "opening-roll-first" : seatCount === 2 ? "opening-roll-second" : `opening-roll-first-${seat}`}>
-                    {seat === winner ? "I go first" : seatCount === 2 ? "I go second" : `${name(seat)} goes first`}
+                {Array.from({ length: seatCount }, (_, seat) => out[seat] ? null : (
+                  <SheetButton key={seat} kind={seat === chooser ? "primary" : "secondary"} size="lg" disabled={busy || left <= 0} onClick={() => void choose(seat)}
+                    data-testid={seat === chooser ? "opening-roll-first" : seatCount === 2 ? "opening-roll-second" : `opening-roll-first-${seat}`}>
+                    {seat === chooser ? "I go first" : seatCount === 2 ? "I go second" : `${name(seat)} goes first`}
                   </SheetButton>
                 ))}
               </div>
-            ) : <p className={styles.note} data-testid="opening-roll-waiting">Waiting for {name(winner)} to choose</p>}
-            <p className={s.countdown}>{left > 0 ? <>{iWin ? "Choose within" : "Auto-start in"}<b>{Math.ceil(left / 1000)} s</b></> : "Starting…"}</p>
+            ) : <p className={styles.note} data-testid="opening-roll-waiting">Waiting for {name(chooser)} to choose</p>}
+            <p className={s.countdown}>{left > 0 ? <>{iChoose ? "Choose within" : "Auto-start in"}<b>{Math.ceil(left / 1000)} s</b></> : "Starting…"}</p>
           </div>
         ) : null}
         {error ? <p className={rootStyles.error} role="alert">{error}</p> : null}

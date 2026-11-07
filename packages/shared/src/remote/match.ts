@@ -69,6 +69,17 @@ export function remoteOpeningPending(match: RemoteMatch | undefined): match is R
   return match?.phase === "duel" && match.opening !== undefined && match.opening.chosenSeat === undefined;
 }
 
+/**
+ * The seat that chooses who goes first: the die-roll winner, or, when the winner is out of the game, the next living seat by
+ * roll order (highest latest roll first, lower seat number on equal rolls).
+ */
+export function remoteOpeningChooser(opening: RemoteOpening, seats: readonly { eliminated?: boolean }[]): number {
+  const latest = (seat: number) => { for (let r = opening.rounds.length - 1; r >= 0; r--) { const roll = opening.rounds[r]?.[seat]; if (roll != null) return roll; } return 0; };
+  const order = seats.map((_, seat) => seat).sort((a, b) => latest(b) - latest(a) || a - b);
+  if (!seats[opening.winnerSeat]?.eliminated) return opening.winnerSeat;
+  return order.find(seat => !seats[seat]?.eliminated) ?? opening.winnerSeat;
+}
+
 /** Nothing has been played before the choice, so the opening hands can be counted again for the seat that now goes first. */
 function startWithSeat(state: RemoteState, seat: number): void {
   state.turnSeat = seat; state.startedSeats = [seat];
@@ -179,10 +190,12 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   }
   if (remoteOpeningPending(match)) {
     const opening = match.opening;
-    if (action.type === "side.timeout") return chooseRemoteOpening(next, opening.winnerSeat);
+    const chooser = remoteOpeningChooser(opening, next.seats);
+    if (action.type === "side.timeout") return chooseRemoteOpening(next, chooser);
     if (action.type === "match.first") {
-      remoteAssert(opening.winnerSeat === action.actorSeat, "Only the die-roll winner can choose the first player", 403);
+      remoteAssert(chooser === action.actorSeat, "Only the die-roll winner can choose the first player", 403);
       validSeat(action.seatGoesFirst);
+      remoteAssert(!next.seats[action.seatGoesFirst].eliminated, "That seat is out of the game", 409);
       remoteAssert(at < opening.deadline, "The choice deadline has elapsed", 409);
       return chooseRemoteOpening(next, action.seatGoesFirst);
     }

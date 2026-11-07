@@ -15,7 +15,9 @@ import { Rail, LpStrip } from "./chrome";
 import { describeEvent } from "./describe";
 import { LogDrawer, type LogEntry } from "./drawers";
 import { Icon } from "./icons";
+import { serverNow } from "./api";
 import { matchOf } from "./match-model";
+import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import type { PopAt, Rect } from "./popup";
@@ -89,6 +91,9 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
   const state = room.state; const match = matchOf(room); const seatCount = room.seatCount;
   const ended = room.status === "ended";
+  // During the opening die roll nobody has the turn yet: the roll screen says who chooses.
+  const opening = match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active" ? match.opening : null;
+  const turnSeat = match.opening && match.opening.chosenSeat === undefined && match.phase === "duel" ? -1 : state.turnSeat;
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
   // One connection for the page. It ends with the table.
   const [video, setVideo] = useState<SpectatorVideo | null>(null);
@@ -144,7 +149,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     const line = describeEvent(event, name, nameOfCard, refNameOf);
     return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: false }] : [];
   });
-  const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
+  const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return turnSeat; })();
   const players = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
   const startingLp = room.format?.settings.startingLP ?? 8000;
   const formatLabel = REMOTE_FORMATS.find(item => item.value === (room.format ?? normalizeRemoteFormat()).id)?.label ?? "";
@@ -166,14 +171,14 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table">
         {note ? <p className={v.note} role="status" data-testid="spectator-note">{note}{!ended && snapshot.error && !online
           ? <button type="button" className={v.retry} data-testid="spectator-video-retry" onClick={() => video?.retry()}>Try again</button> : null}</p> : null}
-        <LpStrip players={players} turnSeat={state.turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        <LpStrip players={players} turnSeat={turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {seatIds.map(seat => {
           const twin = state.seats[seat]?.twin ?? [];
           const field = twin.filter(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
           const shown = field.filter(card => card.faceUp !== false && cardCode(card)); const hiddenCount = field.filter(card => card.faceUp === false).length;
           const gy = twin.filter(card => card.zone === "graveyard").length, banished = twin.filter(card => card.zone === "banished").length;
-          return <section key={seat} className={[s.seat, s[`s${seat}`], seat === state.turnSeat ? s.turn : "", state.seats[seat]?.eliminated ? s.out : ""].filter(Boolean).join(" ")} aria-label={`${name(seat)}'s seat`}
-            style={{ "--c": COLORS[seat] } as CSSProperties} data-testid={`seat-${seat}`} data-turn={seat === state.turnSeat || undefined} data-view="camera" data-wc="1">
+          return <section key={seat} className={[s.seat, s[`s${seat}`], seat === turnSeat ? s.turn : "", state.seats[seat]?.eliminated ? s.out : ""].filter(Boolean).join(" ")} aria-label={`${name(seat)}'s seat`}
+            style={{ "--c": COLORS[seat] } as CSSProperties} data-testid={`seat-${seat}`} data-turn={seat === turnSeat || undefined} data-view="camera" data-wc="1">
             <header className={s.sh}>
               <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{name(seat)}</h2>
               <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${seat}`}>
@@ -197,10 +202,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
           </section>;
         })}
       </main>
-      <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={false} nextSeat={nextSeat} passHot={false} mine={false} onPhase={() => undefined} onPhaseBack={() => undefined} onPass={() => undefined} turnIn={false} backTo={previousYgoPhase(state)} />
+      <Rail players={players} turnSeat={turnSeat} turn={state.turn} phase={state.phase} canAct={false} nextSeat={nextSeat} passHot={false} mine={false} onPhase={() => undefined} onPhaseBack={() => undefined} onPass={() => undefined} turnIn={false} backTo={previousYgoPhase(state)} />
     </div>
     <LogDrawer voiceFilter={false} open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "You are a spectator. You see public information only."]}
-      seats={players.map(player => ({ seat: player.seat, name: player.name, color: player.color, turn: player.seat === state.turnSeat, lp: lp(player.seat), note: player.seat === state.turnSeat ? "Turn" : player.seat === nextSeat ? "Next" : "" }))} />
+      seats={players.map(player => ({ seat: player.seat, name: player.name, color: player.color, turn: player.seat === turnSeat, lp: lp(player.seat), note: player.seat === turnSeat ? "Turn" : player.seat === nextSeat ? "Next" : "" }))} />
+    {opening ? <OpeningRollScreen opening={opening} mySeat={-1} name={name} now={serverNow} out={state.seats.map(seat => !!seat.eliminated)} /> : null}
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden seat={pile.seat} name={name(pile.seat)} mine={false} twin={state.seats[pile.seat].twin} zone={pile.zone} onZone={zone => setPile({ seat: pile.seat, zone })} info={info} onOpenCard={(card, anchor) => show(pile.seat, card, anchor, null)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={info(subject.cardId)} at={popAt} actions={NO_ACTIONS} onClose={() => layers.close("card")} /> : null}
   </div>;

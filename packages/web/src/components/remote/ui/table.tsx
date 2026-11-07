@@ -1415,8 +1415,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
-    {match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined && !state.ended && room.status === "active"
-      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+    {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
+      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
     <Peek peek={peek} />
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />

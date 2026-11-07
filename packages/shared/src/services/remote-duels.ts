@@ -412,7 +412,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         // The server rolls with crypto randomness and writes the dice into the public start event, so a replay or undo never re-rolls.
         const opening = options.openingRoll ? rollRemoteOpening(row.seat_count, now, () => randomInt(1, 7)) : undefined;
         // A bot cannot choose: its roll decides the first player at once.
-        if (opening && all.find(s => s.seat === opening.winnerSeat)?.bot) opening.chosenSeat = opening.winnerSeat;
+        if (opening && all.find(s => s.seat === opening.winnerSeat)?.bot) { opening.chosenSeat = opening.winnerSeat; opening.auto = true; }
         if (opening) applyRemoteOpening(state, opening);
         db.prepare("update remote_tables set status='active',started_at=?,state_json=? where id=?").run(now, writeRemoteState(db,row.id,state), row.id);
         append(row, { type: "table.started", handCounts:1, ...(opening ? { opening } : {}) }, now, userId, member(row, userId).seat);

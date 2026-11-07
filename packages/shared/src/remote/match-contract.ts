@@ -27,6 +27,8 @@ export type RemoteOpening = {
   deadline: number;
   /** Set once the first player is decided (chosen, defaulted at the deadline, or a bot winner). */
   chosenSeat?: number;
+  /** A bot won the roll and went first at once: the screen shows the dice for a moment, with no choice. */
+  auto?: true;
 };
 export type RemoteMatch = {
   bestOf: RemoteBestOf;

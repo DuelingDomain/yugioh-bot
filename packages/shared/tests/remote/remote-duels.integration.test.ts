@@ -11,6 +11,7 @@ import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
+import { applyRemoteOpening } from "../../src/remote/match.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -252,8 +253,18 @@ it('rolls a public opening die for game 1: the winner chooses who goes first, an
       room = s.service.get(room.slug, 'g', s.users[0]);
       expect(room.state).toMatchObject({ turnSeat: winner, startedSeats: [winner], match: { opening: { chosenSeat: winner } } });
     }
-    expect(s.service.replay(room.slug, 'g', s.users[0])).toEqual(room.state);
+    expect(s.service.replay(room.slug, 'g', s.users[0])).toEqual(s.service.get(room.slug, 'g', s.users[0]).state);
   }
+  // A winner who left the game hands the choice, and the default, to the next living seat by roll order.
+  let three = ygoModule.initialState({ seatCount: 3, bestOf: 1 });
+  applyRemoteOpening(three, { rounds: [[3, 6, 5]], winnerSeat: 1, startedAt: 1000, deadline: 24000 });
+  three = ygoModule.reduce(three, { type: 'player.concede', actorSeat: 1, idempotencyKey: 'out', at: 2000 });
+  const first = (actorSeat: number, seatGoesFirst: number) => ygoModule.reduce(three, { type: 'match.first', actorSeat, seatGoesFirst, idempotencyKey: `f-${actorSeat}-${seatGoesFirst}`, at: 3000 });
+  expect(() => first(1, 1)).toThrow(/die-roll winner/);
+  expect(() => first(0, 0)).toThrow(/die-roll winner/);
+  expect(() => first(2, 1)).toThrow(/out of the game/);
+  expect(first(2, 0)).toMatchObject({ turnSeat: 0, match: { opening: { chosenSeat: 0 } } });
+  expect(ygoModule.reduce(three, { type: 'side.timeout', actorSeat: 0, idempotencyKey: 'late', at: 24000 })).toMatchObject({ turnSeat: 2, match: { opening: { chosenSeat: 2 } } });
 });
 
 it('logs detection mode per seat as a public fact without changing the board or private information', () => {
