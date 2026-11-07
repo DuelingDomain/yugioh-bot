@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
 import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
-import { seedUser } from "../helpers/identity.js";
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
@@ -3182,4 +3182,137 @@ it('expires all room storage after 24 hours across batches and removes account r
     empty();
     expect(db.pragma('foreign_key_check')).toEqual([]);
   } finally {vi.unstubAllEnvs();}
+});
+
+it('keeps only tournament result evidence through room purge and deletes it on the D5 schedule', async () => {
+  const { captureRemoteTournamentEvidence } = await import('../../src/services/tournament-remote-evidence.js');
+  const { pruneRemoteDuels } = await import('../../src/services/remote-retention.js');
+  const { deleteUserRemoteData } = await import('../../src/services/remote-cleanup.js');
+  const { db, service } = setup(), day = 86_400_000, hour = 3_600_000;
+  const actors = [seedIdentity(db), seedIdentity(db)];
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(25_000);
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS', '');
+  let fixture = 0;
+  const make = () => {
+    const tournamentId = Number(db.prepare(`insert into tournaments(guild_id,name,format,status,created_by_user_id,duel_type)
+      values('g',?,'round_robin','active',?,'remote')`).run(`Evidence ${++fixture}`,actors[0].userId).lastInsertRowid);
+    const matchId = Number(db.prepare(`insert into tournament_matches(tournament_id,player_one_id,player_two_id,round_number,status)
+      values(?,?,?,1,'open')`).run(tournamentId, actors[1].playerId, actors[0].playerId).lastInsertRowid);
+    let room = service.create({guildId:'g', userId:actors[0].userId, displayName:'A', gameId:'ygo', seatCount:2, bestOf:3}, 1000);
+    service.join(room.slug, 'g', actors[1].userId, 'B', 1, 1001);
+    service.ready(room.slug, 'g', actors[0].userId, true, 1002);
+    service.ready(room.slug, 'g', actors[1].userId, true, 1002);
+    room = service.start(room.slug, 'g', actors[0].userId, 1003);
+    const tableId = (db.prepare('select id from remote_tables where slug=?').get(room.slug) as {id:number}).id;
+    db.prepare('update remote_tables set tournament_match_id=? where id=?').run(matchId, tableId);
+    db.prepare(`insert into tournament_remote_matches(tournament_match_id,table_id,table_slug,player_one_id,player_two_id,created_at,updated_at)
+      values(?,?,?,?,?,1000,1000)`).run(matchId, tableId, room.slug, actors[1].playerId, actors[0].playerId);
+    let serial = 0;
+    const act = (input: Record<string, unknown>, actorSeat = 0) => {
+      const idempotencyKey = `evidence-${++serial}`;
+      // A game end and siding reset may share one millisecond; retain the end LP.
+      const at = serial >= 6 && serial <= 10 ? 8000 : 2000 + serial * 1000;
+      room = service.act(room.slug, 'g', actors[actorSeat].userId, {baseSeq:room.lastSeq,
+        action:remoteActionSchema.parse({...input, actorSeat, idempotencyKey})}, at);
+      return idempotencyKey;
+    };
+    act({type:'detection.mode', mode:'tap', reason:'player'});
+    act({type:'lp.change', seat:0, delta:-500, reason:'cost'});
+    const undone = act({type:'lp.change', seat:0, delta:-1000, reason:'mistake'});
+    act({type:'undo', targetActionId:undone});
+    act({type:'match.declare', winnerSeat:0});
+    act({type:'match.confirm', declarationId:'evidence-5', accept:true}, 1);
+    act({type:'match.continue'});
+    act({type:'match.first', seatGoesFirst:0}, 1);
+    act({type:'side.ready', seat:0});
+    act({type:'side.ready', seat:1}, 1);
+    act({type:'twin.place', seat:0, zone:'monster', card:{ref:'public', cardId:1, slot:1}});
+    act({type:'twin.place', seat:0, zone:'monster', card:{ref:'unknown', slot:2}});
+    act({type:'twin.place', seat:0, zone:'spell-trap', card:{ref:'secret-set', cardId:2, slot:1, faceUp:false}});
+    act({type:'hand.add', cardId:3, source:'unknown'});
+    act({type:'card.identified', seat:0, cardRef:'public', cardId:1, source:'click'});
+    act({type:'lp.change', seat:0, delta:-200, reason:'cost'});
+    act({type:'twin.place', seat:1, zone:'monster', card:{ref:'loser-public', cardId:4, slot:1}}, 1);
+    act({type:'twin.place', seat:1, zone:'monster', card:{ref:'loser-unknown', slot:2}}, 1);
+    act({type:'player.concede'}, 1);
+    const endedAt = room.endedAt!;
+    db.prepare("update tournament_remote_matches set status='proposed',proposed_at=?,confirm_deadline_at=? where tournament_match_id=?")
+      .run(endedAt, endedAt + 2*hour, matchId);
+    return {tableId, matchId, tournamentId, endedAt};
+  };
+  type Evidence = {table_id:number|null; players_json:string; games_json:string; result_events_json:string; final_lp_json:string;
+    public_board_json:string; reports_json:string; detection_summary_json:string; hard_delete_at:number; purge_after_at:number|null};
+  const evidence = (id:number) => db.prepare('select * from tournament_remote_evidence where tournament_match_id=?').get(id) as Evidence | undefined;
+  try {
+    const timeout = make();
+    captureRemoteTournamentEvidence(db, timeout.tableId);
+    const copy = evidence(timeout.matchId)!;
+    expect(JSON.parse(copy.players_json)).toEqual([{userId:actors[0].userId,seat:0},{userId:actors[1].userId,seat:1}]);
+    expect(JSON.parse(copy.games_json)).toMatchObject([{n:1,winnerSeat:0,reason:'declared'},{n:2,winnerSeat:0,reason:'concede'}]);
+    expect(JSON.parse(copy.final_lp_json)).toEqual([{n:1,seats:[{seat:0,lp:7500},{seat:1,lp:8000}]},{n:2,seats:[{seat:0,lp:7800},{seat:1,lp:8000}]}]);
+    expect(JSON.parse(copy.public_board_json)).toEqual([{seat:0,cards:[{zone:'monster',slot:1,cardId:1,name:'Filler 1',position:'attack'},{zone:'monster',slot:2,position:'attack'}]},
+      {seat:1,cards:[{zone:'monster',slot:1,cardId:4,position:'attack'},{zone:'monster',slot:2,position:'attack'}]}]);
+    const excerpt = JSON.parse(copy.result_events_json);
+    expect(excerpt.map((e:{action:{type:string}})=>e.action.type)).toEqual(['detection.mode','lp.change','lp.change','undo','match.declare','match.confirm','lp.change','player.concede']);
+    expect(excerpt[1]).toMatchObject({userId:actors[0].userId,seat:0,action:{type:'lp.change',seat:0,delta:-500,reason:'cost'}});
+    expect(JSON.stringify(copy)).not.toMatch(/secret-set|hand.add|deckChecks|factsHash|idempotencyKey|departedFrom/);
+    expect(JSON.parse(copy.detection_summary_json)[0]).toMatchObject({seat:0,autoSeconds:1.997,tapSeconds:18,identifiedByClick:1,identifiedByTyped:0,manualCorrections:3,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
+    expect(JSON.parse(copy.detection_summary_json)[1]).toMatchObject({seat:1,manualCorrections:2,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
+    captureRemoteTournamentEvidence(db, timeout.tableId);
+    expect(evidence(timeout.matchId)).toEqual(copy);
+    const finalAt = timeout.endedAt + 2*hour;
+    db.prepare("update tournament_remote_matches set status='final',finalized_at=?,finalization_reason='timeout' where tournament_match_id=?").run(finalAt,timeout.matchId);
+    pruneRemoteDuels(db,timeout.endedAt+day+1);
+    expect(evidence(timeout.matchId)?.table_id).toBeNull();
+    expect(evidence(timeout.matchId)?.result_events_json).toBe(copy.result_events_json);
+    pruneRemoteDuels(db,finalAt+2*day-1); expect(evidence(timeout.matchId)).toBeDefined();
+    pruneRemoteDuels(db,finalAt+2*day); expect(evidence(timeout.matchId)).toBeUndefined();
+
+    const confirmed = make(); captureRemoteTournamentEvidence(db,confirmed.tableId);
+    db.prepare(`update tournament_remote_matches set status='final',finalization_reason='both_confirmed',finalized_at=?,
+      player_one_choice='confirm',player_one_responded_at=?,player_two_choice='confirm',player_two_responded_at=? where tournament_match_id=?`)
+      .run(confirmed.endedAt,confirmed.endedAt,confirmed.endedAt,confirmed.matchId);
+    expect(JSON.parse(evidence(confirmed.matchId)!.reports_json)).toEqual(actors.slice().reverse().map(a=>({userId:a.userId,choice:'confirm',note:null,at:confirmed.endedAt})));
+    pruneRemoteDuels(db,confirmed.endedAt+hour);
+    expect(evidence(confirmed.matchId)).toBeUndefined();
+    pruneRemoteDuels(db,confirmed.endedAt+day+1); // Safety net must never resurrect expired evidence.
+    expect(evidence(confirmed.matchId)).toBeUndefined();
+
+    for (const decisionDay of [0,1,13]) {
+      const dispute=make(); captureRemoteTournamentEvidence(db,dispute.tableId);
+      db.prepare("update tournament_remote_matches set status='disputed',player_one_choice='dispute',player_one_note='Wrong LP',player_one_responded_at=? where tournament_match_id=?").run(dispute.endedAt,dispute.matchId);
+      expect(JSON.parse(evidence(dispute.matchId)!.reports_json)[0]).toMatchObject({choice:'dispute',note:'Wrong LP'});
+      let due=dispute.endedAt+14*day;
+      if(decisionDay) {
+        const decisionAt=dispute.endedAt+decisionDay*day;
+        db.prepare("update tournament_remote_matches set status='void',organizer_decided_at=? where tournament_match_id=?").run(decisionAt,dispute.matchId);
+        due=Math.min(due,decisionAt+2*day);
+        // B1 resets the result row when starting a replay. Keep the earlier copy's deadline.
+        db.prepare('delete from tournament_remote_matches where tournament_match_id=?').run(dispute.matchId);
+        db.prepare(`insert into tournament_remote_matches(tournament_match_id,table_slug,player_one_id,player_two_id,created_at,updated_at)
+          values(?,'replay-room',?,?,?,?)`).run(dispute.matchId,actors[1].playerId,actors[0].playerId,decisionAt,decisionAt);
+        expect(evidence(dispute.matchId)?.purge_after_at).toBe(due);
+      }
+      pruneRemoteDuels(db,due-1); expect(evidence(dispute.matchId)).toBeDefined();
+      pruneRemoteDuels(db,due); expect(evidence(dispute.matchId)).toBeUndefined();
+    }
+    const fallback=make(); // A missing capture is recovered before the table is purged.
+    db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(fallback.matchId);
+    pruneRemoteDuels(db,fallback.endedAt+day+1);
+    expect(evidence(fallback.matchId)?.table_id).toBeNull();
+    db.prepare("update tournament_remote_matches set status='disputed',player_two_choice='dispute',player_two_note='After room purge',player_two_responded_at=? where tournament_match_id=?")
+      .run(fallback.endedAt+day+1,fallback.matchId);
+    expect(JSON.parse(evidence(fallback.matchId)!.reports_json)[1]).toMatchObject({choice:'dispute',note:'After room purge'});
+    db.prepare("update tournaments set status='cancelled' where id=?").run(fallback.tournamentId);
+    expect(evidence(fallback.matchId)).toBeUndefined();
+    const cancelled=make(); captureRemoteTournamentEvidence(db,cancelled.tableId);
+    db.prepare("update tournaments set status='cancelled' where id=?").run(cancelled.tournamentId);
+    expect(evidence(cancelled.matchId)).toBeUndefined();
+    pruneRemoteDuels(db,cancelled.endedAt+day+1); expect(evidence(cancelled.matchId)).toBeUndefined();
+    const account=make(); captureRemoteTournamentEvidence(db,account.tableId);
+    pruneRemoteDuels(db,account.endedAt+day+1);
+    db.transaction(()=>deleteUserRemoteData(db,actors[1].userId)).immediate();
+    expect(evidence(account.matchId)).toBeUndefined();
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {clock.mockRestore();vi.unstubAllEnvs();}
 });
