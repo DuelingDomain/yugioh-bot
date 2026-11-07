@@ -152,6 +152,22 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   channels.forEach(channel => channel.close());
 });
 
+it("sends a Rescan request to one seat, answers off or started, and keeps one request per 15 s per requester", async () => {
+  const { RescanChannel } = await import("../src/lib/remote/video-protocol");
+  let now = 1000; const started: number[] = []; let autoDetect = true;
+  const channels: InstanceType<typeof RescanChannel>[] = [];
+  for (let seat = 0; seat < 3; seat++) channels.push(new RescanChannel(seat, async (message, destination) => { void channels[destination].receive(seat, message); },
+    from => { if (!autoDetect) return "off"; started.push(from); return "started"; }, () => now, 200));
+  expect(await channels[0].request(1)).toBe("started"); expect(started).toEqual([0]);
+  expect(await channels[0].request(1)).toBe("limited");          // requester side: 15 s per seat
+  expect(await channels[0].request(0)).toBe("unavailable");      // not yourself
+  now += 15_000; autoDetect = false;
+  expect(await channels[0].request(1)).toBe("off"); expect(started).toEqual([0]);
+  const lonely = new RescanChannel(0, async () => undefined, () => "started", () => now, 50);
+  expect(await lonely.request(2)).toBe("unavailable");           // no answer in time
+  [...channels, lonely].forEach(channel => channel.close());
+});
+
 it("parses activation with a named source and activation after identifying a card", async()=>{
   const {interpret,suggestCommands,trySaying}=await import("../src/components/remote/ui/grammar");
   const {ygoModule,remoteActionSchema}=await import("@yugidraft/shared/remote");

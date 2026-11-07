@@ -1129,6 +1129,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return()=>clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.slug,seat,watch.getSnapshot]);
+  // Rescan from another seat: run my own Scan field on my full-resolution camera and the normal placement flow. Off when Auto-detect is not watching.
+  const rescanRef=useRef<(from:number)=>'started'|'off'>(()=>'off');
+  rescanRef.current=from=>{
+    if(!current.current.active||!watch.enabled||document.hidden)return 'off';
+    const who=room.seats.find(item=>item.seat===from)?.displayName??`Seat ${from+1}`;
+    scanFieldRef.current();setNotice(`Rescan requested by ${who}`);
+    return 'started';
+  };
+  const {setRescanHandler}=hub;
+  useEffect(()=>{setRescanHandler(from=>rescanRef.current(from));return()=>setRescanHandler(null);},[setRescanHandler]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
   useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics,boardTwin=current.current.room.state.seats[seat].twin;publishFieldDebug({faces:Object.fromEntries(watch.snapshot.tracks.flatMap(t=>{const card=t.state==='identified'&&!t.removed?boardTwin.find(c=>c.ref===(bindings.current.get(t.id)??t.id)&&publicField(c.zone)):undefined;return card&&card.faceUp===t.faceDown?[[t.id,`board: ${card.faceUp?'up':'down'} · track: ${t.faceDown?'down':'up'}`]]:[];})),blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend(),gate:{live:live(),enabled:watch.enabled,syncHold,calibrationNeeded:watch.calibrationNeeded,deferred:heldPlaced.current.deferred,dropped:heldPlaced.current.dropped},gridShift:watch.snapshot.gridShift});},[watch.snapshot,syncHold]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
