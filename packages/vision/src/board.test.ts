@@ -292,6 +292,9 @@ test('moving, turning and resizing the grid keep every zone on its cell at any a
   // The grid is wider than the picture is tall, so a quarter turn makes it smaller; turning back returns the size.
   const quarter=zones.turnFieldQuad(base,90,aspect)!,back=zones.turnFieldQuad(quarter.corners,-90,aspect,quarter.restore)!;
   assert.ok(quarter.restore>1&&back.restore===1&&back.corners.every((c,i)=>near(c.x,base[i].x,1e-9)&&near(c.y,base[i].y,1e-9)));
+  // Card shapes are measured with width and height swapped when the mat runs sideways: side left/right XOR a 90/270 turn.
+  const sideways=(side:'bottom'|'right',degrees:number)=>zones.fieldQuarterTurn(zones.createFieldCalibration(zones.turnFieldQuad(base,degrees,aspect)!.corners,{playerSide:side,mirrored:false}),aspect);
+  assert.deepEqual([sideways('bottom',0),sideways('bottom',90),sideways('right',0),sideways('right',90),sideways('bottom',180),sideways('bottom',270)],[false,true,true,false,false,true]);
   // Move: exact, and it stops at the picture's edge.
   const moved=zones.moveFieldQuad(base,.03,-.02)!;
   assert.ok(moved.every((c,i)=>near(c.x,base[i].x+.03)&&near(c.y,base[i].y-.02)));

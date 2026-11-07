@@ -94,37 +94,60 @@ const angleOf=(a:Point,b:Point)=>Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
 const wrap=(degrees:number)=>degrees>180?degrees-360:degrees<-180?degrees+360:degrees;
 /** Stick to a quarter turn when the drag comes within a few degrees of it. */
 export const snapTurn=(degrees:number)=>{const quarter=Math.round(degrees/90)*90;return Math.abs(degrees-quarter)<=SNAP_DEGREES?quarter:degrees;};
+/** The angle a knob drag lands on: the start angle until the drag has turned a snap's worth (a grid that reads 2 degrees off stays put), then quarter turns stick. */
+export const dragTurn=(start:number,total:number)=>Math.abs(total)<SNAP_DEGREES?start:snapTurn(start+total);
 
 /**
  * Edit the grid on the picture. Drag the grid to move it; drag a corner or edge handle to resize (Shift on a corner keeps the shape);
  * turn it with the round handle above it (it sticks at quarter turns) or two fingers, which also pinch to resize.
- * Arrow keys move 1% (Shift 3%), [ and ] turn a degree (Shift 5), + and - resize.
+ * Arrow keys move 1% (Shift 3%), [ and ] turn a degree (Shift 5), + and - resize (Alt for bigger steps).
  */
 export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;disabled?:boolean}) {
   const drag=useRef<Point|null>(null),fingers=useRef(new Map<number,Point>()),pinch=useRef<{from:FieldGrab;distance:number;angle:number}|null>(null);
-  const turning=useRef<{from:FieldGrab;last:number;total:number;centre:Point}|null>(null),resizing=useRef<{from:FieldGrab;at:FieldHandle}|null>(null);
-  const [showAngle,setShowAngle]=useState(false);
+  const turning=useRef<{id:number;from:FieldGrab;last:number;total:number;centre:Point}|null>(null),resizing=useRef<{id:number;from:FieldGrab;at:FieldHandle}|null>(null);
+  const [showAngle,setShowAngle]=useState(false),[size,setSize]=useState({w:0,h:0}),surfaceRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    const el=surfaceRef.current;if(!el)return;
+    const read=()=>{const r=el.getBoundingClientRect();setSize(old=>old.w===r.width&&old.h===r.height?old:{w:r.width,h:r.height});};
+    read();if(typeof ResizeObserver==='undefined')return;
+    const watcher=new ResizeObserver(read);watcher.observe(el);return()=>watcher.disconnect();
+  },[]);
   const point=(event:PointerEvent<HTMLElement>)=>({x:event.clientX,y:event.clientY});
   const onKey=(event:KeyboardEvent)=>{
     const big=event.shiftKey;
     if(event.key==='['||event.key===']'){event.preventDefault();tf.turnBy((event.key==='['?-1:1)*(big?ROTATE_BIG:ROTATE_STEP));return;}
-    if(event.key==='+'||event.key==='='||event.key==='-'||event.key==='_'){event.preventDefault();const f=big?1.1:1.02;tf.scaleBy(event.key==='-'||event.key==='_'?1/f:f);return;}
+    // "+" is Shift plus the Equal key on a US keyboard, so Shift cannot mean "bigger" here: Alt does.
+    const grow=event.code==='Equal'||event.code==='NumpadAdd'||event.key==='+'||event.key==='=',shrink=event.code==='Minus'||event.code==='NumpadSubtract'||event.key==='-'||event.key==='_';
+    if(grow||shrink){event.preventDefault();const f=event.altKey?1.1:1.02;tf.scaleBy(shrink?1/f:f);return;}
     const step=big?3*MOVE_STEP:MOVE_STEP;
     const dx=event.key==='ArrowLeft'?-step:event.key==='ArrowRight'?step:0,dy=event.key==='ArrowUp'?-step:event.key==='ArrowDown'?step:0;
     if(!dx&&!dy)return;
     event.preventDefault();tf.move(dx,dy);
   };
-  const centre=fieldQuadPoint(tf.corners,{x:.5,y:.5}),top=fieldQuadPoint(tf.corners,{x:.5,y:0});
-  // The round handle sits a fixed distance outside the grid's top edge, whatever the angle.
-  const out={x:(top.x-centre.x)*tf.aspect,y:top.y-centre.y},length=Math.hypot(out.x,out.y)||1,reach=38;
-  const knobStyle={left:`clamp(22px, calc(${top.x*100}% + ${out.x/length*reach}px), calc(100% - 22px))`,top:`clamp(22px, calc(${top.y*100}% + ${out.y/length*reach}px), calc(100% - 22px))`};
+  const centre=fieldQuadPoint(tf.corners,{x:.5,y:.5});
+  // The round handle sits a fixed distance outside the grid's top edge, whatever the angle. With no room there it goes outside the
+  // bottom edge instead, and inside the grid as a last resort, so it never lands on an edge handle.
+  const reach=38,edgeSpot=(at:Point,sign:number)=>{
+    const edge=fieldQuadPoint(tf.corners,at),out={x:(edge.x-centre.x)*tf.aspect*sign,y:(edge.y-centre.y)*sign},length=Math.hypot(out.x,out.y)||1;
+    return {edge,dx:out.x/length*reach,dy:out.y/length*reach};
+  };
+  const fits=(spot:{edge:Point;dx:number;dy:number})=>!size.w||!size.h||(()=>{const x=spot.edge.x*size.w+spot.dx,y=spot.edge.y*size.h+spot.dy;return x>=22&&x<=size.w-22&&y>=22&&y<=size.h-22;})();
+  const above=edgeSpot({x:.5,y:0},1),below=edgeSpot({x:.5,y:1},-1);
+  const spot=fits(above)?above:fits(below)?below:null;
+  const inside=fieldQuadPoint(tf.corners,{x:.5,y:.22});
+  const knobStyle=spot
+    ?{left:`clamp(22px, calc(${spot.edge.x*100}% + ${spot.dx}px), calc(100% - 22px))`,top:`clamp(22px, calc(${spot.edge.y*100}% + ${spot.dy}px), calc(100% - 22px))`}
+    :{left:`${inside.x*100}%`,top:`${inside.y*100}%`};
   const surfaceBox=(event:PointerEvent<HTMLElement>)=>event.currentTarget.parentElement!.getBoundingClientRect();
   const stop=(event:PointerEvent<HTMLElement>)=>{event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture?.(event.pointerId);};
+  // One gesture owns the grid at a time: a handle or the knob drags alone, and a second finger elsewhere is ignored (it would commit from a stale snapshot).
+  const busy=()=>!!resizing.current||!!turning.current;
+  const refuse=(event:PointerEvent<HTMLElement>)=>{event.preventDefault();event.stopPropagation();};
   const finish=(event:PointerEvent<HTMLElement>)=>{fingers.current.delete(event.pointerId);drag.current=null;pinch.current=null;};
-  return <div className={s.surface} tabIndex={disabled?-1:0} role="group" aria-label="Edit field grid. Drag it to move; drag a corner or edge to resize; turn it with the round handle or two fingers. Arrow keys move, [ and ] turn, plus and minus resize; hold Shift for larger steps." data-testid="field-move-surface" aria-disabled={disabled||undefined}
+  return <div ref={surfaceRef} className={s.surface} tabIndex={disabled?-1:0} role="group" aria-label="Edit field grid. Drag it to move; drag a corner or edge to resize; turn it with the round handle or two fingers. Arrow keys move, [ and ] turn, plus and minus resize; hold Shift (Alt for resize) for larger steps." data-testid="field-move-surface" aria-disabled={disabled||undefined}
     onKeyDown={disabled?undefined:onKey}
     onPointerDown={event=>{
-      if(disabled||event.button>0)return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture?.(event.pointerId);event.currentTarget.focus({preventScroll:true});
+      if(disabled||event.button>0)return;if(busy()){refuse(event);return;}event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture?.(event.pointerId);event.currentTarget.focus({preventScroll:true});
       fingers.current.set(event.pointerId,point(event));
       if(fingers.current.size===2){const [a,b]=[...fingers.current.values()];pinch.current={from:tf.grab(),distance:Math.hypot(b.x-a.x,b.y-a.y),angle:angleOf(a,b)};drag.current=null;}
       else if(fingers.current.size===1)drag.current=point(event);
@@ -147,27 +170,27 @@ export function FieldMoveSurface({tf,disabled=false}:{tf:FieldTransformState;dis
       {HANDLES.map(h=>{
         const at=fieldQuadPoint(tf.corners,h.at),corner=h.at.x!==.5&&h.at.y!==.5;
         return <button key={h.id} type="button" tabIndex={-1} className={`${s.handle} ${corner?s.corner:s.edge}`} style={{left:`${at.x*100}%`,top:`${at.y*100}%`,cursor:h.cursor}} data-testid={`field-handle-${h.id}`} aria-label={`Resize from the ${h.label}`}
-          onPointerDown={event=>{if(event.button>0)return;stop(event);resizing.current={from:tf.grab(),at:h.at};}}
+          onPointerDown={event=>{if(event.button>0)return;if(busy()||fingers.current.size>0){refuse(event);return;}stop(event);resizing.current={id:event.pointerId,from:tf.grab(),at:h.at};}}
           onPointerMove={event=>{
-            const active=resizing.current;if(!active)return;event.stopPropagation();
+            const active=resizing.current;if(!active||active.id!==event.pointerId)return;event.stopPropagation();
             const box=surfaceBox(event);if(!box.width||!box.height)return;
             tf.resizeFrom(active.from,active.at,{x:(event.clientX-box.left)/box.width,y:(event.clientY-box.top)/box.height},event.shiftKey);
           }}
-          onPointerUp={event=>{event.stopPropagation();resizing.current=null;}} onPointerCancel={()=>{resizing.current=null;}}/>;
+          onPointerUp={event=>{event.stopPropagation();if(resizing.current?.id===event.pointerId)resizing.current=null;}} onPointerCancel={event=>{if(resizing.current?.id===event.pointerId)resizing.current=null;}}/>;
       })}
       <button type="button" className={s.knob} style={knobStyle} data-testid="field-rotate-handle" aria-label="Turn the grid to any angle. Drag around the grid; it sticks at quarter turns. Arrow keys turn it a degree."
         onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();event.stopPropagation();tf.turnBy((event.key==='ArrowLeft'?-1:1)*(event.shiftKey?ROTATE_BIG:ROTATE_STEP));}}}
         onPointerDown={event=>{
-          if(event.button>0)return;stop(event);
+          if(event.button>0)return;if(busy()||fingers.current.size>0){refuse(event);return;}stop(event);
           const box=surfaceBox(event),from=tf.grab(),mid=fieldQuadPoint(from.quad,{x:.5,y:.5}),c={x:box.left+mid.x*box.width,y:box.top+mid.y*box.height};
-          turning.current={from,last:angleOf(c,point(event)),total:0,centre:c};setShowAngle(true);
+          turning.current={id:event.pointerId,from,last:angleOf(c,point(event)),total:0,centre:c};setShowAngle(true);
         }}
         onPointerMove={event=>{
-          const active=turning.current;if(!active)return;event.stopPropagation();
+          const active=turning.current;if(!active||active.id!==event.pointerId)return;event.stopPropagation();
           const next=angleOf(active.centre,point(event));active.total+=wrap(next-active.last);active.last=next;
-          tf.turnFrom(active.from,snapTurn(active.from.angle+active.total)-active.from.angle);
+          tf.turnFrom(active.from,dragTurn(active.from.angle,active.total)-active.from.angle);
         }}
-        onPointerUp={event=>{event.stopPropagation();turning.current=null;setShowAngle(false);}} onPointerCancel={()=>{turning.current=null;setShowAngle(false);}}/>
+        onPointerUp={event=>{event.stopPropagation();if(turning.current?.id===event.pointerId){turning.current=null;setShowAngle(false);}}} onPointerCancel={event=>{if(turning.current?.id===event.pointerId){turning.current=null;setShowAngle(false);}}}/>
       {showAngle?<output className={s.angle} style={knobStyle} data-testid="field-angle-bubble">{Math.round(tf.angle)}°</output>:null}
     </>}
   </div>;

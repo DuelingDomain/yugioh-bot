@@ -208,6 +208,15 @@ export function fieldQuadTurn(quad: Point[], aspect = 1): number {
   const found = Math.atan2(vy, vx) * 180 / Math.PI;
   return Number.isFinite(found) ? (found + 360) % 360 : 0;
 }
+/**
+ * True when the mat's width runs along the picture's height: the player side is left/right, XOR the grid is turned a quarter (90 or 270).
+ * Card shapes on the mat are measured with width and height swapped in that case.
+ */
+export function fieldQuarterTurn(calibration: { corners: Point[]; orientation?: { playerSide?: string } } | undefined, aspect = 1): boolean {
+  const side = calibration?.orientation?.playerSide, sideways = side === 'left' || side === 'right';
+  const turned = calibration?.corners?.length === 4 && Math.round(fieldQuadTurn(calibration.corners, aspect) / 90) % 2 !== 0;
+  return sideways !== turned;
+}
 /** Slide the whole grid; it stops at the edge of the picture. */
 export function moveFieldQuad(quad: Point[], dx: number, dy: number): Point[] | null {
   return shiftInside(quad.map(p => ({ x: p.x + dx, y: p.y + dy })));
