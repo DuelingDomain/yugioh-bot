@@ -689,21 +689,44 @@ function playableSectionMessage(card: EngineCard, section: "main" | "extra" | "s
   return undefined;
 }
 
+/**
+ * Listed limit per identity group, from one catalog pass. It lives at module level, keyed by the catalog, the identity index and the banlist
+ * object, because callers (the web builds a service per request) cannot hold it. A reloaded catalog is a new object, and each banlist is a
+ * constant object, so a changed card database or banlist never reads an old entry.
+ */
+const listedLimitIndexes = new WeakMap<Catalog, WeakMap<object, WeakMap<object, Map<string, number>>>>();
+
+function listedLimitIndex(
+  identities: { find(name: string): string },
+  catalog: Catalog,
+  limits: Record<number, BanlistLimit>,
+): Map<string, number> {
+  let byIdentities = listedLimitIndexes.get(catalog);
+  if (!byIdentities) { byIdentities = new WeakMap(); listedLimitIndexes.set(catalog, byIdentities); }
+  let byLimits = byIdentities.get(identities);
+  if (!byLimits) { byLimits = new WeakMap(); byIdentities.set(identities, byLimits); }
+  let index = byLimits.get(limits);
+  if (index) return index;
+  index = new Map();
+  for (const card of catalog.cards.values()) {
+    for (const code of [card.id, card.alias]) {
+      if (!code || !Object.hasOwn(limits, code)) continue;
+      const key = componentOf(card, identities);
+      const old = index.get(key);
+      index.set(key, old === undefined ? limits[code] : Math.min(old, limits[code]));
+    }
+  }
+  byLimits.set(limits, index);
+  return index;
+}
+
 function listedLimitForIdentity(
   key: string,
   identities: { find(name: string): string },
   catalog: Catalog,
   limits: Record<number, BanlistLimit>,
 ): number | undefined {
-  let listed: number | undefined;
-  for (const card of catalog.cards.values()) {
-    if (componentOf(card, identities) !== key) continue;
-    for (const code of [card.id, card.alias]) {
-      if (!code || !Object.hasOwn(limits, code)) continue;
-      listed = listed === undefined ? limits[code] : Math.min(listed, limits[code]);
-    }
-  }
-  return listed;
+  return listedLimitIndex(identities, catalog, limits).get(key);
 }
 
 function cardPoolMessage(card: EngineCard, pool: DuelCardPool): string | undefined {
