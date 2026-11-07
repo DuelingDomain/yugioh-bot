@@ -120,6 +120,11 @@ The response uses `Cache-Control: private, no-store`; refresh it on the usual
 tournament `match-updated` invalidation. A null result means no Remote table/result
 has been recorded for that slot.
 
+The GET (only) also carries `tableOpen` inside `remoteResult`: `false` when the linked table
+has ended or was purged. An idle-closed or creator-left table with no winner leaves a `playing`
+row with `tableOpen:false`; clients treat it as no result, so Start Remote Duel and the manual
+report show again (the start route replaces the row with a new table).
+
 Statuses: `playing | proposed |
 disputed | final | void`. While playing, winner/score/source/proposal/deadline are
 null. Source: `concede | declared | lp`. Finalization reason:

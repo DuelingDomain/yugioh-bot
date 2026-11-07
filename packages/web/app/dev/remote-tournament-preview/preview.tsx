@@ -4,7 +4,7 @@ import { SheetRoot } from "@/components/sheet";
 import { duelFontClasses } from "@/components/duel/fonts";
 import rail from "@/components/tournament/sheet/rail.module.css";
 import { RemoteDisputes } from "@/components/tournament/remote/remote-disputes";
-import { FIXTURE_EVIDENCE, FIXTURE_PLAYERS, FIXTURE_RESULT } from "@/components/tournament/remote/remote-result-fixtures";
+import { FIXTURE_EVIDENCE_ROW, FIXTURE_PLAYERS, FIXTURE_RESULT } from "@/components/tournament/remote/remote-result-fixtures";
 import type { TournamentDetail } from "@/components/tournament/types";
 import { DeclareConfirm, DeclarePending } from "@/components/remote/ui/match-ui";
 import { DetectionBadge } from "@/components/remote/ui/seat-panel";
@@ -19,7 +19,7 @@ if (typeof window !== "undefined" && !(window as { __remotePreviewFetch?: boolea
   window.fetch = async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith("/remote-result") && (!init?.method || init.method === "GET")) return Response.json({ remoteResult: FIXTURE_RESULT });
-    if (url.endsWith("/remote-evidence")) return Response.json({ evidence: FIXTURE_EVIDENCE });
+    if (url.endsWith("/remote-evidence")) return Response.json({ evidence: FIXTURE_EVIDENCE_ROW });
     if (url.endsWith("/result") || url.endsWith("/remote-result/void")) return Response.json({ success: true });
     return real(input, init);
   };

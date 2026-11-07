@@ -124,10 +124,13 @@ export function createTournamentRemoteResultService(db: Database.Database) {
   }).immediate();
 
   return {
-    get(input:{tournamentMatchId:number;actorUserId:number}): TournamentRemoteResult | null {
+    /** `tableOpen` is false when the linked table ended or was purged: a `playing` row then has no live table (idle close, creator left) and the slot can start a new one. */
+    get(input:{tournamentMatchId:number;actorUserId:number}): (TournamentRemoteResult & {tableOpen:boolean}) | null {
       const s=slot(input.tournamentMatchId);
       if (s.created_by_user_id !== input.actorUserId) playerSide(s,input.actorUserId);
-      const r=row(s.id); return r ? mapResult(r) : null;
+      const r=row(s.id); if (!r) return null;
+      const tableOpen=r.table_id !== null && !!db.prepare("select 1 from remote_tables where id=? and status!='ended'").get(r.table_id);
+      return {...mapResult(r),tableOpen};
     },
     /** Called in the same transaction as the terminal reducer action. Idle/creator-left never call this. */
     propose(tableId:number, state:RemoteState, now=Date.now()): void {

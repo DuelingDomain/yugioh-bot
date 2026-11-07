@@ -6,8 +6,8 @@ import { MatchButton, MatchError } from "../matches/match-controls";
 import { isByeMatch } from "../floor/floor-model";
 import type { Match, TournamentDetail } from "../types";
 import {
-  REMOTE_NOTE_MAX, SOURCE_TEXT, END_TEXT, choiceText, detectionLine, evidenceUrl, resultUrl, when,
-  type RemoteEvidence, type RemoteResult,
+  REMOTE_NOTE_MAX, SOURCE_TEXT, END_TEXT, choiceText, detectionLine, evidenceFromRow, evidenceUrl, resultUrl, when,
+  type RemoteEvidence, type RemoteEvidenceRow, type RemoteResult,
 } from "./remote-result-model";
 import styles from "./remote-disputes.module.css";
 
@@ -61,13 +61,13 @@ export function DisputeRow({ entry, tournamentSlug, onDone, evidenceOverride }: 
 /** Everything the organizer needs on one screen: both reports, the evidence summary and the three actions. */
 export function DisputePanel({ match, result, tournamentSlug, onDone, evidenceOverride }: {
   match: Match; result: RemoteResult; tournamentSlug: string; onDone: () => void;
-  /** Dev preview only: the evidence to show instead of the planned B4 read. */
+  /** Dev preview only: the evidence to show instead of the read. */
   evidenceOverride?: RemoteEvidence | null;
 }) {
   const names = new Map<number, string>([[match.playerOneId, match.playerOneName]]);
   if (match.playerTwoId !== null) names.set(match.playerTwoId, match.playerTwoName ?? "Player 2");
   const name = (playerId: number | null) => (playerId === null ? "No winner" : names.get(playerId) ?? `Player ${playerId}`);
-  const evidence = useEvidence(tournamentSlug, match.id, evidenceOverride);
+  const evidence = useEvidence(tournamentSlug, match, evidenceOverride);
   const winnerName = result.winnerPlayerId === null ? null : name(result.winnerPlayerId);
   const score = result.score ? `${result.score.playerOne} to ${result.score.playerTwo}` : null;
   return <div className={styles.panel}>
@@ -94,12 +94,15 @@ export function DisputePanel({ match, result, tournamentSlug, onDone, evidenceOv
 }
 
 type EvidenceState = { status: "loading" } | { status: "none" } | { status: "ready"; evidence: RemoteEvidence };
-function useEvidence(tournamentSlug: string, tmId: number, override?: RemoteEvidence | null): EvidenceState {
-  const { data, isLoading } = useSWR(override !== undefined ? null : ["remote-evidence", tournamentSlug, tmId], async (): Promise<RemoteEvidence | null> => {
+function useEvidence(tournamentSlug: string, match: Match, override?: RemoteEvidence | null): EvidenceState {
+  const names = { playerOne: match.playerOneName, playerTwo: match.playerTwoName ?? "Player 2" };
+  const { data, isLoading } = useSWR(override !== undefined ? null : ["remote-evidence", tournamentSlug, match.id], async (): Promise<RemoteEvidence | null> => {
     try {
-      const response = await fetch(evidenceUrl(tournamentSlug, tmId), { cache: "no-store" });
+      // 404 means no copy exists (never finished, or removed after its time).
+      const response = await fetch(evidenceUrl(tournamentSlug, match.id), { cache: "no-store" });
       if (!response.ok) return null;
-      return (await response.json() as { evidence: RemoteEvidence | null }).evidence;
+      const row = (await response.json() as { evidence: RemoteEvidenceRow | null }).evidence;
+      return row ? evidenceFromRow(row, names) : null;
     } catch { return null; }
   });
   if (override !== undefined) return override ? { status: "ready", evidence: override } : { status: "none" };

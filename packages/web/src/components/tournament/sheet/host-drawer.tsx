@@ -68,8 +68,8 @@ export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChange
   }, [open]);
 
   const matches = tournament.matches.filter((match) => !isByeMatch(match)).sort((a, b) => a.roundNumber - b.roundNumber || a.id - b.id);
-  // The duel type comes from the tournament payload (B1 adds it). Online tournaments have no Remote section.
-  const remote = (tournament as TournamentDetail & { duelType?: string }).duelType === "remote";
+  // Online tournaments have no Remote section.
+  const remote = tournament.duelType === "remote";
   const props = { tournament, tournamentSlug, currentUserPlayerId: tournament.currentUserPlayerId, ratings, isHost: true, onChanged };
   if (!mounted) return null;
   return (

@@ -3382,7 +3382,9 @@ it.each(["active", "proposed", "disputed"] as const)("blocks both manual report 
 it.each(["pair", "slot"])("allows the %s manual report fallback after a Remote table ends without a result", async path => {
   const s = await tournamentResultSession();
   try {
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",tableOpen:true});
     s.remote.sweepIdle(s.room.lastEventAt + 10*60*1000 + 1);
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",tableOpen:false});
     const match = path === "pair"
       ? s.tournaments.report(s.tournament.id,s.one.playerId,s.two.playerId,s.one.playerId)
       : s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId);

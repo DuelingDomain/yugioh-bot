@@ -23,9 +23,9 @@ export interface RemoteResult {
   reports: RemoteReport[];
   finalizedAt: number | null;
   finalizationReason: "both_confirmed" | "timeout" | "organizer" | null;
-  organizerDecision: { userId: number; winnerPlayerId: number | null; note: string | null; at: number } | null;
-  /** The server clock in ms when the result was read. Optional: the countdown falls back to the browser clock. */
-  now?: number;
+  /** Sent by the GET only. False when the linked table has ended or is gone (idle close, creator left): no live table, so the slot can start a new one. */
+  tableOpen?: boolean;
+  organizerDecision: { userId: number; winnerPlayerId: number | null; void?: boolean; note: string | null; at: number } | null;
 }
 
 /** The two paired players of a slot, in the order the tournament holds them (player one first). */

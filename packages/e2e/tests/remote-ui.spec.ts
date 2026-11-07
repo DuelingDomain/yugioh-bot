@@ -2055,3 +2055,54 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   }
   expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)).toMatchObject({ref:manualCard.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
 });
+
+test.describe("remote tournament", () => {
+  test("a paired match runs on a Remote table: concede proposes the result, both confirm, the slot is final", async ({ browser }) => {
+    test.setTimeout(180_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }); const bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const created = await alice.request.post("/api/tournaments", { data: { name: "Remote cup", format: "round_robin", visibility: "open", duelType: "remote", bestOf: 1, duelRules: { mode: "normal", masterRule: 5 } } });
+      expect(created.status(), await created.text()).toBe(201);
+      const { webSlug } = await created.json() as { webSlug: string };
+      // The creator is already an entrant; Bob joins.
+      const joined = await bob.request.post(`/api/tournaments/${webSlug}/join`); expect(joined.ok(), await joined.text()).toBe(true);
+      const started = await alice.request.post(`/api/tournaments/${webSlug}`);
+      expect(started.status(), await started.text()).toBe(200);
+      const detail = await (await alice.request.get(`/api/tournaments/${webSlug}`)).json();
+      const slot = detail.matches[0] as { id: number };
+      const root = `/api/tournaments/${webSlug}/matches/${slot.id}`;
+      const remote = await alice.request.post(`${root}/remote`);
+      expect(remote.status(), await remote.text()).toBe(201);
+      const { table } = await remote.json() as { table: { slug: string } };
+      // Bob takes seat 1, both sit with the seeded deck and start; seat 0 concedes.
+      expect((await bob.request.post(`/api/remote/${table.slug}/seat`, { data: { seat: 1 } })).ok()).toBe(true);
+      for (const api of [alice.request, bob.request]) {
+        const decks = (await (await api.get("/api/decks")).json()).decks as { id: number }[];
+        expect((await api.post(`/api/remote/${table.slug}/deck`, { data: { savedDeckId: decks[0]!.id } })).ok()).toBe(true);
+        expect((await api.post(`/api/remote/${table.slug}/ready`, { data: { ready: true } })).ok()).toBe(true);
+      }
+      expect((await alice.request.post(`/api/remote/${table.slug}/start`, { data: {} })).ok()).toBe(true);
+      const room = await (await alice.request.get(`/api/remote/${table.slug}`)).json();
+      const conceded = await alice.request.post(`/api/remote/${table.slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+      expect(conceded.ok(), await conceded.text()).toBe(true);
+      const read = await (await bob.request.get(`${root}/remote-result`)).json();
+      expect(read.remoteResult).toMatchObject({ status: "proposed", source: "concede" });
+      expect(typeof read.now).toBe("number");
+      for (const api of [alice.request, bob.request]) {
+        const confirmed = await api.post(`${root}/remote-result/confirm`, { data: {} });
+        expect(confirmed.ok(), await confirmed.text()).toBe(true);
+      }
+      const final = await (await alice.request.get(`${root}/remote-result`)).json();
+      expect(final.remoteResult).toMatchObject({ status: "final", finalizationReason: "both_confirmed" });
+      // The bracket page shows the slot as completed with a winner.
+      const after = await (await alice.request.get(`/api/tournaments/${webSlug}`)).json();
+      const done = after.matches.find((m: { id: number }) => m.id === slot.id);
+      expect(done.status).toBe("completed");
+      // Alice created the table (seat 0) and conceded, so she is not the winner.
+      expect(done.winnerId).not.toBeNull();
+      expect(done.winnerId).not.toBe(detail.currentUserPlayerId);
+    } finally { await alice.close(); await bob.close(); }
+  });
+});

@@ -751,8 +751,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       sentMode.current=mode;
       if(known===mode){modeReason.current='player';return;}
       const reason=known?modeReason.current:'start';modeReason.current='player';
-      // 'manual' is part of the B2 action; the shared type is widened there.
-      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason} as Parameters<typeof act>[0]);}).then(()=>{attempts.current=0;}).catch(()=>{
+      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason});}).then(()=>{attempts.current=0;}).catch(()=>{
         sentMode.current=null;if(reason!=='player')modeReason.current=reason;
         if(attempts.current>=3)return;
         retryTimer.current=setTimeout(()=>setRetry(count=>count+1),2000*2**attempts.current++);

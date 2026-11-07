@@ -1,6 +1,6 @@
-import type { RemoteEvidence, RemoteResult } from "./remote-result-model";
+import type { RemoteEvidenceRow, RemoteResult } from "./remote-result-model";
 
-/** Fixtures for the dispute view while the B3 and B4 routes are not merged. Used by the dev preview only. */
+/** Fixtures for the dispute view. Used by the dev preview only. */
 const NOW = 1794074400000;
 export const FIXTURE_PLAYERS = { one: { id: 21, name: "Alice" }, two: { id: 22, name: "Bob" } } as const;
 
@@ -14,32 +14,38 @@ export const FIXTURE_RESULT: RemoteResult = {
   finalizedAt: null, finalizationReason: null, organizerDecision: null,
 };
 
-export const FIXTURE_EVIDENCE: RemoteEvidence = {
-  tableSlug: "table-slug", tableStartedAt: NOW - 2_400_000, tableEndedAt: NOW, endReason: "lp",
-  players: [{ seat: 0, playerId: 21, displayName: "Alice" }, { seat: 1, playerId: 22, displayName: "Bob" }],
-  games: [
-    { number: 1, winnerSeat: 0, reason: "concede", endedAt: NOW - 1_700_000 },
-    { number: 2, winnerSeat: 1, reason: "declared", endedAt: NOW - 900_000 },
-    { number: 3, winnerSeat: 0, reason: "lp", endedAt: NOW },
-  ],
-  finalLp: [
-    { game: 1, lp: [{ seat: 0, lp: 3600 }, { seat: 1, lp: 1200 }] },
-    { game: 2, lp: [{ seat: 0, lp: 0 }, { seat: 1, lp: 2100 }] },
-    { game: 3, lp: [{ seat: 0, lp: 4400 }, { seat: 1, lp: 0 }] },
-  ],
-  resultEvents: [
-    { seq: 412, at: NOW - 95_000, seat: 0, userId: 7, type: "lp.change", detail: "Seat 1 LP -2600 (Dark Hole)" },
-    { seq: 418, at: NOW - 60_000, seat: 0, userId: 7, type: "lp.change", detail: "Seat 1 LP -1400, now 0" },
-    { seq: 419, at: NOW - 59_000, seat: 1, userId: 8, type: "match.confirm", detail: "Rejected the game loss" },
-    { seq: 421, at: NOW - 20_000, seat: 0, userId: 7, type: "match.declare", detail: "Alice won game 3" },
-  ],
-  publicBoard: [
-    { seat: 0, monsters: ["Blue-Eyes White Dragon", "Dark Magician"], spellTraps: ["Mirror Force (set)"], graveyard: ["Pot of Greed", "Raigeki"], banished: [] },
-    { seat: 1, monsters: ["Summoned Skull"], spellTraps: [], graveyard: ["Mystical Space Typhoon"], banished: ["Change of Heart"] },
-  ],
-  detectionSummary: [
-    { seat: 0, autoSeconds: 2400, tapSeconds: 0, cardsByClick: 0, cardsTyped: 0, manualFixes: 3, unknownCards: 0 },
-    { seat: 1, autoSeconds: 700, tapSeconds: 1700, cardsByClick: 11, cardsTyped: 2, manualFixes: 6, unknownCards: 2 },
-  ],
-  capturedAt: NOW, hardDeleteAt: NOW + 14 * 86_400_000,
+/** The stored evidence row, as `GET .../remote-evidence` sends it (snake_case columns, JSON strings). */
+export const FIXTURE_EVIDENCE_ROW: RemoteEvidenceRow = {
+  table_slug: "table-slug", player_one_user_id: 7, player_two_user_id: 8,
+  players_json: JSON.stringify([{ userId: 7, seat: 0 }, { userId: 8, seat: 1 }]),
+  table_started_at: NOW - 2_400_000, table_ended_at: NOW, end_reason: "game",
+  games_json: JSON.stringify([
+    { n: 1, winnerSeat: 0, reason: "concede", endedAt: NOW - 1_700_000 },
+    { n: 2, winnerSeat: 1, reason: "declared", endedAt: NOW - 900_000 },
+    { n: 3, winnerSeat: 0, reason: "lp", endedAt: NOW },
+  ]),
+  final_lp_json: JSON.stringify([
+    { n: 1, seats: [{ seat: 0, lp: 3600 }, { seat: 1, lp: 1200 }] },
+    { n: 2, seats: [{ seat: 0, lp: 0 }, { seat: 1, lp: 2100 }] },
+    { n: 3, seats: [{ seat: 0, lp: 4400 }, { seat: 1, lp: 0 }] },
+  ]),
+  result_events_json: JSON.stringify([
+    { seq: 412, at: NOW - 95_000, seat: 0, userId: 7, action: { type: "lp.change", seat: 1, delta: -2600, reason: "Dark Hole" } },
+    { seq: 418, at: NOW - 60_000, seat: 0, userId: 7, action: { type: "lp.change", seat: 1, delta: -1400, reason: "attack" } },
+    { seq: 419, at: NOW - 59_000, seat: 1, userId: 8, action: { type: "match.confirm", declarationSeq: null, accept: false } },
+    { seq: 421, at: NOW - 20_000, seat: 0, userId: 7, action: { type: "match.declare", winnerSeat: 0 } },
+  ]),
+  public_board_json: JSON.stringify([
+    { seat: 0, cards: [
+      { zone: "monster", cardId: 89631139, name: "Blue-Eyes White Dragon", position: "attack" }, { zone: "monster", cardId: 46986414, name: "Dark Magician", position: "defense" },
+      { zone: "graveyard", name: "Pot of Greed", position: "attack" }, { zone: "graveyard", name: "Raigeki", position: "attack" }] },
+    { seat: 1, cards: [
+      { zone: "monster", name: "Summoned Skull", position: "attack" }, { zone: "graveyard", name: "Mystical Space Typhoon", position: "attack" },
+      { zone: "banished", name: "Change of Heart", position: "attack" }] },
+  ]),
+  detection_summary_json: JSON.stringify([
+    { seat: 0, autoSeconds: 2400, tapSeconds: 0, manualSeconds: 0, identifiedByClick: 0, identifiedByTyped: 0, manualCorrections: 3, unknownAtGameEnd: [{ n: 3, count: 0 }] },
+    { seat: 1, autoSeconds: 700, tapSeconds: 1700, manualSeconds: 0, identifiedByClick: 11, identifiedByTyped: 2, manualCorrections: 6, unknownAtGameEnd: [{ n: 3, count: 2 }] },
+  ]),
+  captured_at: NOW, hard_delete_at: NOW + 14 * 86_400_000,
 };

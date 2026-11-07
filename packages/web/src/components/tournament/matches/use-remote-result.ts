@@ -13,13 +13,15 @@ function endpoint(tournamentSlug: string, tournamentMatchId: number) {
   return `/api/tournaments/${encodeURIComponent(tournamentSlug)}/matches/${tournamentMatchId}/remote-result`;
 }
 
-/** The result in a response, plus the server clock when the response carries it (`now` beside or inside the result). */
+/** The result in a response, plus the server clock (`now`, beside `remoteResult` on the GET). */
 async function readResult(res: Response): Promise<{ result: RemoteResult | null; serverNow: number | null } | undefined> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data !== "object" || !("remoteResult" in data)) return undefined;
-  const result = (data.remoteResult as RemoteResult | null) ?? null;
-  const stamp = typeof data.now === "number" ? data.now : result && typeof result.now === "number" ? result.now : null;
-  return { result, serverNow: stamp !== null && Number.isFinite(stamp) ? stamp : null };
+  const read = (data.remoteResult as RemoteResult | null) ?? null;
+  // A table that ended with no result (idle close, creator left) leaves a `playing` row with no live table: the slot is open again.
+  const result = read && read.status === "playing" && read.tableOpen === false ? null : read;
+  const stamp = typeof data.now === "number" && Number.isFinite(data.now) ? data.now : null;
+  return { result, serverNow: stamp };
 }
 
 /**

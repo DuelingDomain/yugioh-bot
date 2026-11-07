@@ -1,4 +1,4 @@
-import type { RemoteRoom } from '@yugidraft/shared/remote';
+import type { RemoteRoom, RemoteState } from '@yugidraft/shared/remote';
 
 /** Card detection in a tournament table. Auto-detect is the default and the opponent sees each player's mode. */
 /** What a player can pick. Manual is set by the app when no camera feed reads the board. */
@@ -18,16 +18,12 @@ export function saveTournamentMode(slug:string,seat:number,mode:PlayerMode) {
   try{sessionStorage.setItem(modeKey(slug,seat),mode);}catch{/* Memory-only fallback. */}
 }
 
-/** Where the board is read from: a camera feed (auto), the player's taps (tap), or by hand with no camera feed (manual). */
-type Detection={mode:TournamentMode;at:number};
 /**
  * The mode a seat last announced. The table state keeps it (`state.detection[seat]`), so a reload shows the same answer.
  * Undefined when the seat never announced one: show "Unknown", never a default.
  */
-export function stateMode(state:unknown,seat:number):TournamentMode|undefined {
-  const all=(state as {detection?:Record<number,Detection|undefined>|readonly (Detection|undefined)[]}|null|undefined)?.detection;
-  const mode=all?.[seat]?.mode;
-  return mode==='auto'||mode==='tap'||mode==='manual'?mode:undefined;
+export function stateMode(state:Pick<RemoteState,'detection'>|null|undefined,seat:number):TournamentMode|undefined {
+  return state?.detection?.[seat]?.mode;
 }
 
 /**
