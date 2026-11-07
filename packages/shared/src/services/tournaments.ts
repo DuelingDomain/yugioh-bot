@@ -1,3 +1,4 @@
+import { assertRemoteTournamentEntrants, assertRemoteTournamentFormat, assertRemoteTournamentUser, TournamentRemoteError } from "./tournament-remote-access.js";
 import { recordProductEvent } from "../analytics/index.js";
 import { ExpectedError } from "../observability/index.js";
 import type Database from "better-sqlite3";
@@ -13,7 +14,7 @@ import {
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_REPORT_CONFIRM_HOURS, MIN_REPORT_CONFIRM_HOURS } from "./constants.js";
 import { createSeriesStore } from "./duel-series.js";
-import { serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
+import { resolveTournamentDuelRules, serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
 import { findTournamentReadAccess } from "./tournament-access.js";
 import { CurrentNameTakenError } from "./current-name.js";
 
@@ -22,7 +23,7 @@ export type TournamentStatus = "pending" | "active" | "cancelled" | "completed";
 
 export type { TournamentMatch } from "../types/index.js";
 /** A tournament with its match length (1 or 3 games per pairing). */
-export type Tournament = BaseTournament & { bestOf: DuelBestOf };
+export type Tournament = BaseTournament & { bestOf: DuelBestOf; duelType: "online" | "remote" };
 export type TournamentParticipant = TournamentPlayer;
 
 export type TournamentMatchStatus = "open" | "pending_approval" | "completed";
@@ -48,6 +49,7 @@ function mapTournament(row: any): Tournament {
     deadlineAt: row.deadline_at ?? undefined,
     reportConfirmWindowHours: row.report_confirm_window_hours ?? undefined,
     bestOf: row.best_of === 1 ? 1 : 3,
+    duelType: row.duel_type ?? "online",
   };
 }
 
@@ -384,6 +386,7 @@ export function createTournamentService(db: Database.Database) {
       createdByUserId: number,
       options?: {
         visibility?: TournamentVisibility;
+        duelType?: "online" | "remote";
         deadlineAt?: string | null;
         reportConfirmWindowHours?: number | null;
         /** Games per pairing; default 3. */
@@ -399,6 +402,12 @@ export function createTournamentService(db: Database.Database) {
       const bestOf = options?.bestOf ?? 3;
       assertBestOf(bestOf);
       const duelRulesJson = options?.duelRules ? serializeTournamentDuelRules(options.duelRules) : null;
+      const duelType = options?.duelType ?? "online";
+      if (duelType !== "online" && duelType !== "remote") throw new TournamentRemoteError("Invalid duel type", 400, "INVALID_DUEL_TYPE");
+      if (duelType === "remote") {
+        assertRemoteTournamentUser(createdByUserId);
+        assertRemoteTournamentFormat(resolveTournamentDuelRules({ best_of: bestOf, duel_rules_json: duelRulesJson, draft_id: null }));
+      }
 
       const existingCurrent = db
         .prepare(
@@ -419,8 +428,8 @@ export function createTournamentService(db: Database.Database) {
 
       const insert = db.prepare(
         `
-          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility)
-          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility, duel_type)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       );
 
@@ -437,6 +446,7 @@ export function createTournamentService(db: Database.Database) {
           bestOf,
           duelRulesJson,
           visibility,
+          duelType,
         );
         recordProductEvent(db, "tournament_created", createdByUserId, { format, participantCount: 0 });
         return result;
@@ -594,6 +604,11 @@ export function createTournamentService(db: Database.Database) {
         throw new ExpectedError("Tournament has already started", 400);
       }
 
+      if (tournament.duelType === "remote") {
+        const player = db.prepare("select user_id from players where id=? and guild_id=?").get(playerId, tournament.guildId) as { user_id: number } | undefined;
+        if (!player) throw new TournamentRemoteError("Player not found", 404, "TOURNAMENT_MATCH_NOT_FOUND");
+        assertRemoteTournamentUser(player.user_id);
+      }
       const existing = db.prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?").get(tournamentId, playerId);
 
       if (existing) {
@@ -682,6 +697,8 @@ export function createTournamentService(db: Database.Database) {
       if (tournament.status !== "pending") {
         throw new ExpectedError("Tournament has already started", 400);
       }
+
+      if (tournament.duelType === "remote") assertRemoteTournamentEntrants(db, tournamentId);
 
       if (playerIds.length < 2) {
         throw new ExpectedError("Tournament needs at least two players", 400);

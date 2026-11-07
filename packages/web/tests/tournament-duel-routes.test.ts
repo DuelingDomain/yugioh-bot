@@ -70,6 +70,74 @@ describe("tournament match duel and result routes", () => {
     }
   });
 
+  it("remote: paired players start one private reserved table with tournament rules and no registered deck", async () => {
+    const s = seed();
+    vi.stubEnv("REMOTE_DUELS", "1");
+    vi.stubEnv("REMOTE_DUELS_USERS", "*");
+    s.db.prepare("update tournaments set duel_type='remote', best_of=1, duel_rules_json=? where id=?")
+      .run(JSON.stringify({ mode: "normal", masterRule: 5, settings: { startingLP: 4000 } }), s.tournamentId);
+    s.db.prepare("update tournament_participants set deck_json=null where tournament_id=?").run(s.tournamentId);
+    const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/remote/route");
+    const { POST: seat } = await import("../app/api/remote/[slug]/seat/route");
+    const { createRemoteDuelService } = await import("@yugidraft/shared/services");
+    const remote = createRemoteDuelService(s.db);
+    const as = (key: typeof FIXTURE_KEYS[number]) => auth.mockResolvedValue({ user: { id: String(fixtureUserId(key)), discordUserId: fixtureDiscordId(key), name: key } });
+    as("u-org");
+    expect((await POST(post({}), ctx(s.tmId))).status).toBe(403);
+    as("u-a");
+    expect((await POST(post({}), ctx(s.tmId + 999))).status).toBe(404);
+    const first = await POST(post({}), ctx(s.tmId));
+    expect(first.status).toBe(201);
+    const body = await first.json();
+    expect(body).toMatchObject({ created: true, table: { tournamentMatchId: s.tmId, seatCount: 2,
+      bestOf: 1, status: "lobby", visibility: "private", detectionDefault: "auto", format: { id: "normal", settings: { startingLP: 4000 } } } });
+    expect(body.table.state).toBeUndefined();
+    expect(body.tableUrl).toBe(`/duels/remote/${body.table.slug}`);
+    const linked = s.db.prepare("select id,tournament_match_id from remote_tables where slug=?").get(body.table.slug) as { id: number; tournament_match_id: number };
+    expect(linked.tournament_match_id).toBe(s.tmId);
+    expect(s.db.prepare("select status,table_id from tournament_remote_matches where tournament_match_id=?").get(s.tmId))
+      .toMatchObject({ status: "playing", table_id: linked.id });
+    const seatCtx = { params: Promise.resolve({ slug: body.table.slug }) };
+    as("u-org");
+    expect((await seat(post({}), seatCtx)).status).toBe(403);
+    // Reservation is also enforced in the shared service, not just the web handler.
+    expect(() => remote.join(body.table.slug, "g1", fixtureUserId("u-x"), "Outsider")).toThrow(/paired players/i);
+    as("u-b");
+    const repeated = await POST(post({}), ctx(s.tmId));
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toMatchObject({ created: false, table: { slug: body.table.slug } });
+    expect((await seat(post({ seat: 0 }), seatCtx)).status).toBe(409);
+    const seated = await seat(post({ seat: 1 }), seatCtx);
+    expect(seated.status).toBe(200);
+    expect(await seated.json()).toMatchObject({ mySeat: 1, seats: [{ userId: fixtureUserId("u-a") }, { userId: fixtureUserId("u-b") }] });
+    expect(() => remote.configure(body.table.slug, "g1", fixtureUserId("u-a"), { bestOf: 3 })).toThrow(/rules/i);
+    expect(() => remote.spectate(body.table.slug, "g1", fixtureUserId("u-org"))).toThrow(/private/i);
+    vi.stubEnv("REMOTE_DUELS_USERS", String(fixtureUserId("u-a")));
+    as("u-a");
+    expect((await POST(post({}), ctx(s.tmId))).status).toBe(409);
+    vi.stubEnv("REMOTE_DUELS_USERS", "*");
+    vi.stubEnv("REMOTE_DUELS", "0");
+    expect((await POST(post({}), ctx(s.tmId))).status).toBe(404);
+    vi.stubEnv("REMOTE_DUELS", "1");
+    // The online service must not provide a second start path for Remote pairings.
+    const { createDuelSeriesService } = await import("@yugidraft/shared/services");
+    expect(() => createDuelSeriesService(s.db).startTournamentMatch({ guildId: "g1", tournamentMatchId: s.tmId, actorPlayerId: s.a })).toThrow(/Remote/i);
+    remote.leave(body.table.slug, "g1", fixtureUserId("u-a"));
+    // Either paired player can create the replacement and becomes seat 0.
+    as("u-b");
+    const replay = await POST(post({}), ctx(s.tmId));
+    expect(replay.status).toBe(201);
+    const next = await replay.json();
+    expect(next.table.slug).not.toBe(body.table.slug);
+    expect(next.table.seats[0].userId).toBe(fixtureUserId("u-b"));
+    expect(() => s.db.prepare("update remote_tables set status='active' where id=?").run(linked.id)).toThrow(/UNIQUE/i);
+    remote.leave(next.table.slug, "g1", fixtureUserId("u-b"));
+    // An outstanding proposal cannot be bypassed by creating another room.
+    s.db.prepare("update tournament_remote_matches set status='proposed' where tournament_match_id=?").run(s.tmId);
+    expect((await POST(post({}), ctx(s.tmId))).status).toBe(409);
+    s.db.close();
+  });
+
   it("result: rejects an unauthenticated caller and a bad body", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");

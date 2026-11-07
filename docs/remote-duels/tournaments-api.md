@@ -30,7 +30,11 @@ shape. Responses containing private Remote data use `Cache-Control: private, no-
 Duel type is fixed at creation in B1 (no update API); Remote rules lock at start.
 `POST /api/tournaments/{slug}/join` takes no body and returns
 `{"success":true,"playerId":21,"displayName":"Alice"}` (200). Invite entry
-uses this same route. `POST /api/tournaments/{slug}` starts the tournament, takes
+uses this same route. Valid invite redemption via
+`POST /api/tournaments/{slug}/invite` (`{"code":"invite-code"}` -> `{"ok":true}`)
+also enforces Remote access before granting admission. The development-only
+`POST /api/tournaments/{slug}/join-bot` uses the same entrant checks for Remote;
+its online behavior is unchanged. `POST /api/tournaments/{slug}` starts the tournament, takes
 no body, and returns `{"id":12,"status":"active"}` (200).
 
 Remote create/join/start require literal `REMOTE_DUELS=1`. Create and join check
@@ -48,12 +52,12 @@ player may call; an organizer who is not paired cannot. 201 when created, 200 on
 repeat (same table, including when called by the opponent):
 
 ```json
-{"created":true,"table":{"slug":"table-slug","tournamentMatchId":45,"seatCount":2,"status":"lobby","bestOf":3,"format":{"id":"normal"},"visibility":"private","detectionDefault":"auto"},"tableUrl":"/remote/table-slug"}
+{"created":true,"table":{"slug":"table-slug","tournamentMatchId":45,"seatCount":2,"status":"lobby","bestOf":3,"format":{"id":"normal"},"visibility":"private","detectionDefault":"auto"},"tableUrl":"/duels/remote/table-slug"}
 ```
 
 `table` is the normal RemoteTable metadata (additional normal fields, including
 seats and format rules, are present); it contains no board, events or private decks.
-Table statuses: `lobby | active | ended`. Creator occupies seat 0; seat 1 is
+Table statuses: `lobby | active | ended`. Slot statuses remain `open | pending_approval | completed`. Creator occupies seat 0; seat 1 is
 reserved for the other paired account. Only these accounts can use
 `POST /api/remote/{tableSlug}/seat` with `{}` or `{"seat":1}` (200 normal RemoteRoom
 response, containing `state`, `events`, `mySeat` and table metadata). Existing room,
@@ -131,3 +135,24 @@ when no table or unresolved proposal/dispute is open. B3 owns these block rules.
 B4 supplies organizer evidence reads/capture and deletion; no evidence endpoint
 is implemented or promised by B1. Evidence survives normal table deletion through
 nullable table references and copied minimal facts, never videos/images or decks.
+
+## Storage handoff for B3 and B4
+
+`tournament_remote_matches` has one row per `tournament_match_id`. B1 writes
+`playing`, `table_id`, `table_slug`, both player IDs and creation/update times.
+B3 owns `winner_player_id`, `player_one_wins`, `player_two_wins`, `result_source`,
+`proposed_at`, `confirm_deadline_at`, each `player_{one,two}_{choice,note,responded_at}`,
+`finalized_at`, `finalization_reason`, `recorded_match_id` and
+`organizer_{user_id,decided_at,note}`. Seat order is independent of player-one/two
+order: resolve it from the table's seats when proposing a result. No-result replay
+replaces the playing row; a proposed/disputed/final row blocks another start.
+
+`tournament_remote_evidence` is empty in B1. B4 writes the copied table slug,
+both user IDs, `players_json` (seat/account mapping), `table_started_at`,
+`table_ended_at`, `end_reason`, `games_json`, `result_events_json`, `final_lp_json`,
+`public_board_json`, `reports_json`, `detection_summary_json`, `captured_at`,
+`purge_after_at` and `hard_delete_at`. JSON fields hold only the allowlisted facts
+in plan section 5.2. Result/evidence `table_id` becomes null on normal room purge;
+copied facts and `table_slug` survive. B4 must implement account/tournament
+cancellation cleanup and the accepted 1-hour/48-hour/14-day retention rules before
+writing evidence. B1 does not capture evidence or finalize any results.

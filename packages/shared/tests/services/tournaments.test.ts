@@ -1,6 +1,7 @@
+import { createTournamentVisibilityService } from "../../src/services/tournament-visibility.js";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
 import { DEFAULT_REPORT_CONFIRM_HOURS } from "../../src/services/constants.js";
@@ -17,6 +18,62 @@ function insertPlayer(db: Database.Database, guildId: string, discordUserId: str
 }
 
 describe("tournaments service", () => {
+  it("enforces Remote duel type and entrant access at join and start without changing online tournaments", () => {
+    const { db, tournaments } = setup();
+    const alice = insertPlayer(db, "g1", "u-alice", "Alice");
+    const bob = insertPlayer(db, "g1", "u-bob", "Bob");
+    const aliceUser = seedUser(db, "u-alice").userId;
+    const bobUser = seedUser(db, "u-bob").userId;
+    try {
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", String(aliceUser));
+      const online = tournaments.create("g1", "Online", "round_robin", aliceUser);
+      expect(online.duelType).toBe("online");
+      // Upgrade an existing row from the pre-B1 shape, then repeat migration below.
+      db.exec("alter table tournaments drop column duel_type");
+      migrate(db);
+      expect(tournaments.findById(online.id).duelType).toBe("online");
+      expect(() => tournaments.create("g1", "Invalid", "round_robin", aliceUser, { duelType: "either" as never }))
+        .toThrow(/duel type/i);
+      expect(() => tournaments.create("g1", "No access", "round_robin", bobUser, { duelType: "remote" }))
+        .toThrow(/Ask for access/i);
+      expect(() => tournaments.create("g1", "Domain", "round_robin", aliceUser, { duelType: "remote", duelRules: { mode: "domain" } }))
+        .toThrow(/Advanced/i);
+      const remote = tournaments.create("g1", "Remote", "round_robin", aliceUser, { duelType: "remote" });
+      expect(remote.duelType).toBe("remote");
+      const invites = createTournamentVisibilityService(db);
+      const code = invites.invite(remote.webSlug!, "g1", aliceUser);
+      expect(() => invites.admit(remote.webSlug!, "g1", bobUser, code)).toThrow(/Ask for access/i);
+      tournaments.join(remote.id, alice);
+      expect(() => tournaments.join(remote.id, bob)).toThrow(/Ask for access/i);
+      expect(tournaments.participants(remote.id)).toEqual([alice]);
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      invites.admit(remote.webSlug!, "g1", bobUser, code);
+      tournaments.join(remote.id, bob);
+      vi.stubEnv("REMOTE_DUELS_USERS", String(aliceUser));
+      expect(() => tournaments.start(remote.id)).toThrow(expect.objectContaining({
+        code: "REMOTE_ENTRANTS_BLOCKED", status: 409, entrants: [{ playerId: bob, displayName: "Bob" }],
+      }));
+      expect(tournaments.findById(remote.id).status).toBe("pending");
+      expect(tournaments.matches(remote.id)).toHaveLength(0);
+      vi.stubEnv("REMOTE_DUELS", "0");
+      expect(() => tournaments.create("g1", "Disabled", "round_robin", aliceUser, { duelType: "remote" })).toThrow(/disabled/i);
+      expect(() => tournaments.start(remote.id)).toThrow(/disabled/i);
+      // A closed rollout must have no effect on engine tournament entries or starts.
+      tournaments.join(online.id, alice);
+      tournaments.join(online.id, bob);
+      expect(tournaments.start(online.id).status).toBe("active");
+      vi.stubEnv("REMOTE_DUELS", "1");
+      vi.stubEnv("REMOTE_DUELS_USERS", "*");
+      expect(tournaments.start(remote.id).status).toBe("active");
+      migrate(db); // migrations remain idempotent with linked tournament data present
+      expect(tournaments.findById(remote.id).duelType).toBe("remote");
+    } finally {
+      vi.unstubAllEnvs();
+      db.close();
+    }
+  });
+
   describe("leave", () => {
     it("removes a participant from a pending tournament", () => {
       const { db, tournaments } = setup();

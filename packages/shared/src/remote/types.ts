@@ -96,6 +96,9 @@ export type RemoteEvent = {
   messages?: string[];
 };
 export type RemoteTable = {
+  tournamentMatchId?: number;
+  /** Tournament default overrides the device preference; U4 applies it per table. */
+  detectionDefault?: "auto";
   bestOf?: RemoteBestOf;
   slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus; solo: boolean;
   createdBy: number; createdAt: number; startedAt: number | null; endedAt: number | null;

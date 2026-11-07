@@ -1429,6 +1429,9 @@ export function migrate(db: Database.Database) {
   migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
 
+  // After the legacy identity rebuild so existing and fresh rows default to online.
+  addColumnIfMissing(db, "tournaments", "duel_type", "text not null default 'online' check (duel_type in ('online','remote'))");
+
   // After identity migration, which rebuilds legacy saved_decks with its original columns.
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
   // Saved usage has its own revision; duel traffic must not invalidate the aggregate.
@@ -1849,6 +1852,72 @@ function migrateRemoteDuels(db: Database.Database) {
       begin select raise(abort, 'remote_events is append-only'); end;
     create trigger if not exists remote_events_no_delete before delete on remote_events
       begin select raise(abort, 'remote_events is append-only'); end;
+  `);
+  addColumnIfMissing(db, "remote_tables", "tournament_match_id", "integer references tournament_matches(id)");
+  // Ended tables may be replaced, but two live rooms can never own the same pairing.
+  db.exec(`
+    create unique index if not exists remote_tables_tournament_live_idx
+      on remote_tables(tournament_match_id) where tournament_match_id is not null and status != 'ended';
+    create index if not exists remote_tables_tournament_idx on remote_tables(tournament_match_id);
+    -- Durable result state belongs to the pairing, independent of the 24-hour room purge.
+    create table if not exists tournament_remote_matches (
+      tournament_match_id integer primary key references tournament_matches(id) on delete cascade,
+      table_id integer references remote_tables(id) on delete set null,
+      table_slug text not null,
+      player_one_id integer not null references players(id),
+      player_two_id integer not null references players(id),
+      status text not null default 'playing' check (status in ('playing','proposed','disputed','final','void')),
+      winner_player_id integer references players(id),
+      player_one_wins integer check (player_one_wins >= 0),
+      player_two_wins integer check (player_two_wins >= 0),
+      result_source text check (result_source in ('concede','declared','lp')),
+      proposed_at integer,
+      confirm_deadline_at integer,
+      player_one_choice text check (player_one_choice in ('confirm','dispute')),
+      player_one_note text check (length(player_one_note) <= 280),
+      player_one_responded_at integer,
+      player_two_choice text check (player_two_choice in ('confirm','dispute')),
+      player_two_note text check (length(player_two_note) <= 280),
+      player_two_responded_at integer,
+      finalized_at integer,
+      finalization_reason text check (finalization_reason in ('both_confirmed','timeout','organizer')),
+      recorded_match_id integer references matches(id) on delete set null,
+      organizer_user_id integer references users(id) on delete set null,
+      organizer_decided_at integer,
+      organizer_note text check (length(organizer_note) <= 280),
+      created_at integer not null,
+      updated_at integer not null,
+      check (player_one_id != player_two_id),
+      check (winner_player_id is null or winner_player_id in (player_one_id,player_two_id))
+    );
+    create index if not exists tournament_remote_matches_due_idx
+      on tournament_remote_matches(confirm_deadline_at) where status='proposed';
+    -- B4 writes only sanitized result facts to these columns, never full room snapshots.
+    -- Neither evidence nor result rows cascade from remote_tables: the usual purge stays intact.
+    create table if not exists tournament_remote_evidence (
+      tournament_match_id integer primary key references tournament_matches(id) on delete cascade,
+      table_id integer references remote_tables(id) on delete set null,
+      table_slug text not null,
+      player_one_user_id integer not null references users(id),
+      player_two_user_id integer not null references users(id),
+      players_json text not null check (json_valid(players_json)),
+      table_started_at integer,
+      table_ended_at integer not null,
+      end_reason text not null,
+      games_json text not null check (json_valid(games_json)),
+      result_events_json text not null check (json_valid(result_events_json)),
+      final_lp_json text not null check (json_valid(final_lp_json)),
+      public_board_json text not null check (json_valid(public_board_json)),
+      reports_json text not null check (json_valid(reports_json)),
+      detection_summary_json text not null check (json_valid(detection_summary_json)),
+      captured_at integer not null,
+      purge_after_at integer,
+      hard_delete_at integer not null
+    );
+    create index if not exists tournament_remote_evidence_purge_idx on tournament_remote_evidence(purge_after_at);
+    create index if not exists tournament_remote_evidence_cap_idx on tournament_remote_evidence(hard_delete_at);
+    create index if not exists tournament_remote_evidence_player_one_idx on tournament_remote_evidence(player_one_user_id);
+    create index if not exists tournament_remote_evidence_player_two_idx on tournament_remote_evidence(player_two_user_id);
   `);
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");

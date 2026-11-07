@@ -105,3 +105,6 @@ export * from "./archetype-bridges.js";
 export * from "./releases.js";
 
 export { pruneRemoteDuels } from "./remote-retention.js";
+
+export * from "./tournament-remote-access.js";
+export * from "./tournament-remote.js";

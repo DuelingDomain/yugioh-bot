@@ -27,6 +27,7 @@ type TournamentRow = {
   name: string;
   format: string;
   status: string;
+  duel_type: "online" | "remote";
   created_by_user_id: number;
   web_slug: string | null;
   deadline_at: string | null;
@@ -193,6 +194,7 @@ export async function GET(
       guildId: tournament.guild_id,
       name: tournament.name,
       format: tournament.format,
+      duelType: tournament.duel_type,
       status: tournament.status,
       visibility: access.visibility,
       canJoin: access.canJoin,

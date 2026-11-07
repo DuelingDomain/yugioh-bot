@@ -1,3 +1,4 @@
+import { assertRemoteTournamentFormat, TournamentRemoteError } from "./tournament-remote-access.js";
 import type Database from "better-sqlite3";
 import type { DuelBestOf, DuelDeck, DuelMasterRule, DuelMode, DuelSettings } from "../duels/index.js";
 import { DuelSettingsError, NO_BANLIST_ID, normalizeDuelSettings } from "../duels/settings.js";
@@ -174,6 +175,7 @@ function assertBestOf(value: unknown): asserts value is DuelBestOf {
 }
 
 type TournamentRow = {
+  duel_type: string;
   id: number;
   guild_id: string;
   status: string;
@@ -210,7 +212,7 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
     where t.id = ?
   `);
   const selectTournament = db.prepare<[number], TournamentRow>(
-    "select id, guild_id, status, created_by_user_id from tournaments where id = ?",
+    "select id, guild_id, status, created_by_user_id, duel_type from tournaments where id = ?",
   );
   const selectParticipant = db.prepare<[number, number], { user_id: number }>(`
     select p.user_id
@@ -322,6 +324,9 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
       if (gameStarted(tournamentId)) {
         throw new TournamentDuelError("The rules cannot change after a tournament game has started", 409);
       }
+      if (tournament.duel_type === "remote" && tournament.status !== "pending") {
+        throw new TournamentRemoteError("Tournament rules are locked after start", 409, "TOURNAMENT_RULES_LOCKED");
+      }
       const current = rulesFor(tournamentId);
       const changesRules = input.mode !== undefined || input.masterRule !== undefined || input.settings !== undefined;
       if (current.draftId !== null && changesRules) {
@@ -330,6 +335,10 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
       if (input.bestOf !== undefined) assertBestOf(input.bestOf);
       // Validate before any write so a bad rule changes nothing.
       const rulesJson = changesRules ? serializeTournamentDuelRules(input, current) : null;
+      if (tournament.duel_type === "remote") assertRemoteTournamentFormat(resolveTournamentDuelRules({
+        best_of: input.bestOf ?? current.bestOf,
+        duel_rules_json: rulesJson ?? JSON.stringify(current), draft_id: current.draftId,
+      }));
       if (input.bestOf !== undefined) updateBestOf.run(input.bestOf, tournamentId);
       if (rulesJson !== null) updateRulesJson.run(rulesJson, tournamentId);
       return rulesFor(tournamentId);
@@ -448,7 +457,7 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
     rulesLocked(tournamentId) {
       const tournament = loadTournament(tournamentId);
       if (tournament.status !== "pending" && tournament.status !== "active") return true;
-      return gameStarted(tournamentId);
+      return (tournament.duel_type === "remote" && tournament.status !== "pending") || gameStarted(tournamentId);
     },
 
     setRules(tournamentId, organizerUserId, input) {

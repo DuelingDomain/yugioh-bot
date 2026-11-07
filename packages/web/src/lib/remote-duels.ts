@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createRemoteDuelService } from "@yugidraft/shared/services";
+import { createRemoteDuelService, TournamentRemoteError } from "@yugidraft/shared/services";
 import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
@@ -47,6 +47,8 @@ export async function requireRemoteActor() {
   return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };
 }
 export function remoteError(error: unknown) {
+  if (error instanceof TournamentRemoteError) return remoteJson({ error: error.message, code: error.code,
+    ...(error.entrants ? { entrants: error.entrants } : {}) }, error.status);
   if (error instanceof RemoteDuelError) return remoteJson({ error: error.message, code: error.code }, error.status);
   const { body, status } = errorResponseBody(error, { tags: { operation: "remote-api" } });
   return remoteJson(body, status);
