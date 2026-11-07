@@ -645,6 +645,16 @@ describe("remote deck registration and live checks", () => {
     expect(() => solo.start()).toThrow(/60 cards|Duplicate card/);
     solo.select(null); solo.start(); expect(solo.room.status).toBe("active");
   });
+  it("starts and plays a normal two-player table with no deck at all", () => {
+    const s = deckSession("normal", false);
+    s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+    s.service.ready(s.room.slug, "g", s.users[1], true, 2002);
+    s.start();
+    expect(s.room.status).toBe("active");
+    expect(s.room.seats.every(seat => !seat.deck)).toBe(true);
+    s.place("no-deck-card");
+    expect(s.room.state.seats[0].twin.some(c => c.ref === "no-deck-card")).toBe(true);
+  });
   it("snapshots owned saved decks and resets ready on format changes", () => {
     const s = deckSession("normal"); const saved = s.save();
     expect(() => s.select(s.save(undefined, [], s.users[1]).id)).toThrow(/not found/i);
