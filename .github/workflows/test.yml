@@ -1,8 +1,10 @@
 name: Test
 
 # Path-selected app groups: web, bot, ws, worker, shared, duel (no core), e2e and CI scripts.
-# Shared source selects all app consumers; only shared imports reachable from duel-server/src
+# Shared source selects all app consumers; only shared imports reachable from engine host/test roots
 # select engine suites. Root build/install/workflow configuration selects app/engine groups.
+# Small PR selections for imported tournament/series/Remote helpers use focused shards.
+# Slow suites or selections over half the duel suites use the tuned full engine lane.
 # Native/differential checks select only core source/pin/patch/build inputs and their CI wiring.
 # Docs-only changes run detection and the final CI result, with no test groups.
 # Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.
@@ -74,6 +76,7 @@ jobs:
       effects: ${{ steps.diff.outputs.effects }}
       prod_build: ${{ steps.diff.outputs.prod_build }}
       engine: ${{ steps.diff.outputs.engine }}
+      engine_app: ${{ steps.diff.outputs.engine_app }}
       core: ${{ steps.diff.outputs.core }}
       golden: ${{ steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
@@ -120,7 +123,7 @@ jobs:
   core-cache:
     name: Engine core cache
     needs: changes
-    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.smoke_enabled == 'true'
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.engine_app == 'true' || needs.changes.outputs.smoke_enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -751,6 +754,67 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml
 
+  engine-app:
+    name: Engine application integration (${{ matrix.shard }}/8)
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine_app == 'true' }}
+    needs: [cores, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      DUEL_REQUIRE_CORES: "1"
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+      NSEAT_LIVE: "1"
+      TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
+      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
+        with:
+          key: ${{ needs.cores.outputs.key }}
+      - name: Select application integration tests
+        id: selection
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs --application
+      # Use the default config for both fixture-worker and real-core callers.
+      # Shard the complete selection; each suite helper runs through its test roots.
+      - name: Host admission, series and tournament recording
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+          SHARD: ${{ matrix.shard }}/8
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          const files = JSON.parse(process.env.CI_TEST_FILES);
+          if (!files.length) throw new Error('Missing application integration tests');
+          const run = (args, env = {}) => {
+            const result = spawnSync('prlimit', ['--core=1:1', '--', 'npm', 'exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...args, '--testTimeout=15000', '--passWithNoTests'], { stdio: 'inherit', env: { ...process.env, ...env } });
+            if (result.error) throw result.error;
+            if (result.status !== 0) process.exit(result.status ?? 1);
+          };
+          const table = 'tests/multi-scripts-table.test.ts';
+          const regular = files.filter(file => file !== table);
+          if (regular.length) run([...regular, `--shard=${process.env.SHARD}`, `--exclude=${table}`]);
+          // Table is one long file: distribute its rows across every runner.
+          if (files.includes(table)) run([table], { TABLE_SHARD: process.env.SHARD });
+          JS
+      - name: Web engine tests that depend on changed application helpers
+        if: matrix.shard == 1
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
+
   engine-shards:
     name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
     if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
@@ -1169,7 +1233,7 @@ jobs:
   ci-result:
     name: CI result
     if: always()
-    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-images, production-dry-run]
+    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1196,6 +1260,7 @@ jobs:
             web: selected.data_only === 'true' ? ['unit-web'] : ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
             ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
             ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'rule-coverage'],
+            engine_app: ['core-cache', 'cores', 'engine-app'],
             core: ['native', 'engine-differential'],
           })) if (selected[area] === 'true') names.forEach(requireSuccess);
           if (process.env.NIGHTLY === 'true') requireSuccess('nduel-nightly');

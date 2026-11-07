@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changedLayers as classify, engineSharedFiles } from "./changed-layers.mjs";
+import { changedLayers as classify, engineSharedFiles, remoteBarrelEdit, applicationSelectionNeedsFullEngine } from "./changed-layers.mjs";
 
 // Existing engine assertions remain focused on the engine contract.
 const changedLayers = (files, event) => {
@@ -15,6 +15,79 @@ const changedLayers = (files, event) => {
 const script = new URL("./changed-layers.mjs", import.meta.url).pathname;
 const noEngine = { engine: false, golden: false, tests_only: false };
 const allLayers = { engine: true, golden: true, tests_only: false };
+
+test("broad application helpers use the tuned full engine lane without enabling core checks", () => {
+  for (const file of [
+    "packages/shared/src/services/duel-series.ts",
+    "packages/shared/src/services/matches.ts",
+    "packages/shared/src/services/tournament-duels.ts",
+    "packages/shared/src/services/tournaments.ts",
+    "packages/shared/src/services/tournament-remote-access.ts",
+    "packages/shared/src/remote/match.ts",
+  ]) {
+    const result = classify([file], "pull_request");
+    assert.equal(result.engine, true, file);
+    assert.equal(result.engine_app, false, file);
+    assert.equal(result.core, false, file);
+    const main = classify([file], "push");
+    assert.equal(main.engine, true, file);
+    assert.equal(main.engine_app, false, file);
+  }
+});
+
+test("unimported Remote changes skip both engine lanes", () => {
+  for (const file of [
+    "packages/shared/src/remote/future.ts",
+    "packages/shared/src/services/remote-retention.ts",
+    "packages/shared/src/services/tournament-remote.ts",
+    "packages/shared/src/services/tournament-remote-future.ts",
+    "packages/web/src/components/remote/ui/table.tsx",
+    "packages/ws/src/remote-events.ts",
+    "packages/worker/src/remote-retention.ts",
+  ]) {
+    const result = classify([file], "pull_request");
+    assert.equal(result.engine, false, file);
+    assert.equal(result.engine_app, false, file);
+  }
+});
+
+test("focused application lane excludes slow files even in small selections", () => {
+  for (const file of [
+    "tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts",
+    "tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts",
+  ]) assert.equal(applicationSelectionNeedsFullEngine([file], 100), true, file);
+});
+
+test("focused application lane permits at most half the duel suites", () => {
+  const files = ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"];
+  assert.equal(applicationSelectionNeedsFullEngine(files, 6), false);
+  assert.equal(applicationSelectionNeedsFullEngine(files, 5), true);
+  assert.equal(applicationSelectionNeedsFullEngine([], 6), false);
+});
+
+test("service barrel narrowing requires a proven Remote-only export edit", () => {
+  const file = "packages/shared/src/services/index.ts";
+  const before = 'export * from "./duels.js";\n';
+  const remote = before + 'export * from "./tournament-remote.js";\nexport { result, type Result } from "./tournament-remote-results.js";\n';
+  assert.equal(remoteBarrelEdit(before, remote), true);
+  for (const after of [before, before + 'export * from "./cards.js";', remote.replace('./duels.js', './other-duels.js'), remote + 'throw new Error("oops");']) {
+    assert.equal(remoteBarrelEdit(before, after), false, after);
+  }
+  assert.equal(classify([file], "pull_request").engine, true);
+  const focused = classify([file], "pull_request", { serviceBarrelAppOnly: remoteBarrelEdit(before, remote) });
+  assert.equal(focused.engine, true);
+  assert.equal(focused.engine_app, false);
+  assert.equal(classify([file], "push", { serviceBarrelAppOnly: true }).engine, true);
+});
+
+test("full engine inputs win over focused application selection", () => {
+  for (const file of ["packages/duel-server/src/host.ts", "packages/duel-server/domain-core/src/field.cpp", "packages/shared/src/duels/settings.ts", "data/duel-engine-next/cards.cdb"]) {
+    const result = classify([file, "packages/shared/src/services/duel-series.ts"], "pull_request");
+    assert.equal(result.engine, true, file);
+    assert.equal(result.engine_app, false, file);
+  }
+  for (const event of ["push", "schedule", "workflow_dispatch"]) assert.equal(classify(null, event).engine_app, false);
+});
 
 test("bot-only and web-only pushes skip the engine layers", () => {
   for (const files of [["packages/bot/src/index.ts"], ["packages/web/src/app/page.tsx"], []]) {
@@ -607,4 +680,70 @@ test("PR API pages include both sides of renames and fail open on errors or capp
     const result = f.run(f.base, head, { ...env, ...extra });
     for (const flag of ["engine", "core", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
   }
+});
+
+test("shallow PR detection reads the base service barrel and retains full coverage on lookup failure", t => {
+  const f = fixture(t);
+  const head = f.commit("app-change.ts");
+  const bin = join(f.root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), `#!/bin/sh
+case "$2" in
+  --paginate) printf '%s' "$PR_FILES" ;;
+  repos/*/contents/*) [ "$BASE_FAIL" != 1 ] || exit 1; printf '%s' "$BASE_FILE" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  const barrel = "packages/shared/src/services/index.ts";
+  const after = readFileSync(new URL("../../" + barrel, import.meta.url), "utf8");
+  const before = after.split("\n").filter(line => !/from ["']\.\/(?:remote-|tournament-remote)/.test(line)).join("\n");
+  const env = {
+    EVENT: "pull_request", BASE: f.base, HEAD: head, PR_NUMBER: "520", GITHUB_REPOSITORY: "fixture/repo", PATH: `${bin}:${process.env.PATH}`,
+    PR_FILES: JSON.stringify([[{ filename: barrel }]]),
+    BASE_FILE: JSON.stringify({ content: Buffer.from(before).toString("base64") }),
+  };
+  const focused = f.run(f.base, head, env);
+  assert.equal(focused.engine, "true");
+  assert.equal(focused.engine_app, "false");
+  for (const extra of [
+    { BASE_FAIL: "1" },
+    { BASE_FILE: "{}" },
+    { BASE_FILE: JSON.stringify({ content: Buffer.from(before.replace('./duels.js', './other-duels.js')).toString("base64") }) },
+  ]) {
+    const full = f.run(f.base, head, { ...env, ...extra });
+    assert.equal(full.engine, "true");
+    assert.equal(full.engine_app, "false");
+  }
+});
+
+// Run the detection CLI before dependencies are installed, as the changes job does.
+test("a small application diff stays focused in the dependency-free detection CLI", t => {
+  const f = fixture(t);
+  for (const dir of ["scripts/ci", "packages/duel-server/src", "packages/duel-server/tests",
+    "packages/duel-server/scripts", "packages/shared/src/services", "packages/web/src",
+    "packages/web/tests", "packages/web/app", "packages/web/e2e"]) mkdirSync(join(f.root, dir), { recursive: true });
+  for (const file of ["changed-layers.mjs", "engine-test-plan.mjs", "engine-test-times.json"]) {
+    copyFileSync(new URL(file, import.meta.url), join(f.root, "scripts/ci", file));
+  }
+  writeFileSync(join(f.root, "packages/shared/package.json"), '{"exports":{}}');
+  writeFileSync(join(f.root, "packages/shared/src/services/duel-series.ts"), 'export const series = true;');
+  writeFileSync(join(f.root, "packages/duel-server/src/host.ts"), 'import "@yugidraft/shared/services/duel-series";');
+  for (const name of ["host", "host-series", "draft-deck-legality", ...Array.from({ length: 7 }, (_, i) => `unrelated-${i}`)]) {
+    writeFileSync(join(f.root, `packages/duel-server/tests/${name}.test.ts`),
+      name === "host" ? 'import "../src/host.js";' : 'export const test = true;');
+  }
+  f.git("add", ".");
+  f.git("commit", "-m", "Small application graph");
+  const base = f.git("rev-parse", "HEAD");
+  const head = f.commit("packages/shared/src/services/duel-series.ts");
+  const output = join(f.root, "small-outputs");
+  const result = spawnSync(process.execPath, [join(f.root, "scripts/ci/changed-layers.mjs")], {
+    cwd: f.root, encoding: "utf8",
+    env: { ...process.env, EVENT: "pull_request", BASE: base, HEAD: head, PR_NUMBER: "", GITHUB_OUTPUT: output },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
+  assert.equal(outputs.engine, "false");
+  assert.equal(outputs.engine_app, "true");
+  assert.equal(outputs.core, "false");
 });
