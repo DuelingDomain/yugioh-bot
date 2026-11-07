@@ -10,6 +10,7 @@ import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
+import { readRemoteState } from "../../src/remote/storage.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -230,23 +231,26 @@ it('logs detection mode per seat as a public fact without changing the board or 
   expect(switched.lastSeq).toBe(input.baseSeq+1);
   expect(s.service.act(s.room.slug,'g',s.users[0],input,2201).lastSeq).toBe(switched.lastSeq);
   const raw = s.service.snapshot(s.room.slug,'g');
-  expect({...raw.state,updatedAt:before.updatedAt}).toEqual(before);
+  expect(raw.state.detection).toEqual({0:{mode:'tap',at:2200}});
+  expect({...raw.state,detection:before.detection,updatedAt:before.updatedAt}).toEqual(before);
   expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(switched.state);
   const event = raw.events.at(-1)!;
   expect(event).toMatchObject({actorSeat:0,userId:s.users[0],at:2200,action:{type:'detection.mode',mode:'tap',reason:'slow-offer'}});
   expect(JSON.parse((s.db.prepare('select action_json from remote_events where idempotency_key=?').get(event.id) as {action_json:string}).action_json)).toEqual(event.action);
   expect(s.service.get(s.room.slug,'g',s.users[1]).events.at(-1)?.action).toEqual(event.action);
   const spectator = projectRemoteSpectator(raw);
+  expect(spectator.state.detection).toEqual(raw.state.detection);
   expect(spectator.events.at(-1)?.action).toEqual(event.action);
   expect(spectator.state.seats[0].twin[0]).not.toHaveProperty('cardId');
   expect(spectator.state.deckChecks.registrations).toEqual({});
   const opponent = s.service.get(s.room.slug,'g',s.users[1]);
+  expect(opponent.state.detection).toEqual(raw.state.detection);
   expect(opponent.state.seats[0].twin[0]).not.toHaveProperty('cardId');
   expect(opponent.state.deckChecks.registrations[0]).toBeUndefined();
-  for (const mode of ['auto','tap']) for (const reason of ['player','slow-offer','start']) {
+  for (const mode of ['auto','tap','manual']) for (const reason of ['player','slow-offer','start']) {
     expect(remoteActionSchema.safeParse({...input.action,mode,reason}).success).toBe(true);
   }
-  for (const extra of [{mode:'manual'},{reason:'unknown'},{seat:1}]) {
+  for (const extra of [{mode:'unknown'},{reason:'unknown'},{seat:1}]) {
     expect(remoteActionSchema.safeParse({...input.action,...extra}).success).toBe(false);
   }
   expect(() => s.service.act(s.room.slug,'g',s.users[1],{
@@ -255,6 +259,95 @@ it('logs detection mode per seat as a public fact without changing the board or 
   const own = s.service.act(s.room.slug,'g',s.users[1],{baseSeq:switched.lastSeq,
     action:remoteActionSchema.parse({...input.action,actorSeat:1,mode:'auto',reason:'start',idempotencyKey:'other-mode'})},2203);
   expect(own.events.at(-1)).toMatchObject({actorSeat:1,action:{type:'detection.mode',mode:'auto',reason:'start'}});
+  expect(own.state.detection).toEqual({0:{mode:'tap',at:2200},1:{mode:'auto',at:2203}});
+});
+
+it.each(['auto','tap','manual'] as const)('ignores repeated %s detection starts while retaining explicit reports and mode changes', mode => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  expect(s.room.state.detection).toEqual({});
+  s.act({type:'detection.mode',mode,reason:'start'});
+  const started = s.room;
+  s.act({type:'detection.mode',mode,reason:'start'});
+  expect(s.room.lastSeq).toBe(started.lastSeq);
+  expect(s.room.state).toEqual(started.state);
+  expect(s.room.lastEventAt).toBe(started.lastEventAt);
+  expect(s.room.events.filter(e=>e.action.type==='detection.mode')).toHaveLength(1);
+  for (const reason of ['player','slow-offer']) {
+    const seq = s.room.lastSeq;
+    s.act({type:'detection.mode',mode,reason});
+    expect(s.room.lastSeq).toBe(seq+1);
+    expect(s.room.state.detection).toEqual({0:{mode,at:s.room.state.updatedAt}});
+  }
+  const reported = s.room;
+  s.act({type:'detection.mode',mode,reason:'start'});
+  expect(s.room.lastSeq).toBe(reported.lastSeq);
+  expect(s.room.state).toEqual(reported.state);
+  const changedMode = mode==='auto' ? 'manual' : 'auto';
+  s.act({type:'detection.mode',mode:changedMode,reason:'start'});
+  expect(s.room.lastSeq).toBe(reported.lastSeq+1);
+  expect(s.room.state.detection).toEqual({0:{mode:changedMode,at:s.room.state.updatedAt}});
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+});
+
+it.each([false,true])('preserves intervening detection reports when undoing a coalesced camera placement (legacy replay: %s)', legacyReplay => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  s.act({type:'detection.mode',actorSeat:1,mode:'auto',reason:'start'});
+  s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{ref:'camera-card',cardId:1,slot:1}});
+  const targetActionId = s.room.state.undo!.actionId;
+  s.act({type:'detection.mode',actorSeat:1,mode:'manual',reason:'player'});
+  const detection = s.room.state.detection;
+  s.act({type:'card.identified',seat:0,cardRef:'camera-card',cardId:2,zone:'monster',slot:1,source:'auto'});
+  expect(s.room.state.undo!.actionId).toBe(targetActionId);
+  const stored = s.db.prepare('select state_json from remote_tables where slug=?').get(s.room.slug) as {state_json:string};
+  const undone = legacyReplay
+    ? ygoModule.reduce(readRemoteState(s.db,stored.state_json),{type:'undo',actorSeat:0,targetActionId,idempotencyKey:'legacy-camera-undo',at:2200},{replay:true})
+    : s.act({type:'undo',targetActionId}).state;
+  expect(undone.seats[0].twin).toEqual([]);
+  expect(undone.detection).toEqual(detection);
+  if (!legacyReplay) expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+});
+
+it('reloads detection modes from persisted state after their events leave the public event window', () => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  s.act({type:'detection.mode',actorSeat:1,mode:'tap',reason:'start'});
+  const detection = s.room.state.detection;
+  for (let i=0;i<51;i++) s.act({type:'log.note',text:`Later event ${i}`});
+  const reloaded = createRemoteDuelService(s.db,{dataDirectory:deckData});
+  const room = reloaded.get(s.room.slug,'g',s.users[0]);
+  expect(room.events).toHaveLength(50);
+  expect(room.events.some(e=>e.action.type==='detection.mode')).toBe(false);
+  expect(room.state.detection).toEqual(detection);
+  const stored = s.db.prepare('select state_json from remote_tables where slug=?').get(room.slug) as {state_json:string};
+  expect(JSON.parse(stored.state_json).detection).toEqual(detection);
+  const views = reloaded.views(room.slug,'g',{userIds:[s.users[0]],spectator:true,publicView:true});
+  for (const state of [views.players.get(s.users[0])!.state,views.spectator!.state,views.publicView!.state,
+    reloaded.snapshot(room.slug,'g').state,reloaded.spectatorSnapshot(room.slug,'g').state,
+    reloaded.replay(room.slug,'g',s.users[0])]) expect(state.detection).toEqual(detection);
+});
+
+it('preserves detection modes through siding and the next game in live state and replay', () => {
+  const s = deckSession('normal');
+  s.select(s.save().id);
+  s.service.configure(s.room.slug,'g',s.users[0],{bestOf:3},2001); s.start();
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  s.act({type:'detection.mode',actorSeat:1,mode:'auto',reason:'start'});
+  const detection = s.room.state.detection;
+  s.act({type:'player.concede',actorSeat:1});
+  s.act({type:'match.continue'});
+  expect(s.room.state.detection).toEqual(detection);
+  s.act({type:'match.first',actorSeat:1,seatGoesFirst:1});
+  s.act({type:'side.ready',seat:0});
+  expect(s.room.state.match).toMatchObject({phase:'duel',games:[{winnerSeat:0}]});
+  expect(s.room.state.ended).toBe(false);
+  expect(s.room.state.detection).toEqual(detection);
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+  const seq = s.room.lastSeq;
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  expect(s.room.lastSeq).toBe(seq);
 });
 
 it('resolves the real Mark search clause including Spell/Traps that mention the named card', async () => {
