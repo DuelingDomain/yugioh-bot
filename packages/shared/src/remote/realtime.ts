@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RoomPatch } from "./delta.js";
 import type { RemoteEvent, RemoteState, RemoteTable } from "./types.js";
 const requestId = z.string().min(1).max(100);
 /** The Visibility choice a new Remote table starts with in the creator and at the API. Solo tables are always private. */
@@ -35,6 +36,8 @@ export type RemoteAck = { ok: true } | { ok: false; error: string; retryAfterMs?
 export interface RemoteServerEvents {
   "remote:private": (payload: RemoteSnapshot) => void;
   "remote:changed": (payload: RemoteSnapshot) => void;
+  /** Small update: apply when `base` is the held sequence, else repair with one GET. Old servers never send it. */
+  "remote:patch": (payload: RoomPatch & { slug?: string }) => void;
   "remote:data": (payload: RemoteDataPayload) => void;
   "remote:subscription-expired": (payload: { slug: string }) => void;
 }
