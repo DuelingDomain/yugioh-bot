@@ -481,7 +481,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const origin=t.announced??t.view.card,pixels=evidence.appearance?.(card);
     if(!bound(t)||card.kind!==t.view.card.kind||(card.kind==='face-down')!==t.view.faceDown||card.confidence<.7||card.partial||card.covered||isCovered(card,cards)||!pixels?.length||
       (distance(origin,card)<=.04&&fieldOrientation(card,width,height,calibration)===t.view.position))return;
-    t.pose={card:structuredClone(card),origin:structuredClone(origin),appearance:pixels,at,cleanAt:at,samples:1};
+    t.pose={card:structuredClone(card),origin:structuredClone(origin),appearance:pixels,at:now(),cleanAt:at,samples:1};
   }
   function confirmPoses(evidence:FieldAnalysis,at:number,width:number,height:number):boolean {
     let pending=false;
@@ -529,7 +529,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // Keep a bounded retry so a stationary card recovers from a detector miss.
     const light=busy||(!heldReader.hasVisibleCard()&&!faceBurst&&(tracked||empty)&&!reading&&!tracks.some(t=>t.needsRead||t.read||t.view.state==='candidate')&&
       now()-lastDetectionAt<(empty&&!tracks.length&&!piles.size&&!suppressed.length?Math.max(2000,metrics.intervalMs):metrics.intervalMs));
-    const generation=epoch;inFlight=true;const start=now();let detectorRan=false,current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
+    const generation=epoch;inFlight=true;const start=now();let detectorRan=false,detectorWasMoving=false,current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const captureAt=now(),sample=await options.buffer.sample({maxAgeMs:pacedStill?200:30}),captureMs=now()-captureAt;current=sample.frame;
       if(generation!==epoch||disposed)return;
@@ -575,7 +575,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // the burst room too; while a hand moves, passes run in budget.
       const pacedFullEvery=pacedStill?pacer.stillEvery(sample.at,liveCards):sceneDirty&&!sceneMoving||pacedPending&&!sceneMoving?0:Math.max(CPU_FULL_SCAN_MS,Math.min(1500,Math.max(ema,metrics.detectorMs)*2));
       const fullEvery=pacing?pacedFullEvery:options.recognizer.detectorBackend==='webgpu'?Math.max(FULL_SCAN_MS,Math.min(1500,Math.max(ema,metrics.detectorMs)/.5)):Math.max(CPU_FULL_SCAN_MS,Math.min(1500,Math.max(ema,metrics.detectorMs)/budget));
-      const fullDue=!busy&&(scanRequested||scanFollowUp&&sample.at-lastFullDetectionAt>=250||(pacing||liveCards||twinMisses.size>0)&&sample.at-lastFullDetectionAt>=fullEvery&&(!pacing||pacer.allow(sample.at,handOnly)));
+      const fullDue=!busy&&(scanRequested||scanFollowUp&&sample.at-lastFullDetectionAt>=250||(pacing||liveCards||twinMisses.size>0)&&sample.at-lastFullDetectionAt>=fullEvery&&(!pacing||pacer.allow(sample.at,handOnly,sceneMoving)));
       debugPath('sample',sample.at);
       // Local stillness: the card's own art window, not motion elsewhere or a hand at its edge.
       // Exposure-robust: the art patch matches the previous sample (camera noise
@@ -667,7 +667,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const confirmationAge=Math.max(450,Math.min(1000,metrics.detectorMs+250));
       const detectionDoneAt=lastDetectionAt+metrics.detectorMs;
       const freshOutline=(t:InternalTrack)=>sample.at-t.view.lastSeen<450+metrics.detectorMs;
-      const faceSamples=cachedTracks.some(t=>t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.read?.result||t.view.state==='candidate'&&t.newOutline||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&now()-detectionDoneAt<confirmationAge&&
+      const faceSamples=cachedTracks.some(t=>t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.read?.result||t.view.state==='candidate'&&t.newOutline||t.view.state==='identified'&&(t.view.faceDown!==(t.view.card.kind==='face-down')||t.moveAt!==undefined))&&now()-detectionDoneAt<confirmationAge&&
         cachedTracks.every(t=>t.view.removed||t.missed&&!t.view.visible&&!t.read||t.view.state==='candidate'&&!t.view.visible&&!t.read&&t.face?.pendingAt===undefined||freshOutline(t)&&!t.view.card.partial&&!t.view.card.covered&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card)))&&evidence.motion(mat)<=.004;
       let detected:DetectedQuad[],region:FractionalBox|undefined,rawOutlines:DetectedQuad[]=[];
@@ -682,8 +682,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
       }else{
       if(!fullDue&&pixelBurst()&&sample.at-lastDetectionAt<(options.recognizer.detectorBackend==='webgpu'?Math.max(100,metrics.intervalMs):100))return;
-      if(pacing&&!urgentScan&&!pacer.allow(sample.at,handOnly)){debugPath('budget wait',sample.at);if(!handOnly)budgetWaitAt=sample.at;return;}
-      detectorRan=true;
+      if(pacing&&!urgentScan&&!pacer.allow(sample.at,handOnly,sceneMoving)){debugPath('budget wait',sample.at);if(!handOnly)budgetWaitAt=sample.at;return;}
+      detectorRan=true;detectorWasMoving=!!sceneMoving;
       detectFrame=await clone(current);
       // Discover new outlines in the recent motion crop, including all live
       // tracks so association and overlap checks still see the whole field.
@@ -1527,7 +1527,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // a 100 ms detector, a 20% budget otherwise stretches each confirmation
       // to 500+ ms and defeats the 1–2 second identification target.
       const settling=settlingNow();
-      if(detectorRan&&pacing)pacer.spend(elapsed,now());
+      if(detectorRan&&pacing)pacer.spend(elapsed,now(),detectorWasMoving);
       // GPU inference leaves the CPU free; still leave room for input/rendering
       // and back off with detector load. Unknown providers keep the WASM guard.
       const gpu=options.recognizer.detectorBackend==='webgpu',scanBudget=gpu&&options.cpuBudget===undefined ? .5 : budget;

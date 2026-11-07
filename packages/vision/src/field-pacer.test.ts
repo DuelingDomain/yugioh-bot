@@ -22,3 +22,10 @@ test('a fresh hand waits briefly for landing, and repeated wake credits stay wit
  for(;at<120_000;at+=10){if(at%2000===0)p.changed(at);if(p.allow(at)){at+=100;p.spend(100,at);busy+=100;}}
  assert.ok(busy/at<=.25,`duty with repeated wakes ${busy/at}`);
 });
+test('slow detectors repay wake borrowing even when inference separates motion samples',()=>{
+ for(const cost of [100,300,600,1200,2400]){
+  const p=createFieldPacer({cores:8},0,()=> 'wasm');let at=0,busy=0;
+  for(;at<1_200_000;at+=100){p.changed(at);if(p.allow(at,true)){at+=cost;p.spend(cost,at);busy+=cost;}}
+  assert.ok(busy/at<=.21,`${cost} ms detector used ${busy/at}`);
+ }
+});
