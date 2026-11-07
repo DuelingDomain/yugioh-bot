@@ -439,3 +439,48 @@ it.each([true,false])("sends only the chosen Deck identity publicly when publici
     }
   } finally {a.disconnect();b.disconnect();await server.io.close();}
 });
+
+it("sends patches built from each viewer's own projected view, never from hidden data, and keeps old sockets on full messages", async () => {
+  const { ygoModule, projectRemoteSnapshot, projectRemoteSpectator, applyPatch }=await import("@yugidraft/shared/remote");
+  const server=await setupTestServer();
+  const state=ygoModule.initialState({seatCount:2});
+  const secret={ref:"c1",zone:"monster",faceUp:true,position:"attack",cardId:53582587,passcode:53582587,name:"Torrential Tribute"};
+  state.seats[0].twin=[secret] as never;
+  const raw={table:{slug:"remote",guildId:"g",lastSeq:2,lastEventAt:1,idleWarningAt:null,seats:[{seat:0,userId:10},{seat:1,userId:11}]},state,events:[]} as any;
+  const asRoom=(view:any)=>({...view.table,state:view.state,events:view.events});
+  const read=(claims:any)=>claims.seat===null?projectRemoteSpectator(raw):projectRemoteSnapshot(raw,new Set([claims.seat]));
+  const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
+    readPrivateSnapshot:read,readSpectatorSnapshot:()=>projectRemoteSpectator(raw)});
+  const clients=[createClient(server.url),createClient(server.url),createClient(server.url),createClient(server.url)];
+  const [owner,opponent,watcher,oldTab]=clients;
+  const names=["owner","opponent","watcher","oldTab"] as const;
+  const got:Record<string,{patch:any[];full:any[];changed:any[]}>=Object.fromEntries(names.map(n=>[n,{patch:[],full:[],changed:[]}]));
+  try {
+    await Promise.all(clients.map(waitForConnect));
+    clients.forEach((socket,i)=>{socket.on("remote:patch",p=>got[names[i]].patch.push(p));socket.on("remote:private",p=>got[names[i]].full.push(p));socket.on("remote:changed",p=>got[names[i]].changed.push(p));});
+    const token=(userId:number,seat:number|null)=>createRemoteConnectionToken({userId,seat,slug:"remote",guildId:"g",expiresAt:Date.now()+60_000},SECRET);
+    const join=(socket:TestClient,t:string,patch:boolean)=>new Promise(resolve=>socket.emit("remote:join",patch?{token:t,patch:1}:{token:t},resolve));
+    await join(owner,token(10,0),true); await join(opponent,token(11,1),true); await join(watcher,token(12,null),true); await join(oldTab,token(11,1),false);
+    const settle=()=>new Promise(resolve=>setTimeout(resolve,150));
+    remote.publish("remote","g"); await settle();
+    // No earlier view: everybody gets a full view, and nobody gets a patch.
+    expect(names.map(n=>[got[n].full.length,got[n].patch.length])).toEqual([[1,0],[1,0],[1,0],[1,0]]);
+    expect(got.oldTab.changed).toHaveLength(1); expect(got.opponent.changed).toHaveLength(0);
+    const before=Object.fromEntries(names.map(n=>[n,asRoom(got[n].full[0])]));
+    // The card goes from public (face up on the field) to hidden (Set).
+    raw.state=structuredClone(raw.state); raw.state.seats[0].twin=[{...secret,faceUp:false,zone:"spell-trap"}];
+    raw.table={...raw.table,lastSeq:3};
+    remote.publish("remote","g"); await settle();
+    expect(names.map(n=>got[n].patch.length)).toEqual([1,1,1,0]);
+    expect(got.oldTab.full).toHaveLength(2); expect(got.oldTab.changed).toHaveLength(2);
+    for(const [name,expected] of [["owner",read({seat:0})],["opponent",read({seat:1})],["watcher",read({seat:null})]] as const) {
+      const patch=got[name].patch[0]; expect(patch).toMatchObject({slug:"remote",base:2,seq:3});
+      // Applying the patch to the view the viewer held gives exactly this viewer's projection of the new table.
+      expect(JSON.parse(JSON.stringify(applyPatch(before[name],patch.ops)))).toEqual(JSON.parse(JSON.stringify({...asRoom(expected)})));
+      const wire=JSON.stringify(patch);
+      // The owner already holds the card, so the patch only turns it face down. The others lose the name and id they saw while it was public.
+      expect(wire).not.toContain("Torrential Tribute"); expect(wire).not.toContain("53582587");
+      expect(patch.ops.some((op:any)=>op.d&&op.p.includes("name"))).toBe(name!=="owner");
+    }
+  } finally { clients.forEach(c=>c.disconnect()); await server.io.close(); }
+});
