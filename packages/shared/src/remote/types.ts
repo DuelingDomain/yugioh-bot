@@ -27,6 +27,8 @@ export type RemoteTwinConfirmation = {
   options?:{ref?:string;label:string}[];placement?:Extract<RemoteAction,{type:"twin.place"}>;
 };
 export type RemotePosition = {
+  /** Fixed at table creation. Legacy and casual tables omit this flag. */
+  tournament?: boolean;
   match: RemoteMatch;
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
@@ -63,7 +65,7 @@ export interface GameModule {
   seatsAllowed: readonly SeatCount[];
   resources: readonly { id: string; name: string; start: number; min: number; loseAtZero: boolean }[];
   zones: readonly { id: string; name: string; shape: "row" | "pile" | "single" }[];
-  initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf }): RemoteState;
+  initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf; tournament?: boolean }): RemoteState;
   /** Pure. No clocks, I/O, randomness, or catalog/engine calls. `action.at` is the injected clock. */
   reduce(state: RemoteState, action: RemoteAction, context?: RemoteReductionContext): RemoteState;
   /** Null means no proposal. An empty effect source asks the UI which card; it must not be submitted. */
