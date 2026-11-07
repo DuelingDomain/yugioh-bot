@@ -1,7 +1,7 @@
 import { DesktopPhoneLink } from "./phone-desktop";
 import type { PhoneReading, PhoneScan } from "./phone-protocol";
 import {
-  ConnectionState, Room, RoomEvent, Track, TrackEvent, VideoPresets, createLocalVideoTrack,
+  ConnectionState, Room, RoomEvent, Track, TrackEvent, createLocalVideoTrack,
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
@@ -14,6 +14,8 @@ import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
 import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
+import { CAMERA_PUBLISH, cameraPublishOptions } from './video-profile';
+import { cameraTraffic, type CameraTraffic } from './video-stats';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -141,7 +143,7 @@ export class RemoteVideo {
     if (this.preparing?.track === track) return this.preparing.promise;
     this.readyTrack = undefined; this.sync();
     const promise = (async () => {
-      track.contentHint = 'detail';
+      track.contentHint = CAMERA_PUBLISH.contentHint;
       await optimizeRecognitionCapture(track);
       if (this.closed || epoch !== this.epoch || this.camera !== camera || camera.mediaStreamTrack !== track) return;
       if (track.readyState === 'ended') throw new Error('The camera stopped. Try again.');
@@ -224,9 +226,7 @@ export class RemoteVideo {
       await this.prepareCamera(camera);
       if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); return; }
       if (camera.mediaStreamTrack.readyState === 'ended') throw new Error('The camera stopped before it could be shared. Try again.');
-      await this.room.localParticipant.publishTrack(camera, { name: "field-cam", source: Track.Source.Camera,
-        videoCodec: "vp8", simulcast: true, videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
-        videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 }, degradationPreference: "maintain-resolution" });
+      await this.publishCamera(camera);
       if (this.closed || epoch !== this.epoch) { await this.stopCamera(camera); await this.room.disconnect(); return; }
       }
       this.scans = new AbortController();
@@ -259,6 +259,27 @@ export class RemoteVideo {
       await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
+  }
+  /** Publish with the profile. A browser that cannot encode H.264 publishes VP8 with the same caps, silently. */
+  private async publishCamera(camera: LocalVideoTrack) {
+    const options = cameraPublishOptions();
+    try { await this.room.localParticipant.publishTrack(camera, { ...options, source: Track.Source.Camera }); }
+    catch (error) {
+      if (options.videoCodec === CAMERA_PUBLISH.fallbackCodec || this.closed) throw error;
+      await this.room.localParticipant.publishTrack(camera, { ...cameraPublishOptions(CAMERA_PUBLISH.fallbackCodec), source: Track.Source.Camera });
+    }
+  }
+  /** Raw WebRTC counters of every camera this device sends or receives, for the owner Debug panel. Never throws. */
+  async trafficStats(): Promise<CameraTraffic[]> {
+    if (this.room.state !== ConnectionState.Connected) return [];
+    const senders = this.camera ? [this.camera.sender, ...[...this.camera.simulcastCodecs.values()].map(codec => codec.sender)] : [];
+    const out = await cameraTraffic("sent", this.options.seat, senders);
+    for (const feed of this.snapshot.feeds) {
+      const track = feed.video as { receiver?: RTCRtpReceiver } | undefined;
+      if (feed.seat === this.options.seat || !track?.receiver) continue;
+      out.push(...await cameraTraffic("received", feed.seat, [track.receiver]));
+    }
+    return out;
   }
   async suspendCamera() {
     const camera = this.camera; this.camera = undefined; this.readyTrack = undefined;

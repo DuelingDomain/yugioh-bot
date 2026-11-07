@@ -8,6 +8,7 @@ import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/
 import {markBackTiming} from '@/lib/remote/field-timing';
 import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
+import type { CameraTraffic } from "@/lib/remote/video-stats";
 import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
@@ -44,6 +45,8 @@ type Hub = {
   micPublished: boolean;
   sourceFor(seat: number): FeedSource | null;
   health(seat: number): Health;
+  /** WebRTC counters per camera sent or received (owner Debug panel). Empty without table video. */
+  trafficStats(): Promise<CameraTraffic[]>;
   setFrozen(seat: number, frozen: boolean): void;
   enableCamera(): Promise<void>;
   /** Leave manual or phone mode and start this device's webcam. */
@@ -74,7 +77,7 @@ const emptyBacks:FieldBack[]=[];
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,tapMode:()=>false,
-  sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
+  sourceFor: () => null, trafficStats: async () => [], health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
@@ -307,7 +310,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
     connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
+    sourceFor, health, trafficStats: () => controller?.trafficStats() ?? Promise.resolve([]), setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
   }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, tapMode, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, cameraLock]);
   return <Ctx value={value}>{children}</Ctx>;
