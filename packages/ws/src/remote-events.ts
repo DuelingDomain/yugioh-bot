@@ -76,7 +76,7 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
     const flat: RoomView = { ...view.table, state: view.state, events: view.events };
     cache.set(key, { seq, view: flat });
     if (!prev || seq <= prev.seq) return prev && seq === prev.seq && !diffView(prev.view, flat).length ? null : { full: view };
-    const patch = makePatch(prev.view, flat, prev.seq, seq);
+    const patch = makePatch(prev.view, flat, prev.seq, seq, { maxRatio: 0.75 });
     return patch ? { patch: { slug: view.table.slug, ...patch } } : { full: view };
   }
   function readViews(slug: string, guildId: string, want: { userIds: number[]; spectator: boolean; publicView: boolean }, claimsOf: (userId: number) => RemoteConnectionTokenClaims | undefined): RemoteViews | null {
