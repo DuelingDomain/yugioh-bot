@@ -19,13 +19,15 @@ describe("creator core status from the real host protocol", () => {
   });
   it("passes all host capabilities to the creator page", async () => {
     const page = await NewDuelPage({ searchParams: Promise.resolve({}) });
-    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
+    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true,
+      remoteDuels: false, remoteFormats: ["normal"], initialRemote: false });
     expect(host).toHaveBeenCalledWith({ op: "capabilities", guildId: "g", playerId: 7 });
   });
 
   it("keeps challenge focus together with host capabilities", async () => {
     const page = await NewDuelPage({ searchParams: Promise.resolve({ challenge: "1" }) });
-    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: true, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
+    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: true, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true,
+      remoteDuels: false, remoteFormats: ["normal"], initialRemote: false });
   });
 
   it.each(["1", "true", "on"])("uses the shared flag reader for %j", async (flag) => {
