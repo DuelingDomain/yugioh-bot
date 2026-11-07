@@ -25,15 +25,14 @@ export interface FieldPacer {
   gap(at:number):number;
 }
 const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,RETRY_FOR_MS=6000;
-/** Rest between passes in a burst, as a share of the pass: at most 2 parts work to 1 part rest. */
+/** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
 export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
 };
 export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()=>string|undefined=()=> 'wasm'):FieldPacer {
-  const weak=device.cores<=2||(device.memoryGb!==undefined&&device.memoryGb<4);
-  const sustain=()=>backend()==='webgpu'?.25:weak?.25:.35;
+  const sustain=()=>backend()==='webgpu'?.25:.2;
   let tokens=2500,last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
   const capacity=()=>Math.max(2500,passMs*6);
@@ -42,7 +41,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   return {
     allow(at,moving=false){
       refill(at);
-      const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*BURST_REST;
+      const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
       return tokens>0&&at-lastEnd>=rest*backoff;
     },
     spend(wallMs,at){
