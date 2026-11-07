@@ -1891,12 +1891,6 @@ function migrateRemoteDuels(db: Database.Database) {
         and not exists(select 1 from remote_state_values where value_hash=old.facts_hash)
         and not exists(select 1 from remote_events where facts_hash=old.facts_hash);
     end;
-    -- Events remain append-only while their room exists. Deleting an ended room
-    -- is the retention boundary for replay, facts, seats, and undo references.
-    drop trigger if exists remote_events_no_delete;
-    create trigger remote_events_no_delete before delete on remote_events
-      when exists(select 1 from remote_tables where id=old.table_id)
-      begin select raise(abort, 'remote_events is append-only'); end;
     create trigger if not exists remote_tables_collect after delete on remote_tables begin
       delete from remote_events where table_id=old.id;
       delete from remote_seats where table_id=old.id;
@@ -1904,4 +1898,16 @@ function migrateRemoteDuels(db: Database.Database) {
       delete from remote_state_values where table_id=old.id;
     end;
   `);
+  // Serialize the definition check and replacement across processes. Current
+  // databases keep their guard without a schema write on every open.
+  db.transaction(() => {
+    const sql = `CREATE TRIGGER remote_events_no_delete before delete on remote_events
+      when exists(select 1 from remote_tables where id=old.table_id)
+      begin select raise(abort, 'remote_events is append-only'); end`;
+    const existing = db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get() as {sql:string} | undefined;
+    if (existing?.sql !== sql) {
+      db.exec('drop trigger if exists remote_events_no_delete');
+      db.exec(sql);
+    }
+  }).immediate();
 }

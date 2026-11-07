@@ -331,6 +331,11 @@ same guard, lock, preflight, backup, stop, migration and health checks. A missin
 any local tag or service change. Do not use this for incompatible schema or auth changes without
 first restoring the matching database and protected runtime environment under the procedures below.
 
+Remote Duels ships with its reference reader in the same release, so the pre-release `:prev`
+image has no Remote Duels reader. Keep a reference-capable reader when rolling back a later
+release: old readers cannot decode `valueHash`. If expanding positions for rollback, preserve
+`remote_values`/event facts; version-1 rows with full positions remain readable on roll-forward.
+
 For immediate local image recovery, first drain gameplay and acquire the shared build lock. Choose
 the matching release metadata, preserve current data, and restore compatible checkout/env/engine data
 before starting services. Stop the old bot if present, then stop `web duel worker ws`. Confirm all four

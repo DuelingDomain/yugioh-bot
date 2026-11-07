@@ -2859,6 +2859,12 @@ it('stores undo positions once with atomic legacy upgrade and reference lifetime
   const act = (id: string) => call().act(session.room.slug,'g',users[0],{baseSeq:call().get(session.room.slug,'g',users[0]).lastSeq,
     action:remoteActionSchema.parse({type:'lp.change',seat:0,reason:'effect',actorSeat:0,delta:100,idempotencyKey:id})},3000);
   const count = () => (db.prepare('select count(*) n from remote_values').get() as {n:number}).n;
+  // A rollback can leave a version-1 row with full positions. Roll-forward reads it.
+  db.prepare('update remote_tables set state_json=? where id=?').run(JSON.stringify({...legacy,storageVersion:1}),stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state).toEqual(session.room.state);
+  const fullVersioned=readRemoteState(db,stateRow().state_json);
+  expect(Object.isFrozen(fullVersioned.undo!.before.seats)).toBe(true);
+  expect(Object.isFrozen(fullVersioned.undoHistory![0].after!.seats)).toBe(true);
   const oldCount=count(), oldJson=stateRow().state_json;
   const eventsBefore=db.prepare('select count(*) n from remote_events').get();
   db.exec("create trigger fail_state before update of state_json on remote_tables begin select raise(abort,'forced rollback'); end");
@@ -2926,6 +2932,23 @@ it('stores undo positions once with atomic legacy upgrade and reference lifetime
     expect(()=>createRemoteDuelService(reader,{dataDirectory:deckData}).searchCandidates(session.room.slug,'g',users[0],0,1)).not.toThrow();
     expect(interleaved).toBe(true);
     expect(JSON.parse((prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json).undo).toBeNull();
+    // A replay already reading the room keeps its facts even if retention
+    // removes the room in another process before it reads the event log.
+    writer.prepare("update remote_tables set status='ended',ended_at=2999 where slug=?").run(session.room.slug);
+    const replayService=createRemoteDuelService(reader,{dataDirectory:deckData});
+    const expectedReplay=replayService.replay(session.room.slug,'g',users[0]);
+    let purged=false;
+    vi.mocked(reader.prepare).mockImplementation(((sql:string)=>{
+      if(sql==='select * from remote_events where table_id=? order by seq' && !purged) {
+        purged=true;
+        expect(createRemoteDuelService(writer,{dataDirectory:deckData}).purgeEnded(3000)).toBe(1);
+      }
+      return prepare(sql);
+    }) as typeof reader.prepare);
+    expect(replayService.replay(session.room.slug,'g',users[0])).toEqual(expectedReplay);
+    expect(purged).toBe(true);
+    expect(()=>replayService.get(session.room.slug,'g',users[0])).toThrow('Remote table not found');
+
   } finally { reader.close(); writer.close(); rmSync(concurrentDir,{recursive:true,force:true}); }
   // A game end keeps Undo and replay available. Explicit retention owns deletion.
   db.prepare("update remote_tables set status='ended',ended_at=3000 where id=?").run(stateRow().id);
@@ -2937,4 +2960,39 @@ it('stores undo positions once with atomic legacy upgrade and reference lifetime
   expect(db.prepare('select hash from remote_values where hash=?').get(sharedHash)).toBeDefined();
   db.prepare('delete from remote_tables where slug=?').run(second.slug);
   expect(count()).toBe(0);
+});
+
+
+it('shares decoded values and counters across separate module graphs', async () => {
+  const session=deckSession('normal');session.select(session.save().id);session.start();
+  session.act({type:'lp.change',seat:0,reason:'effect',delta:-100});
+  const json=(session.db.prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json;
+  const first=await import('../../src/remote/storage.js');
+  const before=first.readRemoteState(session.db,json).undo!.before;
+  const stats=first.remoteValueCacheStats();
+  vi.resetModules();
+  const second=await import('../../src/remote/storage.js');
+  expect(second.remoteValueCacheStats()).toEqual(stats);
+  expect(second.readRemoteState(session.db,json).undo!.before).toBe(before);
+  expect(first.remoteValueCacheStats().hits).toBeGreaterThan(stats.hits);
+});
+
+it('upgrades the event deletion guard atomically and leaves current SQL untouched', () => {
+  const {db,service,table,users}=setup();
+  db.exec("drop trigger remote_events_no_delete; create trigger remote_events_no_delete before delete on remote_events begin select raise(abort, 'remote_events is append-only'); end");
+  const exec=db.exec.bind(db), replaced:boolean[]=[];
+  const spy=vi.spyOn(db,'exec').mockImplementation((sql:string)=>{
+    if(/drop trigger(?: if exists)? remote_events_no_delete/i.test(sql)) replaced.push(db.inTransaction);
+    return exec(sql);
+  });
+  try {
+    migrate(db);
+    expect(replaced).toEqual([true]);
+    const guard=db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get();
+    replaced.length=0;migrate(db);
+    expect(replaced).toEqual([]);
+    expect(db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get()).toEqual(guard);
+    expect(()=>db.prepare('delete from remote_events where table_id=(select id from remote_tables where slug=?)').run(table.slug)).toThrow(/append.only/);
+    expect(service.get(table.slug,'g',users[0]).lastSeq).toBe(table.lastSeq);
+  } finally {spy.mockRestore();}
 });
