@@ -1,6 +1,7 @@
 "use client";
 
 import type { KwsHit } from "./kws-glue";
+import { resumeAudioContext } from "./audio-resume";
 import type { KwsWorkerIn, KwsWorkerOut } from "./kws-worker";
 
 /** Where prepare.mts puts the module, the model and the worker; served by /dev/vision-assets. */
@@ -8,8 +9,13 @@ export const KWS_BASE = "/dev/vision-assets/kws/";
 
 export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number };
 export type KwsReady = { fetchMs: number; initMs: number; totalMs: number; bytes: number; heapBytes: number; accepted: boolean };
+/** What the mic path is doing right now, so a silent mic can be told apart from a suspended context or a muted track. */
+export type KwsStatus = { micName: string; contextState: AudioContextState; sampleRate: number; muted: boolean; enabled: boolean; framesPerSecond: number; silentMs: number };
 export type KwsClientOptions = {
   base?: string;
+  /** Preferred microphone (a missing one falls back to the default). */
+  deviceId?: string;
+  onStatus?(status: KwsStatus): void;
   defaultKeywords: string;
   keywords: string;
   boost: number;
@@ -31,6 +37,9 @@ export class KwsClient {
   private stream: MediaStream | undefined;
   private context: AudioContext | undefined;
   private disposed = false;
+  private frames = 0;
+  private lastFrameAt = performance.now();
+  private statusTimer: ReturnType<typeof setInterval> | undefined;
   private serial = 0;
   private readonly started = performance.now();
   private spoken = new Map<number, number>();
@@ -52,16 +61,34 @@ export class KwsClient {
     };
     this.send({ type: "init", base, defaultKeywords: o.defaultKeywords, keywords: o.keywords, boost: o.boost, threshold: o.threshold });
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(o.deviceId ? { deviceId: { ideal: o.deviceId } } : {}) } });
       if (this.disposed) { this.stream.getTracks().forEach(track => track.stop()); return; }
       const context = this.context = new AudioContext();
+      context.addEventListener("statechange", () => this.report());
+      await resumeAudioContext(context);
+      if (this.disposed) return;
       const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
       await context.audioWorklet.addModule(url); URL.revokeObjectURL(url);
       const source = context.createMediaStreamSource(this.stream);
       const node = new AudioWorkletNode(context, "pcm-tap");
       const mute = context.createGain(); mute.gain.value = 0; source.connect(node); node.connect(mute).connect(context.destination);
       this.tap(node, context.sampleRate / 16000);
+      this.lastFrameAt = performance.now(); this.frames = 0;
+      let counted = 0; let countedAt = performance.now(); this.fps = 0;
+      this.statusTimer = setInterval(() => {
+        const now = performance.now();
+        this.fps = (this.frames - counted) / Math.max(0.001, (now - countedAt) / 1000); counted = this.frames; countedAt = now;
+        this.report();
+      }, 500);
     } catch (error) { o.onError((error as Error).message || "Microphone unavailable"); }
+  }
+
+  private fps = 0;
+  private report() {
+    const track = this.stream?.getAudioTracks()[0]; const context = this.context;
+    if (!track || !context || this.disposed) return;
+    this.options.onStatus?.({ micName: track.label || "default microphone", contextState: context.state, sampleRate: context.sampleRate, muted: track.muted, enabled: track.enabled,
+      framesPerSecond: this.fps, silentMs: performance.now() - this.lastFrameAt });
   }
 
   /** New phrase list (a different deck, or new boost and threshold values). */
@@ -101,12 +128,14 @@ export class KwsClient {
         while (position < 1) { samples.push(last + (value - last) * position); position += ratio; }
         position -= 1; last = value;
       }
-      while (samples.length >= FRAME) frame(Float32Array.from(samples.splice(0, FRAME)));
+      this.lastFrameAt = performance.now();
+      while (samples.length >= FRAME) { this.frames++; frame(Float32Array.from(samples.splice(0, FRAME))); }
     };
   }
 
   stop() {
     this.disposed = true;
+    clearInterval(this.statusTimer);
     this.stream?.getTracks().forEach(track => track.stop());
     void this.context?.close();
     this.worker?.terminate(); this.worker = null;

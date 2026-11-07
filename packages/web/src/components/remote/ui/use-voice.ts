@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SttClient, type SttFinal } from "./stt-client";
+import { resumeAudioContext } from "./voice/audio-resume";
 
 export type MicState = "listen" | "idle" | "muted" | "off";
 export type VoiceTranscript = { requestId: string; text: string; normalizedText: string; gate: MicState; live: boolean; result?: string; ignored?: boolean };
@@ -53,6 +54,8 @@ export function useVoice(options: Options) {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         if (disposed) { stream.getTracks().forEach(t => t.stop()); return; }
         context = new AudioContext();
+        await resumeAudioContext(context);
+        if (disposed) return;
         const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
         await context.audioWorklet.addModule(url); URL.revokeObjectURL(url);
         const source = context.createMediaStreamSource(stream);

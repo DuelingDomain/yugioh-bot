@@ -7,10 +7,12 @@ import { cardInfo, loadCards } from "@/components/remote/ui/catalog";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
 import { buildPhrases, combineHits, isChatter, placeholderLine, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
 import { HEARD_PHASES, PHASE_LABEL, VOICE_PHASES, heardPhaseOf, judgePhaseWord, type HeardPhase, type VoicePhase } from "@/components/remote/ui/voice/phase-plausibility";
-import { KwsClient, type KwsReady, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
+import { KwsClient, type KwsReady, type KwsStatus, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 
 const sp = createSentencePiece(vocab as SentencePieceVocab);
+const MIC_KEY = "voice-check-mic";
+const NO_SOUND_MS = 3000;
 const CHAT_MS = 10 * 60 * 1000;
 const PLAYERS = [{ seat: 0, displayName: "Me" }, { seat: 1, displayName: "Opponent" }];
 
@@ -61,6 +63,9 @@ export function VoiceCheck() {
   const [simPhase, setSimPhase] = useState<VoicePhase>("main1");
   const [simTurn, setSimTurn] = useState(2);
   const [simMine, setSimMine] = useState(true);
+  const [mics, setMics] = useState<{ deviceId: string; label: string }[]>([]);
+  const [micId, setMicId] = useState("");
+  const [micStatus, setMicStatus] = useState<KwsStatus | null>(null);
   const [chatLeft, setChatLeft] = useState<number | null>(null);
   const [chat, setChat] = useState({ utterances: 0, hits: 0, acts: 0 });
   const client = useRef<KwsClient | null>(null);
@@ -75,6 +80,18 @@ export function VoiceCheck() {
 
   useEffect(() => { client.current?.setKeywords(lines); }, [lines]);
   useEffect(() => () => client.current?.stop(), []);
+  useEffect(() => { try { setMicId(localStorage.getItem(MIC_KEY) ?? ""); } catch { /* private window: default mic */ } }, []);
+  useEffect(() => {
+    const list = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setMics(devices.filter(d => d.kind === "audioinput" && d.deviceId).map((d, index) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${index + 1}` })));
+      } catch { setMics([]); }
+    };
+    void list();
+    navigator.mediaDevices?.addEventListener?.("devicechange", list);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", list);
+  }, [status]);
   useEffect(() => {
     if (chatLeft === null) return;
     if (chatLeft <= 0) { setChatLeft(null); return; }
@@ -131,9 +148,10 @@ export function VoiceCheck() {
     setDeckNote(`${deck.name}: ${ids.length} cards`);
   };
 
-  const start = () => {
-    setError(""); setReady(null); setStatus("loading");
+  const start = (deviceId = micId) => {
+    setError(""); setReady(null); setMicStatus(null); setStatus("loading");
     const kws = new KwsClient({
+      deviceId: deviceId || undefined, onStatus: setMicStatus,
       defaultKeywords: placeholderLine(sp), keywords: lines, boost: 1.5, threshold: 0.25,
       onReady: info => { setReady(info); setStatus("listening"); },
       onUtterance, onLevel: value => setLevel(value),
@@ -142,7 +160,15 @@ export function VoiceCheck() {
     client.current = kws;
     void kws.start();
   };
-  const stop = () => { client.current?.stop(); client.current = null; setStatus("off"); setLevel(0); setChatLeft(null); };
+  const stop = () => { client.current?.stop(); client.current = null; setStatus("off"); setLevel(0); setChatLeft(null); setMicStatus(null); };
+  const pickMic = (deviceId: string) => {
+    setMicId(deviceId);
+    try { localStorage.setItem(MIC_KEY, deviceId); } catch { /* the choice just is not remembered */ }
+    if (client.current) { stop(); start(deviceId); }
+  };
+  const micName = micStatus?.micName ?? "the microphone";
+  const micProblem = !micStatus ? "" : micStatus.contextState !== "running" ? "Click anywhere to start audio"
+    : micStatus.muted || micStatus.silentMs > NO_SOUND_MS ? `No sound from ${micName}. Pick another microphone or check Windows sound settings.` : "";
   const startChat = () => { setChat({ utterances: 0, hits: 0, acts: 0 }); setChatLeft(CHAT_MS); };
 
   const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
@@ -187,11 +213,22 @@ export function VoiceCheck() {
           {set.counts.skipped.length ? `, skipped ${set.counts.skipped.length}: ${set.counts.skipped.slice(0, 5).join(", ")}` : ""}
         </div>
         <div>
-          {status === "off" ? <button onClick={start} data-testid="start">Start</button> : <button onClick={stop}>Stop</button>}{" "}
+          {status === "off" ? <button onClick={() => start()} data-testid="start">Start</button> : <button onClick={stop}>Stop</button>}{" "}
           <span data-testid="status">{status}</span>{" "}
           <span style={{ display: "inline-block", width: 120, height: 10, background: "#333", verticalAlign: "middle" }}><span style={{ display: "block", height: 10, width: `${Math.round(level * 100)}%`, background: "#8c6" }} /></span>
           {error && <span style={{ color: "#f88" }} data-testid="error"> {error}</span>}
         </div>
+        <div>
+          <label>Microphone <select value={micId} onChange={e => pickMic(e.target.value)} data-testid="mic">
+            <option value="">Default</option>
+            {micId && !mics.some(m => m.deviceId === micId) && <option value={micId}>Saved microphone (not found)</option>}
+            {mics.map(m => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+          </select></label>
+        </div>
+        {micStatus && <div data-testid="mic-status" style={{ fontSize: 13 }}>
+          Mic: {micStatus.micName} | AudioContext: {micStatus.contextState} | {micStatus.sampleRate} Hz | track {micStatus.muted ? "MUTED" : "live"}, {micStatus.enabled ? "enabled" : "disabled"} | frames/s: {micStatus.framesPerSecond.toFixed(0)} (about 50 expected)
+        </div>}
+        {micProblem && <div data-testid="mic-problem" role="status" style={{ color: "#fc8", border: "1px solid #a82", padding: "4px 8px", borderRadius: 6 }}>{micProblem}</div>}
         {ready && <div data-testid="load">Model loaded in {(ready.totalMs / 1000).toFixed(2)} s (files {(ready.fetchMs / 1000).toFixed(2)} s, init {(ready.initMs / 1000).toFixed(2)} s, {(ready.bytes / 1e6).toFixed(1)} MB model, wasm heap {(ready.heapBytes / 1e6).toFixed(0)} MB){ready.accepted ? "" : " - the spotter rejected the phrase list"}</div>}
         <div data-testid="cpu">Speech worker busy time / audio time: {cpu.toFixed(3)} ({(busyTotal.busy / 1000).toFixed(2)} s for {(busyTotal.audio / 1000).toFixed(1)} s of gated audio)</div>
         <div>
