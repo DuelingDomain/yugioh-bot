@@ -5,6 +5,7 @@ import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { migrateCubeOwnerNames } from "./cube-owner-names.js";
+import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 import { migrateReleases } from "./releases.js";
 
@@ -1452,6 +1453,9 @@ export function migrate(db: Database.Database) {
   // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
   addColumnIfMissing(db, "users", "image_url", "text");
   migrateCreatorAccess(db);
+  migrateRemoteDuels(db);
+
+  migrateVisionFeedback(db);
   db.exec(`
     create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
     create table if not exists worker_heartbeat (
@@ -1785,4 +1789,130 @@ function migrateCreatorAccess(db: Database.Database) {
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
   addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
   addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
+}
+
+function migrateRemoteDuels(db: Database.Database) {
+  // Pairing tables are web-owned. Associate new buckets with rooms so retention can remove them.
+  if (db.prepare("select 1 from sqlite_master where type='table' and name='remote_phone_attempts'").get()) {
+    addColumnIfMissing(db, "remote_phone_attempts", "slug", "text");
+    db.exec("create index if not exists remote_phone_attempts_room on remote_phone_attempts(slug)");
+  }
+  // Independent from engine duels: remote calls never count as deploy-blocking activity.
+  db.exec(`
+    create table if not exists remote_tables (
+      id integer primary key autoincrement,
+      slug text not null unique,
+      guild_id text not null,
+      game_id text not null,
+      seat_count integer not null check (seat_count in (2,3,4)),
+      status text not null check (status in ('lobby','active','ended')),
+      created_by integer not null references users(id),
+      state_json text not null,
+      last_seq integer not null default 0,
+      created_at integer not null,
+      started_at integer,
+      ended_at integer,
+      last_event_at integer not null,
+      idle_warning_at integer,
+      end_reason text
+    );
+    create index if not exists remote_tables_guild_status_idx on remote_tables(guild_id,status);
+    create index if not exists remote_tables_idle_idx on remote_tables(last_event_at) where status != 'ended';
+    create table if not exists remote_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 0 and 3),
+      user_id integer not null references users(id),
+      display_name text not null,
+      ready integer not null default 0 check (ready in (0,1)),
+      primary key (table_id,seat), unique (table_id,user_id)
+    );
+    create index if not exists remote_seats_user_idx on remote_seats(user_id,table_id);
+    -- Keep existing human-seat rows and their NOT NULL user FK intact.
+    create table if not exists remote_bot_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 1 and 3),
+      display_name text not null,
+      primary key (table_id,seat)
+    );
+    create table if not exists remote_events (
+      id integer primary key autoincrement,
+      table_id integer not null references remote_tables(id),
+      seq integer not null,
+      idempotency_key text not null,
+      actor_seat integer check (actor_seat between 0 and 3),
+      user_id integer references users(id),
+      action_json text not null,
+      created_at integer not null,
+      unique (table_id,seq), unique (table_id,idempotency_key)
+    );
+    create trigger if not exists remote_events_no_update before update on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+    create trigger if not exists remote_events_no_delete before delete on remote_events
+      begin select raise(abort, 'remote_events is append-only'); end;
+  `);
+  addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
+  addColumnIfMissing(db, "remote_tables", "format_json", "text");
+  addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");
+  // Tables from before this setting stay closed to spectators. New tables choose at creation.
+  addColumnIfMissing(db, "remote_tables", "visibility", "text not null default 'private' check (visibility in ('public','private'))");
+  // A spectator slot, held by the viewer's room poll. No seat, no event, no idle clock. user_id has no foreign key: rows live for seconds.
+  db.exec(`create table if not exists remote_spectators (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    last_seen_at integer not null,
+    primary key (table_id,user_id)
+  ) without rowid`);
+  for (const table of ["remote_seats", "remote_bot_seats"]) {
+    addColumnIfMissing(db, table, "saved_deck_id", "integer");
+    addColumnIfMissing(db, table, "deck_json", "text");
+  }
+  addColumnIfMissing(db, "remote_events", "effects_json", "text");
+  addColumnIfMissing(db, "remote_events", "messages_json", "text");
+  // Immutable JSON addressed by content, shared by undo positions and event facts.
+  db.exec(`
+    create table if not exists remote_values (
+      hash text primary key check(length(hash)=64), json text not null
+    ) without rowid;
+    create trigger if not exists remote_values_no_update before update on remote_values
+      begin select raise(abort, 'remote_values is immutable'); end;
+    create table if not exists remote_state_values (
+      table_id integer not null references remote_tables(id) on delete cascade,
+      value_hash text not null references remote_values(hash),
+      primary key(table_id,value_hash)
+    ) without rowid;
+    create index if not exists remote_state_values_hash on remote_state_values(value_hash);
+  `);
+  addColumnIfMissing(db, "remote_events", "facts_hash", "text references remote_values(hash)");
+  db.exec(`
+    create index if not exists remote_events_facts_hash on remote_events(facts_hash) where facts_hash is not null;
+    create index if not exists remote_tables_retention on remote_tables(ended_at) where status='ended';
+    create trigger if not exists remote_state_values_collect after delete on remote_state_values begin
+      delete from remote_values where hash=old.value_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.value_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.value_hash);
+    end;
+    create trigger if not exists remote_events_collect after delete on remote_events begin
+      delete from remote_values where hash=old.facts_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.facts_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.facts_hash);
+    end;
+    create trigger if not exists remote_tables_collect after delete on remote_tables begin
+      delete from remote_events where table_id=old.id;
+      delete from remote_seats where table_id=old.id;
+      delete from remote_bot_seats where table_id=old.id;
+      delete from remote_state_values where table_id=old.id;
+    end;
+  `);
+  // Serialize the definition check and replacement across processes. Current
+  // databases keep their guard without a schema write on every open.
+  db.transaction(() => {
+    const sql = `CREATE TRIGGER remote_events_no_delete before delete on remote_events
+      when exists(select 1 from remote_tables where id=old.table_id)
+      begin select raise(abort, 'remote_events is append-only'); end`;
+    const existing = db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get() as {sql:string} | undefined;
+    if (existing?.sql !== sql) {
+      db.exec('drop trigger if exists remote_events_no_delete');
+      db.exec(sql);
+    }
+  }).immediate();
 }

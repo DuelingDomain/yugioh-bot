@@ -1,0 +1,20 @@
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  enable_loopback_candidate: false
+turn:
+  enabled: false
+room:
+  auto_create: true
+  # 4 seats + 4 phones + 10 spectators (REMOTE_SPECTATOR_CAP) = 18, the limit the web server keeps to
+  # (REMOTE_ROOM_LIMIT, spectator-server.ts). The 2 extra places mean a player's reconnect wins while a spectator is being removed.
+  max_participants: 20
+  empty_timeout: 300
+  departure_timeout: 20
+limit:
+  # In and out together, on this node. One spectator adds 1 track per camera.
+  num_tracks: 96
+prometheus:
+  port: 6789

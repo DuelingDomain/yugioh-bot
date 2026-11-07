@@ -32,10 +32,10 @@ export type CardMeta = { name: string; type: number };
 
 const EMPTY_DECK: DuelDeck = { main: [], extra: [], side: [] };
 
-type Tag = "out" | "in";
+export type Tag = "out" | "in";
 
 /** A focusable thumbnail that can carry an OUT or IN mark. */
-function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelect }: {
+export function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelect }: {
   code: number;
   name: string;
   label: string;
@@ -64,7 +64,7 @@ function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelec
   );
 }
 
-function Section({ title, count, target, tone, hint, children, empty }: {
+export function Section({ title, count, target, tone, hint, children, empty }: {
   title: string;
   count: number;
   target: string;

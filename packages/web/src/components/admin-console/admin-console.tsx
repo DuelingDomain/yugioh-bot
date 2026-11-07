@@ -13,6 +13,7 @@ import { WaitlistView } from "./views/waitlist";
 import { CreatorsView } from "./views/creators";
 import { UpdatesView } from "./views/updates";
 import { HealthView } from "./views/health";
+import { VisionView } from "./views/vision";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
 
@@ -80,7 +81,9 @@ function LiveChip({ s, label }: { s: Snapshots; label?: boolean }) {
 }
 
 /** The /admin console: a left menu with eight views, one large view at a time. */
-export function AdminConsole() {
+/** `vision`: the Vision view belongs to Remote Duels and exists only for a viewer with that access. */
+export function AdminConsole({ vision = false }: { vision?: boolean }) {
+  const views = useMemo(() => VIEWS.filter((v) => vision || v !== "vision"), [vision]);
   const s = useSnapshots();
   const [view, setView] = useState<View>("overview");
   const [person, setPerson] = useState<UserKey | null>(null);
@@ -108,12 +111,12 @@ export function AdminConsole() {
     const read = () => {
       const hash = window.location.hash.slice(1);
       if (hash === TODAY_ANCHOR) { anchor.current = hash; setView("duels"); return; }
-      setView(isView(hash) ? hash : "overview");
+      setView(isView(hash) && views.includes(hash) ? hash : "overview");
     };
     read();
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
-  }, []);
+  }, [views]);
 
   // Scroll once the list is on the page; the live tables above it must have loaded first, or the list moves down.
   const anchorReady = view === "duels" && s.live.result !== null && s.today.result !== null;
@@ -145,7 +148,7 @@ export function AdminConsole() {
       const typing = target?.closest("input, textarea, select, [contenteditable='true']");
       if (typing) { if (e.key === "Escape") (target as HTMLElement).blur(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key >= "1" && e.key <= String(VIEWS.length)) { go(VIEWS[Number(e.key) - 1]); return; }
+      if (e.key >= "1" && e.key <= String(views.length)) { go(views[Number(e.key) - 1]); return; }
       if (e.key === "/") {
         e.preventDefault();
         if (view === "people") filterRef.current?.focus();
@@ -156,7 +159,7 @@ export function AdminConsole() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [go, view]);
+  }, [go, view, views]);
   useEffect(() => {
     if (view === "people" && focusFilter.current) { focusFilter.current = false; filterRef.current?.focus(); }
   }, [view]);
@@ -174,7 +177,7 @@ export function AdminConsole() {
           <div className={styles.brandText}><div className={styles.brandName}>Dueling Domain</div><div className={styles.brandSub}>Admin console</div></div>
         </a>
         <nav className={styles.nav}>
-          {VIEWS.map((v, i) => (
+          {views.map((v, i) => (
             <button key={v} type="button" className={styles.navItem} aria-current={view === v ? "page" : undefined}
               title={`${VIEW_META[v].label} (${i + 1})`} onClick={() => go(v)}>
               <Icon name={VIEW_META[v].icon} />
@@ -183,7 +186,7 @@ export function AdminConsole() {
             </button>
           ))}
         </nav>
-        <p className={styles.railHint}>Press <kbd className={styles.kbd}>1</kbd>–<kbd className={styles.kbd}>{VIEWS.length}</kbd> to switch views</p>
+        <p className={styles.railHint}>Press <kbd className={styles.kbd}>1</kbd>–<kbd className={styles.kbd}>{views.length}</kbd> to switch views</p>
         <div className={styles.railFoot}>
           <button type="button" className={styles.sys} onClick={() => go("health")} title="Open Health">
             <StatusIcon tone={s.system.result?.state === "ok" ? badges.healthTone : "quiet"} />
@@ -223,13 +226,14 @@ export function AdminConsole() {
               : view === "creators" ? <CreatorsView s={s} actions={actions} />
               : view === "updates" ? <UpdatesView actions={actions} />
               : view === "health" ? <HealthView s={s} />
+              : view === "vision" && vision ? <VisionView />
               : <InsightsView s={s} />}
           </section>
         </div>
       </main>
 
-      <nav className={`${styles.tabbar} ${styles.tabbar8}`} aria-label="Admin views">
-        {VIEWS.map((v) => (
+      <nav className={`${styles.tabbar} ${styles.tabbar8}`} style={{ gridTemplateColumns: `repeat(${views.length}, minmax(0, 1fr))` }} aria-label="Admin views">
+        {views.map((v) => (
           <button key={v} type="button" className={styles.tab} aria-current={view === v ? "page" : undefined} onClick={() => go(v)}>
             <Icon name={VIEW_META[v].icon} />{VIEW_META[v].label}{badges.tabs[v] ?? null}
           </button>

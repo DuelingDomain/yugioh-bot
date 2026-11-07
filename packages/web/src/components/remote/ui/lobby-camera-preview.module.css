@@ -1,0 +1,101 @@
+/* Camera step of the Remote Duels lobby. Uses the Match Sheet tokens (--duel-*) that sheetRoot sets. */
+.root{display:grid;gap:14px;min-width:0}
+.root *{box-sizing:border-box}
+
+.stage{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;align-items:start}
+.viewCol{min-width:0}
+/* The frame takes the camera's real aspect ratio, so there are no black bars. */
+.view{--vh:52vh;position:relative;width:min(100%,calc(var(--vh)*var(--ar,1.7778)));aspect-ratio:var(--ar,1.7778);background:var(--duel-panel);border:1px solid var(--duel-rule-lo);border-radius:6px;overflow:hidden;transition:border-color .2s}
+.view[data-found]{border-color:var(--duel-ok)}
+.video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;background:var(--duel-ground)}
+.outlines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.outlines polygon{fill:rgb(134 207 161/.12);stroke:var(--duel-ok);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;background:rgb(7 11 21/.78);color:var(--duel-ink-2);font-size:14px}
+.veilBody{display:grid;gap:8px;justify-items:center;text-align:center;padding:12px}
+.veilBody p{margin:0}
+.feed{display:grid;gap:6px;min-width:0}
+.feed p{margin:0}
+.feedButton{position:absolute;inset:0;display:block;width:100%;height:100%;padding:0;border:0;background:none;cursor:crosshair}
+.feedButton:disabled{cursor:progress}
+.feedButton:focus-visible{outline:2px solid var(--duel-chain);outline-offset:-2px}
+.readNote{min-height:18px}
+.phoneStatus{color:var(--duel-ok);font-size:13.5px;font-weight:500}
+.others{display:grid;gap:8px;padding-top:12px;border-top:1px solid var(--duel-rule-lo)}
+.others p{margin:0}
+.otherGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.chip{position:absolute;left:8px;bottom:8px;display:inline-flex;align-items:center;gap:7px;padding:3px 9px;border-radius:99px;background:rgb(7 11 21/.72);border:1px solid var(--duel-rule-lo);font-size:12px;letter-spacing:.04em;color:var(--duel-ink-2);font-variant-numeric:tabular-nums}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--duel-ok)}
+
+.controls{display:grid;gap:12px;min-width:0}
+.row{display:grid;gap:5px;padding-bottom:12px;border-bottom:1px solid var(--duel-rule-lo)}
+.row:last-child{border-bottom:0;padding-bottom:0}
+.row p{margin:0}
+.rowLabel{display:inline-flex;align-items:center;gap:6px;margin-bottom:0}
+.rowLabel svg{color:var(--duel-chain)}
+.row a,.phoneText a{color:var(--duel-pen-ink)}
+.lead{margin:0;font-size:16px;color:var(--duel-ink)}
+.err{margin:0;font-size:13px;color:var(--duel-loss-ink)}
+.check{margin:0;display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--duel-ink-2);min-height:22px}
+.checkOn{color:var(--duel-ok);font-weight:500}
+
+.meter{display:block;height:6px;border-radius:3px;background:var(--duel-panel-3);overflow:hidden;--level:0}
+.meter i{display:block;height:100%;width:100%;transform-origin:left center;transform:scaleX(var(--level));background:linear-gradient(90deg,var(--duel-ok),var(--duel-chain));transition:transform .08s linear}
+
+.problem{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 16px;border:1px solid var(--duel-loss);background:var(--duel-loss-soft);border-radius:6px;color:var(--duel-loss-ink)}
+.problemTitle{margin:0 0 2px;font-size:15px;color:var(--duel-ink)}
+.problem > div{flex:1 1 220px;min-width:0}
+
+.phoneWait{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:start}
+.qrBox{width:164px;height:164px;padding:8px;background:#fff;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.qrBox img{display:block;width:148px;height:148px}
+.qrEmpty{color:#334;font-size:13px}
+.phoneText{display:grid;gap:8px;min-width:0}
+.code{margin:0;font:500 26px/1 var(--duel-f-num);letter-spacing:.28em;color:var(--duel-chain-ink)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.linkButton{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border:1px solid var(--duel-rule-lo);border-radius:6px;font-size:13px;text-decoration:none;color:var(--duel-ink-2)}
+.linkButton:hover{color:var(--duel-ink);border-color:var(--duel-rule)}
+.phoneText p{margin:0}
+
+.manual{display:flex;gap:12px;align-items:flex-start;margin:0;padding:14px 16px;border:1px solid var(--duel-rule-lo);background:var(--duel-panel);border-radius:6px;color:var(--duel-ink-2);font-size:14px;line-height:1.45}
+.manual svg{flex:none;margin-top:1px;color:var(--duel-chain)}
+
+.spin{animation:lcp-spin .9s linear infinite}
+@keyframes lcp-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}.meter i,.view{transition:none}}
+
+@media (max-width:760px){
+  .stage{grid-template-columns:minmax(0,1fr);gap:14px}
+  .view{--vh:44vh}
+  .phoneWait{grid-template-columns:minmax(0,1fr)}
+  .qrBox{justify-self:center}
+}
+
+.fieldGrid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.fieldGrid polygon{fill:transparent;stroke:#f3ca7577;stroke-width:1;vector-effect:non-scaling-stroke}
+.fieldGrid text{text-anchor:middle;dominant-baseline:middle;fill:#ffebbc;font:700 24px system-ui,sans-serif;paint-order:stroke;stroke:#100a1a;stroke-width:3px}
+.fieldGrid[data-guess] polygon{stroke-dasharray:5 4;stroke:#f3ca7566}
+.fieldGrid[data-guess] text{opacity:.7}
+.fieldGrid[data-large] polygon{stroke-width:2;stroke:#f3ca75cc}
+.fieldGrid[data-large] text{font-size:22px}
+
+/* Next to .chip: same pill, at the top. */
+.zoneChip{top:8px;bottom:auto;gap:5px;color:var(--duel-chain-ink)}
+.zoneChipOn{color:var(--duel-ok);border-color:var(--duel-ok)}
+
+/* The calibrate-zones step: plain row once done, highlighted card the first time. */
+.zones{display:grid;gap:8px;padding:12px;border:1px solid var(--duel-rule-lo);border-radius:6px;background:var(--duel-panel)}
+.zones[data-recommended]{border-color:var(--duel-chain);background:var(--duel-chain-soft);box-shadow:0 0 0 1px rgb(228 182 79/.18)}
+.zones p{margin:0}
+.zonesHead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.badge{padding:2px 9px;border-radius:99px;border:1px solid var(--duel-chain);color:var(--duel-chain-ink);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase}
+.zonesWarn{font-size:14px;font-weight:500;color:var(--duel-chain-ink)}
+.zonesDone{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.zonesOk{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--duel-ok)}
+.zonesActions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+
+@media (max-width:600px){.fieldGrid[data-large] text{font-size:34px}}
+/* A click on the picture opens the large check. */
+.view[data-expandable]{cursor:zoom-in}
+.expand{position:absolute;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--duel-rule);background:rgb(7 11 21/.78);color:var(--duel-ink);font-size:12px;letter-spacing:.04em;cursor:pointer}
+.expand:hover{border-color:var(--duel-chain)}
+.expand:focus-visible{outline:2px solid var(--duel-chain);outline-offset:2px}

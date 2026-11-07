@@ -26,7 +26,7 @@
  *   SHA-256(OCG.lflist.conf)=a2039953c509ad8fa72bc98567ff4d4d8ab0464248a1aa1557ea3fe23a30a3cd
  *   SHA-256(compiled entries)=a3e27ec788e657f859543b0eee45f0ebf7db6bd873ad6fa046c8b6285f8ce94a
  *
- * Compiled copy-limit maps live in `@yugidraft/duel-server` (`src/banlists/compiled.ts`).
+ * Compiled copy-limit maps live in `@yugidraft/shared/deck-legality/banlists/compiled`.
  */
 export interface DuelBanlistOption {
   readonly id: string;

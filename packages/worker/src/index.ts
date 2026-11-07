@@ -14,6 +14,7 @@ import {
   createCardCatalogService,
   createGenesysPointsSync,
   createImageCacheCleanup,
+  createVisionFeedbackService,
 } from "@yugidraft/shared/services";
 import { effectsFromEnv } from "./effects.js";
 import { drainProductEvents } from "./analytics-drain.js";
@@ -25,6 +26,7 @@ import { createSetSync } from "./set-sync.js";
 import { createImageCleanup } from "./image-cleanup.js";
 import { createVpsHealth } from "./vps-health.js";
 import { createDiskUsage } from "./disk-usage.js";
+import { pruneRemoteDuels } from "./remote-retention.js";
 
 const startedAt = new Date();
 config({ path: process.env.DOTENV_CONFIG_PATH ?? fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -44,6 +46,10 @@ const beat = db.prepare("insert into worker_heartbeat(id, at, pid) values (1, ?,
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createLoop(async () => {
+    createVisionFeedbackService(db).prune();
+    pruneRemoteDuels(db);
+  }, 60 * 60_000),
   createEmailDrain({ db }),
   createVpsHealth({ db, guildId: process.env.DISCORD_GUILD_ID }),
   // Presence keeps only the latest value and is dropped after 24 hours without an update.

@@ -1,0 +1,78 @@
+// Adapted from mathulbrich/duel-lens (Apache-2.0), commit f6968f3682d53a79c4a9fef591300615eda61c11.
+// Modified for @yugidraft/vision: imports and data-only model/profile contracts.
+// Original notices retained; licence: licenses/duel-lens.LICENSE.
+// Runs an embedding model on RGBA images and returns L2-normalised vectors.
+// Runtime-agnostic: pass an onnxruntime-web or onnxruntime-node session and its Tensor
+// class, so the Node index build and the browser engine share this exact code path.
+import type { EmbeddingModelSpec } from './types';
+import { l2normalize, preprocess, type RGBAImage } from './pixels';
+
+export interface TensorLike {
+  data: ArrayLike<number>;
+  dims: readonly number[];
+}
+
+/** The part of an ONNX Runtime InferenceSession we use. */
+export interface SessionLike {
+  run(feeds: Record<string, unknown>): Promise<Record<string, TensorLike | undefined>>;
+  /** The GPUDevice that owns GPU-resident outputs (web WebGPU sessions only). */
+  readonly gpuDevice?: unknown;
+  /** Called when a GPU-resident output reads back bad: the next run uses another graph or WASM. */
+  reportGpuFailure?(e: unknown): Promise<void>;
+}
+
+/** ONNX Runtime's Tensor constructor (ort.Tensor), for either runtime. */
+export type TensorCtor = new (type: 'float32', data: Float32Array, dims: number[]) => unknown;
+
+/** Reduce a model output to one vector per image (not yet normalised). */
+export function poolOutput(t: TensorLike, pooling: EmbeddingModelSpec['pooling'], n: number): Float32Array[] {
+  if (t.dims[0] !== n) throw new Error(`Model output batch is ${t.dims[0]}, expected ${n}`);
+  const out: Float32Array[] = [];
+  if (pooling === 'none') {
+    const dim = t.dims.slice(1).reduce((a, b) => a * b, 1);
+    for (let i = 0; i < n; i++) out.push(Float32Array.from({ length: dim }, (_, d) => t.data[i * dim + d]));
+    return out;
+  }
+  if (t.dims.length !== 3) throw new Error(`Pooling "${pooling}" needs a [batch, tokens, dim] output, got [${t.dims}]`);
+  const [, tokens, dim] = t.dims;
+  for (let i = 0; i < n; i++) {
+    const v = new Float32Array(dim);
+    const base = i * tokens * dim;
+    if (pooling === 'cls') {
+      for (let d = 0; d < dim; d++) v[d] = t.data[base + d];
+    } else {
+      for (let k = 0; k < tokens; k++) for (let d = 0; d < dim; d++) v[d] += t.data[base + k * dim + d];
+      for (let d = 0; d < dim; d++) v[d] /= tokens;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+export async function embedImages(
+  session: SessionLike,
+  Tensor: TensorCtor,
+  spec: EmbeddingModelSpec,
+  images: RGBAImage[],
+  /** Optional profile sink: preprocess / inference (incl. readback) / pool, summed over chunks. */
+  timings?: { preprocess: number; run: number; pool: number },
+): Promise<Float32Array[]> {
+  const s = spec.inputSize;
+  const plane = 3 * s * s;
+  const chunk = Math.max(1, spec.maxBatch ?? 1);
+  const vectors: Float32Array[] = [];
+  for (let start = 0; start < images.length; start += chunk) {
+    const part = images.slice(start, start + chunk);
+    const t0 = performance.now();
+    const batch = part.length===1 ? preprocess(part[0],spec) : new Float32Array(part.length * plane);
+    if(part.length>1)part.forEach((im, i) => batch.set(preprocess(im, spec), i * plane));
+    const t1 = performance.now();
+    const out = await session.run({ [spec.inputName]: new Tensor('float32', batch, [part.length, 3, s, s]) });
+    const t2 = performance.now();
+    const t = out[spec.outputName];
+    if (!t) throw new Error(`Model has no output "${spec.outputName}" (got: ${Object.keys(out).join(', ') || 'none'})`);
+    for (const v of poolOutput(t, spec.pooling, part.length)) vectors.push(l2normalize(v));
+    if (timings) { timings.preprocess += t1 - t0; timings.run += t2 - t1; timings.pool += performance.now() - t2; }
+  }
+  return vectors;
+}

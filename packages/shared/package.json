@@ -19,6 +19,11 @@
       "source": "./src/access/owner-access.ts",
       "default": "./dist/access/owner-access.js"
     },
+    "./access/remote-duel-users": {
+      "types": "./dist/access/remote-duel-users.d.ts",
+      "source": "./src/access/remote-duel-users.ts",
+      "default": "./dist/access/remote-duel-users.js"
+    },
     "./analytics": {
       "types": "./dist/analytics/index.d.ts",
       "source": "./src/analytics/index.ts",
@@ -182,6 +187,31 @@
       "types": "./dist/health/index.d.ts",
       "source": "./src/health/index.ts",
       "default": "./dist/health/index.js"
+    },
+    "./remote": {
+      "types": "./dist/remote/index.d.ts",
+      "source": "./src/remote/index.ts",
+      "default": "./dist/remote/index.js"
+    },
+    "./deck-legality": {
+      "types": "./dist/deck-legality/index.d.ts",
+      "source": "./src/deck-legality/index.ts",
+      "default": "./dist/deck-legality/index.js"
+    },
+    "./deck-legality/banlists/index": {
+      "types": "./dist/deck-legality/banlists/index.d.ts",
+      "source": "./src/deck-legality/banlists/index.ts",
+      "default": "./dist/deck-legality/banlists/index.js"
+    },
+    "./deck-legality/banlists/compiled": {
+      "types": "./dist/deck-legality/banlists/compiled.d.ts",
+      "source": "./src/deck-legality/banlists/compiled.ts",
+      "default": "./dist/deck-legality/banlists/compiled.js"
+    },
+    "./deck-legality/banlists/multiplayer": {
+      "types": "./dist/deck-legality/banlists/multiplayer.d.ts",
+      "source": "./src/deck-legality/banlists/multiplayer.ts",
+      "default": "./dist/deck-legality/banlists/multiplayer.js"
     },
     "./email": {
       "types": "./dist/email/index.d.ts",

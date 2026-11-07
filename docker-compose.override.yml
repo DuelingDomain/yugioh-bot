@@ -21,6 +21,8 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
+      # The base file leaves this empty (nobody); dev keeps unset = everybody.
+      REMOTE_DUELS_USERS: ${REMOTE_DUELS_USERS-*}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
@@ -40,6 +42,8 @@ services:
     security_opt: !reset []
     ports:
       - "3001:3001"
+    environment:
+      REMOTE_DUELS_USERS: ${REMOTE_DUELS_USERS-*}
 
   duel:
     user: *user

@@ -1,0 +1,372 @@
+import { detectScene } from './detect-scene';
+import { fieldEmbeddingSimilarity } from './field-motion';
+// Ported from mathulbrich/duel-lens src/offscreen/engine.ts (Apache-2.0), f6968f3682d53a79c4a9fef591300615eda61c11.
+// Modified: browser-frame API, game profile, sharpest-three temporal fusion and priors.
+// Retains warp -> hypotheses -> staged embedding -> per-card search -> decide flow.
+// Extension-only badge rescues are omitted. See licenses/duel-lens.LICENSE.
+import { filterPhysicalIndex } from './physical-index';
+import { replayTier } from './decision';
+import { emptyLearning, indexVersion, learnedTopK, type LearningSnapshot } from './learning';
+import { boardSide, isCovered, validateBoard } from './board';
+import { CARD_DETECTOR } from './detector/spec';
+import { detectFullArtLayout } from './full-art';
+import type { DetectedQuad } from './types';
+import { validateOptions } from './options';
+import { embedImages, type TensorCtor } from './embed';
+import type { ModelSession } from './runtime';
+import { cropRGBA, rotate180, type RGBAImage } from './pixels';
+import { glareMask, darkShare, precleanCrop, GLARE_ALWAYS_TRY, type PrecleanStats } from './preclean';
+import { clipToConvex, polygonArea, type Quad } from './geometry';
+import { warpQuadMasked, fillUnseen } from './truncation';
+import { buildHypotheses } from './hypotheses';
+import { detect, chooseCard, refinedCorners } from './detector/run';
+import { sharpness, classifyBorder } from './quality';
+import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions, rankWithPriors } from './search';
+import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
+
+/** Worker-only source ownership; never included in its public reply. */
+export interface DeferredAICrop { bytes:number; create:()=>RGBAImage|undefined }
+
+function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad {
+  const h = Math.min(img.height * profile.fallbackHeight, img.width * profile.card.height / profile.card.width);
+  const w = h * profile.card.width / profile.card.height;
+  const x = Math.max(0, Math.min(img.width - w, (click?.x ?? .5) * img.width - w / 2));
+  const y = Math.max(0, Math.min(img.height - h, (click?.y ?? .5) * img.height - h / 2));
+  return [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+}
+
+export class RecognitionPipeline {
+  constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor, private fullArtIndex?: LoadedIndex) {
+    if(profile.id==='yugioh') { this.index=filterPhysicalIndex(index);this.fullArtIndex=fullArtIndex?filterPhysicalIndex(fullArtIndex):undefined; }
+    this.catalog=new Map([...this.index.meta.entries,...(this.fullArtIndex?.meta.entries??[])].map(e=>[e.cardId,e]));
+    prepareSearch(this.index);if(this.fullArtIndex)prepareSearch(this.fullArtIndex);
+  }
+  private catalog:Map<string,IndexEntry>;
+  private learning:LearningSnapshot=emptyLearning();
+  setLearning(value:LearningSnapshot) { this.learning=value; }
+  private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string,clean?:Candidate[],deckCandidates?:Candidate[]) {
+    const deck=deckCandidates??(priors?.decklist?.length?topK(vector,index,Math.max(k,2),undefined,undefined,new Set(priors.decklist)):[]);
+    // Session/context/voice hints run once on the final shortlist. Reuse clean SIMD results.
+    const visualPriors=priors?.frameClasses?.length?{frameClasses:priors.frameClasses}:undefined;
+    const catalog=learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',Math.max(k,2),visualPriors,frameClass,this.catalog,clean);
+    return preferDeck(deck,catalog,this.profile.embedding.thresholds).slice(0,k);
+  }
+  private confused(list:Candidate[]) {return this.learning.confusions.some(p=>p.a===list[0]?.cardId||p.b===list[0]?.cardId);}
+  async detectCards(frame: RGBAImage): Promise<DetectedQuad[]> {
+    return detectScene(frame,this.profile,this.detector,this.Tensor);
+  }
+
+  async peek(frame: RGBAImage, opts: PeekOptions): Promise<PeekResult> {
+    validateOptions({card:opts.card});
+    if(opts.cards) validateBoard(opts.cards);
+    opts.signal?.throwIfAborted();
+    const covered=Boolean(opts.card.covered || isCovered(opts.card,opts.cards??[]));
+    // Face-down outlines never leak a plausible face-up identity into a board twin.
+    if(opts.card.kind==='face-down') return {name:null,tier:'not sure',faceDown:true,covered};
+    const result=await this.recognize([frame],{card:{...opts.card,covered},priors:opts.priors,k:1});
+    const best=result.candidates[0], faceDown=best?.cardId===this.profile.cardBack.cardId;
+    const entry=faceDown?undefined:this.index.meta.entries.find(e=>e.cardId===best?.cardId)??this.fullArtIndex?.meta.entries.find(e=>e.cardId===best?.cardId);
+    return {cardId:entry?.cardId,name:entry?.name??null,tier:result.tier,faceDown,covered:Boolean(result.quality.covered)};
+  }
+  async readAll(frame: RGBAImage, opts: ReadAllOptions = {}): Promise<BoardResult> {
+    const start=performance.now();
+    if(opts.cards) validateBoard(opts.cards);
+    opts.signal?.throwIfAborted();
+    const cards=opts.cards??(await this.detectCards(frame)).slice(0,60);
+    const result:BoardResult={near:[],far:[],timingsMs:{detect:performance.now()-start,total:0}};
+    for(const [index,outline] of cards.entries()) {
+      opts.signal?.throwIfAborted();
+      const side=boardSide(outline.quad.reduce((sum,p)=>sum+p.y,0)/4);
+      try { result[side].push({...await this.peek(frame,{card:outline,cards,priors:opts.priors}),outline,index,side}); }
+      catch(error) { result[side].push({outline,index,side,name:null,tier:'low match',faceDown:outline.kind==='face-down',covered:Boolean(outline.covered),error:error instanceof Error?error.message:String(error)}); }
+    }
+    result.timingsMs.total=performance.now()-start;
+    return result;
+  }
+  /**
+   * Light/glare A/B: read the normal crop first. When the read is not sure, or the crop shows
+   * glare, read again on the pre-cleaned crop (same outline, no new detection) and keep the
+   * more confident result. The clean pass never replaces a sure raw read with a weaker one.
+   */
+  async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
+    const probe:{glare?:number;shadow?:number}={};
+    const raw=await this.recognizePass(frames,opts,undefined,probe);
+    if(opts.preclean===false)return {...raw,preclean:{on:false,used:'raw'}};
+    const glare=probe.glare??0,shadow=probe.shadow??0;
+    raw.timingsMs.precleanGlare=glare*100;raw.timingsMs.precleanShadow=shadow*100;raw.timingsMs.precleanUsed=0;
+    // A sure raw read is kept even under a shadow; a read that is not sure tries the
+    // pre-cleaned crop, which now also lifts shadowed parts (shadow % is for the debug line).
+    if(raw.tier==='sure' && glare<GLARE_ALWAYS_TRY || raw.quality.faceDown && raw.tier==='sure' || !raw.quality.cornersFound)
+      return {...raw,preclean:{on:true,glare,shadow,used:'raw'}};
+    const stats:{value?:PrecleanStats}={};
+    // Reuse the raw pass outline so the clean pass costs only warp + embed + search.
+    // One frame: reuse its outline (warp + embed + search only). Temporal reads redo every frame so
+    // a single clean frame never hides that the frames disagree.
+    const clean=frames.length===1 && raw.detectedCard
+      ? await this.recognizePass(frames,{...opts,card:raw.detectedCard,clickPoint:undefined,region:undefined},stats)
+      : await this.recognizePass(frames,opts,stats);
+    const rank=(r:RecognitionResult)=>(r.tier==='sure'?2:r.tier==='not sure'?1:0)*10+(r.candidates[0]?.score??0);
+    // The clean crop may only raise the tier, or confirm the same card with more confidence.
+    // A different card at the same tier is not trusted (synthetic glare blobs showed confident wrong swaps).
+    const tierOf=(r:RecognitionResult)=>r.tier==='sure'?2:r.tier==='not sure'?1:0;
+    const sameCard=clean.candidates[0]?.cardId===raw.candidates[0]?.cardId;
+    const useClean=(tierOf(clean)>tierOf(raw) || sameCard && rank(clean)>rank(raw)+.005) && !(clean.quality.faceDown && !raw.quality.faceDown);
+    const info={on:true,glare,shadow,gains:stats.value?.gains,ms:stats.value?.ms,used:useClean?'clean' as const:'raw' as const,rawScore:raw.candidates[0]?.score,cleanScore:clean.candidates[0]?.score};
+    const chosen=useClean?clean:raw,g=stats.value?.gains;
+    Object.assign(chosen.timingsMs,{precleanGlare:glare*100,precleanShadow:shadow*100,precleanUsed:useClean?1:0,precleanMs:stats.value?.ms,precleanGainR:g?.[0],precleanGainG:g?.[1],precleanGainB:g?.[2]});
+    chosen.timingsMs.total=raw.timingsMs.total+clean.timingsMs.total;
+    chosen.timingsMs.embed=raw.timingsMs.embed+clean.timingsMs.embed;
+    return {...chosen,preclean:info};
+  }
+  private async recognizePass(frames: RGBAImage[], opts: RecognizeOptions, precleanStats?:{value?:PrecleanStats}, probe?:{glare?:number;shadow?:number}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
+    validateOptions(opts);
+    if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
+    const start = performance.now();
+    const ranked = frames.map((frame, index) => ({ frame, index, sharpness: sharpness(frame, opts.clickPoint) })).sort((a, b) => b.sharpness - a.sharpness).slice(0, opts.maxFrames ?? 3);
+    const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0, embedPreprocess: 0, embedRun: 0, embedCount: 0 };
+    const embedSplit = { preprocess: 0, run: 0, pool: 0 };
+    const frameEvidence:RecognitionEvidence['frames']=[];
+    const usedIndices:number[]=[];
+    const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; faceDown:boolean; clean:Candidate[]; ranked:Candidate[]; crop: RGBAImage; aiCrop?:RGBAImage; deferredAICrop?:DeferredAICrop; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
+    const thresholds = this.profile.embedding.thresholds;
+    const earlyExitMargin=opts.earlyExitMargin??.02;
+    const clearShortlist=(list:Candidate[])=>(list[0]?.score??0)>=.84 && decide(list,thresholds,this.profile.cardBack.cardId).confident && list[0].score-(list[1]?.score??0)>=earlyExitMargin && !this.confused(list) && (!opts.priors?.frameClasses?.length || opts.priors.frameClasses.includes(this.catalog.get(list[0].cardId)?.frameClass??''));
+    const gallerySearch=(vector:Float32Array,index:LoadedIndex):Candidate[]=>{
+      const embedding={values:Array.from(vector),space:index===this.fullArtIndex?'whole-card':'art-box'};
+      const scores=new Map<string|undefined,number>();
+      for(const entry of opts.gallery??[]) {
+        const score=fieldEmbeddingSimilarity(entry.embedding,embedding);
+        if(score!==undefined && score>(scores.get(entry.cardId)??-Infinity))scores.set(entry.cardId,score);
+      }
+      const ranked=[...scores].map(([cardId,score])=>({cardId,score})).sort((a,b)=>b.score-a.score);
+      const best=ranked[0];
+      // Dismissed/unknown identities still compete for the margin, but cannot name a card.
+      if(!best?.cardId || !this.catalog.has(best.cardId) || best.score<.84 || !clearShortlist(ranked.map(c=>({cardId:c.cardId??'',score:c.score}))))return [];
+      return ranked.filter((c):c is Candidate=>Boolean(c.cardId && this.catalog.has(c.cardId)));
+    };
+    let shortlistExit=false;
+    let searchSource:'deck'|'gallery'|'catalog'='catalog';
+    // Reuse unboosted evidence for each hypothesis and the single-frame final
+    // decision. This cache lasts one read, so mutable caller queries cannot go stale.
+    // The back must compete even when the detector mistakes a face-down card for a front.
+    const deckIds=opts.priors?.decklist?.length?new Set([...opts.priors.decklist,this.profile.cardBack.cardId]):undefined;
+    const deckFirst=opts.deckFirst!==false && Boolean(deckIds);
+    const clearDeck=(list:Candidate[])=>clearShortlist(list) && list[0].score>=Math.max(.92,thresholds.score)
+      && list[0].cardId!==this.profile.cardBack.cardId && list[0].score-(list[1]?.score??0)>=Math.max(.08,earlyExitMargin);
+    const deckCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
+    const deckSearch=(query:Float32Array,index:LoadedIndex)=>{
+      if(!deckIds)return [];
+      let indexes=deckCache.get(query);if(!indexes){indexes=new Map();deckCache.set(query,indexes);}
+      let candidates=indexes.get(index);if(!candidates){candidates=topK(query,index,Math.max(10,opts.k??5),undefined,undefined,deckIds);indexes.set(index,candidates);}return candidates;
+    };
+    const cleanCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
+    const cleanSearch=(query:Float32Array,index:LoadedIndex)=>{
+      deckSearch(query,index); // Search the resident tiny subset before catalog verification.
+      let indexes=cleanCache.get(query);if(!indexes){indexes=new Map();cleanCache.set(query,indexes);}
+      let candidates=indexes.get(index);if(!candidates){candidates=topK(query,index,Math.max(10,opts.k??5));indexes.set(index,candidates);}return candidates;
+    };
+    let covered=Boolean(opts.card?.covered);
+    let detectedCard:DetectedQuad|undefined;
+    let earlyExit=false;
+    for (const { frame, index:frameIndex } of ranked) {
+      // An explicit quad belongs only to a single frozen frame. Temporal reads redetect.
+      const selected=frames.length===1?opts.card:undefined;
+      const clickPoint=opts.clickPoint ?? (opts.card?{x:opts.card.quad.reduce((sum,p)=>sum+p.x,0)/4,y:opts.card.quad.reduce((sum,p)=>sum+p.y,0)/4}:opts.region?{x:opts.region.x+opts.region.w/2,y:opts.region.y+opts.region.h/2}:undefined);
+      let t = performance.now();
+      const region=opts.region;
+      const roiX=region?Math.floor(region.x*frame.width):0,roiY=region?Math.floor(region.y*frame.height):0;
+      const roi=region && !selected?cropRGBA(frame,roiX,roiY,Math.max(3,Math.ceil(region.w*frame.width)),Math.max(3,Math.ceil(region.h*frame.height))):undefined;
+      const fastClick=!roi && frames.length===1 && !selected && Boolean(opts.clickPoint) && Math.min(this.profile.detector.longSide,Math.max(frame.width,frame.height))>640;
+      let scene=selected?[]:roi
+        ? (await detect(this.detector,this.Tensor,roi,448,CARD_DETECTOR.minScore,true)).map(c=>({...c,cx:c.cx+roiX,cy:c.cy+roiY,pts:c.pts.map(([x,y])=>[x+roiX,y+roiY] as [number,number])}))
+        : await detect(this.detector,this.Tensor,frame,fastClick?640:this.profile.detector.longSide,CARD_DETECTOR.minScore);
+      let card = selected ? undefined : chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence), frame, clickPoint);
+      if(fastClick) {
+        const quad=card?.pts.map(([x,y])=>({x,y}))??[];
+        // Only a strong, wholly visible, isolated click target can skip the original scene pass.
+        // Keep weak neighbouring outlines in the scene for overlap and covered-card checks.
+        if(!card || card.conf<.9 || card.pts.some(([x,y])=>!(x>0 && y>0 && x<frame.width && y<frame.height)) ||
+          scene.some(other=>other!==card && (
+            Boolean(chooseCard([other],frame,clickPoint)) ||
+            (polygonArea(clipToConvex(quad,other.pts.map(([x,y])=>({x,y}))))>0)
+          ))) {
+          scene=await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
+          card=chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence),frame,clickPoint);
+        }
+      }
+      // Upstream's crop-scale detection catches large close-ups outside its trained size range.
+      if (!card && !selected && !roi && this.profile.detector.longSide > 448) {
+        scene=await detect(this.detector,this.Tensor,frame,448,CARD_DETECTOR.minScore);
+        card=chooseCard(scene.filter(c=>c.conf>=CARD_DETECTOR.minConfidence),frame,clickPoint);
+      }
+      if(card) {
+        const quad=(c:typeof card):DetectedQuad=>({quad:c!.pts.map(([x,y])=>({x:x/frame.width,y:y/frame.height})),kind:c!.kind,confidence:c!.conf,partial:false});
+        covered ||= isCovered(quad(card),scene.map(c=>quad(c)));
+      }
+      timings.detect += performance.now() - t;
+      // No detected card and no explicit outline: a region guessed around the click is only read when the caller allows it.
+      if (!selected && !card && opts.regionFallback === false) { frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:false,eligible:false}); continue; }
+      t = performance.now();
+      const corners = selected ? selected.quad.map(p=>({x:p.x*frame.width,y:p.y*frame.height})) : card ? refinedCorners(card, frame) : [];
+      const found = corners.length === 4;
+      const fallback=roi?fallbackQuad(roi,this.profile,clickPoint?{x:(clickPoint.x*frame.width-roiX)/roi.width,y:(clickPoint.y*frame.height-roiY)/roi.height}:undefined).map(p=>({x:p.x+roiX,y:p.y+roiY})) as Quad:fallbackQuad(frame,this.profile,clickPoint);
+      const mask = warpQuadMasked(frame, found ? corners as Quad : fallback, this.profile.card.warpWidth, this.profile.card.warpHeight);
+      if (!mask) {frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:(selected?.kind??card?.kind)==='face-down',eligible:false});continue;}
+      let warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
+      if(probe && probe.glare===undefined){probe.glare=glareMask(warped).share;probe.shadow=darkShare(warped,4,6,{dim:false,factor:.5});}
+      if(precleanStats) { const cleaned=precleanCrop(warped);warped=cleaned.image;precleanStats.value??=cleaned.stats; }
+      const partial = Boolean(selected?.partial) || Boolean(roi && card && card.pts.some(([x,y])=>x<=roiX+2 || y<=roiY+2 || x>=roiX+roi.width-2 || y>=roiY+roi.height-2)) || found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
+      const fullArt = detectFullArtLayout(warped, this.profile);
+      const frameClass = !fullArt && found && (selected?.kind ?? card?.kind) === 'face-up' ? classifyBorder(warped, this.profile) : undefined;
+      const hypotheses = [this.profile.artWindow, ...(this.profile.alternateArtWindows ?? [])].flatMap(artWindow =>
+        buildHypotheses(warped, warped, null, { userBoxWithCard: false, artOfCardShapedBox: false }, { ...this.profile, artWindow }));
+      hypotheses.sort((a,b) => a.rotation - b.rotation);
+      // A face-down prediction is only a hint: full-card pixels must match the indexed back.
+      if ((selected?.kind ?? card?.kind) === 'face-down') hypotheses.push({ id: 'whole', rotation: 0, image: warped }, { id: 'whole', rotation: 180, image: rotate180(warped) });
+      timings.warp += performance.now() - t;
+      const faceDown=(selected?.kind ?? card?.kind)==='face-down';
+      const vectors: Float32Array[] = [], lists: Candidate[][] = [], cleanLists:Candidate[][]=[];
+      let merged: Candidate[] = [];
+      const embedded=new Map<RGBAImage,Float32Array>();
+      const embed=async(image:RGBAImage)=>{
+        let vector=embedded.get(image);
+        if(!vector) {
+          const started=performance.now();
+          [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[image],embedSplit);
+          timings.embedPreprocess=embedSplit.preprocess;timings.embedRun=embedSplit.run;timings.embedCount++;
+          if(vector.length!==this.index.meta.dim)throw new Error('Model embedding dimension mismatch');
+          timings.embed+=performance.now()-started;embedded.set(image,vector);
+        }
+        return vector;
+      };
+      const wholeHypotheses=this.fullArtIndex?.meta.count?[{image:warped,rotation:0},{image:rotate180(warped),rotation:180}]:[];
+      let fastMatch:{vector:Float32Array;index:LoadedIndex;rotation:number;candidates:Candidate[]}|undefined;
+      // Try every relevant local view before touching the catalog. Reuse its embeddings on a miss.
+      if(opts.earlyExit!==false && (deckFirst || opts.gallery?.length) && !views.length && !frameEvidence.length && found && !partial && !covered && !faceDown && (!fullArt || this.fullArtIndex?.meta.count)) {
+        const localViews=[...hypotheses.map(h=>({...h,index:this.index})),...wholeHypotheses.map(h=>({...h,index:this.fullArtIndex!}))];
+        for(const hypothesis of localViews) {
+          if(!deckFirst && !opts.gallery?.some(e=>e.embedding.space===(hypothesis.index===this.fullArtIndex?'whole-card':'art-box')))continue;
+          const vector=await embed(hypothesis.image),started=performance.now();
+          const gallery=opts.gallery?.length?gallerySearch(vector,hypothesis.index):[];
+          const deck=deckFirst?deckSearch(vector,hypothesis.index):[];
+          const candidates=clearDeck(deck)?deck:gallery.length?gallery:[];
+          timings.search+=performance.now()-started;
+          if(candidates.length) {searchSource=candidates===deck?'deck':'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+          // A weak upright deck view falls through immediately; do not pay for extra
+          // orientations before the ordinary catalog path has assessed that view.
+          if(deckFirst && !opts.gallery?.length)break;
+        }
+      }
+      if(fastMatch) {
+        vectors.push(fastMatch.vector);lists.push(fastMatch.candidates);cleanLists.push(fastMatch.candidates);
+        merged=fastMatch.candidates;shortlistExit=true;earlyExit=true;
+      }
+      // Duel Lens's views-in-turn: do not pay for more crops if the first view is sure.
+      for (const hypothesis of fastMatch?[]:hypotheses) {
+        const vector = await embed(hypothesis.image);
+        t = performance.now();
+        const clean=cleanSearch(vector,this.index);
+        vectors.push(vector); lists.push(this.search(vector, this.index, 10,opts.priors,undefined,clean,deckSearch(vector,this.index)));cleanLists.push(clean);
+        merged = mergeCandidates(lists, 10);
+        if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds);
+        timings.search += performance.now() - t;
+        const cleanMerged=mergeCandidates(cleanLists,10);
+        const clearUpright=opts.preferUpright && hypothesis.rotation===0 && found && !partial && !selected?.partial && !covered && !fullArt && !faceDown && !this.fullArtIndex?.meta.count && cleanMerged[0]?.cardId===merged[0]?.cardId && cleanMerged[0].score>=thresholds.score && cleanMerged[0].score-(cleanMerged[1]?.score??0)>=Math.max(.08,thresholds.margin);
+        if ((!opts.includeRaw || clearUpright) && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(cleanMerged, thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
+      }
+      // Keep the vector of the hypothesis that actually supplied the winning visual match.
+      let winner = 0;
+      for (let i = 1; i < lists.length; i++) if ((lists[i][0]?.score ?? -Infinity) > (lists[winner][0]?.score ?? -Infinity)) winner = i;
+      const alternatives=[{index:fastMatch?.index??this.index,vector:vectors[winner]}];
+      let fullBest:{vector:Float32Array;score:number}|undefined;
+      const fullLists:Candidate[][]=[];
+      let winningIndex=fastMatch?.index??this.index, winningVector=vectors[winner], winningRotation=fastMatch?.rotation??hypotheses[winner]?.rotation ?? 0;
+      // Compare whole-card pixels only to whole-card references. Always run both
+      // when references exist, even if the standard crop was confident.
+      if(!fastMatch && this.fullArtIndex?.meta.count) {
+        for(const {image,rotation} of wholeHypotheses) {
+          const vector=await embed(image);
+          t=performance.now();
+          const clean=cleanSearch(vector,this.fullArtIndex),list=this.search(vector,this.fullArtIndex,10,opts.priors,undefined,clean,deckSearch(vector,this.fullArtIndex));fullLists.push(list);cleanLists.push(clean);
+          if(!fullBest || (list[0]?.score ?? -Infinity)>fullBest.score) fullBest={vector,score:list[0]?.score ?? -Infinity};
+          if((list[0]?.score ?? -Infinity)>(merged[0]?.score ?? -Infinity)) {winningIndex=this.fullArtIndex;winningVector=vector;winningRotation=rotation;}
+          merged=mergeCandidates([merged,list],10);timings.search+=performance.now()-t;
+        }
+      }
+      if(this.fullArtIndex && fullBest) alternatives.push({index:this.fullArtIndex,vector:fullBest.vector});
+      if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds);
+      const confusionChecked=this.confused(merged);
+      const checks=winningIndex===this.fullArtIndex?fullLists:lists;
+      const independentlyClear=!confusionChecked || (checks.length>=2 && checks.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
+      if(!views.length&&found)detectedCard=selected??{quad:corners.map(p=>({x:p.x/frame.width,y:p.y/frame.height})),kind:card!.kind,confidence:card!.conf,partial,covered};
+      const clean=mergeCandidates(cleanLists,10);
+      if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds,clean);
+      const eligible=found && !partial && !selected?.partial && !covered && (!fullArt || Boolean(this.fullArtIndex?.meta.count)) && independentlyClear && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId);
+      const deck=deckSearch(winningVector,winningIndex);
+      frameEvidence.push({frameIndex,hypotheses:cleanLists,clean,ranked:merged,deck,faceDown,eligible});
+      usedIndices.push(frameIndex);
+      // This source warp retains text detail; it never passes through the 295px embedding warp.
+      let aiCrop:RGBAImage|undefined;
+      let deferredAICrop:DeferredAICrop|undefined;
+      if(opts.includeCrop && !views.length) {
+        const quad=found?corners as Quad:fallback;
+        const create=()=>{
+          const large=warpQuadMasked(frame,quad,640,Math.round(640*this.profile.card.height/this.profile.card.width));
+          if(!large)return;
+          const pixels=large.seenShare<1?fillUnseen(large,'art-mean',this.profile.artWindow):large.image;
+          return winningRotation===180?rotate180(pixels):pixels;
+        };
+        if(opts.deferAICrop)deferredAICrop={bytes:frame.data.byteLength,create};else aiCrop=create();
+      }
+      views.push({ aiCrop, deferredAICrop, faceDown, clean, ranked:merged, confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || selected), corners: found, unambiguous: eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean, thresholds, this.profile.cardBack.cardId).confident, frameClass });
+      if(fastMatch)break;
+      if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,thresholds,this.profile.cardBack.cardId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
+    }
+    const t = performance.now(), k = opts.k ?? 5;
+    let candidates: Candidate[] = [], visual: Candidate[] = [], deckSuggestions:Candidate[]=[];
+    let frameClass: string | undefined;
+    const fallback = !views.length || views.some(v => !v.corners);
+    if(shortlistExit) {
+      visual=views[0].clean;candidates=views[0].ranked;frameClass=views[0].frameClass;
+      deckSuggestions=frameEvidence[0].deck.slice(0,2);
+    } else if (views.length) {
+      frameClass = views.map(v => v.frameClass).find(c => c && views.filter(v => v.frameClass === c).length > views.length / 2);
+      const visualLists: Candidate[][]=[], rankedLists: Candidate[][]=[], deckLists:Candidate[][]=[];
+      for(const index of [this.index,this.fullArtIndex].filter((i): i is LoadedIndex=>Boolean(i))) {
+        const group=views.flatMap(view=>view.alternatives.filter(a=>a.index===index).map(a=>({...a,corners:view.corners}))); if(!group.length) continue;
+        const average=new Float32Array(index.meta.dim);
+        for(const view of group) for(let d=0;d<average.length;d++) average[d]+=view.vector[d]*(view.corners?1:.65);
+        const query=group.length===1?group[0].vector:normalize(average),clean=cleanSearch(query,index);
+        visualLists.push(clean);
+        rankedLists.push(this.search(query,index,Math.max(k,10),opts.priors,index===this.index?frameClass:undefined,clean,deckSearch(query,index)));
+        if(opts.priors?.decklist?.length)deckLists.push(deckSearch(query,index).slice(0,2));
+      }
+      visual=mergeCandidates(visualLists,Math.max(k,10));
+      candidates=mergeCandidates(rankedLists,Math.max(k,10));
+      deckSuggestions=mergeCandidates(deckLists,2);
+      if(opts.priors?.decklist?.length)candidates=preferDeck(candidates.filter(c=>opts.priors!.decklist!.includes(c.cardId)),candidates,thresholds,visual);
+      if (fallback) {
+        visual = visual.map(c => ({ ...c, score: c.score * .85 }));
+        candidates = candidates.map(c => ({ ...c, score: c.score * .85 }));
+      }
+    }
+    candidates=rankWithPriors(candidates,visual,opts.priors,thresholds);
+    const blocked:string[]=[];
+    if(fallback || views.length!==frameEvidence.length)blocked.push('fallback');
+    if(views.some(v=>v.partial))blocked.push('partial');
+    if(covered)blocked.push('covered');
+    if(views.some(v=>v.fullArt) && !this.fullArtIndex?.meta.count)blocked.push('full-art-without-references');
+    if(views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId)blocked.push('face-down');
+    if(this.confused(visual) && (visual[0].score-(visual[1]?.score??0)<.06 || !views.every(v=>v.confusionChecked)))blocked.push('confusion');
+    const raw:RecognitionEvidence={visual,ranked:candidates,winnerId:candidates[0]?.cardId,cardBackId:this.profile.cardBack.cardId,blocked,frames:frameEvidence,
+      thresholds,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(this.index.meta),layoutKey:this.index.meta.layoutKey??'',learningVersion:this.learning.version,priors:opts.priors,earlyExit};
+    const tier=replayTier(raw,thresholds);
+    timings.search += performance.now() - t; timings.total = performance.now() - start;
+    const evidence=views[0];
+    const safeEvidence=evidence?.corners && !fallback && !covered && !views.some(v=>v.partial) && !views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId;
+    const collect=opts.includeFeedback && safeEvidence;
+    const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
+    const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const}:undefined;
+    return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), prior:candidates[0]?.prior, candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { searchSource, faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+  }
+}

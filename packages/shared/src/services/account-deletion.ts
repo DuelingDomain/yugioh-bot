@@ -1,3 +1,4 @@
+import { createVisionFeedbackService } from "./vision-feedback.js";
 import { suppressDeletedAccountEmail } from "../email/storage.js";
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
@@ -5,6 +6,7 @@ import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
 import { deleteCreatorGrantsForUser } from "./creator-access.js";
+import { deleteUserRemoteData } from "./remote-cleanup.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -41,7 +43,7 @@ type PlayerRow = { id: number; display_name: string };
 export function previewUserDeletion(db: Database.Database, userId: number): AccountDeletionPreview {
   const user = db.prepare<[number], UserRow>("select id, clerk_user_id, email from users where id = ?").get(userId);
   if (!user) return { userId, exists: false, mode: "removed", hasClerkUser: false };
-  const shared = Object.keys(userHistory(db, userId)).filter(key => key !== SAVED_DECK_OWNER);
+  const shared = Object.keys(userHistory(db, userId)).filter(key => key !== SAVED_DECK_OWNER && !key.startsWith("remote_"));
   return { userId, exists: true, mode: shared.length === 0 ? "removed" : "anonymised", hasClerkUser: user.clerk_user_id !== null };
 }
 
@@ -74,6 +76,10 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
+    // Remote Duels have no permanent history: remove rooms the user created, sat in or acted in.
+    note("remote_tables", deleteUserRemoteData(db, userId));
+    note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
+    db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
     suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);
 
     const players = db.prepare<[number], PlayerRow>("select id, display_name from players where user_id = ?").all(userId);
@@ -183,5 +189,9 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     }
     return { userId, mode: "anonymised", counts };
   });
-  return run.immediate();
+  const result=run.immediate();
+  // Filesystem cleanup follows the successful account transaction, so a rolled
+  // back deletion leaves both metadata and crop bytes intact.
+  createVisionFeedbackService(db).prune();
+  return result;
 }

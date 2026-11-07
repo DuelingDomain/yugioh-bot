@@ -1,0 +1,26 @@
+# Separate project, so a deploy (down --remove-orphans on the main project) does not stop it.
+# Start: docker compose --env-file /opt/yugioh-bot/.env -f services/livekit/docker-compose.prod.yml up -d
+# Do not run `config` on this file in a shared log: it prints the secret.
+name: livekit-prod
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1.0
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?}: ${LIVEKIT_API_SECRET:?}"
+      NODE_IP: "${LIVEKIT_NODE_IP:?}"
+      GOMEMLIMIT: 200MiB
+    command: ["--config", "/etc/livekit.yaml", "--bind", "172.17.0.1", "--bind", "127.0.0.1"]
+    volumes: ["./livekit.prod.yaml:/etc/livekit.yaml:ro"]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"

@@ -47,7 +47,7 @@
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
         X-Frame-Options "DENY"
-        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' https://clerk.app.duelingdomain.com https://challenges.cloudflare.com https://*.protect.clerk.com; connect-src 'self' wss://{$SITE_DOMAIN} https://clerk.app.duelingdomain.com https://*.protect.clerk.com:* https://clerk-telemetry.com https://*.clerk-telemetry.com https://img.clerk.com; img-src 'self' data: blob: https://img.clerk.com https://images.ygoprodeck.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com https://*.protect.clerk.com https://www.youtube-nocookie.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://clerk.app.duelingdomain.com https://challenges.cloudflare.com https://*.protect.clerk.com; connect-src 'self' wss://{$SITE_DOMAIN} wss://{$RTC_DOMAIN:rtc-disabled.localhost} https://{$RTC_DOMAIN:rtc-disabled.localhost} https://clerk.app.duelingdomain.com https://*.protect.clerk.com:* https://clerk-telemetry.com https://*.clerk-telemetry.com https://img.clerk.com; img-src 'self' data: blob: https://img.clerk.com https://images.ygoprodeck.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com https://*.protect.clerk.com https://www.youtube-nocookie.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
     handle /robots.txt {
         header Content-Type "text/plain; charset=utf-8"
@@ -206,6 +206,11 @@ www.{$SITE_DOMAIN}, http:// {
 # Explicit HTTP matches take precedence over the app's existing HTTP catch-all.
 www.{$MARKETING_DOMAIN:marketing-disabled.localhost}, http://{$MARKETING_DOMAIN:marketing-disabled.localhost}, http://www.{$MARKETING_DOMAIN:marketing-disabled.localhost} {
     redir https://{$MARKETING_DOMAIN:marketing-disabled.localhost}{uri} 308
+}
+
+# Remote Duels LiveKit signalling. LiveKit runs in its own Compose project on the host network; media does not pass here.
+{$RTC_DOMAIN:rtc-disabled.localhost} {
+    reverse_proxy host.docker.internal:7880
 }
 
 {$LEGACY_DOMAIN:legacy-disabled.localhost}, www.{$LEGACY_DOMAIN:legacy-disabled.localhost}, http://{$LEGACY_DOMAIN:legacy-disabled.localhost}, http://www.{$LEGACY_DOMAIN:legacy-disabled.localhost} {
