@@ -33,10 +33,17 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
   }
   return next;
 }
+/** Clone a state without its undo data: that data is about 90% of the size and every caller replaces or drops it. The placeholders keep the key order. */
+function withoutUndo<T extends RemoteState>(state:T):T {
+  const shell:Record<string,unknown>={...state};
+  if("undo" in shell)shell.undo=null;
+  if("undoHistory" in shell)shell.undoHistory=null;
+  return shell as T;
+}
 export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>):RemoteState {
-  const next=projectPosition(state,seats);
-  if(next.undo) next.undo.before=projectPosition(next.undo.before,seats);
-  if(state.undoHistory) next.undoHistory=[...seats].flatMap(seat=>remoteUndoHistory(state,seat)).sort((a,b)=>b.order-a.order);
+  const next=projectPosition(withoutUndo(state),seats);
+  if("undo" in state)next.undo=state.undo ? {...structuredClone({...state.undo,before:null}),before:projectPosition(state.undo.before,seats)} : state.undo;
+  if("undoHistory" in state)next.undoHistory=state.undoHistory ? [...seats].flatMap(seat=>remoteUndoHistory(state,seat)).sort((a,b)=>b.order-a.order) : state.undoHistory;
   return next;
 }
 export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=new Set()):RemoteTable {
@@ -44,21 +51,21 @@ export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=n
 }
 /** Event replay facts are server-only. Historic private payloads stay private even after a reveal. */
 function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
-  const {effects:_effects,...next}=structuredClone(event);
+  const {effects,...rest}=event, next=structuredClone(rest);
   const a=next.action;
   const actor=event.actorSeat ?? -1;
-  if(a.type==='hand.add'&&a.by)a.by.name=event.effects?.facts?.[a.by.cardId]?.name??'Card '+a.by.cardId;
-  if(a.type==="effect.activated" && event.effects?.effect) a.source=structuredClone(event.effects.effect.source);
+  if(a.type==='hand.add'&&a.by)a.by.name=effects?.facts?.[a.by.cardId]?.name??'Card '+a.by.cardId;
+  if(a.type==="effect.activated" && effects?.effect) a.source=structuredClone(effects.effect.source);
   if(a.type==="seat.deck" && !seats.has(a.seat)) a.registration=null;
   if(a.type==="table.configured") a.registrations=Object.fromEntries(Object.entries(a.registrations).filter(([seat])=>seats.has(Number(seat))));
   if(!seats.has(actor)) {
-    if(event.effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
+    if(effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
-    if(a.type==="effect.choose" && !event.effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
+    if(a.type==="effect.choose" && !effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
-      const privateSight=event.effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
+      const privateSight=effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
       if(privateSight) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}; delete next.messages; }
     }
   }
@@ -97,7 +104,7 @@ function renameRefs(value:unknown,hide:(ref:string)=>string):void {
 }
 const CARD_IDENTITY=["cardId","passcode","name","race","bestMatch","publicIdentity","setBy","zoneRule"] as const;
 function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs):T {
-  const next=structuredClone(state);
+  const next=structuredClone(withoutUndo(state as unknown as RemoteState)) as unknown as T;
   delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
   next.deckChecks.registrations={}; next.deckChecks.flags=[]; next.deckChecks.instances=[];
   for(const seat of next.seats) {
