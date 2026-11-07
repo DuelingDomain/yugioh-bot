@@ -14,13 +14,14 @@ import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
 import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
-import { CAMERA_PUBLISH, publishCamera, watchEncoder } from './video-profile';
+import { CAMERA_PUBLISH, applyCameraRate, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
+import { readVideoRate, saveVideoRate, type VideoRate } from './video-rate';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
   connection: ConnectionState; feeds: VideoFeed[]; devices: MediaDeviceInfo[];
-  cameraId: string; microphone: boolean; error: string; /** The signal link dropped and the SDK is trying to resume it. */ signalLost?: boolean; /** LiveKit reports the encoder is CPU limited. Only tells; nothing changes by itself. */ cpuConstrained?: boolean; result?: { fromSeat: number; message: RecognitionResult };
+  cameraId: string; microphone: boolean; error: string; /** The signal link dropped and the SDK is trying to resume it. */ signalLost?: boolean; /** The browser encoder stayed CPU limited for 20 s while the page was visible. Only tells; nothing changes by itself. */ cpuConstrained?: boolean; /** Frames per second sent for my webcam. */ videoRate: VideoRate; result?: { fromSeat: number; message: RecognitionResult };
 };
 /** @yugidraft/vision integration point: crop/recognize on this unprocessed local capture track.
  * Honor signal; return at most five candidates, with the reader's tier, within 10 seconds. No frames enter the data channel.
@@ -43,7 +44,7 @@ export class RemoteVideo {
   private pagehide = () => { void this.voice.stop(); void this.room.disconnect().catch(error => this.fail(error)); };
   private fieldTracks=new FieldTrackCache();
   private backsSent=false;
-  private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
+  private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: readVideoRate() };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
     onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void }) {
@@ -137,6 +138,7 @@ export class RemoteVideo {
   }
   private async stopCamera(camera: LocalVideoTrack | undefined) {
     if (!camera) return;
+    this.endWatches();
     await releaseCameraLock(camera.mediaStreamTrack);
     camera.stop();
   }
@@ -262,18 +264,52 @@ export class RemoteVideo {
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
   }
-  /** Publish with the profile (VP8 fallback in `publishCamera`), then watch that the encoder makes frames. */
+  /** Publish with the profile (VP8 fallback in `publishCamera`), then watch that the encoder makes frames and whether the CPU limits it. */
   private async publishCamera(camera: LocalVideoTrack) {
-    const participant = this.room.localParticipant;
-    this.stopEncoderWatch?.();
-    const codec = await publishCamera(participant, camera, () => this.closed);
-    camera.on(TrackEvent.CpuConstrained, () => { if (this.camera === camera) this.patch({ cpuConstrained: true }); });
-    this.encoderWatch(camera, codec);
+    this.endWatches();
+    this.codec = await publishCamera(this.room.localParticipant, camera, () => this.closed, undefined, this.snapshot.videoRate);
+    const here = () => this.closed || this.camera !== camera;
+    // One event is one monitor sample; the offer needs the limit to hold (see watchCpuLimit).
+    camera.on(TrackEvent.CpuConstrained, () => {
+      if (here() || this.stopCpuWatch) return;
+      this.stopCpuWatch = watchCpuLimit(camera, () => { this.stopCpuWatch = undefined; if (!here()) this.patch({ cpuConstrained: true }); });
+    });
+    this.watchEncoder(camera);
+  }
+  private codec = "";
+  private watchEncoder(camera: LocalVideoTrack) {
+    const participant = this.room.localParticipant, here = () => this.closed || this.camera !== camera;
+    this.stopEncoderWatch = watchEncoder(participant, camera, this.codec, {
+      closed: here, connected: () => this.room.state === ConnectionState.Connected, rate: () => this.snapshot.videoRate,
+      republished: () => { this.codec = CAMERA_PUBLISH.fallbackCodec; this.sync(); },
+      // The second publish failed twice: say so, and try once more. The capture is kept alive for card reading.
+      failed: error => {
+        this.fail(new Error('Video to the table stopped. Turn the camera off and on again if opponents cannot see it.'));
+        void republishAsFallback(participant, camera, here, this.snapshot.videoRate).then(() => { this.codec = CAMERA_PUBLISH.fallbackCodec; this.sync(); }).catch(() => this.fail(error));
+      },
+    });
+  }
+  /** The player's choice of frames per second. Saved; applied to the running camera without a reconnect or a stop of the capture. */
+  async setVideoRate(rate: VideoRate) {
+    saveVideoRate(rate);
+    if (rate === this.snapshot.videoRate) return;
+    this.patch({ videoRate: rate });
+    const camera = this.camera;
+    if (!camera || !this.codec) return;
+    // The watches belong to the old rate: the CPU flag starts again and the encoder check waits for the change.
+    this.endWatches();
+    try { await applyCameraRate(this.room.localParticipant, camera, this.codec, rate, () => this.closed || this.camera !== camera); }
+    catch (error) { this.fail(error); }
+    if (!this.closed && this.camera === camera) { this.watchEncoder(camera); this.sync(); }
   }
   private stopEncoderWatch?: () => void;
+  private stopCpuWatch?: () => void;
   private pinned = new WeakSet<object>();
-  private encoderWatch(camera: LocalVideoTrack, codec: string) {
-    this.stopEncoderWatch = watchEncoder(this.room.localParticipant, camera, codec, () => this.closed || this.camera !== camera, () => this.sync());
+  /** The watches belong to one camera: end them, and clear the CPU flag, when a camera starts or stops. */
+  private endWatches() {
+    this.stopEncoderWatch?.(); this.stopEncoderWatch = undefined;
+    this.stopCpuWatch?.(); this.stopCpuWatch = undefined;
+    if (this.snapshot.cpuConstrained) this.patch({ cpuConstrained: false });
   }
   /** Raw WebRTC counters of every camera this device sends or receives, for the owner Debug panel. Never throws. */
   async trafficStats(): Promise<CameraTraffic[]> {
@@ -288,7 +324,7 @@ export class RemoteVideo {
     return out;
   }
   async suspendCamera() {
-    const camera = this.camera; this.camera = undefined; this.readyTrack = undefined;
+    const camera = this.camera; this.camera = undefined; this.readyTrack = undefined; this.endWatches();
     if (camera) { await releaseCameraLock(camera.mediaStreamTrack); await this.room.localParticipant.unpublishTrack(camera); camera.stop(); }
     this.sync();
   }

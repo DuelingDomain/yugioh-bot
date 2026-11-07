@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { useCameraLock } from '@/lib/remote/use-camera-lock';
 import { useZoneGrid } from '@/lib/remote/zone-grid';
 import { FieldOrientationSettings } from '../field-orientation';
-import { CardDetectionSetting, RecognitionSetting } from './recognition-setting';
+import { CardDetectionSetting, RecognitionSetting, VideoRateSetting } from './recognition-setting';
 import { useVideoHub } from './video-hub';
 import s from './camera-lock-control.module.css';
 
@@ -47,6 +47,7 @@ export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCamer
     <div id={id} ref={panel} popover="auto" className={s.menu} onToggle={event => { setOpen(event.newState === 'open'); if (event.newState === 'open') place(); }}>
       <CardDetectionSetting />
       <RecognitionSetting />
+      <VideoRateSetting />
       {lock ? <CameraLockControl lock={lock} /> : null}
       {grid.setCalibration && hasCamera ? <FieldOrientationSettings calibration={grid.calibration} defaultSide={grid.defaultSide} onChange={grid.setCalibration} /> : null}
     </div>

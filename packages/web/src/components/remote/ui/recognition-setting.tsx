@@ -6,6 +6,7 @@ import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import { useCardDetection } from "@/lib/remote/zone-grid";
+import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
 import { ThemedSelect } from "@/components/ui/themed-select";
 
@@ -72,4 +73,17 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
     <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""}`} style={note ? { maxWidth: "min(32rem, 80vw)", whiteSpace: "normal", overflowWrap: "anywhere" } : undefined} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
     {say ? <span className={s.backendNote} role="status" data-testid="recognition-note">{say}</span> : null}
   </>;
+}
+
+/** "Video to the table: Smooth (30 fps) / Lighter (15 fps)" in the table's camera menu. Applies to the running camera at once; saved on this device. */
+export function VideoRateSetting() {
+  const hub = useVideoHub();
+  const hintId = useId();
+  if (!hub.videoRateAvailable) return null;
+  return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
+    <SheetSelect label="Video to the table" value={String(hub.videoRate)} testId="video-rate" describedBy={hintId} compact
+      choices={[{ value: "30", label: "Smooth (30 fps)" }, { value: "15", label: "Lighter (15 fps)" }]}
+      onChange={value => hub.setVideoRate(value === "15" ? 15 : 30)} />
+    <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hub.videoRate === 30 ? "Opponents see your camera at up to 30 frames per second." : "Uses less of this computer and less network. Opponents see up to 15 frames per second."}</p>
+  </div>;
 }
