@@ -127,13 +127,20 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
   return { db, owner, duels, forks, source, changes, notifyTournament, network, leaked, joinRoom, post, launch, restartHost };
 }
 
+/** Row order for a snapshot: rowid, or the primary key for a WITHOUT ROWID table (remote_spectators). */
+function orderColumns(db: Database.Database, name: string) {
+  const sql = (db.prepare("select sql from sqlite_master where name = ?").get(name) as { sql: string }).sql;
+  if (!/without\s+rowid/i.test(sql)) return "rowid";
+  return (db.pragma(`table_info("${name}")`) as Array<{ name: string; pk: number }>).filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => `"${c.name}"`).join(",");
+}
+
 /** Every real-play row and every other application table. Only new marked fork storage can change. */
 function protectedRows(db: Database.Database) {
   const tables = db.prepare("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name").all() as Array<{ name: string }>;
   return Object.fromEntries(tables.filter(({ name }) => name !== "replay_fork_requests").map(({ name }) => {
     const query = name === "duels" ? "select * from duels where kind='play' order by id"
       : ["duel_seats", "duel_commands"].includes(name) ? `select t.* from ${name} t join duels d on d.id=t.duel_id where d.kind='play' order by t.rowid`
-      : `select * from ${name} order by rowid`;
+      : `select * from ${name} order by ${orderColumns(db, name)}`;
     return [name, db.prepare(query).all()];
   }));
 }

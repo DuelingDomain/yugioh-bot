@@ -11,6 +11,7 @@ COPY package*.json ./
 COPY packages/bot/package*.json packages/bot/
 COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
+COPY packages/vision/package*.json packages/vision/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
 COPY packages/e2e/package*.json packages/e2e/

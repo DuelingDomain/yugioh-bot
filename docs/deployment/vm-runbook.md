@@ -331,6 +331,11 @@ same guard, lock, preflight, backup, stop, migration and health checks. A missin
 any local tag or service change. Do not use this for incompatible schema or auth changes without
 first restoring the matching database and protected runtime environment under the procedures below.
 
+Remote Duels ships with its reference reader in the same release, so the pre-release `:prev`
+image has no Remote Duels reader. Keep a reference-capable reader when rolling back a later
+release: old readers cannot decode `valueHash`. If expanding positions for rollback, preserve
+`remote_values`/event facts; version-1 rows with full positions remain readable on roll-forward.
+
 For immediate local image recovery, first drain gameplay and acquire the shared build lock. Choose
 the matching release metadata, preserve current data, and restore compatible checkout/env/engine data
 before starting services. Stop the old bot if present, then stop `web duel worker ws`. Confirm all four
@@ -448,6 +453,34 @@ at its start; active games keep their saved engine.
 `MULTIPLAYER_TABLES` is on (Tag, 3-player and 4-player tables open); `MULTIPLAYER_TABLES=0` in `.env` closes new multi
 tables after `duel` and `web` are recreated. Switch changes need no empty server. See `duel-engine-switch.md` for the
 values, the engine saved for each game and bundle rebuild checks.
+
+### Remote Duels (limited test)
+
+Remote Duels stays off until `REMOTE_DUELS=1`. With empty flags the deploy adds `remote_*` and `vision_*` tables and one hourly prune loop in the worker, and no remote route opens. LiveKit is a separate Compose project on the host network, so the Deploy workflow does not stop it and does not remove its image. Do not add it to the main `docker-compose.yml`. Do not attach it to the main project network.
+
+The deploy guard (`check-prod-activity.py`) counts duels and drafts, not remote tables. Do not merge during a remote table: a deploy stops `web` and `ws` for a short time.
+
+Setup order. Do the flags last, because only that step exposes the feature.
+
+1. DNS: first read the inbound rules of the Hetzner Cloud Firewall. If ports 80 and 443 allow only Cloudflare ranges (`cloudflare.md` section E), add an A record `rtc` to the VM IPv4 with the proxy on, because a DNS-only host cannot reach Caddy through that lock. If ports 80 and 443 are open to all, DNS only also works. In both cases add no AAAA record. The name carries signalling only. Media cannot pass through the proxy: it goes directly to `LIVEKIT_NODE_IP` on TCP 7881 and UDP 7882, so always check those ports with the VM IP, not the name.
+2. Hetzner Cloud Firewall: add inbound TCP 7881 and UDP 7882 from any source. Do not open TCP 7880, TCP 6789, 3478, 5349 or UDP 50000-60000. Host networking makes the firewall the only protection for port 6789.
+3. Keys: run `docker run --rm livekit/livekit-server:v1.13.11 generate-keys` on your own PC. A secret under 32 characters logs an error and the server keeps running, so startup does not prove the key.
+4. `.env`: set `REMOTE_DUELS=0`, `REMOTE_DUELS_USERS=<ids>` (never `*`), `REMOTE_MAX_LIVE_ROOMS=5` (new multi-seat rooms are refused at this many live rooms; existing rooms, joins and solo tables are not affected; unset, empty, `0` or an invalid value means no cap, and an invalid value logs one warning), `LIVEKIT_URL=wss://rtc.<domain>`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `LIVEKIT_NODE_IP`. `ip -4 -br addr show docker0` must show `172.17.0.1`, or change `--bind` in `services/livekit/docker-compose.prod.yml`. Keep `REMOTE_VOICE_RECOGNITION`, `NEXT_PUBLIC_REMOTE_STT_URL`, `REMOTE_VISION_FEEDBACK`, `REMOTE_VISION_AI` and `VISION_DATA_DIR` unset. Never set `DUEL_FX_LAB=1`: it makes the vision files public. No GitHub variable or build argument changes.
+5. Vision files: they are not in any image. On a PC at the merged commit, copy `worker.js`, `NOTICE`, `related-cards.json`, `yugioh-index.bin`, `yugioh-index.meta.json`, `yugioh-index.build.json`, `models/` and `ort/` from a prepared `data/vision` to a temp folder, then run `VISION_DATA_DIR=<temp> npx tsx scripts/vision/prepare.ts --bundle-only` and `rsync -a <temp>/ root@<vm>:/opt/yugioh-bot/data/vision.tmp/`. On the VM run `chown -R 1000:1000 data/vision.tmp && chmod -R a+rX data/vision.tmp `, then `rm -rf data/vision.old; if [ -d data/vision ]; then mv data/vision data/vision.old; fi; mv data/vision.tmp data/vision`. On a repeat, without the first `mv`, the new files land inside the old folder. Check on a repeat: in a listed user's browser run `(await fetch('/dev/vision-assets/worker.js',{cache:'no-store'})).headers.get('etag')` before and after the swap. A changed `worker.js` must give a different ETag, and an unchanged one the same ETag. Then run `rm -rf data/vision.old`. Keep mtimes: the ETag uses size and mtime. `worker.js` is generated, so do this step again after a merge that changes `packages/vision`. A browser 404 for `yugioh-thresholds.json` and `yugioh-full-art.*` is normal.
+6. Start LiveKit (a change to `services/livekit/livekit.prod.yaml` needs a restart of it): `docker compose --env-file /opt/yugioh-bot/.env -f services/livekit/docker-compose.prod.yml up -d`, then read its logs for the node IP. Do not run `config` on this file in a shared log, because it prints the secret.
+7. Set `RTC_DOMAIN=rtc.<domain>` after the DNS record works, then run `docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate caddy`. Check: `docker compose -f docker-compose.yml exec caddy wget -qO- http://host.docker.internal:7880` prints `OK`. From a PC: `curl -s https://rtc.<domain>` prints `OK`, `nc -vz <VM IP> 7881` connects, and `nc -vz -w3 <VM IP> 7880` fails.
+8. Set `REMOTE_DUELS=1`, then run `SENTRY_RELEASE=$(cat data/production-image-commit) docker compose -f docker-compose.yml up -d --no-build --no-deps web ws`. Do not use `restart`: it does not read new environment values.
+9. Browser, listed user: on a table `crossOriginIsolated` is `true`, `/dev/vision-assets/worker.js` returns 200 and the session stays. Browser, other user: `/duels/remote` and `/dev/vision-assets/worker.js` return 404, and the admin console has no Vision view.
+
+Without TURN, a network that allows only ports 80 and 443 has no video and no card reading for that seat; manual play stays open. Each player can check this with `nc -vz <VM IP> 7881` before a test. Use the IP: with the proxy on, the name does not reach port 7881.
+
+Watch during a test: `free -m` (stop under 1 GB available), `docker stats --no-stream` (LiveKit limit is 256 MiB and 1 CPU), `docker inspect -f '{{.RestartCount}}' <duel container>` (stop at any restart), `sar -n DEV`, and Sentry `operation=remote-api`.
+
+Turn off, smallest step first:
+
+1. Video only, no restart: `docker compose --env-file .env -f services/livekit/docker-compose.prod.yml stop`. Tables stay.
+2. Whole feature: set `REMOTE_DUELS=0`, then run the command from step 8. To remove one person, edit `REMOTE_DUELS_USERS` instead. The `ws` recreate drops live sockets for a few seconds.
+3. Code: Deploy workflow with `rollback=true`. The schema stays and old images ignore the new tables. Then stop LiveKit and run `rm -rf data/vision data/vision.old`.
 
 ### Report bug button (GitHub issues)
 

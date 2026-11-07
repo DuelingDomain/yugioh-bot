@@ -1,0 +1,154 @@
+/* Themed select: a button that shows the value, and a listbox in our dark theme.
+   The list is drawn in a portal, so the tokens are set again on every root (.scope) instead of read from the page. */
+
+.scope {
+  --ts-panel: #0e1729;
+  --ts-panel-2: #132037;
+  --ts-panel-3: #1a2b48;
+  --ts-ink: #efe7d5;
+  --ts-ink-2: #c3bba8;
+  --ts-ink-3: #958f81;
+  --ts-rule: rgb(181 153 99 / 0.3);
+  --ts-rule-hi: rgb(181 153 99 / 0.58);
+  --ts-rule-lo: rgb(181 153 99 / 0.16);
+  --ts-pen: #9b7eff;
+  --ts-pen-ink: #c6b6ff;
+  --ts-pen-soft: rgb(155 126 255 / 0.16);
+  --ts-gold: #e4b64f;
+  --ts-gold-ink: #f4d690;
+  --ts-gold-soft: rgb(228 182 79 / 0.12);
+  --ts-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ts-font: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  color-scheme: dark;
+}
+.scope, .scope *, .scope *::before, .scope *::after { box-sizing: border-box; }
+
+/* ---------- the field: label, button, hidden native select ---------- */
+.field { position: relative; display: block; min-width: 0; font-family: var(--ts-font); }
+/* font="inherit": the button takes the font of the page around it (the popover gets the same family inline). */
+.field.inheritFont, .field.inheritFont .trigger { font-family: inherit; }
+.menu { display: inline-block; flex: 0 1 180px; width: 180px; max-width: 100%; vertical-align: middle; }
+.menuWide { flex-basis: 240px; width: 240px; }
+
+.label { display: block; margin-bottom: 6px; color: var(--ts-ink-3); font-size: calc(12.5px * var(--tt, 1)); font-weight: 400; letter-spacing: 0.01em; cursor: default; }
+.srOnly {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+.field .trigger {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  width: 100%; min-width: 0; height: 42px; margin: 0; padding: 0 38px 0 12px; flex: none;
+  border: 1px solid var(--ts-rule-lo); border-radius: 7px;
+  background: var(--ts-panel-2); color: var(--ts-ink);
+  font: inherit; font-family: var(--ts-font); font-size: calc(15px * var(--tt, 1)); font-weight: 400; line-height: 1.2;
+  text-align: left; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color 160ms var(--ts-ease), background-color 160ms var(--ts-ease), box-shadow 160ms var(--ts-ease);
+}
+.field .compact { height: 36px; font-size: calc(14px * var(--tt, 1)); }
+.field .menuTrigger {
+  height: 28px; padding: 0 28px 0 9px; border-radius: 6px; gap: 5px;
+  border-color: var(--line2, rgb(181 153 99 / 0.3)); background: var(--p0, rgb(7 4 14 / 0.9)); color: var(--ink2, var(--ts-ink-2));
+  font-size: 11.5px; font-weight: 600; line-height: 1;
+}
+.field .trigger:hover:not(:disabled) { border-color: var(--ts-rule); background: var(--ts-panel-3); }
+.field .menuTrigger:hover:not(:disabled) { border-color: var(--gold, var(--ts-gold)); background: var(--p0, rgb(7 4 14 / 0.9)); color: var(--gold-ink, var(--ts-gold-ink)); }
+.field .trigger[aria-expanded="true"] { border-color: var(--ts-rule-hi); }
+.field .trigger:focus-visible { outline: none; border-color: var(--ts-pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.28); }
+.field .trigger:disabled { opacity: 0.55; cursor: default; }
+
+.value { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.placeholder { color: var(--ts-ink-3); }
+.prefix { flex: none; color: var(--ts-ink-3); font-weight: inherit; }
+.tIcon { display: inline-flex; flex: none; color: var(--ts-ink-2); }
+.chevron {
+  position: absolute; top: 50%; right: 12px; translate: 0 -50%;
+  color: var(--ts-ink-3); pointer-events: none;
+  transition: color 160ms var(--ts-ease), rotate 200ms var(--ts-ease);
+}
+.menuTrigger .chevron { right: 8px; }
+.trigger:hover:not(:disabled) .chevron, .trigger:focus-visible .chevron, .trigger[aria-expanded="true"] .chevron { color: var(--ts-pen-ink); }
+.trigger[aria-expanded="true"] .chevron { rotate: 180deg; }
+
+/* Keeps old selectors (data-testid + selectOption) working. Out of sight and out of the tab order. */
+.field .native {
+  position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; margin: 0; padding: 0; border: 0;
+  opacity: 0; pointer-events: none; overflow: hidden; flex: none;
+}
+
+/* ---------- the list ---------- */
+.popover {
+  position: fixed; z-index: 2000; display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--ts-rule); border-radius: 9px; background: var(--ts-panel); color: var(--ts-ink);
+  box-shadow: 0 18px 44px -12px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(0 0 0 / 0.4);
+  font-family: var(--ts-font); font-size: calc(14px * var(--tt, 1)); font-weight: 400; line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  animation: tsPop 130ms var(--ts-ease);
+  transform-origin: var(--ts-origin, top center);
+}
+.popoverUp { --ts-origin: bottom center; }
+@keyframes tsPop { from { opacity: 0; transform: translateY(-4px) scale(0.985); } to { opacity: 1; transform: none; } }
+.popoverUp { animation-name: tsPopUp; }
+@keyframes tsPopUp { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+.list {
+  flex: 1 1 auto; min-height: 0; margin: 0; padding: 4px; overflow-y: auto; overscroll-behavior: contain;
+  outline: none; scrollbar-width: thin; scrollbar-color: var(--ts-rule) transparent;
+}
+.group { padding: 0; margin: 0; }
+.group + .group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--ts-rule-lo); }
+.groupLabel {
+  padding: 6px 10px 3px; color: var(--ts-ink-3); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.09em; text-transform: uppercase; cursor: default;
+}
+.option {
+  position: relative; display: flex; align-items: center; gap: 9px;
+  min-height: 34px; padding: 6px 8px 6px 10px; border-radius: 6px;
+  color: var(--ts-ink-2); cursor: pointer; user-select: none; -webkit-user-select: none;
+}
+.option[data-active="true"] { background: var(--ts-pen-soft); color: var(--ts-ink); }
+.option[data-active="true"]::before {
+  content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--ts-pen);
+}
+.option[aria-selected="true"] { color: var(--ts-gold-ink); }
+.option[aria-selected="true"]:not([data-active="true"]) { background: var(--ts-gold-soft); }
+.option[aria-disabled="true"] { opacity: 0.42; cursor: not-allowed; }
+.oIcon { display: inline-flex; flex: none; color: var(--ts-ink-3); }
+.oText { flex: 1 1 auto; min-width: 0; }
+.oLabel { display: block; overflow-wrap: anywhere; }
+.oDesc { display: block; margin-top: 1px; color: var(--ts-ink-3); font-size: 0.86em; line-height: 1.35; overflow-wrap: anywhere; }
+.option[data-active="true"] .oDesc { color: var(--ts-ink-2); }
+.check { flex: none; color: var(--ts-gold); }
+
+/* ---------- bottom sheet (phones) ---------- */
+.backdrop { position: fixed; inset: 0; z-index: 2000; background: rgb(3 5 10 / 0.62); touch-action: none; animation: tsFade 160ms linear; }
+@keyframes tsFade { from { opacity: 0; } to { opacity: 1; } }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2001; display: flex; flex-direction: column;
+  max-height: min(78dvh, 560px); padding-bottom: env(safe-area-inset-bottom, 0px);
+  border: 1px solid var(--ts-rule); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--ts-panel); color: var(--ts-ink);
+  box-shadow: 0 -18px 50px -10px rgb(0 0 0 / 0.8);
+  font-family: var(--ts-font); font-size: calc(16px * var(--tt, 1)); line-height: 1.35;
+  animation: tsRise 220ms var(--ts-ease);
+}
+@keyframes tsRise { from { transform: translateY(100%); } to { transform: none; } }
+.grip { flex: none; width: 38px; height: 4px; margin: 8px auto 0; border-radius: 4px; background: var(--ts-rule); }
+.sheetHead { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; }
+.sheetTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ts-ink-3); font-size: 0.82em; letter-spacing: 0.04em; text-transform: uppercase; }
+.sheetClose {
+  display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ts-ink-2); cursor: pointer;
+}
+.sheetClose:hover { background: var(--ts-pen-soft); color: var(--ts-ink); }
+.sheet .list { padding: 2px 8px 10px; }
+.sheet .option { min-height: 48px; padding: 8px 10px 8px 12px; border-radius: 8px; }
+.sheet .groupLabel { padding: 10px 12px 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .popover, .backdrop, .sheet { animation: none; }
+  .field .trigger, .chevron { transition: none; }
+}
+@media (forced-colors: active) {
+  .option[data-active="true"] { outline: 2px solid Highlight; }
+  .option[aria-selected="true"] .check { color: Highlight; }
+}

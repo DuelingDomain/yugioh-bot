@@ -1,6 +1,7 @@
 /**
  * The FX lab (/dev/fx-lab) is a review page for the duel animations, and /dev/table-preview shows the multiplayer
- * table on fixtures. /dev/solid-preview is the same for the 3D mode board, and /dev/sign-in-preview shows the sign-in step cards. All are off in production: it
+ * table on fixtures. /dev/solid-preview is the same for the 3D mode board, /dev/sign-in-preview shows the sign-in step cards,
+ * and /dev/vision-lab reviews local card recognition. All are off in production: it
  * opens only when DUEL_FX_LAB=1 is set in the web server's environment (read at request time), or
  * in `next dev`. The auth callback uses the same switch to let the page and the card art through
  * without a login.
@@ -10,8 +11,18 @@ export function fxLabEnabled(): boolean {
 }
 
 /**
+ * The local vision worker, ONNX runtime and models. The Remote Duels table loads them from /dev/vision-lab/assets and
+ * /dev/vision-assets, so they are served when Remote Duels is on. Only the lab switch makes them public: under
+ * REMOTE_DUELS alone the normal sign-in still applies (see isFxLabPublicPath, which proxy.ts checks with fxLabEnabled).
+ */
+export function visionAssetsEnabled(): boolean {
+  return fxLabEnabled() || process.env.REMOTE_DUELS === "1";
+}
+
+/**
  * Paths that need no login while the lab is on: the lab page, the multiplayer table preview (/dev/table-preview
- * and the pages under it), the 3D mode preview (/dev/solid-preview and the pages under it), the sign-in step preview (/dev/sign-in-preview), the delete-account preview (/dev/delete-account-preview) and the card art route.
+ * and the pages under it), the 3D mode preview (/dev/solid-preview and the pages under it), the sign-in step preview (/dev/sign-in-preview),
+ * the delete-account preview (/dev/delete-account-preview), the vision lab and its local assets, and the card art route.
  */
 export function isFxLabPublicPath(pathname: string): boolean {
   return (
@@ -22,6 +33,10 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname.startsWith("/dev/solid-preview/") ||
     pathname === "/dev/sign-in-preview" ||
     pathname === "/dev/delete-account-preview" ||
+    pathname === "/dev/vision-lab" ||
+    pathname.startsWith("/dev/vision-lab/assets/") ||
+    pathname === "/dev/vision-assets" ||
+    pathname.startsWith("/dev/vision-assets/") ||
     /^\/api\/cards\/\d+\/image$/.test(pathname) ||
     /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname) ||
     // The coin toss art (the two faces of the coin).

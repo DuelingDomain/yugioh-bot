@@ -2,8 +2,9 @@ import {loadFormatEffectSearch} from "@/lib/format-effect-search";
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
+import { remoteDuelsEnabledFor } from "@/lib/remote-duels";
 import { getDb } from "@/lib/db";
-import { CardFetchLimitError, createCardLookupBudget, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo, parseDeckSuggestionQuery, type CardEffectSearchResult } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createCardLookupBudget, loadEngineCardFacts, applyEngineCardFacts, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo, parseDeckSuggestionQuery, type CardEffectSearchResult } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -18,6 +19,9 @@ import { lowConfidenceReading, searchIntentTarget, readFormatQuery } from "@yugi
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
+
+/** Spell/Trap rows already fetched again this process because neither the engine nor the catalog knew their subtype. */
+const subtypeRefetched = new Set<number>();
 
 /** Remote card lookups one description search may start for hits missing from the display cache. */
 const EFFECT_SEARCH_LOOKUP_LIMIT = 8;
@@ -52,6 +56,12 @@ function toCardSummary(c: {
   };
 }
 
+/** Remote Duels table rules need the Spell/Trap subtype and the engine's type bits. Other callers keep toCardSummary. */
+function toRemoteCardSummary(c: Parameters<typeof toCardSummary>[0] & { race?: string }): CardSummary {
+  const card = applyEngineCardFacts(c, loadEngineCardFacts().get(c.ygoprodeckId));
+  return { ...toCardSummary(card), race: card.race };
+}
+
 function isUnreachable(error: unknown): boolean {
   return error instanceof CardFetchLimitError || (error instanceof Error && error.message.startsWith("Could not reach the card database"));
 }
@@ -72,6 +82,7 @@ async function handlePOST(request: Request) {
     op?: unknown;
     setNames?: string[];
     customCardIds?: number[];
+    lookupIds?: unknown;
     cardName?: string;
     fuzzyName?: string;
     includeExtra?: boolean;
@@ -144,6 +155,29 @@ async function handlePOST(request: Request) {
   const db = getDb();
   const catalog = createCardCatalogService(db, { memberId: actor.userId });
 
+  if (body.lookupIds !== undefined) {
+    if (!remoteDuelsEnabledFor(actor.userId)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Plain facts for known passcodes. Unlike customCardIds this is not a draft pool: Extra Deck monsters
+    // (Xyz, Synchro, Fusion, Link) and alternate artwork passcodes resolve too, and each missing id is fetched.
+    const ids = body.lookupIds;
+    if (!Array.isArray(ids) || ids.length > 200 || ids.some((id) => typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)) {
+      return NextResponse.json({ error: "lookupIds must be up to 200 positive card ids." }, { status: 400 });
+    }
+    const wanted = [...new Set(ids as number[])];
+    const budget = createCardLookupBudget();
+    await ensureCatalogCards(catalog, wanted, budget);
+    // Online fallback (card database API) for a Spell/Trap that the engine does not have and our row has no subtype for.
+    const engine = loadEngineCardFacts();
+    for (const card of catalog.findByIds(wanted)) {
+      if (engine.has(card.ygoprodeckId) || card.race || card.prerelease || !/spell|trap/i.test(card.type) || subtypeRefetched.has(card.ygoprodeckId)) continue;
+      subtypeRefetched.add(card.ygoprodeckId);
+      try { await catalog.syncCardById(card.ygoprodeckId, { lookupBudget: budget }); } catch { /* Keep the cached row. */ }
+    }
+    const cards = catalog.findByIds(wanted).map(toRemoteCardSummary);
+    const found = new Set(cards.map((card) => card.id));
+    return NextResponse.json({ cards, unknownIds: wanted.filter((id) => !found.has(id)) }, { headers: { "Cache-Control": "private, no-store" } });
+  }
+
   if (body.listText !== undefined) {
     if ([body.setNames, body.customCardIds, body.cardName, body.fuzzyName, body.archetype, body.includeExtra]
       .some((option) => option !== undefined)) {
@@ -198,7 +232,7 @@ async function handlePOST(request: Request) {
       }
       cards = rankCardsByTypo([...found.values()], fuzzyName).slice(0, 24);
     }
-    return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
+    return NextResponse.json({ cards: cards.map(remoteDuelsEnabledFor(actor.userId) ? toRemoteCardSummary : toCardSummary), unknownIds: [] });
   }
 
   // Sets not in card_catalog yet are fetched first, the way POST /api/drafts does.

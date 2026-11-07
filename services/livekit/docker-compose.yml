@@ -1,0 +1,17 @@
+name: remote-video
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    # Publish only on loopback; works with WSL2 Docker Desktop and Linux Docker.
+    ports:
+      - "127.0.0.1:7880:7880/tcp"
+      - "127.0.0.1:7881:7881/tcp"
+      - "127.0.0.1:7882:7882/udp"
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1", "--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: "1"

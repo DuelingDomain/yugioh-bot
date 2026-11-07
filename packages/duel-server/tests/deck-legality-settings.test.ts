@@ -2,6 +2,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
+import { remoteDeckCardFacts } from "@yugidraft/shared/deck-legality";
 import { TCG_2026_10_19_LIMITS, OCG_2026_10_LIMITS } from "../src/banlists/compiled.js";
 import { inspectDeck, validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -359,5 +360,15 @@ describe("inspectDeck settings", () => {
       { section: "main", index: 1, code: BRANDED_OPENING },
     ]);
   });
-});
 
+  it("reads card limits for each banlist from the listed-limit index, repeat calls included", () => {
+    const codes = [POT_OF_GREED, BRANDED_OPENING, DARK_MAGICIAN];
+    const limits = (banlist: string) => {
+      const facts = remoteDeckCardFacts("normal", DATA, settings({ banlist }), codes);
+      return codes.map((code) => facts[code].limit);
+    };
+    expect(limits("tcg-2026-10-19")).toEqual([0, 1, 3]);
+    expect(limits("none")).toEqual([3, 3, 3]);
+    expect(limits("tcg-2026-10-19")).toEqual([0, 1, 3]);
+  });
+});

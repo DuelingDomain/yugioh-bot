@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server as HttpServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { io as ClientIO, type Socket as ClientSocket } from "socket.io-client";
@@ -375,4 +375,112 @@ describe("registerDuelEventHandlers", () => {
     expect(await seatedSawChange).toEqual({ slug: "alpha" });
     expect(leaked).toBe(false);
   });
+});
+
+import { registerRemoteEventHandlers } from "../src/remote-events.js";
+import { createRemoteConnectionToken } from "@yugidraft/shared/ws";
+import type { RemoteAck } from "@yugidraft/shared/remote";
+describe("remote rooms", () => {
+  it("authenticates rooms, relays bounded recognition messages, rate limits and prunes revoked seats", async () => {
+    const server = await setupTestServer();
+    let revoked = false;
+    const remote = registerRemoteEventHandlers(server.io as any, { secret: SECRET,
+      canRead: claims => !(revoked && claims.userId === 11), readSnapshot: () => null });
+    const a = createClient(server.url); const b = createClient(server.url); const c = createClient(server.url);
+    try {
+      await Promise.all([a, b, c].map(waitForConnect));
+      const mintRemote = (userId: number, seat: number, guildId = "g") => createRemoteConnectionToken({ userId, seat, slug: "remote", guildId, expiresAt: Date.now() + 60_000 }, SECRET);
+      const join = (socket: TestClient, token: string) => new Promise<RemoteAck>(resolve => socket.emit("remote:join", { token }, resolve));
+      expect((await join(a, mint().token)).ok).toBe(false);
+      expect((await join(a, mintRemote(10, 0))).ok).toBe(true);
+      expect((await join(b, mintRemote(11, 1))).ok).toBe(true);
+      expect((await join(c, mintRemote(12, 1, "other"))).ok).toBe(true);
+      const foreign = vi.fn(); c.on("remote:data", foreign);
+      const send = (socket: TestClient, data: any) => new Promise<RemoteAck>(resolve => socket.emit("remote:data", data, resolve));
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "bad", x: 2, y: 0 })).ok).toBe(false);
+      const received = new Promise<any>(resolve => b.once("remote:data", resolve));
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "r", x: 0.5, y: 0.5 })).ok).toBe(true);
+      expect(await received).toMatchObject({ fromSeat: 0, message: { requestId: "r" } });
+      expect((await send(a, { type: "recognition.request", feedOwnerSeat: 1, requestId: "r2", x: 0, y: 0 })).ok).toBe(false);
+      const result = new Promise<any>(resolve => a.once("remote:data", resolve));
+      expect((await send(b, { type: "recognition.result", requestId: "r", candidates: [{ cardId: 1, name: "Card", score: 0.9 }], tier: "sure", faceDown: false, covered: false })).ok).toBe(true);
+      expect(await result).toMatchObject({ fromSeat: 1 }); expect(foreign).not.toHaveBeenCalled();
+      revoked = true; remote.snapshot("remote", "g");
+      expect(roomsFor(server.io, b.id)).not.toContain("remote:g:remote");
+    } finally { a.disconnect(); b.disconnect(); c.disconnect(); await server.io.close(); }
+  });
+});
+
+it.each([true,false])("sends only the chosen Deck identity publicly when publicity is %s", async show => {
+  const { ygoModule, projectRemoteSnapshot }=await import("@yugidraft/shared/remote");
+  const server=await setupTestServer();
+  const state=ygoModule.initialState({seatCount:2});
+  state.deckChecks.registrations[0]={savedDeckId:77,name:"Secret deck",deck:{main:[53582587],extra:[],side:[]},validation:{issues:[]}};
+  state.effectTracking={contexts:{},origins:[{id:"secret",seat:0,ref:"set",destination:"set",source:{cardId:70825459,name:"Trap Tracks"},announceRecommended:false,derivedFrom:"text",chosenCardId:53582587,candidates:[{cardId:53582587,copyKey:53582587,name:"Torrential Tribute",copies:1}]}],notes:[]};
+  state.showCardsSetFromDeck=show;
+  state.seats[0].twin=[{ref:"set",zone:"spell-trap",faceUp:false,position:"attack",cardId:53582587,name:"Torrential Tribute",...(show ? {publicIdentity:true} : {})}];
+  if(show) state.effectTracking.origins[0].announcedCard={cardId:53582587,name:"Torrential Tribute"};
+  const raw={table:{slug:"remote",guildId:"g",lastSeq:2,seats:[{seat:0,deck:state.deckChecks.registrations[0]}]},state,events:[]} as any;
+  const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
+    readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat!]))});
+  const a=createClient(server.url), b=createClient(server.url);
+  try {
+    await Promise.all([a,b].map(waitForConnect));
+    for(const [socket,userId,seat] of [[a,10,0],[b,11,1]] as const) await new Promise(resolve=>socket.emit("remote:join",{token:createRemoteConnectionToken({userId,seat,slug:"remote",guildId:"g",expiresAt:Date.now()+60_000},SECRET)},resolve));
+    const own=new Promise<any>(resolve=>a.once("remote:private",resolve));
+    const other=new Promise<any>(resolve=>b.once("remote:private",resolve));
+    const publicUpdate=new Promise<any>(resolve=>b.once("remote:changed",resolve));
+    remote.publish("remote","g");
+    expect((await own).state.effectTracking.origins[0].candidates).toHaveLength(1);
+    for(const update of [await other, await publicUpdate]) {
+      expect(update.state.seats[0].twin[0].cardId).toBe(show ? 53582587 : undefined);
+      expect(update.state.seats[0].twin[0].faceUp).toBe(false);
+      const data=JSON.stringify(update); expect(data).not.toContain("Secret deck"); expect(data).not.toContain('"candidates"'); expect(data).not.toContain('"chosenCardId"');
+    }
+  } finally {a.disconnect();b.disconnect();await server.io.close();}
+});
+
+it("sends patches built from each viewer's own projected view, never from hidden data, and keeps old sockets on full messages", async () => {
+  const { ygoModule, projectRemoteSnapshot, projectRemoteSpectator, applyPatch }=await import("@yugidraft/shared/remote");
+  const server=await setupTestServer();
+  const state=ygoModule.initialState({seatCount:2});
+  const secret={ref:"c1",zone:"monster",faceUp:true,position:"attack",cardId:53582587,passcode:53582587,name:"Torrential Tribute"};
+  state.seats[0].twin=[secret] as never;
+  const raw={table:{slug:"remote",guildId:"g",lastSeq:2,lastEventAt:1,idleWarningAt:null,seats:[{seat:0,userId:10},{seat:1,userId:11}]},state,events:[]} as any;
+  const asRoom=(view:any)=>({...view.table,state:view.state,events:view.events});
+  const read=(claims:any)=>claims.seat===null?projectRemoteSpectator(raw):projectRemoteSnapshot(raw,new Set([claims.seat]));
+  const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
+    readPrivateSnapshot:read,readSpectatorSnapshot:()=>projectRemoteSpectator(raw)});
+  const clients=[createClient(server.url),createClient(server.url),createClient(server.url),createClient(server.url)];
+  const [owner,opponent,watcher,oldTab]=clients;
+  const names=["owner","opponent","watcher","oldTab"] as const;
+  const got:Record<string,{patch:any[];full:any[];changed:any[]}>=Object.fromEntries(names.map(n=>[n,{patch:[],full:[],changed:[]}]));
+  try {
+    await Promise.all(clients.map(waitForConnect));
+    clients.forEach((socket,i)=>{socket.on("remote:patch",p=>got[names[i]].patch.push(p));socket.on("remote:private",p=>got[names[i]].full.push(p));socket.on("remote:changed",p=>got[names[i]].changed.push(p));});
+    const token=(userId:number,seat:number|null)=>createRemoteConnectionToken({userId,seat,slug:"remote",guildId:"g",expiresAt:Date.now()+60_000},SECRET);
+    const join=(socket:TestClient,t:string,patch:boolean)=>new Promise(resolve=>socket.emit("remote:join",patch?{token:t,patch:1}:{token:t},resolve));
+    await join(owner,token(10,0),true); await join(opponent,token(11,1),true); await join(watcher,token(12,null),true); await join(oldTab,token(11,1),false);
+    const settle=()=>new Promise(resolve=>setTimeout(resolve,150));
+    remote.publish("remote","g"); await settle();
+    // No earlier view: everybody gets a full view, and nobody gets a patch.
+    expect(names.map(n=>[got[n].full.length,got[n].patch.length])).toEqual([[1,0],[1,0],[1,0],[1,0]]);
+    expect(got.oldTab.changed).toHaveLength(1); expect(got.opponent.changed).toHaveLength(0);
+    const before=Object.fromEntries(names.map(n=>[n,asRoom(got[n].full[0])]));
+    // The card goes from public (face up on the field) to hidden (Set).
+    raw.state=structuredClone(raw.state); raw.state.seats[0].twin=[{...secret,faceUp:false,zone:"spell-trap"}];
+    raw.table={...raw.table,lastSeq:3};
+    remote.publish("remote","g"); await settle();
+    expect(names.map(n=>got[n].patch.length)).toEqual([1,1,1,0]);
+    expect(got.oldTab.full).toHaveLength(2); expect(got.oldTab.changed).toHaveLength(2);
+    for(const [name,expected] of [["owner",read({seat:0})],["opponent",read({seat:1})],["watcher",read({seat:null})]] as const) {
+      const patch=got[name].patch[0]; expect(patch).toMatchObject({slug:"remote",base:2,seq:3});
+      // Applying the patch to the view the viewer held gives exactly this viewer's projection of the new table.
+      expect(JSON.parse(JSON.stringify(applyPatch(before[name],patch.ops)))).toEqual(JSON.parse(JSON.stringify({...asRoom(expected)})));
+      const wire=JSON.stringify(patch);
+      // The owner already holds the card, so the patch only turns it face down. The others lose the name and id they saw while it was public.
+      expect(wire).not.toContain("Torrential Tribute"); expect(wire).not.toContain("53582587");
+      expect(patch.ops.some((op:any)=>op.d&&op.p.includes("name"))).toBe(name!=="owner");
+    }
+  } finally { clients.forEach(c=>c.disconnect()); await server.io.close(); }
 });

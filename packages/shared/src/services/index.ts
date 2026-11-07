@@ -10,6 +10,7 @@ export * from "./genesys-points-sync.js";
 export * from "./card-lookup-budget.js";
 export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
 export * from "./card-artworks.js";
+export * from "./engine-card-facts.js";
 export * from "./card-fetch.js";
 export * from "./cubes.js";
 export * from "./cube-seed.js";
@@ -92,6 +93,15 @@ export * from "./cube-era.js";
 export { createPrereleaseDateLookup } from "./card-release-dates.js";
 export * from "./admin-spectate.js";
 export * from "./creator-access.js";
+
+export * from "./remote-duels.js";
+
+export * from "./remote-access.js";
+
+export { createVisionFeedbackService, VISION_FEEDBACK_LIMITS } from './vision-feedback.js';
+export type { VisionFeedbackInput, VisionSample, VisionLearning } from './vision-feedback.js';
 export * from "./archetype-bridges.js";
 
 export * from "./releases.js";
+
+export { pruneRemoteDuels } from "./remote-retention.js";

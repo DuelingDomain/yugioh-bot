@@ -7,6 +7,10 @@ export async function register() {
     if (process.env.NEXT_PHASE !== "phase-production-build") {
       const { startWebHealth } = await import("./src/lib/vps-health-reporter");
       startWebHealth();
+      const { startPhoneCleanup } = await import("./src/lib/remote/phone-server");
+      startPhoneCleanup();
+      const { startSpectatorCleanup } = await import("./src/lib/remote/spectator-server");
+      startSpectatorCleanup();
     }
   }
   if (process.env.NEXT_RUNTIME === "edge") await import("./sentry.edge.config");
