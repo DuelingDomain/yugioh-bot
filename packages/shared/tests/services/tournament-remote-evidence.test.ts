@@ -87,6 +87,23 @@ it.each(['purge', 'idle', 'act'] as const)('keeps %s successful when a tournamen
   expect(s.db.pragma('foreign_key_check')).toEqual([]);
 });
 
+it('stops the caller when evidence capture rolls back the outer transaction', () => {
+  const s = setup();
+  s.act({type:'player.concede'}, 1);
+  s.db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(s.matchId);
+  s.db.exec(`create trigger evidence_rollback before insert on tournament_remote_evidence
+    begin select raise(rollback, 'evidence rollback'); end;`);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  expect(() => s.db.transaction(() => {
+    s.db.prepare("update tournaments set name='Before capture'").run();
+    captureRemoteTournamentEvidence(s.db, s.tableId, 3000);
+    s.db.prepare("update tournaments set name='After capture'").run();
+  }).immediate()).toThrow('evidence rollback');
+  expect(s.db.inTransaction).toBe(false);
+  expect(s.db.prepare('select name from tournaments').get()).toEqual({name:'Evidence regression'});
+});
+
 it('prunes expired evidence even when room retention configuration is invalid', () => {
   const s = setup();
   const ended = s.act({type:'player.concede'}, 1);

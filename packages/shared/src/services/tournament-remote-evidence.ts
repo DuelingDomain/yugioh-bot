@@ -28,6 +28,7 @@ export function captureRemoteTournamentEvidence(db: Database.Database, tableId: 
   try {
     captureEvidence(db, tableId, now);
   } catch (error) {
+    if (!db.inTransaction) throw error;
     console.warn(`Skipping tournament evidence for table ${tableId}`, error);
   }
 }
