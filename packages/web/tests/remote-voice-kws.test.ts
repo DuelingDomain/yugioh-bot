@@ -79,6 +79,8 @@ describe("browser voice commands (KWS)", () => {
     expect(verdict("main1", 2, true, "end")).toBe("end");
     expect(verdict("battle", 2, true, "main")).toBe("main2");
     expect(verdict("end", 2, true, "endTurn")).toBe("turn");
+    expect(verdict("main2", 2, true, "endTurn")).toBe("turn");
+    expect(verdict("standby", 2, true, "endTurn")).toBe("too early to end the turn");
     expect(verdict("main1", 2, true, "draw")).toBe("not a next phase");
     expect(verdict("main1", 2, true, "main1")).toBe("already in Main 1");
     expect(verdict("draw", 2, true, "battle")).toBe("skips too far");

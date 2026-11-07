@@ -39,7 +39,8 @@ export function judgePhaseWord(
 ): PhaseVerdict {
   const ignore = (reason: string): PhaseVerdict => ({ accept: false, reason });
   if (!isTurnPlayer) return ignore("not your turn");
-  if (heard === "endTurn") return current === "end" ? { accept: true, move: { kind: "turn" } } : ignore("not in the End Phase");
+  // Players pass the turn from any Main or Battle Phase, so "end turn" is plausible from Main 1 on, not in Draw or Standby.
+  if (heard === "endTurn") return VOICE_PHASES.indexOf(current) >= VOICE_PHASES.indexOf("main1") ? { accept: true, move: { kind: "turn" } } : ignore("too early to end the turn");
   // Bare "main" means the Main Phase that comes next: Main 1 before the Battle Phase, Main 2 from the Battle Phase on.
   const target: VoicePhase = heard === "main" ? (VOICE_PHASES.indexOf(current) <= VOICE_PHASES.indexOf("main1") ? "main1" : "main2") : heard;
   if (target === current) return ignore(`already in ${PHASE_LABEL[current]}`);
