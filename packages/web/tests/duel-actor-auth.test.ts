@@ -38,6 +38,8 @@ beforeEach(() => {
   userId = createUserService(state.db).ensureDiscord({ discordUserId, displayName: "Yugi" }).id;
   state.auth.mockResolvedValue({ user: { id: String(userId), discordUserId, name: "Yugi" } });
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
+  // These tests are about who may act as which seat. The opening die roll (its choice blocks play) is tested in the shared integration test.
+  vi.stubEnv("REMOTE_OPENING_ROLL", "0");
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected Discord I/O"); }));
 });
 afterEach(() => {
