@@ -50,23 +50,24 @@ function diffInto(prev: unknown, next: unknown, path: PatchPath, ops: PatchOp[])
     return;
   }
   if (Array.isArray(prev) && Array.isArray(next)) {
+    let old: unknown[] = prev;
     // A window that slides (the event list): items that carry an `id` are aligned by it, so dropping the oldest items is one splice.
     const first = next[0];
-    if (prev.length && isObject(first) && typeof first.id === "string" && !(isObject(prev[0]) && prev[0].id === first.id)) {
-      const dropped = prev.findIndex(item => isObject(item) && item.id === first.id);
-      if (dropped > 0) { ops.push({ p: path, x: [0, dropped, []] }); prev = prev.slice(dropped); }
+    if (old.length && isObject(first) && typeof first.id === "string" && !(isObject(old[0]) && old[0].id === first.id)) {
+      const dropped = old.findIndex(item => isObject(item) && item.id === first.id);
+      if (dropped > 0) { ops.push({ p: path, x: [0, dropped, []] }); old = old.slice(dropped); }
     }
-    if (prev.length === next.length) {
-      for (let i = 0; i < next.length; i++) diffInto(prev[i], next[i], [...path, i], ops);
+    if (old.length === next.length) {
+      for (let i = 0; i < next.length; i++) diffInto(old[i], next[i], [...path, i], ops);
       return;
     }
     // Different length: replace only the span between the common head and the common tail. A sliding window costs one splice.
     let head = 0;
-    const max = Math.min(prev.length, next.length);
-    while (head < max && sameJson(prev[head], next[head])) head++;
+    const max = Math.min(old.length, next.length);
+    while (head < max && sameJson(old[head], next[head])) head++;
     let tail = 0;
-    while (tail < max - head && sameJson(prev[prev.length - 1 - tail], next[next.length - 1 - tail])) tail++;
-    ops.push({ p: path, x: [head, prev.length - head - tail, next.slice(head, next.length - tail)] });
+    while (tail < max - head && sameJson(old[old.length - 1 - tail], next[next.length - 1 - tail])) tail++;
+    ops.push({ p: path, x: [head, old.length - head - tail, next.slice(head, next.length - tail)] });
     return;
   }
   if (!sameJson(prev, next)) ops.push({ p: path, v: next });

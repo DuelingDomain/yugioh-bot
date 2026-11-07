@@ -1,7 +1,9 @@
 import { verifyRemoteConnectionToken, createTalkLimiter, type RemoteConnectionTokenClaims } from "@yugidraft/shared/ws";
-import { makePatch, remoteDataMessageSchema, remoteSocketRoom, remoteSpectatorSocketRoom, type RemotePatchMessage, type RemoteSnapshot } from "@yugidraft/shared/remote";
+import { diffView, makePatch, remoteDataMessageSchema, remoteSocketRoom, remoteSpectatorSocketRoom, type RemotePatchMessage, type RemoteSnapshot } from "@yugidraft/shared/remote";
 import type { TypedServer, TypedSocket } from "./events.js";
 
+/** What the browser holds as its room: the table fields, `state` and `events`. Patches are relative to it. The browser adds its own seat and flags. */
+type RoomView = RemoteSnapshot["table"] & Pick<RemoteSnapshot, "state" | "events">;
 export type RemoteViews = { players: Map<number, RemoteSnapshot | null>; spectator?: RemoteSnapshot; publicView?: RemoteSnapshot };
 /** The spectators that joined with `patch: 1` sit in their own socket room, so one serialization reaches all of them. */
 const remotePatchSpectatorRoom = (guildId: string, slug: string) => `remote-spectators-patch:${guildId}:${slug}`;
@@ -26,7 +28,7 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
    * The last view sent to the patch sockets of each viewer, by table. An entry exists only while the viewer has a patch socket joined,
    * and a table's map goes when its last socket leaves, so memory is bounded by the viewers now connected (seats plus one spectator view).
    */
-  const lastSent = new Map<string, Map<string, { seq: number; view: RemoteSnapshot }>>();
+  const lastSent = new Map<string, Map<string, { seq: number; view: RoomView }>>();
   const limiter = createTalkLimiter({ cooldownMs: 100 });
   const pending = new Map<string, Map<string, { owner: number; requester: number; expiresAt: number }>>();
   const viewerKey = (claims: RemoteConnectionTokenClaims) => claims.seat === null ? SPECTATOR_VIEWER : `user:${claims.userId}`;
@@ -64,15 +66,18 @@ export function registerRemoteEventHandlers(io: TypedServer, opts: {
       if (!socket.data.remote || !authorized(socket.data.remote)) detach(socket, true);
     }
   }
-  /** What one viewer's patch sockets get now: a patch, the full view (no earlier view, or the patch is not smaller), or nothing (no change). */
+  /**
+   * What one viewer's patch sockets get now: a patch, the full view (no earlier view, the patch is not smaller, or the sequence did not move,
+   * which a browser would drop as old), or nothing (no change).
+   */
   function nextMessage(room: string, key: string, view: RemoteSnapshot): { patch: RemotePatchMessage } | { full: RemoteSnapshot } | null {
     let cache = lastSent.get(room); if (!cache) lastSent.set(room, cache = new Map());
     const prev = cache.get(key), seq = view.table.lastSeq;
-    cache.set(key, { seq, view });
-    if (!prev || seq < prev.seq) return { full: view };
-    const patch = makePatch(prev.view, view, prev.seq, seq);
-    if (!patch) return { full: view };
-    return patch.ops.length ? { patch: { slug: view.table.slug, ...patch } } : null;
+    const flat: RoomView = { ...view.table, state: view.state, events: view.events };
+    cache.set(key, { seq, view: flat });
+    if (!prev || seq <= prev.seq) return prev && seq === prev.seq && !diffView(prev.view, flat).length ? null : { full: view };
+    const patch = makePatch(prev.view, flat, prev.seq, seq);
+    return patch ? { patch: { slug: view.table.slug, ...patch } } : { full: view };
   }
   function readViews(slug: string, guildId: string, want: { userIds: number[]; spectator: boolean; publicView: boolean }, claimsOf: (userId: number) => RemoteConnectionTokenClaims | undefined): RemoteViews | null {
     if (opts.readViews) return opts.readViews(slug, guildId, want);
