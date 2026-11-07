@@ -1,0 +1,13 @@
+{
+  "sherpaOnnx": {
+    "repository": "https://github.com/k2-fsa/sherpa-onnx",
+    "tag": "v2.0.1",
+    "commit": "af2d8d81dbfa61c4cea4c568da78f3982edca005"
+  },
+  "model": {
+    "name": "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+    "license": "Apache-2.0"
+  },
+  "initialMemory": "64MB"
+}
