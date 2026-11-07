@@ -9,6 +9,9 @@ if (!count || !new RegExp(`^[1-${count}]/${count}$`).test(shard ?? "")) throw ne
 // An unset or empty selection runs the full suite: computed fixture paths can evade static selection.
 const requested = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
 if (web && !requested) throw new Error("The web dependent run requires an explicit file selection");
+// An explicit empty web dependency set has no callers. Never turn it into every
+// web test (the duel-only selector retains its conservative empty fallback).
+if (web && requested.length === 0) process.exit(0);
 const selected = requested?.length ? requested : undefined;
 if (requested?.length === 0) console.warn("Empty CI test selection; falling back to the full suite.");
 const slow = [...SURRENDER_FILES, ...DIFFERENTIAL_FILES];

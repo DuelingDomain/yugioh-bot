@@ -7,7 +7,7 @@ import { NEEDS_ENGINE } from "./engine-test-plan.mjs";
 const ZERO_SHA = /^0+$/;
 const AREAS = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
 const globalInput = (file) => /^(package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|vitest[^/]*\.[cm]?[jt]s$|\.nvmrc$|\.github\/workflows\/|\.github\/actions\/setup-ci-node\/|patches\/)/.test(file);
-const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])), docs_only: false, data_only: false, effects: true, prod_build: true, engine: true, core: true, golden: true, tests_only: false });
+const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])), docs_only: false, data_only: false, effects: true, prod_build: true, engine: true, engine_app: false, core: true, golden: true, tests_only: false });
 
 // Native checks build the repo patch series and pinned Lua via multi-core-common.sh.
 // Differential uses the WASM targets built by build-core.sh/core-cache-key.mjs.
@@ -31,12 +31,28 @@ const engineRuntimeRoots = ["host", "engine", "legacy/index", "worker", "engine-
   "deck-suggestion-worker", "replay-worker", "replay-json-worker"].map(file => `packages/duel-server/src/${file}.ts`);
 const applicationSetup = file => /^packages\/shared\/src\/db\/(?:connection|schema)\.[cm]?[jt]s$/.test(file);
 const applicationBarrel = file => /^packages\/shared\/src\/(?:db|services)\/index\.ts$/.test(file);
-const moduleReferences = source => [...source.matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/)[^"'`\s]+)["'`]/g)];
+const moduleReferences = source => [...source.matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/|@\/)[^"'`\s]+)["'`]/g)];
+
+// These application boundaries have dedicated host/series/recording coverage.
+// This is a lane choice, never an exclusion: membership in the import graph is
+// still required. Other shared services (deck validation, replay, etc.) stay full.
+const applicationEngineInput = file => /^packages\/shared\/src\/(?:remote\/|services\/(?:remote-[^/]+|tournament-remote[^/]*|duel-series|matches|tournament-duels|tournaments|tournament-visibility|index)\.ts$)/.test(file);
+const serviceBarrel = "packages/shared/src/services/index.ts";
+// A barrel can redirect engine/deck exports too. Narrow it only when the actual
+// edit consists entirely of Remote service re-exports; unknown edits stay full.
+export function remoteBarrelEdit(before, after) {
+  const lines = source => new Set(source.split("\n").map(line => line.trim()).filter(Boolean));
+  const oldLines = lines(before), newLines = lines(after);
+  const changed = [...oldLines].filter(line => !newLines.has(line)).concat([...newLines].filter(line => !oldLines.has(line)));
+  return changed.length > 0 && changed.every(line => /^export\s+(?:\*|\{[^}]+\})\s+from\s+["']\.\/(?:remote-|tournament-remote)[^/"']*\.js["'];?$/.test(line));
+}
+export const webEngineTest = (file, source) => file.startsWith("packages/web/tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) &&
+  /duel-server\/tests\/support\/cores(?:\.js)?["']/.test(source);
 
 /** Follow literal imports, re-exports and file readers; keep missing paths for deletions.
  * Namespace/dynamic imports and unknown exports conservatively retain the whole barrel.
  */
-export function engineSharedFiles(sources, exports) {
+export function engineSharedFiles(sources, exports, roots) {
   const resolve = (file, reference) => {
     let path;
     if (reference.startsWith("@yugidraft/shared/")) {
@@ -45,8 +61,9 @@ export function engineSharedFiles(sources, exports) {
       const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
       path = target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/")
         : "packages/shared/src/" + subpath.slice(2);
-    } else path = posix.normalize(posix.join(posix.dirname(file), reference));
-    if (!/^(packages\/shared\/src|packages\/duel-server\/(src|tests|scripts))\//.test(path)) return [];
+    } else if (reference.startsWith("@/")) path = "packages/web/src/" + reference.slice(2);
+    else path = posix.normalize(posix.join(posix.dirname(file), reference));
+    if (!/^(packages\/shared\/src|packages\/duel-server\/(src|tests|scripts)|packages\/web\/(src|tests|app|e2e))\//.test(path)) return [];
     const stem = path.replace(/\.[cm]?jsx?$/, "");
     return [...new Set([path, stem + ".ts", stem + ".tsx", stem + "/index.ts"])];
   };
@@ -101,6 +118,10 @@ export function engineSharedFiles(sources, exports) {
       for (const candidate of targets) visit(candidate, importedNames);
     }
   };
+  if (roots) {
+    for (const file of roots) visit(file);
+    return seen;
+  }
   for (const file of engineRuntimeRoots) visit(file);
   visit("packages/duel-server/tests/support/setup.ts");
   visit("packages/duel-server/scripts/rule-coverage.ts");
@@ -108,44 +129,51 @@ export function engineSharedFiles(sources, exports) {
     const relative = file.replace(/^packages\/duel-server\//, "");
     if (file.startsWith("packages/duel-server/tests/scenarios/") ||
       (relative.startsWith("tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) &&
-        (needsCores.has(file) || NEEDS_ENGINE.some(pattern => pattern.endsWith("/**") ? relative.startsWith(pattern.slice(0, -2)) : relative === pattern)))) visit(file);
+        (needsCores.has(file) || NEEDS_ENGINE.some(pattern => pattern.endsWith("/**") ? relative.startsWith(pattern.slice(0, -2)) : relative === pattern))) ||
+      webEngineTest(file, sources[file])) visit(file);
   }
   return seen;
 }
 
 let sharedDependencies;
+export function engineSources() {
+  const root = new URL("../../", import.meta.url);
+  const sources = {};
+  const collect = (dir) => {
+    for (const entry of readdirSync(new URL(dir, root), { withFileTypes: true })) {
+      const path = dir + entry.name;
+      if (entry.isDirectory()) collect(path + "/");
+      else if (/\.[cm]?[jt]sx?$/.test(path)) sources[path] = readFileSync(new URL(path, root), "utf8");
+    }
+  };
+  for (const dir of ["packages/duel-server/src/", "packages/duel-server/tests/", "packages/duel-server/scripts/", "packages/shared/src/",
+    "packages/web/src/", "packages/web/tests/", "packages/web/app/", "packages/web/e2e/"]) collect(dir);
+  return { sources, exports: JSON.parse(readFileSync(new URL("packages/shared/package.json", root), "utf8")).exports };
+}
+
 function sharedEngineInput(file) {
   if (file.startsWith("packages/shared/src/duels/")) return true;
   if (!file.startsWith("packages/shared/src/")) return false;
   if (!sharedDependencies) {
-    const root = new URL("../../", import.meta.url);
-    const sources = {};
-    const collect = (dir) => {
-      for (const entry of readdirSync(new URL(dir, root), { withFileTypes: true })) {
-        const path = dir + entry.name;
-        if (entry.isDirectory()) collect(path + "/");
-        else if (/\.[cm]?[jt]sx?$/.test(path)) sources[path] = readFileSync(new URL(path, root), "utf8");
-      }
-    };
-    collect("packages/duel-server/src/");
-    collect("packages/duel-server/tests/");
-    collect("packages/duel-server/scripts/");
-    collect("packages/shared/src/");
-    sharedDependencies = engineSharedFiles(sources, JSON.parse(readFileSync(new URL("packages/shared/package.json", root), "utf8")).exports);
+    const { sources, exports } = engineSources();
+    sharedDependencies = engineSharedFiles(sources, exports);
   }
   return sharedDependencies.has(file);
 }
 
-// PRs and main pushes use the same engine rule. Scheduled/manual runs and
-// missing diffs enable every layer; docs select tests only when used as inputs.
-export function changedLayers(files, event) {
+// Main retains full suites for imported application helpers. Only PRs split
+// those helpers into a focused lane. Missing diffs and nightly/manual stay full.
+export function changedLayers(files, event, { serviceBarrelAppOnly = false } = {}) {
   if (!["pull_request", "push"].includes(event) || files === null) return allLayers();
   const core = files.some(file => !isDoc(file) && coreInput(file));
+  const focusedInput = file => applicationEngineInput(file) && (file !== serviceBarrel || serviceBarrelAppOnly);
   const engine = core || files.some((file) => !isDoc(file) && (
-    docTestInputs.get(file) === "engine" || globalInput(file) || sharedEngineInput(file) ||
+    docTestInputs.get(file) === "engine" || globalInput(file) ||
+    (sharedEngineInput(file) && !(event === "pull_request" && focusedInput(file))) ||
     file === "packages/web/src/components/duel/table/seat-state.ts" ||
     /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|engine-test-plan|engine-test-times|duel-test-files|check-engine-test-coverage|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
   ));
+  const engine_app = event === "pull_request" && !engine && files.some(file => focusedInput(file) && sharedEngineInput(file));
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
   const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(card-script-patches\/|domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data|card-script-patches)\.ts$))/.test(file));
   // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
@@ -189,7 +217,7 @@ export function changedLayers(files, event) {
   const effects = relevant.some(file => globalInput(file) || /^(scripts\/effects\/|scripts\/ci\/publish-effect-tags\.mjs$|packages\/shared\/(src\/(cards\/effects|duels)\/|data\/effects\/))/.test(file));
   // Main exercises these same composites in the real production build instead.
   const prod_build = relevant.some(file => globalInput(file) || /^(Dockerfile$|\.dockerignore$|\.github\/actions\/(prepare-production-bundle|build-production-image)\/|scripts\/deployment\/|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$|src\/duels\/)|packages\/duel-server\/(domain-core\/(?!proposals\/)|legacy-1v1\/|card-script-patches\/|card-remap-overrides\.json$|scripts\/(?:prepare-data|released-card-data|prerelease[^/]*|card-script-patches|build-[^/]*core[^/]*|prepare-multi-core-tree|multi-core-common|install-engine-bundle|check-legacy-pin|package-deploy-multi-cores)\.|src\/(?:multi-scripts|released-database-files|cards|card-script-source|card-name-search|card-script-patches)\.ts$))/.test(file));
-  return { ...areas, data_only, effects, prod_build, docs_only: files.length > 0 && files.every(isDoc), engine, core, golden, tests_only };
+  return { ...areas, data_only, effects, prod_build, docs_only: files.length > 0 && files.every(isDoc), engine, engine_app, core, golden, tests_only };
 }
 
 // The changed files, or null when there is no usable diff (then every job runs).
@@ -219,7 +247,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const head = event === "push" ? process.env.PUSH_AFTER : process.env.HEAD;
   const files = changedFiles(event, base, head);
   console.log(files === null ? "(no diff)" : files.join("\n"));
-  const outputs = { ...changedLayers(files, event), base: base ?? "", head: head ?? "" };
+  let serviceBarrelAppOnly = false;
+  if (event === "pull_request" && files?.includes(serviceBarrel)) {
+    try {
+      let before;
+      try {
+        before = execFileSync("git", ["show", `${base}:${serviceBarrel}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      } catch {
+        // PR detection uses a shallow checkout. Read just this base file rather
+        // than fetching the full history or installing compiler dependencies.
+        const response = JSON.parse(execFileSync("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/contents/${serviceBarrel}?ref=${base}`], { encoding: "utf8" }));
+        before = Buffer.from(response.content, "base64").toString("utf8");
+      }
+      serviceBarrelAppOnly = remoteBarrelEdit(before, readFileSync(new URL("../../" + serviceBarrel, import.meta.url), "utf8"));
+    } catch (error) {
+      console.warn(`Cannot classify service barrel edit; retaining full engine coverage. ${error.message}`);
+    }
+  }
+  const outputs = { ...changedLayers(files, event, { serviceBarrelAppOnly }), base: base ?? "", head: head ?? "" };
   console.log(outputs);
   for (const [key, value] of Object.entries(outputs)) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 }

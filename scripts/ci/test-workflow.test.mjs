@@ -13,6 +13,7 @@ const areaJobs = {
   web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
   ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
   ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'rule-coverage'],
+  engine_app: ['core-cache', 'cores', 'engine-app'],
   core: ['native', 'engine-differential'],
 };
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
@@ -111,7 +112,7 @@ test('slow jobs are required only for their selected inputs; main uses real prod
 });
 
 test('app groups run only when their area is selected', () => {
-  for (const [area, names] of Object.entries(areaJobs).filter(([area]) => !['engine', 'core'].includes(area))) {
+  for (const [area, names] of Object.entries(areaJobs).filter(([area]) => !['engine', 'engine_app', 'core'].includes(area))) {
     for (const name of names) {
       assert.equal(jobs[name].needs, 'changes', name);
       assert.match(jobs[name].if, new RegExp(`needs\\.changes\\.outputs\\.${area} == 'true'`));
@@ -119,6 +120,24 @@ test('app groups run only when their area is selected', () => {
   }
   const protocol = jobs['effect-protocol'].steps;
   assert.equal(protocol.some(step => step.run?.includes('npm run typecheck -- --force')), false);
+});
+
+test('application engine coverage uses one required runner and cannot select the full matrices', () => {
+  const results = gateJobs();
+  results.changes.outputs = { engine: 'false', engine_app: 'true', core: 'false' };
+  for (const name of areaJobs.engine_app) results[name].result = 'success';
+  assert.equal(gate(results, 'pull_request'), 0);
+  results['engine-app'].result = 'skipped';
+  assert.notEqual(gate(results, 'pull_request'), 0);
+  assert.equal(jobs.changes.outputs.engine_app, '${{ steps.diff.outputs.engine_app }}');
+  assert.match(jobs['core-cache'].if, /needs\.changes\.outputs\.engine_app == 'true'/);
+  const job = jobs['engine-app'];
+  assert.equal(job.strategy, undefined);
+  assert.deepEqual(job.needs, ['cores', 'changes']);
+  assert.match(job.if, /needs\.changes\.outputs\.engine_app == 'true'/);
+  assert.equal(job.env.DUEL_REQUIRE_CORES, '1');
+  assert.ok(job.steps.some(step => step.run?.includes('select-engine-tests.mjs --application')));
+  assert.ok(job.steps.some(step => step.run?.includes('run-engine-tests.mjs web 1/1')));
 });
 
 test('nightly runs every selected suite and requires fuzz; scheduled/manual Test cannot deploy', () => {

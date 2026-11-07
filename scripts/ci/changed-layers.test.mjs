@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changedLayers as classify, engineSharedFiles } from "./changed-layers.mjs";
+import { changedLayers as classify, engineSharedFiles, remoteBarrelEdit } from "./changed-layers.mjs";
 
 // Existing engine assertions remain focused on the engine contract.
 const changedLayers = (files, event) => {
@@ -15,6 +15,62 @@ const changedLayers = (files, event) => {
 const script = new URL("./changed-layers.mjs", import.meta.url).pathname;
 const noEngine = { engine: false, golden: false, tests_only: false };
 const allLayers = { engine: true, golden: true, tests_only: false };
+
+test("PR application helpers use focused engine coverage only when imported", () => {
+  for (const file of [
+    "packages/shared/src/services/duel-series.ts",
+    "packages/shared/src/services/matches.ts",
+    "packages/shared/src/services/tournament-duels.ts",
+    "packages/shared/src/services/tournaments.ts",
+    "packages/shared/src/services/tournament-remote-access.ts",
+    "packages/shared/src/remote/match.ts",
+  ]) {
+    const result = classify([file], "pull_request");
+    assert.equal(result.engine, false, file);
+    assert.equal(result.engine_app, true, file);
+    assert.equal(result.core, false, file);
+    const main = classify([file], "push");
+    assert.equal(main.engine, true, file);
+    assert.equal(main.engine_app, false, file);
+  }
+  for (const file of [
+    "packages/shared/src/remote/future.ts",
+    "packages/shared/src/services/remote-retention.ts",
+    "packages/shared/src/services/tournament-remote.ts",
+    "packages/shared/src/services/tournament-remote-future.ts",
+    "packages/web/src/components/remote/ui/table.tsx",
+    "packages/ws/src/remote-events.ts",
+    "packages/worker/src/remote-retention.ts",
+  ]) {
+    const result = classify([file], "pull_request");
+    assert.equal(result.engine, false, file);
+    assert.equal(result.engine_app, false, file);
+  }
+});
+
+test("service barrel narrowing requires a proven Remote-only export edit", () => {
+  const file = "packages/shared/src/services/index.ts";
+  const before = 'export * from "./duels.js";\n';
+  const remote = before + 'export * from "./tournament-remote.js";\nexport { result, type Result } from "./tournament-remote-results.js";\n';
+  assert.equal(remoteBarrelEdit(before, remote), true);
+  for (const after of [before, before + 'export * from "./cards.js";', remote.replace('./duels.js', './other-duels.js'), remote + 'throw new Error("oops");']) {
+    assert.equal(remoteBarrelEdit(before, after), false, after);
+  }
+  assert.equal(classify([file], "pull_request").engine, true);
+  const focused = classify([file], "pull_request", { serviceBarrelAppOnly: remoteBarrelEdit(before, remote) });
+  assert.equal(focused.engine, false);
+  assert.equal(focused.engine_app, true);
+  assert.equal(classify([file], "push", { serviceBarrelAppOnly: true }).engine, true);
+});
+
+test("full engine inputs win over focused application selection", () => {
+  for (const file of ["packages/duel-server/src/host.ts", "packages/duel-server/domain-core/src/field.cpp", "packages/shared/src/duels/settings.ts", "data/duel-engine-next/cards.cdb"]) {
+    const result = classify([file, "packages/shared/src/services/duel-series.ts"], "pull_request");
+    assert.equal(result.engine, true, file);
+    assert.equal(result.engine_app, false, file);
+  }
+  for (const event of ["push", "schedule", "workflow_dispatch"]) assert.equal(classify(null, event).engine_app, false);
+});
 
 test("bot-only and web-only pushes skip the engine layers", () => {
   for (const files of [["packages/bot/src/index.ts"], ["packages/web/src/app/page.tsx"], []]) {
@@ -606,5 +662,39 @@ test("PR API pages include both sides of renames and fail open on errors or capp
   for (const extra of [{ API_FAIL: "1" }, { PR_FILES: "invalid JSON" }, { PR_FILES: JSON.stringify([Array.from({ length: 3000 }, () => ({ filename: "README.md" }))]) }]) {
     const result = f.run(f.base, head, { ...env, ...extra });
     for (const flag of ["engine", "core", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
+  }
+});
+
+test("shallow PR detection reads the base service barrel and retains full coverage on lookup failure", t => {
+  const f = fixture(t);
+  const head = f.commit("app-change.ts");
+  const bin = join(f.root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), `#!/bin/sh
+case "$2" in
+  --paginate) printf '%s' "$PR_FILES" ;;
+  repos/*/contents/*) [ "$BASE_FAIL" != 1 ] || exit 1; printf '%s' "$BASE_FILE" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  const barrel = "packages/shared/src/services/index.ts";
+  const after = readFileSync(new URL("../../" + barrel, import.meta.url), "utf8");
+  const before = after.split("\n").filter(line => !/from ["']\.\/(?:remote-|tournament-remote)/.test(line)).join("\n");
+  const env = {
+    EVENT: "pull_request", BASE: f.base, HEAD: head, PR_NUMBER: "520", GITHUB_REPOSITORY: "fixture/repo", PATH: `${bin}:${process.env.PATH}`,
+    PR_FILES: JSON.stringify([[{ filename: barrel }]]),
+    BASE_FILE: JSON.stringify({ content: Buffer.from(before).toString("base64") }),
+  };
+  const focused = f.run(f.base, head, env);
+  assert.equal(focused.engine, "false");
+  assert.equal(focused.engine_app, "true");
+  for (const extra of [
+    { BASE_FAIL: "1" },
+    { BASE_FILE: "{}" },
+    { BASE_FILE: JSON.stringify({ content: Buffer.from(before.replace('./duels.js', './other-duels.js')).toString("base64") }) },
+  ]) {
+    const full = f.run(f.base, head, { ...env, ...extra });
+    assert.equal(full.engine, "true");
+    assert.equal(full.engine_app, "false");
   }
 });
