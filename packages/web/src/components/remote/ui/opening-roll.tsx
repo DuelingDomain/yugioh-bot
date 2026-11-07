@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DuelDiceOpeningView } from "@yugidraft/shared/duels";
 import { REMOTE_OPENING_ROUND_MS, remoteOpeningChooser, type RemoteActionProposal, type RemoteOpening } from "@yugidraft/shared/remote";
 import { DiceDie } from "@/components/duel/dice-die";
-import { DICE_TIMELINE, DICE_TIMELINE_REDUCED, currentRound, diceBeat, dicePlan, diceStatus, landingOf, rollSummary, tileOf } from "@/components/duel/dice-model";
+import { DICE_TIMELINE, DICE_TIMELINE_REDUCED, currentRound, diceBeat, dicePlan, diceStatus, dieValue, landingOf, nameList, rollSummary, tileOf } from "@/components/duel/dice-model";
 import { useDiceSkin } from "@/components/duel/dice-skins";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { Countdown } from "@/components/duel/opening";
@@ -86,8 +86,14 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], e
   };
   const beat = diceBeat(view, inRound, timeline);
   const settled = beat === "order";
+  // Only the tied TOP seats roll again here. The duel room's model marks every group of equal rolls as tied, so a
+  // 6-6-3-3 roll would show the low pair as a tie that never rolls: those seats keep their roll.
+  const topRolls = rounds[round] ?? [];
+  const topMax = Math.max(0, ...topRolls.filter((roll): roll is number => roll != null));
+  const tiedTop = beat === "tie" ? topRolls.flatMap((roll, seat) => (roll === topMax ? [seat] : [])) : [];
   const chosen = opening.chosenSeat ?? opening.winnerSeat;
-  const status = !settled ? diceStatus(view, me, name, beat, false)
+  const rollStatus = diceStatus(view, me, name, beat, false);
+  const status = !settled ? (beat === "tie" && rollStatus.kind === "tie" ? { ...rollStatus, note: `${nameList(tiedTop, me, name)} tied on ${dieValue(view, tiedTop[0] ?? 0)}` } : rollStatus)
     : auto ? { main: chosen === me ? "You go first" : `${name(chosen)} goes first`, note: "", kind: "win" as const }
     : { main: iChoose ? "You win. Go first or second?" : `${name(chooser)} wins. ${name(chooser)} is choosing…`, note: "", kind: "win" as const };
   const liveText = settled ? `Round ${view.round}: ${rollSummary(view, me, name)}. ${status.main}` : "";
@@ -112,7 +118,9 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], e
         </div>
         <div className={cx(styles.row, seatCount === 2 && s.row2)} data-n={seatCount} data-testid="opening-roll-row">
           {Array.from({ length: seatCount }, (_, seat) => {
-            const base = tileOf(view, seat, inRound, timeline);
+            const raw = tileOf(view, seat, inRound, timeline);
+            const base = raw.state === "tied" && !tiedTop.includes(seat)
+              ? { ...raw, state: "kept" as const, caption: { main: `Keeps ${raw.value}`, note: null }, chip: null } : raw;
             // The rank chip of the room becomes "Chooses" on the roll winner and is left off the other seats.
             const chip = base.chip?.kind === "rank" ? (base.rank === 0 ? { ...base.chip, text: auto ? "First" : "Chooses" } : null) : base.chip;
             const isMe = seat === me;
