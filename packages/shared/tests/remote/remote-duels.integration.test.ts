@@ -391,8 +391,8 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin.map(c=>c.ref)).toEqual(["private-first","private-second"]);
     expect(s.service.snapshot(s.room.slug, "g").state.twinConfirmation).toBeUndefined();
     s.act({ type: "phase.set", phase: "main1" });
-    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo?.before.twinConfirmation).toBeUndefined();
-    expect(s.service.snapshot(s.room.slug, "g").state.undo?.before.twinConfirmation).toBeUndefined();
+    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
+    expect(s.service.snapshot(s.room.slug, "g").state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
   });
   it("allows physical multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
     const live = deckSession("normal", false);
@@ -717,7 +717,9 @@ describe("B3 physical field slot guard", () => {
     expect(replayed.seats[0].twin.filter(c=>c.zone===zone).map(c=>c.ref)).toEqual(['old-first','old-second']);
     expect(replayed.undo?.actionId).toBe('legacy-conflict');
     expect(()=>ygoModule.reduce(replayed,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone,card:{ref:'live-third',slot:1},idempotencyKey:'live-after-legacy',at:2201}))).toThrow(/occupied/i);
-    const restored=ygoModule.reduce(replayed,{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
+    // A client state has no undo position; give the reducer the one from before the replayed action.
+    const {updatedAt:_at,undo:_undo,undoHistory:_history,...beforeAction}=structuredClone(s.room.state);
+    const restored=ygoModule.reduce({...replayed,undo:{...replayed.undo!,before:beforeAction}},{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
     expect(restored.seats[0].twin).toEqual(s.room.state.seats[0].twin);
   });
   const slots = [
@@ -1686,7 +1688,8 @@ describe("remote effect origins and hidden information", () => {
       extra.public=true; extra.anchored=true;
     }
     delete legacyState.showCardsSetFromDeck;
-    if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
+    // The room state has no undo position now: an old row kept one, without the rule that this test removes.
+    if(legacyState.undo) { const {updatedAt:_at,undo:_undo,undoHistory:_history,...position}=structuredClone(legacyState); legacyState.undo.before=position as never; }
     const oldId=(s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id;
     const id=s.db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,last_seq,created_at,last_event_at,solo,format_json) select 'legacy','g',game_id,seat_count,status,created_by,?,last_seq,created_at,last_event_at,solo,format_json from remote_tables where id=?")
       .run(JSON.stringify(legacyState),oldId).lastInsertRowid;
@@ -2200,6 +2203,22 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
  expect(state.seats[0].twin.map(card=>card.ref)).toEqual(['older','newer']);
 });
 
+it('sends no undo position and runs the restore check only for the newest undo entry, unless all are asked for',async()=>{
+  const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2});let serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`reasons-${++serial}`,at:serial}),{facts:{}});
+  const place=(ref:string,slot:number)=>reduce({type:'twin.place',seat:0,zone:'monster',card:{ref,cardId:1000+slot,faceUp:true,slot}});
+  place('a',1);place('b',2);reduce({type:'twin.move',seat:0,cardRef:'a',zone:'graveyard'});place('c',1);
+  const reasons=(options?:{allUndoReasons?:boolean})=>projectRemoteState(state,new Set([0]),options).undoHistory!.map(entry=>entry.reason);
+  expect(projectRemoteState(state,new Set([0])).undo).toEqual({actionId:'reasons-4',at:4});
+  // Entry 3 (the move back into slot 1) now collides with card c: only the full check sees it.
+  expect(reasons()).toEqual([undefined,undefined,undefined,expect.stringMatching(/same card/)]);
+  expect(reasons({allUndoReasons:true})).toEqual([undefined,expect.stringMatching(/slot is occupied/),expect.stringMatching(/state needed/),expect.stringMatching(/same card/)]);
+  // A saved old-format entry has no positions: its stored reason stays.
+  const saved={...state,undoHistory:state.undoHistory!.map(({before:_b,after:_a,...entry})=>({...entry,reason:'Stored reason'}))};
+  expect(projectRemoteState(saved,new Set([0])).undoHistory!.map(entry=>entry.reason)).toEqual(Array(4).fill('Stored reason'));
+});
+
 it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
   const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
@@ -2257,7 +2276,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(projectRemoteState(state,viewer).seats[0].handCount).toBe(8);
   reduce({type:'undo',targetActionId:countId});expect(state.seats[0].handCount).toBeUndefined();
   state=counted;reduce({type:'hand.count',delta:-2});expect(state.seats[0].handCount).toBe(6);
-  expect(projectRemoteState(state,new Set([1])).undo?.before.seats[0].handCount).toBe(8);
+  expect(projectRemoteState(state,new Set([1])).undo).not.toHaveProperty('before');
   reduce({type:'hand.count',value:0});expect(state.seats[0].handCount).toBe(0);
   expect(()=>reduce({type:'hand.count',delta:-1})).toThrow(/hand count/i);
   reduce({type:'hand.count',value:999999});expect(()=>reduce({type:'hand.count',delta:1})).toThrow(/hand count/i);
@@ -2274,7 +2293,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const opponent=projectRemoteState(state,new Set([1]));
   expect(opponent.seats[0].knownHand).toEqual(state.seats[0].knownHand);
   expect(opponent.seats[0].handCount).toBe(6);
-  expect(opponent.undo?.before.seats[0].handCount).toBeUndefined();
+  expect(opponent.undo).not.toHaveProperty('before');
   reduce({type:'undo',targetActionId:addedId});expect(state.seats[0].knownHand??[]).toEqual([]);
   state=added;
   reduce({type:'hand.count',value:9});
@@ -2720,7 +2739,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const otherCount=countService.act(countRoom.slug,'g',countUsers[1],{baseSeq:publicCount.lastSeq,action:{type:'hand.count',actorSeat:1,value:3,idempotencyKey:'other-count'}},2203);
   expect(otherCount.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(otherCount.state.seats[0].deckCount).toBeUndefined();
-  expect(otherCount.state.undo?.before.seats[0].deckCount).toBeUndefined();
+  expect(otherCount.state.undo).not.toHaveProperty('before');
   const countBroadcast=countService.snapshot(countRoom.slug,'g');
   expect(countBroadcast.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(countBroadcast.state.seats.every(s=>s.deckCount===undefined)).toBe(true);
@@ -2816,7 +2835,7 @@ it('projects a state without copying its undo data, keeping key order and the or
   expect(JSON.stringify(state)).toBe(frozen);
   expect(Object.keys(view)).toEqual(Object.keys(state));
   expect(view.undo?.actionId).toBe(state.undo!.actionId);
-  expect(view.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([undefined]);
+  expect(view.undo).toEqual({actionId:state.undo!.actionId,at:state.undo!.at});
   expect(state.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([46986414]);
   expect(view.undoHistory).toEqual([]);
   const spectator=projectRemoteSpectator({table:{seats:[]} as never,state,events:[]});
@@ -2858,7 +2877,7 @@ it('stores undo positions once with atomic legacy upgrade and reference lifetime
     undo:{...state.undo,before:{valueHash:'0'.repeat(64)}}}))).toThrow('Missing Remote Duel value');
   const original=state.undo!.before.showCardsSetFromDeck;
   db.prepare('update remote_tables set show_cards_set_from_deck=0 where id=?').run(stateRow().id);
-  expect(call().get(session.room.slug,'g',users[0]).state.undo!.before.showCardsSetFromDeck).toBe(false);
+  expect(call().get(session.room.slug,'g',users[0]).state.undo).not.toHaveProperty('before');
   expect(state.undo!.before.showCardsSetFromDeck).toBe(original);
 
   const facts=db.prepare('select facts_hash from remote_events where table_id=? and facts_hash is not null').all(stateRow().id);

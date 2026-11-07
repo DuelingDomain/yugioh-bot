@@ -191,7 +191,8 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   return restored;
 }
 
-export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number): string | undefined {
+/** `restore` false skips the last check (a dry run of the restore, the slow part); Undo itself always runs it. */
+export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number, restore = true): string | undefined {
   const gameNumber = (position: RemotePosition) => position.match.games.length + (position.ended ? 0 : 1);
   if (state.match?.phase === "siding" || (entry.before?.match && gameNumber(entry.before) !== gameNumber(state))) return "Undo cannot cross games";
   if (entry.actorSeat !== actorSeat) return "You can only undo your own actions";
@@ -200,14 +201,18 @@ export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, act
   if (entry.blocked || entry.blockedBy?.length) return "A later action touched the same card; undo that action first";
   const newest = [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).find(e => e.actorSeat === actorSeat && !e.undone);
   if (newest?.actionId !== entry.actionId && entry.cards.length !== 1) return "Undo your newer actions first; only single-card actions can be targeted out of order";
-  try { restoredPosition(state, entry); } catch (error) { return (error as Error).message; }
+  if (restore) try { restoredPosition(state, entry); } catch (error) { return (error as Error).message; }
 }
 
-/** Newest first, with complete action params even when the room's event page has rolled over. */
-export function remoteUndoHistory(state: RemoteState, actorSeat: number): RemoteUndoEntry[] {
-  return [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).filter(e => e.actorSeat === actorSeat && !e.undone).map(entry => {
+/**
+ * Newest first, with complete action params even when the room's event page has rolled over.
+ * `reasons: "newest"` runs the restore check only for the newest entry (the Undo button); older entries get the quick
+ * checks, and a restore conflict there shows when Undo is pressed. A saved old-format entry keeps its stored reason.
+ */
+export function remoteUndoHistory(state: RemoteState, actorSeat: number, reasons: "all" | "newest" = "all"): RemoteUndoEntry[] {
+  return [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).filter(e => e.actorSeat === actorSeat && !e.undone).map((entry, index) => {
     const { before: _before, after: _after, blockedBy: _blockedBy, blocked: _blocked, ...summary } = entry;
-    return { ...summary, reason: entry.before && entry.after ? remoteUndoReason(state, entry, actorSeat) : entry.reason };
+    return { ...summary, reason: entry.before && entry.after ? remoteUndoReason(state, entry, actorSeat, reasons === "all" || index === 0) : entry.reason };
   });
 }
 
