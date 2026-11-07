@@ -44,7 +44,7 @@ export function LobbyDeckList({ disabled, onSeat, mode = "standard", seated }: {
 
   return <div className={r.deckList} data-testid="deck-list-step">
     <div className={r.deckListHead}>
-      <span className={r.deckListText}><b>{seated ? "Replace with a list" : "Add deck list"}</b><span> (faster, more accurate card reads)</span><small>Optional. Or pick a saved deck above.</small></span>
+      <span className={r.deckListText}><b>{seated ? "Replace with a list" : "Add deck list"}</b><span> · or pick a saved deck above.</span></span>
       <SheetButton size="sm" kind="quiet" disabled={disabled || busy} onClick={() => setOpen(value => !value)} aria-expanded={open} data-testid="deck-list-toggle"><ListPlus size={14} strokeWidth={1.7} aria-hidden />{open ? "Hide" : "Paste or upload"}</SheetButton>
     </div>
     {open ? <div className={r.deckListBody}>
