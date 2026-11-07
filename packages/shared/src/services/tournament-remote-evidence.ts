@@ -22,11 +22,20 @@ function publicCards(seat: RemoteSeatState) {
 
 /** Server-only: copy the section 5.2 allowlist, never a room/undo/effects snapshot.
  * B3 calls this in its proposal transaction. Repeated capture of the same end is a no-op.
- * The optional clock is for retention's fixed cutoff and deterministic callers. */
+ * The optional clock is for retention's fixed cutoff and deterministic callers.
+ * Failed copies roll back to their savepoint and are skipped so room writes can commit. */
 export function captureRemoteTournamentEvidence(db: Database.Database, tableId: number, now = Date.now()): void {
+  try {
+    captureEvidence(db, tableId, now);
+  } catch (error) {
+    console.warn(`Skipping tournament evidence for table ${tableId}`, error);
+  }
+}
+
+function captureEvidence(db: Database.Database, tableId: number, now: number): void {
   db.transaction(() => {
     const row = db.prepare(`select t.*,p1.user_id as user_one_id,p2.user_id as user_two_id,
-      r.status as result_status,r.finalized_at,r.finalization_reason,r.organizer_decided_at
+      r.status as result_status,r.proposed_at,r.finalized_at,r.finalization_reason,r.organizer_decided_at
       from remote_tables t join tournament_matches tm on tm.id=t.tournament_match_id
       join tournaments tournament on tournament.id=tm.tournament_id
       join players p1 on p1.id=tm.player_one_id join players p2 on p2.id=tm.player_two_id
@@ -34,14 +43,15 @@ export function captureRemoteTournamentEvidence(db: Database.Database, tableId: 
       where t.id=? and t.status='ended' and tournament.status!='cancelled'`).get(tableId) as
       { id:number; tournament_match_id:number; slug:string; game_id:string; seat_count:SeatCount; state_json:string;
         started_at:number|null; ended_at:number; end_reason:string; user_one_id:number; user_two_id:number;
-        result_status:string; finalized_at:number|null; finalization_reason:string|null; organizer_decided_at:number|null } | undefined;
+        result_status:string; proposed_at:number|null; finalized_at:number|null; finalization_reason:string|null; organizer_decided_at:number|null } | undefined;
     if (!row) return;
     const cap = row.ended_at + 14 * DAY;
     // A deleted copy must not reappear when the room is finally purged.
     const due = row.organizer_decided_at !== null ? row.organizer_decided_at + 2 * DAY
       : row.result_status === 'disputed' ? cap
       : row.result_status === 'final' && row.finalization_reason === 'both_confirmed' ? row.finalized_at
-      : row.result_status === 'final' && row.finalized_at !== null ? row.finalized_at + 2 * DAY : cap;
+      : row.result_status === 'final' && row.finalized_at !== null ? row.finalized_at + 2 * DAY
+      : row.result_status !== 'proposed' && row.proposed_at === null ? row.ended_at + 2 * DAY : cap;
     if (now >= cap || due !== null && now >= due) return;
     const existing = db.prepare('select table_slug,table_ended_at from tournament_remote_evidence where tournament_match_id=?')
       .get(row.tournament_match_id) as {table_slug:string;table_ended_at:number} | undefined;
