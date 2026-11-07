@@ -19,7 +19,13 @@ function exec(sql: string) { db.exec(sql); }
 /** Every table, every row, for exact before/after comparisons. */
 function dump(): Record<string, unknown[]> {
   const tables = db.prepare("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name").all() as { name: string }[];
-  return Object.fromEntries(tables.map(({ name }) => [name, db.prepare(`select * from "${name}" order by rowid`).all()]));
+  // WITHOUT ROWID tables (remote_spectators) have no rowid, so order those by their primary key.
+  const order = (name: string) => {
+    const sql = (db.prepare("select sql from sqlite_master where name = ?").get(name) as { sql: string }).sql;
+    if (!/without\s+rowid/i.test(sql)) return "rowid";
+    return (db.pragma(`table_info("${name}")`) as { name: string; pk: number }[]).filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => `"${c.name}"`).join(",");
+  };
+  return Object.fromEntries(tables.map(({ name }) => [name, db.prepare(`select * from "${name}" order by ${order(name)}`).all()]));
 }
 
 beforeEach(() => {
