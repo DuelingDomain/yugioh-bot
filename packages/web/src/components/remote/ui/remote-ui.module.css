@@ -121,7 +121,7 @@
 .pip{width:10px;height:10px;border-radius:3px;transform:rotate(45deg);background:rgb(var(--c));box-shadow:0 0 8px rgb(var(--c)/.8);flex:none}
 .sh .nm{font:700 17px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tag{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;padding:3px 6px;border-radius:4px;border:1px solid var(--line2);color:var(--ink3);white-space:nowrap}
-.tag.dmode{letter-spacing:.06em;font-weight:600;color:var(--ink2);text-transform:none}
+.tag.dmode{display:inline-flex;align-items:center;gap:3px;flex:none;letter-spacing:.04em;font-weight:600;color:var(--ink2);text-transform:none}
 .tag.dmode.tap{border-color:rgb(240 178 79/.6);color:var(--warn)}
 .tag.turnt{display:none;border-color:var(--gold);color:#1b1204;background:var(--gold)}
 .seat.turn .tag.turnt{display:inline-block}

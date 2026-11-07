@@ -16,6 +16,7 @@ import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
 import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
+import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
@@ -118,7 +119,9 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
-  const blocked = !me?.ready && ((!room.solo && !me?.deck) || !!me?.deck?.validation.issues.length);
+  // A solo test and a tournament match play with their own cards on camera, so the deck is optional there (the server only checks a deck that is seated).
+  const deckOptional = room.solo || isTournamentTable(room);
+  const blocked = !me?.ready && ((!deckOptional && !me?.deck) || !!me?.deck?.validation.issues.length);
   const alert = error ?? (deckNote ? `Your deck was not seated: ${deckNote} Pick a deck below.` : saved.error?.message ?? null);
   // The tournament sets the rules; the server refuses a change (TOURNAMENT_RULES_LOCKED), so they show read-only.
   const rulesLocked = isTournamentTable(room);
@@ -171,7 +174,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
               <span className={room_.seatActions}><span className={cx(room_.status, seat.ready && room_.statusReady)}><Icon size={15} strokeWidth={1.7} aria-hidden />{seat.ready ? "Ready" : "Not ready"}</span></span>
               <div className={r.deck}>
                 <SheetSelect label="Deck" ariaLabel={`Deck for ${seat.displayName}`} value={seat.deck?.savedDeckId ?? ""} disabled={busy || !editable} testId={`deck-${seat.seat}`}
-                  choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck" },
+                  choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : deckOptional ? "No deck (optional)" : "Choose a saved deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
                 {mine && editable ? <LobbyDeckList disabled={busy} mode={current.id === "normal" ? "standard" : (current.id as "domain" | "genesys" | "genesys-domain")} seated={!!seat.deck} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}

@@ -10,7 +10,7 @@ export type { RemoteReport, RemoteResult, RemoteResultStatus } from "../remote-r
 export type EvidenceGame = { number: number; winnerSeat: number | null; reason: string; endedAt: number | null };
 export type EvidenceEvent = { seq: number; at: number; seat: number | null; userId: number | null; type: string; detail: string };
 export type EvidenceBoard = { seat: number; monsters: string[]; spellTraps: string[]; graveyard: string[]; banished: string[] };
-export type EvidenceDetection = { seat: number; autoSeconds: number; tapSeconds: number; manualSeconds: number; cardsByClick: number; cardsTyped: number; manualFixes: number; unknownCards: number };
+export type EvidenceDetection = { seat: number; /** Time before the seat announced a mode. */ unknownSeconds: number; autoSeconds: number; tapSeconds: number; manualSeconds: number; cardsByClick: number; cardsTyped: number; manualFixes: number; unknownCards: number };
 export type RemoteEvidence = {
   tableSlug: string; tableStartedAt: number | null; tableEndedAt: number | null; endReason: string | null;
   players: { seat: number; userId: number; displayName: string }[];
@@ -51,7 +51,7 @@ export function evidenceFromRow(row: RemoteEvidenceRow, names: { playerOne: stri
       .map(event => ({ seq: event.seq, at: event.at, seat: event.seat, userId: event.userId, type: event.action.type, detail: eventText(event.action, seatName) }));
     const board = (JSON.parse(row.public_board_json) as { seat: number; cards: StoredCard[] }[]).map(item => boardOf(item.seat, item.cards));
     const detectionSummary = (JSON.parse(row.detection_summary_json) as StoredDetection[]).map(item => ({
-      seat: item.seat, autoSeconds: item.autoSeconds, tapSeconds: item.tapSeconds, manualSeconds: item.manualSeconds,
+      seat: item.seat, unknownSeconds: item.unknownSeconds ?? 0, autoSeconds: item.autoSeconds, tapSeconds: item.tapSeconds, manualSeconds: item.manualSeconds,
       cardsByClick: item.identifiedByClick, cardsTyped: item.identifiedByTyped, manualFixes: item.manualCorrections,
       // Unknown cards count at the end of the last game, where the record matters most.
       unknownCards: item.unknownAtGameEnd.at(-1)?.count ?? 0,
@@ -65,7 +65,7 @@ export function evidenceFromRow(row: RemoteEvidenceRow, names: { playerOne: stri
 }
 
 type StoredCard = { zone: string; cardId?: number; passcode?: number; name?: string; position: "attack" | "defense" };
-type StoredDetection = { seat: number; autoSeconds: number; tapSeconds: number; manualSeconds: number; identifiedByClick: number; identifiedByTyped: number; manualCorrections: number; unknownAtGameEnd: { n: number; count: number }[] };
+type StoredDetection = { seat: number; /** Missing in a row saved before this field existed. */ unknownSeconds?: number; autoSeconds: number; tapSeconds: number; manualSeconds: number; identifiedByClick: number; identifiedByTyped: number; manualCorrections: number; unknownAtGameEnd: { n: number; count: number }[] };
 
 function eventText(action: StoredAction, seatName: (seat: number | null) => string): string {
   switch (action.type) {
@@ -99,17 +99,19 @@ export function choiceText(report: RemoteReport | undefined): string {
 /** One line per seat, in the words of plan section 6.3. It describes how complete the board record is. It does not decide the winner. */
 export function detectionLine(item: EvidenceDetection, name: string): string {
   const read = item.autoSeconds + item.tapSeconds;
-  if (item.manualSeconds > 0 && read === 0) return `${name}: no camera. Tap or manual play.`;
-  const total = read + item.manualSeconds;
+  const total = read + item.manualSeconds + item.unknownSeconds;
+  if (item.manualSeconds > 0 && read === 0 && item.unknownSeconds === 0) return `${name}: no camera. Tap or manual play.`;
+  // Time before a mode was announced is shown as its own part. It is never counted as Auto-detect.
+  const parts = [["Auto", item.autoSeconds], ["Tap", item.tapSeconds], ["Manual", item.manualSeconds], ["Mode not announced", item.unknownSeconds]] as const;
+  const used = parts.filter(([, seconds]) => seconds > 0);
   const mode = total === 0 ? "No mode time recorded"
-    : item.tapSeconds === 0 && item.manualSeconds === 0 ? "Auto the whole match"
-    : item.autoSeconds === 0 && item.manualSeconds === 0 ? "Tap the whole match"
-    : `${[["Auto", item.autoSeconds], ["Tap", item.tapSeconds], ["Manual", item.manualSeconds]].filter(([, seconds]) => Number(seconds) > 0).map(([label, seconds]) => `${label} ${minutes(Number(seconds))}`).join(", ")}`;
-  const parts = [mode, `${item.manualFixes} manual ${item.manualFixes === 1 ? "fix" : "fixes"}`];
-  if (item.cardsByClick) parts.push(`${item.cardsByClick} ${item.cardsByClick === 1 ? "card" : "cards"} by click`);
-  if (item.cardsTyped) parts.push(`${item.cardsTyped} typed`);
-  parts.push(`${item.unknownCards} unknown`);
-  return `${name}: ${parts.join(", ")}.`;
+    : used.length === 1 && used[0][0] !== "Mode not announced" ? `${used[0][0]} the whole match`
+    : used.map(([label, seconds]) => `${label} ${minutes(seconds)}`).join(", ");
+  const rest = [`${item.manualFixes} manual ${item.manualFixes === 1 ? "fix" : "fixes"}`];
+  if (item.cardsByClick) rest.push(`${item.cardsByClick} ${item.cardsByClick === 1 ? "card" : "cards"} by click`);
+  if (item.cardsTyped) rest.push(`${item.cardsTyped} typed`);
+  rest.push(`${item.unknownCards} unknown`);
+  return `${name}: ${[mode, ...rest].join(", ")}.`;
 }
 const minutes = (seconds: number) => seconds < 60 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
 
