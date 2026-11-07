@@ -9,6 +9,8 @@ import { isSeriesOpen } from "../duel-rules";
 import type { Match, TournamentDetail } from "../types";
 import { byeNames, isDecided, liveElsewhere, nameList, tableMatches, tableNumber, tableStatus, totalRounds } from "./floor-model";
 import { GameDots, scoreOf } from "./game-dots";
+import { pairOf, useRemoteSlot } from "../matches/remote-slots";
+import { remoteSlotLine, remoteWins } from "../remote-result";
 import { ZoneStrip } from "./zones";
 import styles from "./floor.module.css";
 
@@ -27,7 +29,8 @@ function watchHref(match: Match): string | null {
 
 /** "2 – 1" for the games of a series, "0 – 0" before it starts, or a dim dash when no online games back the table. */
 function TableScore({ match, flip = false }: { match: Match; flip?: boolean }) {
-  const wins = scoreOf(match);
+  // A Remote slot with a proposed or disputed result shows that score, not the 0 – 0 of a table that never ran online.
+  const wins = remoteWins(useRemoteSlot(match.id)) ?? scoreOf(match);
   if (!wins) return <span className={styles.tscore} data-table-score={match.id}><span className={styles.dash}>– –</span></span>;
   const [a, b] = flip ? [wins[1], wins[0]] : wins;
   return <span className={styles.tscore} data-table-score={match.id} aria-label={`Games ${a} to ${b}`}><Roll value={a} /><span className={styles.dash}> – </span><Roll value={b} /></span>;
@@ -35,10 +38,12 @@ function TableScore({ match, flip = false }: { match: Match; flip?: boolean }) {
 
 /** The status line of a table: a live dot while a game is on, then the words. */
 function TableLine({ tournament, match, viewerId }: { tournament: TournamentDetail; match: Match; viewerId: number | null }) {
+  const pair = pairOf(match);
+  const remote = useRemoteSlot(match.id);
   return (
     <>
       {isSeriesOpen(match.series) && <LiveDot />}
-      <span>{tableStatus(tournament, match, viewerId)}</span>
+      <span>{(pair && remoteSlotLine(remote, pair)) ?? tableStatus(tournament, match, viewerId)}</span>
     </>
   );
 }

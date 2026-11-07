@@ -77,7 +77,7 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   const choiceDue = siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline;
   if (at < siding.deadline && !(allReady && (match.firstSeat !== undefined || choiceDue))) return state;
   const firstSeat = match.firstSeat ?? match.firstChooser ?? 0;
-  const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf });
+  const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf, tournament: state.tournament });
   next.match = match; next.match.phase = "duel";
   delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat;
   next.deckChecks = initialDeckChecks(structuredClone(state.deckChecks.format));
@@ -85,6 +85,7 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   for (const seat of next.seats) seat.resources.lp = state.deckChecks.format.settings.startingLP;
   next.showCardsSetFromDeck = state.showCardsSetFromDeck;
   next.revealedHand = state.revealedHand;
+  next.detection = structuredClone(state.detection ?? {});
   next.updatedAt = at;
   return next;
 }
@@ -114,6 +115,18 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   if (action.type === "match.confirm") {
     const pending = match.pendingResult;
     remoteAssert(match.phase === "duel" && pending?.id === action.declarationId, "Result declaration is no longer pending", 409);
+    if (pending.lpSeat !== undefined) {
+      remoteAssert(action.actorSeat === pending.lpSeat, "Only the LP seat owner can confirm or reject this declaration", 403);
+      delete match.pendingResult;
+      if (!action.accept) return next;
+      const loser = next.seats[pending.lpSeat];
+      remoteAssert(!loser.eliminated && loser.resources.lp === 0, "LP declaration is no longer valid", 409);
+      loser.eliminated = true; loser.twin = [];
+      if (next.attack && [next.attack.attackerSeat, next.attack.targetSeat].includes(loser.seat)) next.attack = null;
+      const living = next.seats.filter(s => !s.eliminated);
+      if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, "lp", at);
+      return next;
+    }
     remoteAssert(!pending.confirmed.includes(action.actorSeat), "Seat already confirmed this declaration", 409);
     if (!action.accept) { delete match.pendingResult; return next; }
     pending.confirmed.push(action.actorSeat);

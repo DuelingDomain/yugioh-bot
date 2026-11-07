@@ -3,7 +3,15 @@
 import { Mono, ringColour } from "@/components/sheet";
 import type { Match, TournamentDetail } from "../types";
 import { otherPlayer, roundName, tableStatus } from "./floor-model";
+import { pairOf, useRemoteSlot } from "../matches/remote-slots";
+import { remoteSlotLine } from "../remote-result";
 import styles from "./floor.module.css";
+
+function OtherStatus({ tournament, match, viewerId }: { tournament: TournamentDetail; match: Match; viewerId: number }) {
+  const pair = pairOf(match);
+  const remote = useRemoteSlot(match.id);
+  return <span>{(pair && remoteSlotLine(remote, pair)) ?? tableStatus(tournament, match, viewerId)}</span>;
+}
 
 /**
  * The rest of your open matches, under the field. In a round robin every round exists from the start, so you
@@ -31,7 +39,7 @@ export function OtherMatches({ tournament, matches, shownId, viewerId, onPick }:
                 <Mono name={opp.name} size="sm" ring={ringColour(opp.id ?? 0)} />
                 <span className={styles.otherText}>
                   <b>{round} against {opp.name}</b>
-                  <span>{tableStatus(tournament, match, viewerId)}</span>
+                  <OtherStatus tournament={tournament} match={match} viewerId={viewerId} />
                 </span>
               </button>
             </li>

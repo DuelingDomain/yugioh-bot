@@ -1,3 +1,5 @@
+import { assertNoOpenRemoteMatch, voidRemoteResult } from "./tournament-remote-results.js";
+import { assertRemoteTournamentEntrants, assertRemoteTournamentFormat, assertRemoteTournamentUser, TournamentRemoteError } from "./tournament-remote-access.js";
 import { recordProductEvent } from "../analytics/index.js";
 import { ExpectedError } from "../observability/index.js";
 import type Database from "better-sqlite3";
@@ -13,7 +15,8 @@ import {
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_REPORT_CONFIRM_HOURS, MIN_REPORT_CONFIRM_HOURS } from "./constants.js";
 import { createSeriesStore } from "./duel-series.js";
-import { serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
+import { endTournamentRemoteTables } from "./tournament-remote-tables.js";
+import { resolveTournamentDuelRules, serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
 import { findTournamentReadAccess } from "./tournament-access.js";
 import { CurrentNameTakenError } from "./current-name.js";
 
@@ -22,7 +25,7 @@ export type TournamentStatus = "pending" | "active" | "cancelled" | "completed";
 
 export type { TournamentMatch } from "../types/index.js";
 /** A tournament with its match length (1 or 3 games per pairing). */
-export type Tournament = BaseTournament & { bestOf: DuelBestOf };
+export type Tournament = BaseTournament & { bestOf: DuelBestOf; duelType: "online" | "remote" };
 export type TournamentParticipant = TournamentPlayer;
 
 export type TournamentMatchStatus = "open" | "pending_approval" | "completed";
@@ -48,6 +51,7 @@ function mapTournament(row: any): Tournament {
     deadlineAt: row.deadline_at ?? undefined,
     reportConfirmWindowHours: row.report_confirm_window_hours ?? undefined,
     bestOf: row.best_of === 1 ? 1 : 3,
+    duelType: row.duel_type ?? "online",
   };
 }
 
@@ -174,8 +178,9 @@ export function createTournamentService(db: Database.Database) {
     order by s.id
   `);
 
-  /** A manual report would race the series result, so the slot refuses it while a series is open. */
+  /** Manual reports must not race an online series, a Remote table or an unresolved Remote result. */
   const assertNoOpenSeries = (tournamentMatchId: number) => {
+    assertNoOpenRemoteMatch(db, tournamentMatchId);
     if (selectOpenSeriesForSlot.get(tournamentMatchId)) {
       throw new TournamentDuelError(
         "This match is being played as an online duel series. The result records itself.",
@@ -338,6 +343,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
     voidUnconfirmedReports(tournamentId);
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
@@ -354,6 +360,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
     voidUnconfirmedReports(tournamentId);
     recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
 
@@ -369,6 +376,7 @@ export function createTournamentService(db: Database.Database) {
     let changedDuelSlugs: string[] = [];
     if (closed.changes > 0) {
       changedDuelSlugs = cancelOpenSeries(tournamentId);
+      endTournamentRemoteTables(db, { tournamentId }, "tournament-closed");
       voidUnconfirmedReports(tournamentId);
       const tournament = findById(tournamentId);
       recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
@@ -384,6 +392,7 @@ export function createTournamentService(db: Database.Database) {
       createdByUserId: number,
       options?: {
         visibility?: TournamentVisibility;
+        duelType?: "online" | "remote";
         deadlineAt?: string | null;
         reportConfirmWindowHours?: number | null;
         /** Games per pairing; default 3. */
@@ -399,6 +408,12 @@ export function createTournamentService(db: Database.Database) {
       const bestOf = options?.bestOf ?? 3;
       assertBestOf(bestOf);
       const duelRulesJson = options?.duelRules ? serializeTournamentDuelRules(options.duelRules) : null;
+      const duelType = options?.duelType ?? "online";
+      if (duelType !== "online" && duelType !== "remote") throw new TournamentRemoteError("Invalid duel type", 400, "INVALID_DUEL_TYPE");
+      if (duelType === "remote") {
+        assertRemoteTournamentUser(createdByUserId);
+        assertRemoteTournamentFormat(resolveTournamentDuelRules({ best_of: bestOf, duel_rules_json: duelRulesJson, draft_id: null }));
+      }
 
       const existingCurrent = db
         .prepare(
@@ -419,8 +434,8 @@ export function createTournamentService(db: Database.Database) {
 
       const insert = db.prepare(
         `
-          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility)
-          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility, duel_type)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       );
 
@@ -437,6 +452,7 @@ export function createTournamentService(db: Database.Database) {
           bestOf,
           duelRulesJson,
           visibility,
+          duelType,
         );
         recordProductEvent(db, "tournament_created", createdByUserId, { format, participantCount: 0 });
         return result;
@@ -594,6 +610,11 @@ export function createTournamentService(db: Database.Database) {
         throw new ExpectedError("Tournament has already started", 400);
       }
 
+      if (tournament.duelType === "remote") {
+        const player = db.prepare("select user_id from players where id=? and guild_id=?").get(playerId, tournament.guildId) as { user_id: number } | undefined;
+        if (!player) throw new TournamentRemoteError("Player not found", 404, "TOURNAMENT_MATCH_NOT_FOUND");
+        assertRemoteTournamentUser(player.user_id);
+      }
       const existing = db.prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?").get(tournamentId, playerId);
 
       if (existing) {
@@ -682,6 +703,8 @@ export function createTournamentService(db: Database.Database) {
       if (tournament.status !== "pending") {
         throw new ExpectedError("Tournament has already started", 400);
       }
+
+      if (tournament.duelType === "remote") assertRemoteTournamentEntrants(db, tournamentId);
 
       if (playerIds.length < 2) {
         throw new ExpectedError("Tournament needs at least two players", 400);
@@ -853,6 +876,10 @@ export function createTournamentService(db: Database.Database) {
           "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
         ).run(tm.match_id);
 
+        endTournamentRemoteTables(db, { tournamentMatchId: tm.id }, "match-voided");
+        db.prepare("update tournament_remote_matches set status='void',updated_at=? where tournament_match_id=?")
+          .run(Date.now(), tm.id);
+
         db.prepare(
           "update tournament_matches set status = 'open', match_id = null where id = ?",
         ).run(tm.id);
@@ -863,6 +890,7 @@ export function createTournamentService(db: Database.Database) {
         if (result.status === "approved" || scored) {
           createScoringService(db).rebuildStandings(tournament.guildId, { reopenedTournamentId: tm.tournament_id });
         }
+        voidRemoteResult(db,tm.id,requesterUserId,null);
       }).immediate();
     },
 

@@ -1,10 +1,10 @@
-import { report } from "@yugidraft/shared/observability";
-import { findTournamentReadAccess } from "@yugidraft/shared/services";
+import { createTournamentService, findTournamentReadAccess, TournamentDuelError } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
 import { broadcaster, announcer } from "@/lib/notify";
+import { remoteError, remoteJson } from "@/lib/remote-duels";
 
 export const runtime = "nodejs";
 
@@ -27,7 +27,7 @@ export async function POST(
       result: "win" | "loss";
     };
 
-    if (!body.tournamentMatchId || !body.result) {
+    if (!Number.isSafeInteger(body.tournamentMatchId) || body.tournamentMatchId < 1 || !["win","loss"].includes(body.result)) {
       return NextResponse.json(
         { error: "Missing tournamentMatchId or result" },
         { status: 400 }
@@ -43,6 +43,9 @@ export async function POST(
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
+    if (tournament.status !== "active") {
+      return remoteJson({error:"Tournament is not active",code:"TOURNAMENT_NOT_ACTIVE"},409);
+    }
     const tournamentId = tournament.id;
 
     // Find the tournament match
@@ -118,31 +121,8 @@ export async function POST(
 
     const winnerId = body.result === "win" ? reporterId : opponentId;
 
-    // Insert the match report with status='pending' so the bot's approve flow can resolve it
-    const matchResult = db
-      .prepare(
-        `
-        insert into matches (
-          guild_id, player_one_id, player_two_id, winner_id,
-          reporter_id, status, source, tournament_id
-        ) values (?, ?, ?, ?, ?, 'pending', 'tournament', ?)
-      `
-      )
-      .run(
-        tournament.guild_id,
-        reporterId,
-        opponentId,
-        winnerId,
-        reporterId,
-        tournamentId
-      );
-
-    const matchId = Number(matchResult.lastInsertRowid);
-
-    // Update tournament match
-    db.prepare(
-      "update tournament_matches set match_id = ?, status = 'pending_approval' where id = ?"
-    ).run(matchId, tournamentMatch.id);
+    // Shared transaction checks active status, open series and Remote proposals before inserting.
+    const matchId = createTournamentService(db).reportTournamentMatch(tournamentMatch.id,reporterId,winnerId).id;
 
     void broadcaster.tournament(
       { kind: "match-updated", slug },
@@ -199,10 +179,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, matchId });
   } catch (error) {
-    report(error, { tags: { operation: "[api/tournaments/[slug]/report] error" } });
-    return NextResponse.json(
-      { error: "Failed to report match" },
-      { status: 500 }
-    );
+    if (error instanceof TournamentDuelError) return remoteJson({ error: error.message }, 409);
+    return remoteError(error);
   }
 }

@@ -1,9 +1,10 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
-import { createPlayerService, findTournamentReadAccess } from "@yugidraft/shared/services";
+import { createPlayerService, createTournamentService, TournamentRemoteError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -58,7 +59,9 @@ export async function POST(
         continue;
       }
 
-      db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournament.id, bot.id);
+      const tournaments = createTournamentService(db);
+      if (tournaments.findById(tournament.id).duelType === "remote") tournaments.join(tournament.id, bot.id);
+      else db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournament.id, bot.id);
 
       void broadcaster.tournament(
         {
@@ -74,6 +77,7 @@ export async function POST(
 
     return NextResponse.json({ error: "No more dev bots available" }, { status: 400 });
   } catch (error) {
+    if (error instanceof TournamentRemoteError) return apiErrorResponse(error, "tournament-join-bot");
     report(error, { tags: { operation: "[api/tournaments/[slug]/join-bot] error" } });
     return NextResponse.json({ error: "Failed to add bot to tournament" }, { status: 500 });
   }

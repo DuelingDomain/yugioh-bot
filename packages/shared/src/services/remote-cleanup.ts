@@ -30,6 +30,7 @@ export function pruneRemoteSessions(db: Database.Database, now: number): void {
 }
 
 export function deleteUserRemoteData(db: Database.Database, userId: number): number {
+  db.prepare('delete from tournament_remote_evidence where player_one_user_id=? or player_two_user_id=?').run(userId,userId);
   const rooms = db.prepare(`select id,slug from remote_tables t where created_by=?
     or exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)
     or exists(select 1 from remote_events e where e.table_id=t.id and e.user_id=?)`)

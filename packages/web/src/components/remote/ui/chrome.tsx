@@ -7,16 +7,16 @@ import s from "./remote-ui.module.css";
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
-export function TopBar({ crumb, chip, health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
-  crumb: string; chip: string; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
+export function TopBar({ crumb, tournament = null, chip, health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
+  crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; onView: (webcamOnly: boolean) => void;
 }) {
   const dot = health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : "";
   const tone = health.q === "warn" ? s.warnc : health.q === "bad" ? s.badc : "";
   return <header className={s.top}>
-    <a className={s.logo} href="/duels/remote" aria-label="Leave the table and return to the Remote Duels lobby"><span className={s.gem} /><b>Dueling Domain</b></a>
-    <span className={s.crumb}><b>Remote Duel</b> · {crumb}</span>
+    <a className={s.logo} href={tournament?.href ?? "/duels/remote"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
+    <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
     <span className={s.cchip}>{chip}</span>
     <span className={s.sp} />
     <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">

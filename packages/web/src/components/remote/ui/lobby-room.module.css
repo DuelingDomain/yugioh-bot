@@ -61,3 +61,7 @@
 .deckListBody { display: grid; gap: 8px; }
 .deckListActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .listOn { margin: 0; font-size: 13px; color: var(--duel-ok); }
+
+/* The tournament name in a tournament table's lobby: a chip that links back to the tournament. */
+.tourneyChip { color: #c9b8ff; text-decoration: none; border-color: rgb(155 126 255 / 0.5); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tourneyChip:hover, .tourneyChip:focus-visible { text-decoration: underline; text-underline-offset: 3px; }

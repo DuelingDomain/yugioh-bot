@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { generateSingleElimFirstRound } from "../tournaments/formats.js";
 import { createScoringService } from "./scoring.js";
 import { DEFAULT_REPORT_CONFIRM_HOURS } from "./constants.js";
+import { endTournamentRemoteTables } from "./tournament-remote-tables.js";
 
 export type MatchSource = "casual" | "tournament";
 export type MatchStatus = "pending" | "approved" | "denied";
@@ -125,6 +126,7 @@ export function createMatchService(db: Database.Database) {
     db.prepare("update tournament_matches set status = 'completed' where id = ?").run(
       tournamentMatch.id,
     );
+    endTournamentRemoteTables(db, { tournamentMatchId: tournamentMatch.id }, "match-completed");
 
     const tournament = db
       .prepare("select * from tournaments where id = ?")
@@ -136,6 +138,7 @@ export function createMatchService(db: Database.Database) {
 
     const finishTournament = () => {
       db.prepare("update tournaments set status = 'completed', ended_at = current_timestamp where id = ?").run(match.tournamentId);
+      endTournamentRemoteTables(db, { tournamentId: match.tournamentId! }, "tournament-closed");
       const participants = db.prepare("select count(*) as n from tournament_participants where tournament_id=?").get(match.tournamentId) as { n: number };
       recordProductEvent(db, "tournament_finished", tournament.created_by_user_id, { format: tournament.format, participantCount: participants.n });
       safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);

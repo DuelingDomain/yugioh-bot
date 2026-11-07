@@ -20,7 +20,7 @@ function setup(path=":memory:"){
   const b=players.findOrCreateByDiscord("g","900000000000000102","Bob");
   expect(a.userId).not.toBe(a.id);
   const rec=recordingTransport(),broadcast=createBroadcaster(rec.transport);
-  const effects:WorkerEffects={discordEnabled:true,draft:broadcast.draft,tournament:broadcast.tournament,discord:vi.fn(async()=>{}),duel:vi.fn(async()=>{})};
+  const effects:WorkerEffects={discordEnabled:true,draft:broadcast.draft,tournament:broadcast.tournament,discord:vi.fn(async()=>{}),duel:vi.fn(async()=>{}),remote:vi.fn(async()=>{})};
   return {db,players,drafts,matches,tournaments,a,b,effects,rec,startedAt:new Date()};
 }
 function activeDraft(app:ReturnType<typeof setup>){

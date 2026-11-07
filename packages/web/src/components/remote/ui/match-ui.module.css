@@ -22,12 +22,15 @@
   background: rgb(20 13 38 / 0.97); box-shadow: 0 0 0 4px rgb(232 185 79 / 0.12), 0 16px 48px rgb(0 0 0 / 0.65); color: var(--ink, #efe7d5); font-size: 15px;
 }
 .declare p { margin: 0; }
+/* An LP 0 loss needs an answer: it stays above the card prompts (220) and below the full-screen dialogs (250+) the player opened. */
+.declare[data-lp="true"] { z-index: 230; }
 .declareBtns { display: flex; gap: 8px; }
 .agree, .disagree {
   min-height: 40px; padding: 0 18px; border-radius: 8px; border: 1px solid transparent; font: 700 15px/1 inherit; cursor: pointer;
 }
-.agree { background: var(--gold, #e8b94f); color: #1b1204; }
-.disagree { background: none; border-color: var(--line2, #4a3d6e); color: var(--ink, #efe7d5); }
+/* Under the table's `.app button { color: inherit }`, so these two need the .declare parent to win. Dark on gold is about 9:1. */
+.declare .agree { background: var(--gold, #e8b94f); color: #1b1204; }
+.declare .disagree { background: none; border-color: var(--line2, #4a3d6e); color: var(--ink, #efe7d5); }
 .agree:focus-visible, .disagree:focus-visible { outline: 2px solid var(--gold-ink, #f4d690); outline-offset: 2px; }
 .agree:disabled, .disagree:disabled { opacity: 0.55; cursor: default; }
 

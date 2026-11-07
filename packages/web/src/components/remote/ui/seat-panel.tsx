@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
-import { ScanLine } from "lucide-react";
+import { CircleHelp, Hand, Pencil, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
@@ -11,6 +11,7 @@ import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
 import { HandCount, HandStrip, type HandProps } from "./hand-ui";
+import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -22,6 +23,13 @@ export function parseLpInput(raw: string): number | null {
   const text = raw.trim().replace(/[−–]/g, "-"); if (!text) return null;
   const amount = parseInt(text.replace(/[^\d]/g, ""), 10); if (!amount) return null;
   return text.startsWith("+") ? amount : -amount;
+}
+
+/** Tournament table: the mode a player announced, shown on the nameplate. */
+export function DetectionBadge({ seat, name, mode }: { seat: number; name: string; mode?: TournamentMode }) {
+  const Glyph = mode === "tap" ? Hand : mode === "auto" ? ScanLine : mode === "manual" ? Pencil : CircleHelp;
+  return <span className={`${s.tag} ${s.dmode} ${mode === "auto" ? "" : s.tap}`} data-testid={`detection-mode-${seat}`} role="img" aria-label={`${name} detection: ${modeLabel(mode)}`} title={`${name} detection: ${modeLabel(mode)}`}>
+    <Glyph size={11} strokeWidth={2} aria-hidden />{modeShort(mode)}</span>;
 }
 
 export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
@@ -50,6 +58,7 @@ export type SeatPanelProps = {
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
+  /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode | "unknown";
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -112,6 +121,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </> : null}
       </span> : null}
       {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
+      {p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />

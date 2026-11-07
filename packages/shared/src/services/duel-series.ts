@@ -1,3 +1,4 @@
+import { TournamentRemoteError } from "./tournament-remote-access.js";
 import { ExpectedError, log, report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { randomInt } from "node:crypto";
@@ -816,10 +817,11 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
       created_by_user_id: number;
       best_of: number | null;
       duel_rules_json: string | null;
+      duel_type: string;
       draft_id: number | null;
     }
   >(`
-    select t.id, t.guild_id, t.name, t.status, t.created_by_user_id, t.best_of, t.duel_rules_json,
+    select t.id, t.guild_id, t.name, t.status, t.created_by_user_id, t.best_of, t.duel_rules_json, t.duel_type,
       (select d.id from drafts d where d.tournament_id = t.id order by d.id limit 1) as draft_id
     from tournaments t
     where t.id = ?
@@ -936,6 +938,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
       if (!slot || !tournament || tournament.guild_id !== input.guildId) {
         throw new DuelServiceError("Tournament match not found", 404);
       }
+      if (tournament.duel_type === "remote") throw new TournamentRemoteError("This tournament uses Remote Duels", 409, "WRONG_DUEL_TYPE");
       if (slot.player_two_id === null) throw new DuelServiceError("A bye has no duel to play", 400);
       const actor = assertPlayerGuild(input.actorPlayerId, input.guildId);
       const isPlayer = input.actorPlayerId === slot.player_one_id || input.actorPlayerId === slot.player_two_id;

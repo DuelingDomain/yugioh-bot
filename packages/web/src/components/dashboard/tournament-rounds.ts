@@ -7,6 +7,8 @@ export interface TournamentRounds {
   tournamentId: number;
   format: string;
   status: string;
+  /** Remote tournaments start their matches on a Remote table, not the online duel route. */
+  duelType: "online" | "remote";
   webSlug: string | null;
   participants: Participant[];
   /** Every pairing, oldest round first. An open or between-games series is attached to its slot. */
@@ -76,6 +78,11 @@ export function loadTournamentRounds(
     )
     .all(...ids) as MatchRow[];
 
+  const duelTypes = new Map(
+    (db.prepare(`select id, duel_type from tournaments where id in (${marks})`).all(...ids) as Array<{ id: number; duel_type: string | null }>)
+      .map((row) => [row.id, row.duel_type === "remote" ? "remote" : "online"] as const),
+  );
+
   const names = new Map<number, string>();
   for (const p of participants) names.set(p.player_id, p.display_name);
 
@@ -122,6 +129,7 @@ export function loadTournamentRounds(
       tournamentId: t.id,
       format: t.format,
       status: t.status,
+      duelType: duelTypes.get(t.id) ?? "online",
       webSlug: t.webSlug ?? null,
       participants: participants
         .filter((p) => p.tournament_id === t.id)

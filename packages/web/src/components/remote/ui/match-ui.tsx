@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import { formatLp } from "@/components/duel/constants";
@@ -82,10 +82,11 @@ function useNow(now: () => number, on = true): number {
  * the Life Points tray and the match score. A game that did not decide the match offers Continue to side decking;
  * the final screen names the match winner.
  */
-export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, onContinue, onLeave, onClose }: {
+export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, onContinue, onLeave, onClose }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; final: boolean; busy: boolean;
   /** The last action was refused: shown here, above the result. */ error?: string | null;
   /** A wrong result is fixed with Undo; null when there is nothing to undo. */ undo: { label: string; onUndo: () => void } | null;
+  /** The tournament's Confirm or Dispute panel, under the scoreboard, for a tournament match. */ tournamentResult?: ReactNode;
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -146,6 +147,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
         })}
       </ul>
 
+      {tournamentResult}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
       <div className={resultStyles.actions} data-count={final ? 2 : undo ? 3 : 2}>
         {final
@@ -166,9 +168,17 @@ export function DeclareConfirm({ match, mySeat, name, busy, onAnswer }: {
 }) {
   const pending = match.pendingResult;
   const rootRef = useRef<HTMLDivElement>(null);
-  const open = !!pending && mySeat >= 0 && !pending.confirmed.includes(mySeat);
+  // An LP 0 declaration (tournament) is answered by the seat whose LP was set to 0, and by nobody else.
+  const open = !!pending && mySeat >= 0 && !pending.confirmed.includes(mySeat) && (pending.lpSeat === undefined || pending.lpSeat === mySeat);
   useDialogFocus(rootRef, open, false);
   if (!pending || !open) return null;
+  if (pending.lpSeat !== undefined) return <div ref={rootRef} className={s.declare} role="alertdialog" aria-labelledby="declare-q" tabIndex={-1} data-testid="declare-confirm" data-lp="true">
+    <p id="declare-q">Your opponent set your LP to 0. Accept the game loss?</p>
+    <div className={s.declareBtns}>
+      <button type="button" className={s.agree} disabled={busy} onClick={() => onAnswer(pending.id, true)} data-autofocus data-testid="declare-agree">Accept</button>
+      <button type="button" className={s.disagree} disabled={busy} onClick={() => onAnswer(pending.id, false)} data-testid="declare-reject">Reject</button>
+    </div>
+  </div>;
   const by = pending.confirmed[0];
   const claim = pending.winnerSeat === null ? "the game was a draw" : pending.winnerSeat === mySeat ? "you won" : `${name(pending.winnerSeat)} won`;
   return <div ref={rootRef} className={s.declare} role="alertdialog" aria-labelledby="declare-q" tabIndex={-1} data-testid="declare-confirm">
@@ -184,7 +194,10 @@ export function DeclareConfirm({ match, mySeat, name, busy, onAnswer }: {
 export function DeclarePending({ match, mySeat, seats, name }: { match: Match; mySeat: number; seats: number[]; name: (seat: number) => string }) {
   const pending = match.pendingResult;
   if (!pending || mySeat < 0 || !pending.confirmed.includes(mySeat)) return null;
-  const waiting = seats.filter(seat => !pending.confirmed.includes(seat)).map(name);
+  const waiting = seats.filter(seat => !pending.confirmed.includes(seat) && (pending.lpSeat === undefined || seat === pending.lpSeat)).map(name);
+  if (pending.lpSeat !== undefined) return <div className={s.pending} role="status" data-testid="declare-pending">
+    <span className={s.pendingDot} aria-hidden="true" />Waiting for {waiting.length ? waiting.join(", ") : "your opponent"} to accept the game loss.
+  </div>;
   return <div className={s.pending} role="status" data-testid="declare-pending">
     <span className={s.pendingDot} aria-hidden="true" />Waiting for {waiting.length ? waiting.join(", ") : "the other players"} to agree to the result.
   </div>;

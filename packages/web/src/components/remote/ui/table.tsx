@@ -45,6 +45,8 @@ import type { FeedbackPreference } from "@/components/settings/vision-feedback-s
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
 import { matchOf } from "./match-model";
+import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
+import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
@@ -55,6 +57,7 @@ const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
 const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
+import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
@@ -83,7 +86,7 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: string | null }) {
+export function RemoteTableScreen({ slug, sttUrl, tournament = null }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null }) {
   const ctl = useRemoteRoom(slug);
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
@@ -94,7 +97,7 @@ export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: stri
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
   // No VideoHubProvider for a spectator: it holds the camera and the card reader.
   if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} tournament={tournament} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -117,7 +120,7 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null }) {
+function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null; tournament: RemoteTournamentLink | null }) {
   const voiceRecognition = sttUrl !== null;
   const sayItsName = voiceRecognition ? " or say its name" : "";
   const hub = useVideoHub();
@@ -1303,7 +1306,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
@@ -1332,7 +1335,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
@@ -1406,8 +1409,9 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
     {match.phase === "result" || (match.phase === "done" && !boardView)
       ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+        tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
-        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
+        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />

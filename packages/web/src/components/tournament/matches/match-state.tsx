@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { ChainMedallion, LivePill } from "@/components/sheet";
 import { formatRecent, parseDbTime } from "../sheet-dates";
+import { remoteSlotLine, type RemoteResult } from "../remote-result";
 import type { Match } from "../types";
+import { pairOf } from "./remote-slots";
 import { decidedPlayers, firstGameWinner, reportNames, type ViewerState } from "./match-model";
 import styles from "./matches.module.css";
 
@@ -32,21 +34,31 @@ export function BetweenGames({ match }: { match: Match }) {
 }
 
 /** The state line under a match. `stakes` is the viewer's Elo swing on a match they play. */
-export function MatchState({ match, state, format, hours, stakes }: {
+export function MatchState({ match, state, format, hours, stakes, remote = null }: {
   match: Match; state: ViewerState; format: string; hours: number; stakes?: { win: number; lose: number } | null;
+  /** The open Remote result of a Remote slot: it is the real state, in place of "Not started". */
+  remote?: RemoteResult | null;
 }) {
   const { reporter, other, won } = reportNames(match);
+  const pair = pairOf(match);
+  const remoteLine = (state === "your-open" || state === "open") && pair ? remoteSlotLine(remote, pair) : null;
   const firstWinner = firstGameWinner(match);
   const when = formatRecent(match.resolvedAt);
   return (
     <p className="m-state">
-      {state === "your-open" && (
+      {remoteLine && (
+        <span>
+          {state === "your-open" ? "Your match. " : ""}{remoteLine}
+          {state === "your-open" && stakes && <> <span className="lp-d up">+{stakes.win}</span> <span className="lp-d down">−{Math.abs(stakes.lose)}</span></>}
+        </span>
+      )}
+      {!remoteLine && state === "your-open" && (
         <span>
           Your match. Not started.
           {stakes && <> <span className="lp-d up">+{stakes.win}</span> <span className="lp-d down">−{Math.abs(stakes.lose)}</span></>}
         </span>
       )}
-      {state === "open" && <span>Not started</span>}
+      {!remoteLine && state === "open" && <span>Not started</span>}
       {state === "reported" && (
         <>
           <ChainMedallion size="xs" />

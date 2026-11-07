@@ -51,10 +51,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { deadlineAt, reportConfirmWindowHours, bestOf, duelRules } = body as {
+  const { deadlineAt, reportConfirmWindowHours, bestOf, duelRules, duelType } = body as {
     deadlineAt?: string | null;
     reportConfirmWindowHours?: number | null;
     bestOf?: 1 | 3;
+    duelType?: "online" | "remote";
     duelRules?: { mode?: unknown; masterRule?: unknown; settings?: unknown } | null;
   };
 
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
       actor.userId,
       {
         visibility,
+        duelType,
         deadlineAt: deadlineAt ?? null,
         reportConfirmWindowHours: reportConfirmWindowHours ?? null,
         bestOf: bestOf ?? undefined,
@@ -121,6 +123,7 @@ export async function POST(request: NextRequest) {
         format: tournament.format,
         status: tournament.status,
         visibility: tournament.visibility,
+        duelType: tournament.duelType,
         webSlug: tournament.webSlug,
       },
       { status: 201 }

@@ -1,6 +1,7 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
-import { createTournamentVisibilityService, TournamentVisibilityServiceError } from "@yugidraft/shared/services";
+import { createTournamentVisibilityService, TournamentRemoteError, TournamentVisibilityServiceError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -28,6 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     createTournamentVisibilityService(getDb()).admit(slug, env.discordGuildId, actor.userId, body.code);
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof TournamentRemoteError) return apiErrorResponse(error, "tournament-invite");
     if (error instanceof TournamentVisibilityServiceError) return tournamentNotFound();
     report(error, { tags: { operation: "[tournament invite] admission failed" } });
     return NextResponse.json({ error: "Failed to accept invite" }, { status: 500 });

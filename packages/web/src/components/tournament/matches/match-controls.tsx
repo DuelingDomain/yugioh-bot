@@ -3,6 +3,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { DuelAction, StatusLine, svButtonClass, type SvButtonVariant } from "@/components/sheet";
 import { SECTION_IDS } from "../sheet-contracts";
+import { remoteBlocksReport, type RemoteResult } from "../remote-result";
 import type { Match } from "../types";
 import type { matchView } from "./match-model";
 import type { MatchActions } from "./use-match-actions";
@@ -40,18 +41,28 @@ export function MatchError({ error, onOpenDeck }: { error: string | null; onOpen
 }
 
 /** The buttons for one match: used by the host drawer's match rows. */
-export function MatchControls({ match, view, actions, reportLabel = "Report", reportFirst = false, waitingOn }: {
+export function MatchControls({ match, view, actions, reportLabel = "Report", reportFirst = false, waitingOn, remoteResult = null, remoteLoading = false }: {
   match: Match; view: ReturnType<typeof matchView>; actions: MatchActions; small?: boolean; reportLabel?: string; reportFirst?: boolean; waitingOn: string;
+  /** The Remote result of a Remote slot, when it has one. An open one replaces the manual report and the start button. */
+  remoteResult?: RemoteResult | null;
+  /** The Remote result is still being read: Report and Start stay hidden, so a live or proposed slot never shows them. */
+  remoteLoading?: boolean;
 }) {
   if (actions.reporting && view.canReport) return <MatchButton variant="quiet" onClick={actions.cancelReport}>Cancel</MatchButton>;
   if (view.canOpen) {
     return <DuelAction kind={view.player ? "open" : "watch"} href={`/duels/${match.series!.currentDuelSlug}`} />;
   }
   const disabled = actions.loading !== null;
-  const reportButton = view.canReport && <MatchButton disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>;
+  const answering = remoteResult?.status === "proposed" || remoteResult?.status === "disputed";
+  const reportButton = view.canReport && !remoteLoading && !remoteBlocksReport(remoteResult) && <MatchButton disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>;
   return (
     <>
       {reportFirst && reportButton}
+      {view.canStartRemote && !answering && !remoteLoading && (
+        <MatchButton variant="primary" disabled={disabled} onClick={actions.startRemote}>
+          {remoteResult?.status === "playing" ? "Open Remote table" : "Start Remote Duel"}
+        </MatchButton>
+      )}
       {view.canStart && (view.player
         ? <DuelAction kind="start" disabled={disabled} onClick={actions.start} />
         : <MatchButton variant="quiet" disabled={disabled} onClick={actions.start}>Start duel</MatchButton>)}

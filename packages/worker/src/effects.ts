@@ -14,6 +14,7 @@ export type WorkerEffects = {
   tournament(payload: TournamentBroadcastPayload): Promise<void>;
   discord(payload: AnnouncePayload): Promise<void>;
   duel(slug: string, guildId: string): Promise<void>;
+  remote(slug: string, guildId: string): Promise<void>;
 };
 
 export function createEffects(input: {
@@ -39,6 +40,10 @@ export function createEffects(input: {
     duel: (slug, guildId) => safe(async () => {
       const result = await input.ws.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
       if (!result.ok) log("warn", "[worker] duel invalidation failed", { status: result.status });
+    }),
+    remote: (slug, guildId) => safe(async () => {
+      const result = await input.ws.post("/internal/remote/changed", JSON.stringify({ slug, guildId }));
+      if (!result.ok) log("warn", "[worker] Remote invalidation failed", { status: result.status });
     }),
   };
 }

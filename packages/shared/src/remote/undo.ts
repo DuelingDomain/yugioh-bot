@@ -127,14 +127,23 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   // the same result twice. Declarations still follow normal inverse semantics.
   const withoutDerivedState = (position: RemotePosition) => {
     const copy = structuredClone(position);
+    // Device reports belong to the table; even a coalesced camera action must not undo them.
+    copy.detection = structuredClone(state.detection ?? {});
     for (const origin of copy.effectTracking?.origins ?? []) if (origin.pool) delete origin.candidates;
     copy.ended = state.ended; copy.winnerSeat = state.winnerSeat;
     copy.match = structuredClone(state.match);
-    if (position.match?.pendingResult) copy.match.pendingResult = structuredClone(position.match.pendingResult);
+    // Rejecting or correcting an LP declaration resolves the request separately
+    // from the original LP edit. Undoing that edit must not revive the request.
+    const resolvedLp = entry.action.type === "lp.change" && after.match.pendingResult?.lpSeat !== undefined &&
+      after.match.pendingResult.id === entry.actionId && state.match.pendingResult?.id !== entry.actionId;
+    const pending = resolvedLp ? state.match.pendingResult : position.match?.pendingResult;
+    if (pending) copy.match.pendingResult = structuredClone(pending);
     else delete copy.match.pendingResult;
     return copy;
   };
   const restored = restore(withoutDerivedState(before), withoutDerivedState(after), withoutDerivedState(remotePosition(state))) as RemotePosition;
+  const lpSeat = restored.match.pendingResult?.lpSeat;
+  if (lpSeat !== undefined && (restored.seats[lpSeat].resources.lp !== 0 || restored.seats[lpSeat].eliminated)) delete restored.match.pendingResult;
   // Returning a card to an ordered pile restores its old place. Other cards
   // that entered that pile later keep their newer positions, including reentries.
   const later = (state.undoHistory ?? []).filter(item => !item.undone && item.order > entry.order && item.before && item.after);
@@ -198,7 +207,8 @@ export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, act
   if (entry.actorSeat !== actorSeat) return "You can only undo your own actions";
   if (entry.undone) return "This action has already been undone";
   if (entry.turn < state.turn - 1 || entry.turn > state.turn) return "Undo is limited to the current and previous turn";
-  if (entry.blocked || entry.blockedBy?.length) return "A later action touched the same card; undo that action first";
+  if (entry.blocked || entry.blockedBy?.length) return entry.action.type === "lp.change" && entry.after?.match.pendingResult?.lpSeat !== undefined
+    ? "Undo the seat owner's LP confirmation first" : "A later action touched the same card; undo that action first";
   const newest = [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).find(e => e.actorSeat === actorSeat && !e.undone);
   if (newest?.actionId !== entry.actionId && entry.cards.length !== 1) return "Undo your newer actions first; only single-card actions can be targeted out of order";
   if (restore) try { restoredPosition(state, entry); } catch (error) { return (error as Error).message; }

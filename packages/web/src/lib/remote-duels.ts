@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { createRemoteDuelService } from "@yugidraft/shared/services";
+import { createRemoteDuelService, TournamentRemoteError } from "@yugidraft/shared/services";
 import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
 import { requireWebAccess } from "./web-access";
 import { getDb } from "./db";
+import { broadcaster } from "./notify";
 import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
@@ -47,6 +48,8 @@ export async function requireRemoteActor() {
   return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };
 }
 export function remoteError(error: unknown) {
+  if (error instanceof TournamentRemoteError) return remoteJson({ error: error.message, code: error.code,
+    ...(error.entrants ? { entrants: error.entrants } : {}) }, error.status);
   if (error instanceof RemoteDuelError) return remoteJson({ error: error.message, code: error.code }, error.status);
   const { body, status } = errorResponseBody(error, { tags: { operation: "remote-api" } });
   return remoteJson(body, status);
@@ -103,6 +106,11 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
         timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;
       }
+    }
+    if (operation === "actions" && result.tournamentMatchId && (result.status === "ended" || (body.action as {type?:string})?.type === "undo")) {
+      const linked=getDb().prepare(`select t.web_slug from tournaments t join tournament_matches tm on tm.tournament_id=t.id
+        where tm.id=? and t.guild_id=?`).get(result.tournamentMatchId,actor.guildId) as {web_slug:string|null}|undefined;
+      if (linked?.web_slug) void broadcaster.tournament({kind:"match-updated",slug:linked.web_slug});
     }
     // SQLite phone triggers revoke capabilities in the same transaction as leave/end.
     // Retry durable SFU cleanup here; failures do not roll back an accepted game action.

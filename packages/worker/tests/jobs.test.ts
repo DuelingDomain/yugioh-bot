@@ -84,3 +84,47 @@ it("purges only expired remote rooms in bounded hourly cleanup batches", async (
     expect(db.pragma('foreign_key_check')).toEqual([]);
   } finally {db.close();}
 });
+
+
+it("finalizes eligible Remote proposals at two hours, survives room deletion and publishes changes once", async () => {
+  const {createTournamentService,createMatchService,createUserService} = await import("@yugidraft/shared/services");
+  const {createTournamentTimer} = await import("../src/tournament-timer.js");
+  const db=new Database(":memory:"); db.pragma("foreign_keys=ON"); migrate(db);
+  vi.stubEnv("REMOTE_DUELS","1"); vi.stubEnv("REMOTE_DUELS_USERS","*");
+  try {
+    const owner=createUserService(db).createNonLogin("Organizer");
+    const players=Array.from({length:4},(_,i)=>{
+      const user=createUserService(db).createNonLogin(`Player ${i}`);
+      return Number(db.prepare("insert into players(guild_id,user_id,display_name) values('g',?,?)").run(user.id,`P${i}`).lastInsertRowid);
+    });
+    const tournaments=createTournamentService(db), matches=createMatchService(db);
+    const t=tournaments.create("g","Timer cup","round_robin",owner.id,{duelType:"remote",bestOf:1});
+    for(const p of players)tournaments.join(t.id,p);tournaments.start(t.id);
+    const slots=tournaments.matches(t.id).slice(0,5), deadline=10_000;
+    for (const [i,slot] of slots.entries()) db.prepare(`insert into tournament_remote_matches
+      (tournament_match_id,table_slug,player_one_id,player_two_id,status,winner_player_id,player_one_wins,player_two_wins,
+      result_source,proposed_at,confirm_deadline_at,player_one_choice,created_at,updated_at)
+      values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(slot.id,`purged-${i}`,slot.playerOneId,slot.playerTwoId,
+        i===4?'disputed':'proposed',slot.playerOneId,1,0,i===0?'concede':i===1?'declared':'lp',
+        deadline-7200000,deadline,i===3?'confirm':null,0,0);
+    const { recordingTransport } = await import("@yugidraft/shared/notify");
+    const { createEffects } = await import("../src/effects.js");
+    const rec = recordingTransport();
+    const effects = createEffects({ enabled: false, ws: rec.transport, bot: rec.transport });
+    const timer=createTournamentTimer({db,tournaments,matches,effects});
+    await timer.tick(new Date(deadline-1));
+    expect(db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+    expect(rec.calls).toEqual([]);
+    await timer.tick(new Date(deadline));
+    expect(db.prepare("select count(*) n from tournament_remote_matches where status='final' and finalization_reason='timeout'").get()).toEqual({n:3});
+    expect(db.prepare("select status from tournament_matches where id=?").get(slots[2].id)).toEqual({status:"open"});
+    expect(db.prepare("select status from tournament_matches where id=?").get(slots[4].id)).toEqual({status:"open"});
+    expect(rec.calls.filter(call => call.path === "/internal/remote/changed"))
+      .toEqual([0,1,3].map(i => ({ path: "/internal/remote/changed", body: JSON.stringify({ slug: `purged-${i}`, guildId: "g" }) })));
+    await timer.tick(new Date(deadline+60000));
+    expect(db.prepare("select count(*) n from matches").get()).toEqual({n:3});
+    expect(rec.calls.filter(call => call.path === "/internal/tournament/match-updated"))
+      .toEqual(Array.from({ length: 3 }, () => ({ path: "/internal/tournament/match-updated", body: JSON.stringify({ slug: t.webSlug }) })));
+    expect(rec.calls.filter(call => call.path === "/internal/remote/changed")).toHaveLength(3);
+  } finally {db.close();}
+});

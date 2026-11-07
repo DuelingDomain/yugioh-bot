@@ -1,9 +1,10 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
-import { createPlayerService, findTournamentReadAccess } from "@yugidraft/shared/services";
+import { createPlayerService, createTournamentService, TournamentRemoteError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 import { backfillDraftDecks, linkDraftDeck } from "@/lib/draft-decks";
 
@@ -30,10 +31,15 @@ export async function POST(
       }
       const guildId = env.discordGuildId;
       const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
-      db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(access.id, player.id);
-      // A draft tournament entry takes the player's drafted deck immediately.
-      backfillDraftDecks(guildId, actor.userId, db);
-      linkDraftDeck(access.id, player.id, db);
+      const tournaments = createTournamentService(db);
+      if (tournaments.findById(access.id).duelType === "remote") {
+        tournaments.join(access.id, player.id);
+      } else {
+        db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(access.id, player.id);
+        // A draft tournament entry takes the player's drafted deck immediately.
+        backfillDraftDecks(guildId, actor.userId, db);
+        linkDraftDeck(access.id, player.id, db);
+      }
       return { player };
     }).immediate();
     if (result.response) return result.response;
@@ -50,6 +56,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, playerId: player.id, displayName: player.displayName });
   } catch (error) {
+    if (error instanceof TournamentRemoteError) return apiErrorResponse(error, "tournament-join");
     report(error, { tags: { operation: "[api/tournaments/[slug]/join] error" } });
     return NextResponse.json(
       { error: "Failed to join tournament" },

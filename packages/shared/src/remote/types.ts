@@ -27,6 +27,10 @@ export type RemoteTwinConfirmation = {
   options?:{ref?:string;label:string}[];placement?:Extract<RemoteAction,{type:"twin.place"}>;
 };
 export type RemotePosition = {
+  /** Fixed at table creation. Legacy and casual tables omit this flag. */
+  tournament?: boolean;
+  /** Public device mode per seat, retained across games. Manual means no camera or phone scan. Legacy snapshots may omit it. */
+  detection?: Partial<Record<number, { mode: Extract<RemoteAction, { type: "detection.mode" }>["mode"]; at: number }>>;
   match: RemoteMatch;
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
@@ -63,7 +67,7 @@ export interface GameModule {
   seatsAllowed: readonly SeatCount[];
   resources: readonly { id: string; name: string; start: number; min: number; loseAtZero: boolean }[];
   zones: readonly { id: string; name: string; shape: "row" | "pile" | "single" }[];
-  initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf }): RemoteState;
+  initialState(input: { seatCount: SeatCount; firstSeat?: number; bestOf?: RemoteBestOf; tournament?: boolean }): RemoteState;
   /** Pure. No clocks, I/O, randomness, or catalog/engine calls. `action.at` is the injected clock. */
   reduce(state: RemoteState, action: RemoteAction, context?: RemoteReductionContext): RemoteState;
   /** Null means no proposal. An empty effect source asks the UI which card; it must not be submitted. */
@@ -80,7 +84,7 @@ export interface GameModule {
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; tournament?: boolean; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
   | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
@@ -88,7 +92,7 @@ export type RemoteSystemAction =
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started"; handCounts?: 1 }
   | { type: "idle.warning"; closesAt: number }
-  | { type: "table.ended"; reason: "idle" | "creator-left" };
+  | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
   action: RemoteAction | RemoteSystemAction;
@@ -96,6 +100,9 @@ export type RemoteEvent = {
   messages?: string[];
 };
 export type RemoteTable = {
+  tournamentMatchId?: number;
+  /** Tournament default overrides the device preference; U4 applies it per table. */
+  detectionDefault?: "auto";
   bestOf?: RemoteBestOf;
   slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus; solo: boolean;
   createdBy: number; createdAt: number; startedAt: number | null; endedAt: number | null;

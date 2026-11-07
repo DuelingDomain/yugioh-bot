@@ -50,7 +50,7 @@ export interface TournamentRowProps {
  */
 export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, showYou = false, canCancel = false, onCancelled, className }: TournamentRowProps) {
   const href = tournamentHref(tournament);
-  const input = rounds ? { format: tournament.format, status: tournament.status, participants: rounds.participants, matches: rounds.matches } : null;
+  const input = rounds ? { format: tournament.format, status: tournament.status, duelType: rounds.duelType, participants: rounds.participants, matches: rounds.matches } : null;
   const you = youProp ?? (viewerId !== null && !!rounds?.participants.some((p) => p.playerId === viewerId));
   const running = variant === "running";
   const viewerName = rounds?.participants.find((p) => p.playerId === viewerId)?.displayName ?? "You";
