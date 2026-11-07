@@ -1137,6 +1137,19 @@
 .hcount{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2)}
 .hcount button{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--p1);color:var(--ink);cursor:pointer;line-height:1}
 .hcount button:disabled{opacity:.4;cursor:default}
+/* Webcam only: the revealed cards are one compact row right above life points, never over the feed. More cards than fit scroll in the row. */
+.htray{flex:none;display:flex;flex-direction:column;gap:4px;min-width:0}
+.htop{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 8px;min-width:0}
+.htop .hlab b{margin-left:4px;color:var(--ink2)}
+.htlist{display:flex;align-items:center;gap:4px;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
+.htlist li{flex:none;min-width:0}
+/* Wide seat: LP is a narrow column beside the camera, so the cards stack there and the list scrolls up and down (3 show). */
+@container seat (min-aspect-ratio:1.55){
+  .htlist{flex-direction:column;align-items:stretch;overflow-x:hidden;overflow-y:auto;max-height:calc(3 * 32px + 2 * 4px);scrollbar-width:thin}
+  .htlist li,.htlist .hcard{width:100%;max-width:none}
+}
+/* Phone: the seat's life points lead, so the tray leads right above them. */
+@media (max-width:900px){.htray{order:-2}}
 .hover{position:absolute;left:6px;right:6px;bottom:6px;z-index:5;padding:6px;border-radius:10px;background:rgb(10 6 20/.78);backdrop-filter:blur(4px);pointer-events:none}
 .hover :is(button,a),.hover .hcards{pointer-events:auto}
 .toast button{margin-left:6px;border:1px solid var(--line2);background:var(--p1);color:var(--gold-ink);border-radius:6px;padding:2px 8px;cursor:pointer}

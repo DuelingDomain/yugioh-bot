@@ -18,9 +18,12 @@ export type HandProps = {
   search?: { by: HandBy; candidates: HandCandidate[]; onPick: (card: HandCandidate) => void; onOther: () => void; onDismiss: () => void };
   /** Own seat only: a camera read without a search (local suggestion). */
   suggest?: { card: HandSuggestion; onAdd: (source: HandSource) => void; onReveal: () => void; onDismiss: () => void };
-  /** Webcam only: the strip is an overlay at the bottom of the feed. */
+  /** Webcam only: only the open chip is an overlay on the feed. The revealed cards sit in the tray above life points. */
   overlay?: boolean;
+  /** Webcam only: the revealed cards and the hand count, as a compact tray above life points (never over the feed). */
+  tray?: boolean;
 };
+
 
 /** Ids that arrived after the first render stay "fresh" for a short time (a pop and a highlight). */
 function useFresh(cards: readonly KnownHandCard[]) {
@@ -98,27 +101,42 @@ export function HandCount({ seat, hand: { count, onCount } }: { seat: number; ha
 export function HandStrip({ seat, name, hand }: { seat: number; name: string; hand: HandProps }) {
   const fresh = useFresh(hand.cards);
   const [look, setLook] = useState<{ card: KnownHandCard; box: DOMRect } | null>(null);
-  // The webcam overlay stays out of the feed until there is something to show. Webcam only keeps the hand count beside the feed. Under the board the row is always there, so a card arriving does not move the camera.
-  if (hand.overlay && !hand.cards.length && !hand.search && !hand.suggest) return null;
+  const list = useRef<HTMLUListElement>(null);
+  // A card that arrives scrolls into view at the end of the row (the newest is last).
+  const count = hand.cards.length;
+  useEffect(() => { const row = list.current; if (row && hand.tray) row.scrollTo({ left: row.scrollWidth, behavior: "smooth" }); }, [count, hand.tray]);
   const chip = hand.search ? <HandChip search={hand.search} /> : hand.suggest ? <HandSuggestChip suggest={hand.suggest} /> : null;
-  return <div className={`${s.hstrip} ${hand.overlay ? s.hover : ""}`} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
-    {hand.overlay ? chip : null}
+  // Webcam only: the open chip is the one thing over the feed. The cards never are.
+  if (hand.overlay) return chip ? <div className={`${s.hstrip} ${s.hover}`}>{chip}</div> : null;
+  const card = (item: KnownHandCard) => <li key={item.id} className={fresh.has(item.id) ? s.hfresh : undefined}>
+    <button type="button" className={s.hcard} title={`${item.name} · ${sourceText(item)}`} onClick={() => { setLook(null); hand.onInspect(item); }} onMouseEnter={event => setLook({ card: item, box: event.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setLook(null)} onFocus={event => setLook({ card: item, box: event.currentTarget.getBoundingClientRect() })} onBlur={() => setLook(null)} data-testid="hand-card">
+      <img src={cardArt(item.cardId, "small")} alt="" draggable={false} />
+      <span><b>{item.name}</b><small>{sourceText(item)}</small></span>
+    </button>
+  </li>;
+  if (hand.tray) {
+    // Webcam only: one compact row right above life points. More cards than fit scroll in the row, so the tray never grows over the feed.
+    return <div className={s.htray} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`} data-tray={seat}>
+      <div className={s.htop}>
+        {hand.cards.length ? <span className={s.hlab}>Revealed in hand <b className={s.num}>{hand.cards.length}</b></span> : null}
+        <HandCount seat={seat} hand={hand} />
+      </div>
+      {hand.cards.length ? <ul ref={list} className={s.htlist} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY; }}>{hand.cards.map(card)}</ul> : null}
+      {look ? <HandPreview card={look.card} box={look.box} /> : null}
+    </div>;
+  }
+  return <div className={s.hstrip} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`}>
     <div className={s.handrow}>
       <div className={s.handmain}>
       <span className={s.hlab}>Revealed in hand</span>
       <ul className={s.hcards} onWheel={event => { event.currentTarget.scrollLeft += event.deltaY; }}>
-        {hand.cards.map(card => <li key={card.id} className={fresh.has(card.id) ? s.hfresh : undefined}>
-          <button type="button" className={s.hcard} onClick={() => { setLook(null); hand.onInspect(card); }} onMouseEnter={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onMouseLeave={() => setLook(null)} onFocus={event => setLook({ card, box: event.currentTarget.getBoundingClientRect() })} onBlur={() => setLook(null)} data-testid="hand-card">
-            <img src={cardArt(card.cardId, "small")} alt="" draggable={false} />
-            <span><b>{card.name}</b><small>{sourceText(card)}</small></span>
-          </button>
-        </li>)}
+        {hand.cards.map(card)}
         {!hand.cards.length ? <li className={s.hnone}>None</li> : null}
       </ul>
       {/* Floats over this part of the row (see .handmain>.hchip), so it does not move the camera and the hand count stays free. */}
-      {hand.overlay ? null : chip}
+      {chip}
       </div>
-      {hand.overlay ? null : <HandCount seat={seat} hand={hand} />}
+      <HandCount seat={seat} hand={hand} />
     </div>
     {look ? <HandPreview card={look.card} box={look.box} /> : null}
   </div>;
