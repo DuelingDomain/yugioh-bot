@@ -22,6 +22,8 @@
   background: rgb(20 13 38 / 0.97); box-shadow: 0 0 0 4px rgb(232 185 79 / 0.12), 0 16px 48px rgb(0 0 0 / 0.65); color: var(--ink, #efe7d5); font-size: 15px;
 }
 .declare p { margin: 0; }
+/* An LP 0 loss needs an answer: it stays above the card prompts (220) and below the full-screen dialogs (250+) the player opened. */
+.declare[data-lp="true"] { z-index: 230; }
 .declareBtns { display: flex; gap: 8px; }
 .agree, .disagree {
   min-height: 40px; padding: 0 18px; border-radius: 8px; border: 1px solid transparent; font: 700 15px/1 inherit; cursor: pointer;

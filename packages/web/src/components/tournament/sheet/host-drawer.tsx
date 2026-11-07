@@ -7,6 +7,7 @@ import { HostInviteControls } from "@/components/draft/visibility/host-invite-co
 import { tournamentInviteApi } from "@/lib/invite-link";
 import { DURATION, usePresence } from "@/lib/motion";
 import { MatchRow } from "../matches/match-row";
+import { RemoteDisputes } from "../remote/remote-disputes";
 import type { PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
 import { isByeMatch } from "../floor/floor-model";
@@ -67,17 +68,25 @@ export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChange
   }, [open]);
 
   const matches = tournament.matches.filter((match) => !isByeMatch(match)).sort((a, b) => a.roundNumber - b.roundNumber || a.id - b.id);
+  // The duel type comes from the tournament payload (B1 adds it). Online tournaments have no Remote section.
+  const remote = (tournament as TournamentDetail & { duelType?: string }).duelType === "remote";
   const props = { tournament, tournamentSlug, currentUserPlayerId: tournament.currentUserPlayerId, ratings, isHost: true, onChanged };
   if (!mounted) return null;
   return (
     <SheetPortal>
       <div className={styles.scrim} data-mo="scrim" data-state={state} onClick={onClose} aria-hidden="true" />
-      <aside ref={attach} id="host-tools" className={styles.drawer} data-mo="slide" data-state={state} inert={!open} role="dialog" aria-modal="true" aria-label="Host tools">
+      <aside ref={attach} id="host-tools" className={styles.drawer} data-wide={remote || undefined} data-mo="slide" data-state={state} inert={!open} role="dialog" aria-modal="true" aria-label="Host tools">
         <div className={styles.dHead}>
           <h2 className={styles.dTitle}>Host tools</h2>
           <button ref={close} type="button" className={styles.close} aria-label="Close host tools" onClick={onClose}><X size={18} aria-hidden="true" /></button>
         </div>
         <div className={styles.dBody}>
+          {remote && (
+            <section className={styles.dSec} aria-label="Remote disputes">
+              <h3 className={styles.dSecH}>Remote disputes</h3>
+              <RemoteDisputes tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+            </section>
+          )}
           <section className={styles.dSec} aria-label="Matches">
             <h3 className={styles.dSecH}>Matches</h3>
             <div className={styles.matchList}>

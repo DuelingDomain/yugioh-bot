@@ -10,6 +10,8 @@ const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,re
 export interface UseFieldWatcherOptions {
   owner:boolean; active:boolean; seatKey:string; duelKey?:string; sourceKey?:unknown; deviceKey?:string; deviceLabel?:string; captureSize?:CaptureSize;
   create():Promise<FieldWatcherOptions|null>; onEvent(event:FieldEvent):void;
+  /** Tournament table: Auto-detect is the default and the device preference is neither read nor written. `saved` gives this table's own choice, if any. */
+  tournament?:{saved():'auto'|'tap'|null};
 }
 export const fieldCalibrationKey=(seatKey:string,deviceKey?:string)=>`dd-field-watcher:v1:${seatKey}${deviceKey?`:device:${encodeURIComponent(deviceKey)}`:''}`;
 interface SavedRecord {enabled?:boolean;calibration?:FieldCalibration;cameraId?:string;cameraLabel?:string;placed?:boolean;captureSize?:CaptureSize}
@@ -108,13 +110,14 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   useEffect(()=>{
     const value=readSaved(options.seatKey,options.deviceKey,options.deviceLabel),record=loadFieldCalibrationRecord(options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize);
     // The player's answer holds on every seat and camera. With no answer, the saved record decides; the default is Auto-detect.
-    const choice=readTapChoice();setOn(choice?choice==='keep':value.enabled!==false);
+    const tournament=latest.current.tournament,choice=readTapChoice();
+    setOn(tournament?tournament.saved()!=='tap':choice?choice==='keep':value.enabled!==false);
     setGrid(record.calibration);setPlaced(record.placed);setAspectChanged(!!record.aspectChanged);
     setLoaded(storageKey);
   },[storageKey,options.seatKey,options.deviceKey,options.deviceLabel,options.captureSize?.width,options.captureSize?.height]);
-  const save=useCallback((on:boolean,grid?:FieldCalibration,isPlacedNow=placedRef.current,confirmSize=false)=>{try{const before=readSaved(options.seatKey,options.deviceKey,options.deviceLabel);const value=JSON.stringify({...before,enabled:on,calibration:grid,cameraId:options.deviceKey,cameraLabel:options.deviceLabel,placed:isPlacedNow,captureSize:confirmSize?options.captureSize??before.captureSize:before.captureSize});localStorage.setItem(storageKey,value);
+  const save=useCallback((on:boolean,grid?:FieldCalibration,isPlacedNow=placedRef.current,confirmSize=false)=>{try{const before=readSaved(options.seatKey,options.deviceKey,options.deviceLabel);const value=JSON.stringify({...before,enabled:options.tournament?before.enabled:on,calibration:grid,cameraId:options.deviceKey,cameraLabel:options.deviceLabel,placed:isPlacedNow,captureSize:confirmSize?options.captureSize??before.captureSize:before.captureSize});localStorage.setItem(storageKey,value);
     // Same last-camera pointer the lobby writes, so a flip made at the table shows in the lobby and the reverse.
-    if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.deviceLabel,options.seatKey,options.captureSize?.width,options.captureSize?.height]);
+    if(options.deviceKey&&!options.deviceKey.startsWith('phone:'))localStorage.setItem(fieldCalibrationKey(options.seatKey),value);}catch{/* Memory-only fallback. */}},[storageKey,options.deviceKey,options.deviceLabel,options.seatKey,options.captureSize?.width,options.captureSize?.height,!!options.tournament]);
   const setEnabled=useCallback((on:boolean)=>{setOn(on);save(on,calibration);},[save,calibration]);
   // `placed` is true from the calibration dialog; a side flip keeps it, and a grid moved off the first guess counts too.
   const setCalibration=useCallback((grid?:FieldCalibration,markPlaced?:boolean)=>{

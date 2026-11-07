@@ -34,6 +34,7 @@
   /* Enter and exit come from the shared data-mo rules in globals.css: from the right, from the bottom on a phone. */
   --mo-x: 100%;
 }
+.drawer[data-wide] { width: min(560px, 100vw); }
 .dHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--rule-lo); }
 .dTitle { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
 .close { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--rule); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; }

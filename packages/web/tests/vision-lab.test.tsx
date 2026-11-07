@@ -587,6 +587,18 @@ it('the watcher hook only starts for an active feed owner and persists its defau
   hook.unmount();const again=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'test-seat',create,onEvent}));await act(async()=>undefined);
   expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
 });
+it('a tournament table starts in Auto-detect over a saved Tap choice, keeps its own choice and leaves the device record alone',async()=>{
+  localStorage.clear();sessionStorage.clear();const saved={enabled:false,calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}}};
+  localStorage.setItem('dd-field-watcher:v1:t-seat',JSON.stringify(saved));localStorage.setItem('dd-remote-tap-offer:v1','switch');
+  const {stateMode,ownDetectionMode,saveTournamentMode,readTournamentMode}=await import('../src/lib/remote/tournament-detection');
+  const create=vi.fn(async()=>null),options={owner:false,active:true,seatKey:'t-seat',create,onEvent:vi.fn(),tournament:{saved:()=>readTournamentMode('t1',0)}};
+  const hook=renderHook(()=>useFieldWatcher(options));await act(async()=>undefined);expect(hook.result.current.enabled).toBe(true);
+  act(()=>hook.result.current.setEnabled(false));saveTournamentMode('t1',0,'tap');
+  expect(JSON.parse(localStorage.getItem('dd-field-watcher:v1:t-seat')!)).toMatchObject({enabled:false});expect(localStorage.getItem('dd-remote-tap-offer:v1')).toBe('switch');
+  hook.unmount();const again=renderHook(()=>useFieldWatcher(options));await act(async()=>undefined);expect(again.result.current.enabled).toBe(false);again.unmount();
+  expect([stateMode({detection:{0:{mode:'tap',at:1}}},0),stateMode({detection:{}},1),stateMode({},0)]).toEqual(['tap',undefined,undefined]);
+  expect([ownDetectionMode({ownsSource:true,cameraOn:true,enabled:true}),ownDetectionMode({ownsSource:true,cameraOn:true,enabled:false}),ownDetectionMode({ownsSource:true,cameraOn:false,enabled:true}),ownDetectionMode({ownsSource:false,cameraOn:true,enabled:true})]).toEqual(['auto','tap','manual','manual']);localStorage.clear();sessionStorage.clear();
+});
 it('the watcher hook discards resource setup that resolves after unmount',async()=>{
   localStorage.clear();localStorage.setItem('dd-field-watcher:v1:late-seat',JSON.stringify({calibration:{version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}}}));const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
   const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
