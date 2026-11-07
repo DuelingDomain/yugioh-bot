@@ -1,3 +1,4 @@
+import { recordRemoteOrganizerDecision } from "./tournament-remote-results.js";
 import { assertRemoteTournamentFormat, TournamentRemoteError } from "./tournament-remote-access.js";
 import type Database from "better-sqlite3";
 import type { DuelBestOf, DuelDeck, DuelMasterRule, DuelMode, DuelSettings } from "../duels/index.js";
@@ -397,6 +398,7 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
       if (!slot) throw new TournamentDuelError("Tournament match not found", 404);
       const tournament = loadTournament(slot.tournament_id);
       if (tournament.created_by_user_id !== input.organizerUserId) {
+        if (tournament.duel_type === "remote") throw new TournamentRemoteError("Only the organizer can set a result",403,"ORGANIZER_REQUIRED");
         throw new TournamentDuelError("Only the organizer can set a result", 403);
       }
       if (tournament.status !== "active") {
@@ -433,7 +435,7 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
         reopenSlot.run(slot.id);
       }
 
-      createMatchService(db).recordConfirmedResult({
+      const recorded = createMatchService(db).recordConfirmedResult({
         guildId: tournament.guild_id,
         playerOneId: slot.player_one_id,
         playerTwoId: slot.player_two_id,
@@ -441,7 +443,8 @@ export function createTournamentDuelService(db: Database.Database, engine?: Deck
         source: "tournament",
         tournamentMatchId: slot.id,
         recordedById: organizer?.id ?? null,
-      });
+      }, {strictScoring:tournament.duel_type === "remote"});
+      recordRemoteOrganizerDecision(db,{...input,recordedMatchId:recorded.id});
 
       return {
         tournamentId: tournament.id,

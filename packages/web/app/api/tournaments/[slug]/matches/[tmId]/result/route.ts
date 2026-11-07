@@ -1,10 +1,12 @@
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
-import { createMatchService, createTournamentDuelService, TournamentDuelError, findTournamentReadAccess } from "@yugidraft/shared/services";
+import { createMatchService, createTournamentDuelService, TournamentDuelError, TournamentRemoteError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { announcer, broadcaster } from "@/lib/notify";
+import { notifyTournamentRemoteResult } from "@/lib/tournament-remote-results";
+import { remoteError, remoteJson } from "@/lib/remote-duels";
 import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
@@ -35,8 +37,8 @@ export async function POST(
     }
 
     const tournament = db
-      .prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, env.discordGuildId) as { id: number; guild_id: string } | undefined;
+      .prepare("select id, guild_id, duel_type from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number; guild_id: string; duel_type: string } | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
       ? (db.prepare("select tournament_id from tournament_matches where id = ?").get(tournamentMatchId) as
@@ -55,6 +57,10 @@ export async function POST(
 
     // Games of a cancelled series change for the players watching them.
     for (const gameSlug of result.changedDuelSlugs) await notifyDuelChange(gameSlug, tournament.guild_id);
+    if (tournament.duel_type === "remote") {
+      await notifyTournamentRemoteResult(slug,tournamentMatchId);
+      return remoteJson({success:true});
+    }
     void broadcaster.tournament({ kind: "match-updated", slug });
 
     // The bot sweep covers a missed announce.
@@ -70,6 +76,7 @@ export async function POST(
     if (error instanceof TournamentDuelError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
+    if (error instanceof TournamentRemoteError) return remoteError(error);
     report(error, { tags: { operation: "[api/tournaments/[slug]/matches/[tmId]/result] error" } });
     return NextResponse.json({ error: "Failed to set result" }, { status: 500 });
   }

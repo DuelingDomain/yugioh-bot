@@ -108,3 +108,5 @@ export { pruneRemoteDuels } from "./remote-retention.js";
 
 export * from "./tournament-remote-access.js";
 export * from "./tournament-remote.js";
+
+export { createTournamentRemoteResultService, assertNoOpenRemoteMatch, REMOTE_RESULT_CONFIRM_MS, type TournamentRemoteResult } from "./tournament-remote-results.js";

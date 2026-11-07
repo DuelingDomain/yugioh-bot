@@ -1,5 +1,6 @@
 import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
+import { createTournamentRemoteResultService } from "@yugidraft/shared/services";
 import type { MatchService, TournamentService } from "@yugidraft/shared/services";
 import type { WorkerEffects } from "./effects.js";
 
@@ -26,6 +27,13 @@ export function createTournamentTimer({ db, matches, tournaments, effects }: {
 
   return {
     async tick(now = new Date()) {
+      // Remote proposals resolve independently of room retention, before tournament closure.
+      for (const changed of createTournamentRemoteResultService(db).finalizeDue(now.getTime())) {
+        await publish(changed.tournamentId);
+        if (changed.tournamentCompleted && changed.slug) {
+          await safely(() => effects.tournament({kind:"completed",slug:changed.slug!}));
+        }
+      }
       // Reports resolve before the deadline sweep so their results still count.
       for (const overdue of matches.findOverduePendingConfirmations(now.toISOString())) {
         try {

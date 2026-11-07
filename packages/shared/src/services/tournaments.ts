@@ -1,3 +1,4 @@
+import { assertNoOpenRemoteMatch, voidRemoteResult } from "./tournament-remote-results.js";
 import { assertRemoteTournamentEntrants, assertRemoteTournamentFormat, assertRemoteTournamentUser, TournamentRemoteError } from "./tournament-remote-access.js";
 import { recordProductEvent } from "../analytics/index.js";
 import { ExpectedError } from "../observability/index.js";
@@ -178,6 +179,7 @@ export function createTournamentService(db: Database.Database) {
 
   /** A manual report would race the series result, so the slot refuses it while a series is open. */
   const assertNoOpenSeries = (tournamentMatchId: number) => {
+    assertNoOpenRemoteMatch(db,tournamentMatchId);
     if (selectOpenSeriesForSlot.get(tournamentMatchId)) {
       throw new TournamentDuelError(
         "This match is being played as an online duel series. The result records itself.",
@@ -880,6 +882,7 @@ export function createTournamentService(db: Database.Database) {
         if (result.status === "approved" || scored) {
           createScoringService(db).rebuildStandings(tournament.guildId, { reopenedTournamentId: tm.tournament_id });
         }
+        voidRemoteResult(db,tm.id,requesterUserId,null);
       }).immediate();
     },
 

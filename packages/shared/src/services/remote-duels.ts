@@ -1,3 +1,4 @@
+import { createTournamentRemoteResultService } from "./tournament-remote-results.js";
 import { assertRemoteTournamentEntrants, assertRemoteTournamentUser } from "./tournament-remote-access.js";
 import { readRemoteState, writeRemoteState, readRemoteEffects, writeRemoteEffects } from "../remote/storage.js";
 import { freezeRemoteValue } from "../remote/position.js";
@@ -84,6 +85,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   const format = (row: TableRow): RemoteFormat => row.format_json ? JSON.parse(row.format_json) : normalizeRemoteFormat();
   function applyTableRule(state:RemoteState,row:Row):RemoteState {
+    if (row.tournament_match_id != null) state.tournament = true;
     state.showCardsSetFromDeck=!!row.show_cards_set_from_deck;
     const overlay = (position: RemotePosition) => position.showCardsSetFromDeck === state.showCardsSetFromDeck
       ? position : freezeRemoteValue({...position,showCardsSetFromDeck:state.showCardsSetFromDeck});
@@ -98,7 +100,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     return state.undo && (!state.undoHistory || state.undoHistory.some(e=>!e.undone && !e.before)) ? replayState(row) : applyTableRule(state,row);
   }
   function replayState(row: Row): RemoteState {
-    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count, bestOf: 1 });
+    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count, bestOf: 1, tournament: row.tournament_match_id != null });
     for (const e of db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[]) {
       const action: RemoteEvent["action"] = JSON.parse(e.action_json);
       if (remoteActionSchema.safeParse(action).success) {
@@ -184,7 +186,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         .all(before,limit) as {id: number; slug: string}[]));
     },
     pruneSessions(now = Date.now()): void { transaction(() => pruneRemoteSessions(db, now)); },
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
+    create(input: { tournamentMatchId?: number; guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(input.visibility === undefined || input.visibility === "public" || input.visibility === "private", "Invalid visibility");
@@ -202,12 +204,12 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const slug = generateWebSlug();
         assertFormatOpen(input.format);
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules,input.seatCount);
-        const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
+        const initial = applyRemoteFormat(game.initialState({ tournament: input.tournamentMatchId != null, seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
         initial.revealedHand = input.revealedHand ?? "until-played";
-        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility) values(?,?,?,?,'lobby',?,?,?,?,?,?,?,?)")
+        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility,tournament_match_id) values(?,?,?,?,'lobby',?,?,?,?,?,?,?,?,?)")
           // The default is private (REMOTE_DEFAULT_VISIBILITY). A solo test table is always private, as a test duel is.
-          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY);
+          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY, input.tournamentMatchId ?? null);
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
         append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
@@ -475,6 +477,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
         input.onTiming?.('reducer',performance.now()-reduceAt);
         if(state===before)return room(row,userId,undefined,before);
+        if (row.tournament_match_id && before.match.phase === "done" && before.match.winnerSeat != null && state.match.phase !== "done") {
+          createTournamentRemoteResultService(db).retractProposal(row.id,now);
+        }
         const messages = state.deckChecks.flags.filter(f => !f.private&&!before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
         if(command.type==="effect.choose" && effects.publicEffectChoice) {
@@ -503,6 +508,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
           .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
+        if (matchDone && row.tournament_match_id) createTournamentRemoteResultService(db).propose(row.id,state,now);
         return room(load(slug, guildId), userId, undefined, state);
       });
     },

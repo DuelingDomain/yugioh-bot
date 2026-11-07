@@ -42,17 +42,16 @@ export function createTournamentRemoteService(db: Database.Database) {
           const table = remote.tournamentTable(existing.slug, input.guildId, input.actorUserId);
           return { table, created: false };
         }
-        // B3 will capture the proposal at table end. Until then a winner still blocks replay.
+        // A finished room cannot be bypassed even if the durable proposal is missing.
         const last = db.prepare("select state_json from remote_tables where tournament_match_id=? order by id desc limit 1").get(slot.id) as { state_json: string } | undefined;
         if (last && readRemoteState(db, last.state_json).match?.winnerSeat != null && result?.status !== "void") {
           throw new TournamentRemoteError("This pairing has a finished Remote result", 409, "TOURNAMENT_MATCH_UNAVAILABLE");
         }
-        const room = remote.create({ guildId: input.guildId, userId: input.actorUserId,
+        const room = remote.create({ tournamentMatchId:slot.id, guildId: input.guildId, userId: input.actorUserId,
           displayName: input.actorUserId === slot.user_one_id ? slot.name_one : slot.name_two,
           gameId: "ygo", seatCount: 2, bestOf: rules.bestOf, format: "normal",
           rules: { ...rules.settings, visibility: "private" }, visibility: "private", maxLiveRooms: input.maxLiveRooms });
         const tableId = (db.prepare("select id from remote_tables where slug=?").get(room.slug) as { id: number }).id;
-        db.prepare("update remote_tables set tournament_match_id=? where id=?").run(slot.id, tableId);
         // A no-result room/replay resets the single per-slot record; B3 blocks unresolved proposals.
         db.prepare("delete from tournament_remote_matches where tournament_match_id=?").run(slot.id);
         const now = Date.now();

@@ -1,6 +1,6 @@
 # Remote tournament API
 
-Contract for B1 and UI fixtures; B3 routes below are planned, not implemented by B1.
+Contract for B1 and B3, including UI fixtures. Evidence capture/retention remains B4 work.
 All routes require the normal authenticated web session and configured guild. IDs are
 numbers (application user IDs and gameplay player IDs are different). Timestamps in
 Remote result/evidence JSON are Unix milliseconds; existing tournament dates retain
@@ -89,9 +89,9 @@ New Remote errors (the same codes apply in shared services):
 | 409 | TABLE_ENDED / TABLE_IDLE | Existing room ended/expired (normal Remote API) |
 | 409 | REMOTE_TABLES_FULL | Existing rollout room cap reached |
 
-## Planned B3: proposal, confirmation, dispute and organizer decision
+## B3: proposal, confirmation, dispute and organizer decision
 
-These routes are fixture contracts for the next worker. They do not exist in B1.
+These routes are implemented by B3.
 Prefix: `/api/tournaments/{slug}/matches/{tmId}`.
 
 `GET {prefix}/remote-result` (paired player or organizer) returns 200:
@@ -115,22 +115,27 @@ envelope. Only paired players may report; repeat same confirmation is idempotent
 Both confirmations finalize immediately. One confirmation permits finalization
 at the two-hour deadline; a final concede/declared admission permits that same
 timer without a further losing-player response. LP alone with no confirmation
-does not auto-finalize. Any dispute stops the timer until an organizer rules.
+does not auto-finalize. An accepted terminal Undo retracts a proposed result and
+clears its reports atomically; the next finish proposes afresh. Final or disputed
+results cannot be undone through the room (409 `REMOTE_RESULT_FINAL` or
+`REMOTE_RESULT_DISPUTED`); voided/replaced outcomes reject terminal Undo with
+`REMOTE_RESULT_NOT_PROPOSED`. Either player may add their own dispute note;
+confirmations are blocked once either disputes. Any dispute stops the timer until an organizer rules.
 
 Existing `POST {prefix}/result` with `{"winnerPlayerId":21}` is the organizer
-ruling path, returning `{"success":true}` (200). B3 will extend it to resolve a
-Remote dispute and record organizer ID/time. Planned
+ruling path, returning `{"success":true}` (200). B3 extends it to resolve a
+Remote dispute and record organizer ID/time.
 `POST {prefix}/remote-result/void` with `{"note":"Replay required"}` is organizer
 only, returns 200 with the void `remoteResult`, and reopens an unresolved slot.
 Completed single-elimination matches cannot be reopened; existing round-robin
 reopen behavior stays authoritative.
 
-Planned errors: 403 `REMOTE_RESULT_PLAYER_REQUIRED` or `ORGANIZER_REQUIRED`;
+Errors: 403 `REMOTE_RESULT_PLAYER_REQUIRED` or `ORGANIZER_REQUIRED`;
 404 `REMOTE_RESULT_NOT_FOUND`; 409 `REMOTE_RESULT_NOT_PROPOSED`,
 `REMOTE_RESULT_DISPUTED`, `REMOTE_RESULT_FINAL`, `REMOTE_REPLAY_UNAVAILABLE`;
 400 `INVALID_REMOTE_REPORT` for invalid notes/body. Existing manual report will
 reject live Remote tables with 409 `REMOTE_MATCH_OPEN`; it remains a fallback
-when no table or unresolved proposal/dispute is open. B3 owns these block rules.
+when no live table or unresolved proposal/dispute is open. Ended idle/creator-left rooms without a winner do not block manual reporting. The report route also requires an active tournament.
 
 B4 supplies organizer evidence reads/capture and deletion; no evidence endpoint
 is implemented or promised by B1. Evidence survives normal table deletion through
@@ -156,3 +161,23 @@ in plan section 5.2. Result/evidence `table_id` becomes null on normal room purg
 copied facts and `table_slug` survive. B4 must implement account/tournament
 cancellation cleanup and the accepted 1-hour/48-hour/14-day retention rules before
 writing evidence. B1 does not capture evidence or finalize any results.
+
+## B4 proposal-time hook
+
+`captureTournamentEvidence(db, tableId): void` is exported from
+`packages/shared/src/services/tournament-remote-evidence.ts`. B3 calls it once
+when the playing row becomes proposed, inside the same transaction, after the
+terminal action/event, final room state and proposal have been written. It is a
+no-op handoff until B4 implements it; do not add a second proposal-time callback.
+B4 can also call this function for idle/creator-left and its purge safety net as
+specified in the plan. It must tolerate retries and replace evidence on a replay
+of the same slot. B3 does not capture or retain evidence.
+
+The existing 60-second tournament worker tick (including startup) finalizes due
+eligible proposals before tournament deadline closure. It uses the durable row,
+so room deletion does not affect confirmation or timeout. Scoring failures roll
+back that finalization for retry and do not stop other due proposals. Confirmation,
+dispute, void, proposal/retraction and organizer result changes publish the usual tournament
+`match-updated` invalidation; completion also publishes `completed`.
+`strictScoring` remains the existing second options argument to
+`matches.recordConfirmedResult(input, {strictScoring:true})`.
