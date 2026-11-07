@@ -4,21 +4,27 @@ import type { RemotePosition, RemoteState } from './types.js';
 import type { RemoteReductionContext } from './deck-checks.js';
 import { freezeRemoteValue } from './position.js';
 
-// Module scope is intentional: the web constructs a new service for each request.
-// Both limits apply across all services/databases in this process. Budget charged at
-// 4x UTF-8 JSON bytes to allow for decoded objects/strings (not an exact heap size).
-const MAX_BYTES = 8 * 1024 * 1024, MAX_ENTRIES = 512;
-const cache = new Map<string, {value: unknown; bytes: number}>();
-const hashes = new WeakMap<object, {hash:string; json:string}>();
-let bytes = 0, hits = 0;
-export const remoteValueCacheStats = () => ({entries:cache.size, bytes, hits, maxBytes:MAX_BYTES, maxEntries:MAX_ENTRIES});
+// Routes and instrumentation may load separate module graphs in one process.
+// Charge 4x UTF-8 JSON bytes for decoded objects/strings (not exact heap size).
+const MAX_BYTES = 32 * 1024 * 1024, MAX_ENTRIES = 2048;
+type ValueCache = {
+  values: Map<string, {value: unknown; bytes: number}>;
+  hashes: WeakMap<object, {hash:string; json:string}>;
+  bytes: number; hits: number; misses: number;
+};
+const cacheKey = Symbol.for('yugidraft.remote.value-cache.v1');
+const runtime = globalThis as typeof globalThis & { [cacheKey]?: ValueCache };
+const shared = runtime[cacheKey] ??= {values:new Map(), hashes:new WeakMap(), bytes:0, hits:0, misses:0};
+const cache = shared.values, hashes = shared.hashes;
+export const remoteValueCacheStats = () => ({entries:cache.size, bytes:shared.bytes, hits:shared.hits,
+  misses:shared.misses, maxBytes:MAX_BYTES, maxEntries:MAX_ENTRIES});
 function cached(hash: string, value: unknown, json: string) {
   const cost = Buffer.byteLength(json) * 4;
   if (cost > MAX_BYTES) return;
-  if (cache.has(hash)) { bytes -= cache.get(hash)!.bytes; cache.delete(hash); }
-  cache.set(hash,{value,bytes:cost}); bytes += cost;
-  while (cache.size > MAX_ENTRIES || bytes > MAX_BYTES) {
-    const oldest=cache.keys().next().value!; bytes-=cache.get(oldest)!.bytes; cache.delete(oldest);
+  if (cache.has(hash)) { shared.bytes -= cache.get(hash)!.bytes; cache.delete(hash); }
+  cache.set(hash,{value,bytes:cost}); shared.bytes += cost;
+  while (cache.size > MAX_ENTRIES || shared.bytes > MAX_BYTES) {
+    const oldest=cache.keys().next().value!; shared.bytes-=cache.get(oldest)!.bytes; cache.delete(oldest);
   }
 }
 function intern(db: Database.Database, value: object): string {
@@ -37,8 +43,9 @@ function resolve<T>(db: Database.Database, hash: string): T {
   const saved=cache.get(hash);
   if (saved) {
     if (!db.prepare('select 1 from remote_values where hash=?').get(hash)) throw new Error(`Missing Remote Duel value ${hash}`);
-    hits++; cache.delete(hash); cache.set(hash,saved); return saved.value as T;
+    shared.hits++; cache.delete(hash); cache.set(hash,saved); return saved.value as T;
   }
+  shared.misses++;
   const row=db.prepare('select json from remote_values where hash=?').get(hash) as {json:string} | undefined;
   if (!row) throw new Error(`Missing Remote Duel value ${hash}`);
   if (createHash('sha256').update(row.json).digest('hex') !== hash) throw new Error(`Corrupt Remote Duel value ${hash}`);
@@ -52,7 +59,9 @@ export function readRemoteState(db: Database.Database, json: string): RemoteStat
   if (stored.storageVersion !== undefined && stored.storageVersion !== 1) throw new Error('Unsupported Remote Duel storage version');
   if (stored.storageVersion === 1) {
     delete stored.storageVersion;
-    const position=(ref:Reference) => resolve<RemotePosition>(db,ref.valueHash);
+    // Rollback tools may preserve the version while expanding the positions.
+    const position=(ref:Reference | RemotePosition) => 'valueHash' in ref
+      ? resolve<RemotePosition>(db,ref.valueHash) : freezeRemoteValue(ref);
     if (stored.undo) stored.undo.before=position(stored.undo.before);
     for (const entry of stored.undoHistory ?? []) {
       if (entry.before) entry.before=position(entry.before);
