@@ -6,6 +6,7 @@ import { interpret, type GrammarContext, type VoiceIntent } from "@/components/r
 import { cardInfo, loadCards } from "@/components/remote/ui/catalog";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
 import { buildPhrases, combineHits, isChatter, placeholderLine, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
+import { HEARD_PHASES, PHASE_LABEL, VOICE_PHASES, heardPhaseOf, judgePhaseWord, type HeardPhase, type VoicePhase } from "@/components/remote/ui/voice/phase-plausibility";
 import { KwsClient, type KwsReady, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 
@@ -31,8 +32,8 @@ function describe(intent: VoiceIntent): string {
 }
 
 /** A two-player fixture in the second turn: the first deck names sit on my field, so "attack with <name>" has something to find. */
-function fixture(names: string[]): RemoteState {
-  let state = { ...ygoModule.initialState({ seatCount: 2 }), turn: 2, phase: "main1" } as RemoteState;
+function fixture(names: string[], phase: VoicePhase, turn: number): RemoteState {
+  let state = { ...ygoModule.initialState({ seatCount: 2 }), turn, phase } as RemoteState;
   try {
     names.slice(0, 4).forEach((name, index) => {
       state = ygoModule.reduce(state, remoteActionSchema.parse({ type: "twin.place", actorSeat: index % 2, seat: index % 2, zone: "monster", at: 1000 + index,
@@ -41,6 +42,8 @@ function fixture(names: string[]): RemoteState {
   } catch { /* an odd name only loses the fixture field */ }
   return state;
 }
+
+const HEARD_LABEL: Record<HeardPhase, string> = { draw: "draw phase", standby: "standby", main: "main", main1: "main one", battle: "battle", main2: "main two", end: "end", endTurn: "end turn" };
 
 export function VoiceCheck() {
   const [text, setText] = useState("Kashtira Fenrir\nKashtira Unicorn\nApophis the Dark\nBlue-Eyes White Dragon\nGhost Belle & Haunted Mansion\nNumber 39: Utopia");
@@ -55,6 +58,9 @@ export function VoiceCheck() {
   const [level, setLevel] = useState(0);
   const [rows, setRows] = useState<Row[]>([]);
   const [busyTotal, setBusyTotal] = useState({ busy: 0, audio: 0 });
+  const [simPhase, setSimPhase] = useState<VoicePhase>("main1");
+  const [simTurn, setSimTurn] = useState(2);
+  const [simMine, setSimMine] = useState(true);
   const [chatLeft, setChatLeft] = useState<number | null>(null);
   const [chat, setChat] = useState({ utterances: 0, hits: 0, acts: 0 });
   const client = useRef<KwsClient | null>(null);
@@ -62,8 +68,9 @@ export function VoiceCheck() {
   const names = useMemo(() => [...new Set(text.split("\n").map(line => line.trim()).filter(Boolean))], [text]);
   const set = useMemo(() => buildPhrases(names, sp, { boost, thresholdShift: shift }), [names, boost, shift]);
   const lines = useMemo(() => set.lines.join("/"), [set]);
-  const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names), players: PLAYERS, me: 0, trayOpen, cardNames: names, now: 1100 }), [names, trayOpen]);
-  const live = useRef({ ctx, set, chatLeft }); live.current = { ctx, set, chatLeft };
+  const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names, simPhase, simTurn), players: PLAYERS, me: 0, trayOpen, cardNames: names, now: 1100 }), [names, trayOpen, simPhase, simTurn]);
+  const sim = useMemo(() => ({ phase: simPhase, turn: simTurn, mine: simMine }), [simPhase, simTurn, simMine]);
+  const live = useRef({ ctx, set, chatLeft, sim }); live.current = { ctx, set, chatLeft, sim };
   meaningsRef.current = set.meanings;
 
   useEffect(() => { client.current?.setKeywords(lines); }, [lines]);
@@ -75,15 +82,28 @@ export function VoiceCheck() {
     return () => clearTimeout(timer);
   }, [chatLeft]);
 
+  const applySim = (move: { kind: "phase"; phase: VoicePhase } | { kind: "turn" }) => {
+    if (move.kind === "phase") setSimPhase(move.phase);
+    else { setSimPhase("draw"); setSimTurn(turn => turn + 1); }
+  };
   const onUtterance = useCallback((u: KwsUtterance) => {
-    const { ctx: c, set: s, chatLeft: left } = live.current;
+    const { ctx: c, set: s, chatLeft: left, sim: simNow } = live.current;
     setBusyTotal(total => ({ busy: total.busy + u.busyMs, audio: total.audio + u.audioMs }));
     const hits = u.hits.filter(hit => hit.keyword !== "_");
     const combined: Combined = combineHits(hits, s.meanings);
     let intent: VoiceIntent = { kind: "none" }; let note = "";
     if (combined.canonical) {
       if (isChatter(combined, s.meanings, u.speechMs)) note = `ignored: bare word in a ${(u.speechMs / 1000).toFixed(1)} s utterance`;
-      else intent = interpret(combined.canonical, c);
+      else {
+        // A phase word that makes no sense from the current phase is table talk: do nothing, leave a quiet note.
+        const heardPhase = heardPhaseOf(combined.canonical);
+        const verdict = heardPhase ? judgePhaseWord(simNow.phase, simNow.turn, simNow.mine, heardPhase) : null;
+        if (heardPhase && verdict && !verdict.accept) note = `Heard '${combined.canonical}', ${verdict.reason}, ignored`;
+        else {
+          intent = interpret(combined.canonical, c);
+          if (verdict?.accept) applySim(verdict.move);
+        }
+      }
     }
     if (combined.ambiguous.length) note = [note, `ambiguous: ${combined.ambiguous.map(a => `${a.spoken} = ${a.names.join(" | ")}`).join("; ")}`].filter(Boolean).join("; ");
     const acts = intent.kind !== "none" && intent.kind !== "name";
@@ -146,6 +166,21 @@ export function VoiceCheck() {
           <label>Boost {boost.toFixed(1)} <input type="range" min={0.5} max={4} step={0.1} value={boost} onChange={e => setBoost(Number(e.target.value))} /></label>{" "}
           <label>Threshold shift {shift >= 0 ? "+" : ""}{shift.toFixed(2)} <input type="range" min={-0.2} max={0.4} step={0.05} value={shift} onChange={e => setShift(Number(e.target.value))} /></label>{" "}
           <label><input type="checkbox" checked={trayOpen} onChange={e => setTrayOpen(e.target.checked)} /> card tray open</label>
+        </div>
+        <div data-testid="phase-sim" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
+          <b>Phase simulator</b> (spoken phase words are judged against this; an accepted word moves it)<br />
+          Current phase: <b data-testid="sim-phase">{PHASE_LABEL[simPhase]}</b>{" "}
+          {VOICE_PHASES.map(phase => <button key={phase} onClick={() => setSimPhase(phase)} style={phase === simPhase ? { background: "#6b4a1a", borderColor: "#e0b050" } : undefined}>{PHASE_LABEL[phase]}</button>)}<br />
+          <label>Turn <input type="number" min={1} value={simTurn} onChange={e => setSimTurn(Math.max(1, Number(e.target.value) || 1))} style={{ width: 56 }} /></label>{" "}
+          <label><input type="checkbox" checked={simMine} onChange={e => setSimMine(e.target.checked)} /> I am the turn player</label>
+          <table style={{ borderCollapse: "collapse", marginTop: 6, fontSize: 13 }} data-testid="sim-table">
+            <thead><tr><th style={cell}>Heard</th><th style={cell}>Result</th></tr></thead>
+            <tbody>{HEARD_PHASES.map(heard => {
+              const verdict = judgePhaseWord(simPhase, simTurn, simMine, heard);
+              return <tr key={heard}><td style={cell}>{HEARD_LABEL[heard]}</td>
+                <td style={{ ...cell, color: verdict.accept ? "#8c6" : "#aaa" }}>{verdict.accept ? `accept: ${verdict.move.kind === "turn" ? "end the turn" : `go to ${PHASE_LABEL[verdict.move.phase]}`}` : `ignore: ${verdict.reason}`}</td></tr>;
+            })}</tbody>
+          </table>
         </div>
         <div data-testid="phrase-counts">
           {set.lines.length} phrases: {set.counts.fixed} fixed, {set.counts.fullNames} full names, {set.counts.runs} word runs, {set.counts.words} one-word partials, {set.counts.ambiguous} shared by 2+ cards

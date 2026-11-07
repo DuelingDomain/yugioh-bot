@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parsePhaseCommand, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
 import { buildPhrases, combineHits, FIXED_PHRASES, spokenForm } from "@/components/remote/ui/voice/phrases";
+import { heardPhaseOf, judgePhaseWord } from "@/components/remote/ui/voice/phase-plausibility";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 
 const sp = createSentencePiece(vocab as SentencePieceVocab);
@@ -69,5 +70,21 @@ describe("browser voice commands (KWS)", () => {
     expect(combineHits([fixed("END"), fixed("TURN")], set.meanings).canonical).toBe("end turn");
     expect(combineHits([fixed("BATTLE"), fixed("PHASE")], set.meanings).canonical).toBe("battle phase");
     expect(combineHits([fixed("DRAW")], set.meanings).canonical).toBe("draw");
+  });
+
+  it("accepts a spoken phase only as the next phase or a legal skip, from the turn player", () => {
+    const verdict = (...args: Parameters<typeof judgePhaseWord>) => { const v = judgePhaseWord(...args); return v.accept ? (v.move.kind === "turn" ? "turn" : v.move.phase) : v.reason; };
+    expect(verdict("draw", 2, true, "standby")).toBe("standby");
+    expect(verdict("standby", 2, true, "main")).toBe("main1");
+    expect(verdict("main1", 2, true, "end")).toBe("end");
+    expect(verdict("battle", 2, true, "main")).toBe("main2");
+    expect(verdict("end", 2, true, "endTurn")).toBe("turn");
+    expect(verdict("main1", 2, true, "draw")).toBe("not a next phase");
+    expect(verdict("main1", 2, true, "main1")).toBe("already in Main 1");
+    expect(verdict("draw", 2, true, "battle")).toBe("skips too far");
+    expect(verdict("main1", 1, true, "battle")).toBe("no Battle Phase this turn");
+    expect(verdict("main1", 2, false, "battle")).toBe("not your turn");
+    expect(heardPhaseOf("main phase two")).toBe("main2");
+    expect(heardPhaseOf("draw")).toBeNull();
   });
 });
