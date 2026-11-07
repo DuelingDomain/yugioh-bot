@@ -1,5 +1,5 @@
 /**
- * CPU budget for the field watcher on WASM. A still scene costs almost nothing; a change wakes the detector.
+ * Detector budget for the field watcher on WASM and WebGPU. A still scene costs almost nothing; a change wakes the detector.
  * All numbers come from scripts/vision/benchmark-cpu.ts.
  *
  * Detector passes spend from a bucket of wall milliseconds. The bucket allows a short burst for one placement and
@@ -31,13 +31,13 @@ export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
 };
-export function createFieldPacer(device:FieldPacerDevice,start:number):FieldPacer {
+export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()=>string|undefined=()=> 'wasm'):FieldPacer {
   const weak=device.cores<=2||(device.memoryGb!==undefined&&device.memoryGb<4);
-  const sustain=weak?.25:.35;
+  const sustain=()=>backend()==='webgpu'?.25:weak?.25:.35;
   let tokens=2500,last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
   const capacity=()=>Math.max(2500,passMs*6);
-  const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain/backoff);last=Math.max(last,at);};
+  const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
   return {
     allow(at,moving=false){

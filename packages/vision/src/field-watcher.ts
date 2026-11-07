@@ -191,7 +191,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const piles=new Map<'DECK'|'EXTRA',{gate:ReturnType<typeof createFaceStateHysteresis>;card:DetectedQuad;at:number;firstSeen:number;down:boolean;appearance?:number[];look?:number[];keptAt:number;backs:number}>();
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   // CPU budget (WASM only; see field-pacer.ts): pacing is set on each tick from the frame's own scene evidence.
-  const pacer=createFieldPacer(fieldPacerDevice(),now());let pacing=false,pacedStill=false,lastShadowPassAt=-Infinity,budgetWaitAt=-Infinity,lastSceneChangeAt=-Infinity,forcePass=false;
+  const pacer=createFieldPacer(fieldPacerDevice(),now(),()=>options.recognizer.detectorBackend);let pacing=false,pacedStill=false,lastShadowPassAt=-Infinity,budgetWaitAt=-Infinity,lastSceneChangeAt=-Infinity,forcePass=false;
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined,lastReadHeld=false;
   /** Scan field: full passes still to run before the sweep, the pile outlines they saw, and when the last sweep finished. */
@@ -561,11 +561,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         else {blurSince=undefined;sharpBase=sharpBase<=0?sharpNow:sharpNow>sharpBase?sharpBase*.7+sharpNow*.3:sharpBase*.97+sharpNow*.03;}
       }
       blurHold=sample.at-blurredAt<BLUR_SETTLE_MS;
-      // A full-frame detector pass at least every ~300 ms (slower only on a
-      // CPU detector over budget). Cached outlines, motion crops and quiet
-      // skips can never hide a card that sits outside the tracked set.
+      // Both backends follow scene changes, with periodic full scans for cards
+      // below the motion noise floor and burst room for pending placements.
       const scene=evidence.scene,liveCards=tracks.some(t=>!t.view.removed);
-      pacing=!!scene&&options.recognizer.detectorBackend!=='webgpu';
+      pacing=!!scene;
       const urgentScan=scanRequested||scanFollowUp;
       const sceneMoving=pacing&&scene!.moving>0,sceneDirty=pacing&&scene!.sinceMark>0;
       if(sceneMoving)pacer.changed(sample.at);if(sceneMoving||sceneDirty)lastSceneChangeAt=sample.at;

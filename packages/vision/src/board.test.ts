@@ -1479,7 +1479,7 @@ test('a phantom track with no box on the mat plane expires in two full scans des
  r.watcher.dispose();
 });
 
-test('CPU budget: a still noisy mat rarely runs the detector, a change wakes it, and long motion stays in budget', async()=>{
+for(const backend of ['wasm','webgpu'] as const)test(`${backend} budget: a still noisy mat rarely runs the detector, a change wakes it, and long motion stays in budget`, async()=>{
  let seed=12345;const random=()=>(seed=(Math.imul(seed,1664525)+1013904223)>>>0)/2**32;
  const W=320,H=180,image=(shift=0,patch?:number):{width:number;height:number;data:Uint8ClampedArray}=>{
   const data=new Uint8ClampedArray(W*H*4);
@@ -1490,7 +1490,7 @@ test('CPU budget: a still noisy mat rarely runs the detector, a change wakes it,
  let at=1000,frame=image(),passes=0,busyMs=0;
  const cost=300,watcher=field.createFieldWatcher({now:()=>at,hidden:()=>false,profile:yugioh,clone:async f=>f,
   buffer:{sample:async()=>({frame:frame as ImageData,at})},
-  recognizer:{detectorBackend:'wasm',detectCards:async()=>{passes++;busyMs+=cost;at+=cost;return [];},recognize:async()=>{throw new Error('no reads here');}}});
+  recognizer:{detectorBackend:backend,detectCards:async()=>{passes++;busyMs+=cost;at+=cost;return [];},recognize:async()=>{throw new Error('no reads here');}}});
  const run=async(ms:number,next:(i:number)=>ReturnType<typeof image>)=>{const end=at+ms;let i=0;while(at<end){frame=next(i++);at+=100;await watcher.tick();}};
  await run(1000,()=>image());
  passes=0;busyMs=0;
