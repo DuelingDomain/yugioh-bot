@@ -12,7 +12,14 @@ import { DeadlinePicker } from "./deadline-picker";
 import { buildRulesPayload, defaultDuelRulesValue, duelRulesProblem } from "./duel-rules";
 import { genesysCapShort, genesysModeName } from "../duel/genesys";
 import { formatClosesAt, formatName, sizeTable, type TournamentFormat } from "./create-tournament-model";
+import { remoteErrorText } from "./remote-copy";
+import type { TournamentDuelType } from "./types";
 import styles from "./create-tournament-form.module.css";
+
+const DUEL_TYPE_CHOICES: ReadonlyArray<{ value: TournamentDuelType; title: string; body: string }> = [
+  { value: "online", title: "Online", body: "Players duel on the site. Each registers a deck." },
+  { value: "remote", title: "Remote", body: "Players duel with their own cards on camera. No decks to register." },
+];
 
 const FORMAT_CHOICES: ReadonlyArray<{ value: TournamentFormat; title: string; body: string }> = [
   {
@@ -31,7 +38,7 @@ const FORMAT_CHOICES: ReadonlyArray<{ value: TournamentFormat; title: string; bo
  * The new tournament form. Render it inside a `SheetRoot`; the page supplies the bar and the
  * steps, this supplies the ruled sections and the summary.
  */
-export function CreateTournamentForm() {
+export function CreateTournamentForm({ remoteDuels = false }: { /** Remote Duels are on for this creator. Without it the form is the online one. */ remoteDuels?: boolean }) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [format, setFormat] = React.useState<TournamentFormat>("round_robin");
@@ -39,11 +46,14 @@ export function CreateTournamentForm() {
   const [visibility, setVisibility] = React.useState<Visibility>("private");
   const [deadline, setDeadline] = React.useState<Date | null>(null);
   const [confirmHours, setConfirmHours] = React.useState("");
+  const [duelType, setDuelType] = React.useState<TournamentDuelType>("online");
   const [rules, setRules] = React.useState(defaultDuelRulesValue);
   const [submitting, setSubmitting] = React.useState(false);
   const [nameError, setNameError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const nameRef = React.useRef<HTMLInputElement>(null);
+
+  const remote = remoteDuels && duelType === "remote";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +65,7 @@ export function CreateTournamentForm() {
       return;
     }
     setNameError(null);
-    if (duelRulesProblem(rules)) return;
+    if (!remote && duelRulesProblem(rules)) return;
 
     setSubmitting(true);
     try {
@@ -68,13 +78,15 @@ export function CreateTournamentForm() {
           visibility,
           deadlineAt: deadline ? deadline.toISOString() : null,
           reportConfirmWindowHours: confirmHours.trim() ? Number(confirmHours) : null,
-          ...buildRulesPayload(rules),
+          ...(remote
+            ? { duelType: "remote", bestOf: rules.bestOf, duelRules: { mode: "normal", masterRule: 5 } }
+            : buildRulesPayload(rules)),
         }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Failed to create tournament");
+        throw new Error(remoteErrorText(data.code, data.error ?? "Failed to create tournament"));
       }
 
       const tournament = await res.json();
@@ -94,6 +106,7 @@ export function CreateTournamentForm() {
   const banlistLabel = rules.genesys ? "No banlist" : DUEL_BANLIST_OPTIONS.find((o) => o.id === rules.banlist)?.label ?? rules.banlist;
   const modeLabel = genesysModeName(rules.mode, rules.genesys) ?? (rules.mode === "domain" ? "Domain" : "Normal");
   const turnLabel = rules.turnSeconds === 0 ? "Unlimited" : rules.turnSeconds % 60 === 0 ? `${rules.turnSeconds / 60} min` : `${rules.turnSeconds} sec`;
+  const modeSummary = remote ? "Advanced" : modeLabel;
   const hoursLabel = confirmHours.trim() ? `${confirmHours.trim()} hours` : "24 hours";
 
   return (
@@ -186,6 +199,26 @@ export function CreateTournamentForm() {
                   </p>
                 )}
               </fieldset>
+              {remoteDuels && (
+                <fieldset className={`wide ${styles.fieldset}`}>
+                  <legend className="label">Duel type</legend>
+                  <div className="opts">
+                    {DUEL_TYPE_CHOICES.map((choice) => (
+                      <label className={`opt ${styles.opt}`} key={choice.value}>
+                        <input
+                          type="radio"
+                          name="tournament-duel-type"
+                          value={choice.value}
+                          checked={duelType === choice.value}
+                          onChange={() => setDuelType(choice.value)}
+                        />
+                        <b>{choice.title}</b>
+                        <span>{choice.body}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
               <VisibilityChoice className="wide" value={visibility} onChange={setVisibility} />
             </div>
           </section>
@@ -193,9 +226,9 @@ export function CreateTournamentForm() {
           <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-m">
             <div className="mk-side">
               <h2 id="mk-m">Match</h2>
-              <p>Every online duel in this tournament uses these. They lock when the first duel opens.</p>
+              <p>{remote ? "Every Remote duel is Advanced. Pick how many games a match has. It locks when the tournament starts." : "Every online duel in this tournament uses these. They lock when the first duel opens."}</p>
             </div>
-            <DuelRulesFields idPrefix="tournament-rules" value={rules} onChange={setRules} />
+            <DuelRulesFields idPrefix="tournament-rules" value={rules} onChange={setRules} draft={remote} draftNote="Remote rules: Advanced format, played with your own cards." />
           </section>
 
           <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-t">
@@ -247,23 +280,31 @@ export function CreateTournamentForm() {
                 <dd>{VISIBILITY_LABEL[visibility]}</dd>
               </div>
               <div>
-                <dt>Duel mode</dt>
-                <dd>{modeLabel}</dd>
+                <dt>Duel type</dt>
+                <dd>{remote ? "Remote" : "Online"}</dd>
               </div>
-              {rules.genesys ? (
+              <div>
+                <dt>Duel mode</dt>
+                <dd>{modeSummary}</dd>
+              </div>
+              {!remote && rules.genesys ? (
                 <div>
                   <dt>Point cap</dt>
                   <dd>{genesysCapShort(rules.genesys)}</dd>
                 </div>
               ) : null}
-              <div>
-                <dt>Banlist</dt>
-                <dd>{banlistLabel}</dd>
-              </div>
-              <div>
-                <dt>Turn time</dt>
-                <dd>{turnLabel}</dd>
-              </div>
+              {!remote && (
+                <>
+                  <div>
+                    <dt>Banlist</dt>
+                    <dd>{banlistLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>Turn time</dt>
+                    <dd>{turnLabel}</dd>
+                  </div>
+                </>
+              )}
               <div>
                 <dt>Closes</dt>
                 <dd>{deadline ? formatClosesAt(deadline) : "No deadline"}</dd>
@@ -275,7 +316,7 @@ export function CreateTournamentForm() {
             </dl>
             <ol className="next" aria-label="What happens next">
               <li>You get a lobby with an invite link. You&apos;re in it as a player, and can leave.</li>
-              <li>Players join and register their decks.</li>
+              <li>{remote ? "Players join. They play with their own cards on camera." : "Players join and register their decks."}</li>
               <li>You press Start. Pairings are made then, and nobody else can join.</li>
             </ol>
             {error && (
@@ -285,7 +326,7 @@ export function CreateTournamentForm() {
                 </StatusLine>
               </div>
             )}
-            <SvButton type="submit" variant="primary" big wide disabled={submitting || duelRulesProblem(rules) != null} aria-busy={submitting || undefined}>
+            <SvButton type="submit" variant="primary" big wide disabled={submitting || (!remote && duelRulesProblem(rules) != null)} aria-busy={submitting || undefined}>
               Create tournament
             </SvButton>
            </div>

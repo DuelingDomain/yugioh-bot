@@ -29,6 +29,8 @@ export type RemoteTwinConfirmation = {
 export type RemotePosition = {
   /** Fixed at table creation. Legacy and casual tables omit this flag. */
   tournament?: boolean;
+  /** Public device mode per seat, retained across games. Manual means no camera or phone scan. Legacy snapshots may omit it. */
+  detection?: Partial<Record<number, { mode: Extract<RemoteAction, { type: "detection.mode" }>["mode"]; at: number }>>;
   match: RemoteMatch;
   gameId: string; seatCount: SeatCount; phase: string; turn: number; turnSeat: number;
   /** Same-turn phase corrections preserve this; Undo restores it. Absent in legacy snapshots. */
@@ -90,7 +92,7 @@ export type RemoteSystemAction =
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started"; handCounts?: 1 }
   | { type: "idle.warning"; closesAt: number }
-  | { type: "table.ended"; reason: "idle" | "creator-left" };
+  | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
   action: RemoteAction | RemoteSystemAction;

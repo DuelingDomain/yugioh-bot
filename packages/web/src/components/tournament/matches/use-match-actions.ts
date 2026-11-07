@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { closePendingDuelWindow, navigateDuelWindow, openPendingDuelWindow } from "@/components/duel/duel-window";
 import { isSeriesOpen, startDuelErrorText } from "../duel-rules";
+import { remoteErrorText } from "../remote-copy";
 import { useOptionalRouter } from "../use-optional-router";
 import type { Match } from "../types";
 
 /** Longer than a healthy Start duel; the player sees the usual start error after it. */
 export const START_TIMEOUT_MS = 20_000;
 
-type Action = "report" | "approve" | "deny" | "start" | "result" | "reopen";
+type Action = "report" | "approve" | "deny" | "start" | "startRemote" | "result" | "reopen";
 
 /** All requests retain the existing endpoints and bodies. UI failures stay inline. */
 export function useMatchActions(match: Match, tournamentSlug: string, onChanged: () => void) {
@@ -87,6 +88,33 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
   }
 
   const root = `/api/tournaments/${tournamentSlug}`;
+
+  // Starts the Remote table of a paired match, or returns the one that is already open, and goes to it.
+  async function startRemote() {
+    setLoading("startRemote");
+    setError(null);
+    try {
+      const res = await fetch(`${root}/matches/${match.id}/remote`, { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(remoteErrorText(data?.code, typeof data?.error === "string" ? data.error : "Failed to start the Remote Duel"));
+        return;
+      }
+      const url: unknown = data?.tableUrl;
+      if (typeof url !== "string" || !url.startsWith("/duels/remote/")) {
+        setError("The table opened, but its link is missing. Reload the page.");
+        onChanged();
+        return;
+      }
+      if (router) router.push(url);
+      else window.location.assign(url);
+    } catch {
+      setError("Failed to start the Remote Duel");
+    } finally {
+      setLoading(null);
+    }
+  }
+
   return {
     reporting, reopening, resultOpen, winner, loading, error, resultError,
     setWinner, closeResult,
@@ -99,6 +127,7 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
     approve: () => { if (match.matchId) return request("approve", `/api/matches/${match.matchId}/approve`, "Failed to approve"); },
     deny: () => { if (match.matchId) return request("deny", `/api/matches/${match.matchId}/deny`, "Failed to deny"); },
     start: () => request("start", `${root}/matches/${match.id}/duel`, "Failed to start the duel"),
+    startRemote,
     reopen: () => request("reopen", `${root}/reopen`, "Failed to reopen", { tournamentMatchId: match.id }),
     recordResult: () => { if (winner !== null) return request("result", `${root}/matches/${match.id}/result`, "Failed to set the result", { winnerPlayerId: winner }); },
   };

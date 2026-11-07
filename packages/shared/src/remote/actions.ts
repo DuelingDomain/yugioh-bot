@@ -50,7 +50,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("phase.advance") }),
   z.strictObject({ ...meta, type: z.literal("turn.end") }),
   /** The actor reports their own device mode. This public fact changes no board state. */
-  z.strictObject({ ...meta, type: z.literal("detection.mode"), mode: z.enum(["auto", "tap"]), reason: z.enum(["player", "slow-offer", "start"]) }),
+  z.strictObject({ ...meta, type: z.literal("detection.mode"), mode: z.enum(["auto", "tap", "manual"]), reason: z.enum(["player", "slow-offer", "start"]) }),
   z.strictObject({ ...meta, type: z.literal("lp.change"), seat: remoteSeatSchema, delta: z.number().int().min(-999999).max(999999).refine(n => n !== 0), reason: z.string().trim().min(1).max(200) }),
   z.strictObject({ ...meta, type: z.literal("attack.declare"), attackerSeat: remoteSeatSchema, attackerCardRef: id.optional(), targetSeat: remoteSeatSchema, targetCardRef: id.optional(), direct: z.boolean().optional() }),
   z.strictObject({ ...meta, type: z.literal("attack.resolve"), attackId: id, outcome: z.enum(["resolved", "cancelled"]) }),

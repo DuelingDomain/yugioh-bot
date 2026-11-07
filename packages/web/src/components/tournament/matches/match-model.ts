@@ -17,7 +17,7 @@ export function opponent(match: Match, playerId: number) {
     : { id: match.playerOneId, name: match.playerOneName };
 }
 
-export function matchView(match: Match, playerId: number | null, isHost: boolean, tournament: Pick<TournamentDetail, "status" | "format">, ui: { reporting?: boolean; reopening?: boolean } = {}) {
+export function matchView(match: Match, playerId: number | null, isHost: boolean, tournament: Pick<TournamentDetail, "status" | "format" | "duelType">, ui: { reporting?: boolean; reopening?: boolean } = {}) {
   const bye = match.metadata?.bye === true || match.playerTwoId === null;
   const player = isMatchPlayer(match, playerId);
   const seriesOpen = isSeriesOpen(match.series);
@@ -33,11 +33,16 @@ export function matchView(match: Match, playerId: number | null, isHost: boolean
     : ["reported", "pending"].includes(state) ? "wait"
     : ["decided", "bye", "reopening"].includes(state) ? "done" : "open";
   const hasPlayers = !bye;
+  // A Remote slot is played on a Remote table, never on the online duel route.
+  const remote = tournament.duelType === "remote";
+  const startable = tournament.status === "active" && hasPlayers && match.status === "open" && !seriesOpen;
   return {
-    state, lamp, player, seriesOpen,
+    state, lamp, player, seriesOpen, remote,
     // Closed events keep opponent confirmation and the round robin host's Reopen.
     canReport: tournament.status === "active" && hasPlayers && player && match.status === "open" && !seriesOpen,
-    canStart: tournament.status === "active" && hasPlayers && match.status === "open" && !seriesOpen && (player || isHost),
+    canStart: !remote && startable && (player || isHost),
+    // Only the two paired players can start a Remote table; the organizer cannot unless they are paired.
+    canStartRemote: remote && startable && player,
     canConfirm: hasPlayers && match.status === "pending_approval" && confirm,
     canSetResult: tournament.status === "active" && isHost && hasPlayers && (match.status === "open" || match.status === "pending_approval"),
     canOpen: tournament.status === "active" && hasPlayers && match.status !== "completed" && seriesOpen && !!match.series?.currentDuelSlug,

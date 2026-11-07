@@ -171,9 +171,25 @@ proposal cannot replace an already completed result. Lifecycle closure may appen
 `table.ended`; clients must refresh its sequence before issuing further actions,
 and a closed table rejects Undo with 409 `TABLE_ENDED`.
 
-B4 supplies organizer evidence reads/capture and deletion; no evidence endpoint
-is implemented or promised by B1. Evidence survives normal table deletion through
+B4 supplies evidence capture, deletion and the organizer evidence read route below.
+Evidence survives normal table deletion through
 nullable table references and copied minimal facts, never videos/images or decks.
+
+## B4: organizer evidence read
+
+`GET /api/tournaments/{slug}/matches/{tmId}/remote-evidence` requires an
+authenticated tournament organizer or admin (`OWNER_USER_IDS`). Players and
+spectators cannot read evidence unless they also hold one of these roles. The
+tournament slug is scoped to the configured guild, and the match must belong to
+that tournament. Admins may also read private tournaments in that guild.
+
+Returns 200 with `{"evidence": row}`, where `row` is the stored
+`tournament_remote_evidence` row described below: column names use snake_case,
+and the `*_json` fields remain JSON strings. `table_id` may be null after room
+deletion. Returns 404 when no evidence exists (including after retention cleanup),
+the tournament is unavailable, or the match is invalid or belongs elsewhere;
+unauthorized readers receive 403 (404 for an unreadable private tournament).
+Responses use `Cache-Control: private, no-store`.
 
 ## Storage handoff for B3 and B4
 
@@ -185,27 +201,108 @@ B3 owns `winner_player_id`, `player_one_wins`, `player_two_wins`, `result_source
 `organizer_{user_id,decided_at,note}`. Seat order is independent of player-one/two
 order: resolve it from the table's seats when proposing a result. No-result replay
 replaces the playing row; a proposed/disputed/final row blocks another start.
+An idle/creator-left table with no result keeps a `playing` row with null
+`proposed_at`; its evidence expires 48 hours after table end. Starting a replay
+does not extend that earlier copy's deadline.
 
-`tournament_remote_evidence` is empty in B1. B4 writes the copied table slug,
+`tournament_remote_evidence` stores the copied table slug,
 both user IDs, `players_json` (seat/account mapping), `table_started_at`,
 `table_ended_at`, `end_reason`, `games_json`, `result_events_json`, `final_lp_json`,
 `public_board_json`, `reports_json`, `detection_summary_json`, `captured_at`,
 `purge_after_at` and `hard_delete_at`. JSON fields hold only the allowlisted facts
 in plan section 5.2. Result/evidence `table_id` becomes null on normal room purge;
-copied facts and `table_slug` survive. B4 must implement account/tournament
-cancellation cleanup and the accepted 1-hour/48-hour/14-day retention rules before
-writing evidence. B1 does not capture evidence or finalize any results.
+copied facts and `table_slug` survive. Account deletion, tournament cancellation
+and the 1-hour/48-hour/14-day retention rules apply to those copied facts.
 
-## B4 proposal-time hook
+## B4: internal evidence capture and retention
 
-`captureTournamentEvidence(db, tableId): void` is exported from
-`packages/shared/src/services/tournament-remote-evidence.ts`. B3 calls it once
-when the playing row becomes proposed, inside the same transaction, after the
-terminal action/event, final room state and proposal have been written. It is a
-no-op handoff until B4 implements it; do not add a second proposal-time callback.
-B4 can also call this function for idle/creator-left and its purge safety net as
-specified in the plan. It must tolerate retries and replace evidence on a replay
-of the same slot. B3 does not capture or retain evidence.
+Export from `@yugidraft/shared/services`:
+
+```ts
+captureRemoteTournamentEvidence(db: Database.Database, tableId: number, now?: number): void
+```
+
+The result service calls this inside the proposal writer transaction after
+persisting the terminal action/event, ended room and proposal, using the same
+server timestamp. A terminal Undo deletes that copy when it retracts the
+proposal; a later finish captures a fresh copy. Capture uses a savepoint: a failed
+copy is skipped while the room and proposal commit, unless the failure rolls back
+the entire transaction. Idle close, creator departure and a finish without a
+winner also capture evidence;
+`purgeEnded` is the missing-copy safety net. Capture is atomic, idempotent for the
+same room/end time and a no-op for missing/live/unlinked rooms, obsolete replay
+rooms, cancelled tournaments or evidence whose retention has elapsed. The
+optional server clock defaults to `Date.now()`; retention supplies its fixed time.
+Never expose this function or raw evidence through an unguarded endpoint.
+
+The B1 JSON columns have these shapes (IDs here are **account** IDs unless named
+otherwise; timestamps are Unix milliseconds):
+
+```ts
+players_json: { userId: number; seat: number }[] // actual occupied seats
+// player_one_user_id/player_two_user_id follow the pairing, not seat order
+games_json: { n: number; winnerSeat: number | null;
+  reason: "lp" | "concede" | "declared" | "timeout"; endedAt: number }[]
+result_events_json: { seq: number; at: number; userId: number | null;
+  seat: number | null; action: ResultAction }[]
+final_lp_json: { n: number; seats: { seat: number; lp: number }[] }[]
+public_board_json: { seat: number; cards: { zone: string; slot?: number;
+  cardId?: number; passcode?: number; name?: string;
+  position: "attack" | "defense" }[] }[]
+reports_json: { userId: number; choice: "confirm" | "dispute" | null;
+  note: string | null; at: number | null }[] // player one, then player two
+// Reports update when B3 writes the result row, even after the room is gone.
+detection_summary_json: { seat: number; autoSeconds: number; tapSeconds: number;
+  manualSeconds: number;
+  identifiedByClick: number; identifiedByTyped: number; manualCorrections: number;
+  unknownAtGameEnd: { n: number; count: number }[] }[]
+```
+
+`ResultAction` is an explicit allowlist:
+
+```ts
+type ResultAction =
+  | { type: "lp.change"; seat: number; delta: number; reason: string }
+  | { type: "player.concede" }
+  | { type: "match.declare"; winnerSeat: number | null }
+  | { type: "match.confirm"; declarationSeq: number | null; accept: boolean }
+  | { type: "undo"; targetSeq: number | null }
+  | { type: "detection.mode"; mode: "auto" | "tap" | "manual";
+      reason: "player" | "slow-offer" | "start" };
+```
+
+Declaration/undo references use log sequences in place of arbitrary action IDs;
+a target may be outside the excerpt. No idempotency key, effects, messages, card
+movement, raw identification event or other log payload is copied. Final LP is
+reconstructed from stored reducer inputs at each surviving game end, including
+Undo and siding resets. The last board uses the final authoritative state, preserving each eliminated
+seat’s last public cards before concede/LP clears its board.
+Only face-up cards in monster/spell zones (including Extra Monster, Field and
+Pendulum zones), graveyard and banished qualify; Extra Deck and hands never do,
+even when revealed. Only the listed card fields are kept.
+
+Auto is the initial per-seat default. Durations use server times from table start
+to end and logged Auto, Tap and Manual mode changes; they cannot prove a
+camera/detector was running. Manual time is counted separately from Tap.
+Identification counts include each click/typed batch item. Manual corrections
+count logged non-auto twin/pile actions plus `twin.merge` and `deck.flag.dismiss`,
+including later-undone actions. Unknown counts include face-up public cards
+without an ID/passcode/name at each finished game end. These are completeness
+indicators; Tap and Auto accuracy remain unmeasured.
+
+B3 must write `finalized_at` and `finalization_reason` on finalization, and
+`organizer_decided_at` for a ruling or void. Database triggers maintain
+`reports_json` and `purge_after_at` as those fields change. Both-confirmed final
+rows are eligible immediately, so the **next hourly run** removes evidence within
+one hour. Timeout finalization and organizer decisions retain it for 48 hours.
+Disputes have no soft deadline until decided. `hard_delete_at` is always table
+end + 14 days, including unresolved disputes. Cancellation deletes immediately;
+account deletion removes either participant's evidence even after room deletion.
+Starting a replay leaves the previous copy on its original deletion deadline;
+a newly ended room replaces that per-pairing copy. Room deletion
+still runs after 24 hours by default and only nulls evidence/result room IDs.
+The worker's existing hourly `pruneRemoteDuels` performs evidence deletion too;
+expired evidence is never recaptured by its purge safety net.
 
 The existing 60-second tournament worker tick (including startup) finalizes due
 eligible proposals before tournament deadline closure. It uses the durable row,

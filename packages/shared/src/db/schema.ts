@@ -8,6 +8,7 @@ import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 import { migrateReleases } from "./releases.js";
+import { migrateTournamentRemoteEvidence } from "./tournament-remote-evidence.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -1919,6 +1920,7 @@ function migrateRemoteDuels(db: Database.Database) {
     create index if not exists tournament_remote_evidence_player_one_idx on tournament_remote_evidence(player_one_user_id);
     create index if not exists tournament_remote_evidence_player_two_idx on tournament_remote_evidence(player_two_user_id);
   `);
+  migrateTournamentRemoteEvidence(db);
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");
   addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");

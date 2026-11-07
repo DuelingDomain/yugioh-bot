@@ -93,6 +93,7 @@ export const FINISHED_PREVIEW = 5;
 export interface RoundsInput {
   format: string;
   status: string;
+  duelType?: "online" | "remote";
   participants: Participant[];
   matches: Match[];
 }
@@ -236,6 +237,7 @@ export function leaderOf(input: Pick<RoundsInput, "participants" | "matches">): 
 export type RowAction =
   | { kind: "open"; href: string }
   | { kind: "start"; match: Match }
+  | { kind: "start-remote"; match: Match }
   | { kind: "confirm"; match: Match }
   | { kind: "watch"; href: string };
 
@@ -254,6 +256,8 @@ export function rowAction(input: RoundsInput, viewerId: number | null): RowActio
   if (confirm) return { kind: "confirm", match: confirm };
   const start = mine.find((m) => view(m).canStart);
   if (start) return { kind: "start", match: start };
+  const startRemote = mine.find((m) => view(m).canStartRemote);
+  if (startRemote) return { kind: "start-remote", match: startRemote };
   const watchable = input.matches.filter(
     (m) => m.series?.status === "active" && m.series.currentDuelSlug && !(viewerId !== null && (m.playerOneId === viewerId || m.playerTwoId === viewerId)),
   );

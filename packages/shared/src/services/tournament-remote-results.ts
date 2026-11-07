@@ -4,7 +4,7 @@ import type { RemoteState } from "../remote/types.js";
 import { createMatchService } from "./matches.js";
 import { createTournamentService } from "./tournaments.js";
 import { TournamentRemoteError } from "./tournament-remote-access.js";
-import { captureTournamentEvidence } from "./tournament-remote-evidence.js";
+import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 
 export const REMOTE_RESULT_CONFIRM_MS = 2 * 60 * 60 * 1000;
 type Choice = "confirm" | "dispute";
@@ -145,7 +145,7 @@ export function createTournamentRemoteResultService(db: Database.Database) {
       db.prepare(`update tournament_remote_matches set status='proposed',winner_player_id=?,player_one_wins=?,player_two_wins=?,
         result_source=?,proposed_at=?,confirm_deadline_at=?,updated_at=? where tournament_match_id=? and status='playing'`)
         .run(winner,wins(r.player_one_id),wins(r.player_two_id),last.reason,now,now+REMOTE_RESULT_CONFIRM_MS,now,r.tournament_match_id);
-      captureTournamentEvidence(db,tableId);
+      captureRemoteTournamentEvidence(db,tableId,now);
     },
     /** A successful terminal Undo invalidates the proposal and every report of that outcome. */
     retractProposal(tableId:number,now=Date.now()) {

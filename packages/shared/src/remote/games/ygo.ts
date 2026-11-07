@@ -89,7 +89,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
   if (!state.match) state = ensureRemoteMatch(cloneRemoteCurrent(state));
-  if (action.type === "detection.mode") return { ...cloneRemoteCurrent(state), updatedAt: at };
+  if (action.type === "detection.mode") {
+    if (action.reason === "start" && state.detection?.[action.actorSeat]?.mode === action.mode) return state;
+    return { ...cloneRemoteCurrent(state), detection: { ...state.detection, [action.actorSeat]: { mode: action.mode, at } }, updatedAt: at };
+  }
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
   if (matchResult) {
     if (action.type === "match.confirm" && action.accept && state.match.pendingResult?.lpSeat !== undefined) {
@@ -108,7 +111,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     // Preserve the semantics of already accepted legacy events, including cross-seat undo.
     const undo = state.undo;
     remoteAssert(undo && undo.actionId === action.targetActionId && at - undo.at <= 5000, "Undo expired or action is no longer the latest reversible action", 409, "UNDO_UNAVAILABLE");
-    return { ...structuredClone(undo.before), updatedAt: at, undo: null };
+    return { ...structuredClone(undo.before), detection: structuredClone(state.detection ?? {}), updatedAt: at, undo: null };
   }
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
@@ -324,7 +327,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
-  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
+  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) {
+    const eliminatedSeat = action.type === "player.concede" ? action.actorSeat : action.seat;
+    if (next.match.pendingResult?.lpSeat === undefined || next.match.pendingResult.lpSeat === eliminatedSeat) delete next.match.pendingResult;
+  }
   // After merges and eliminations, so no hold or link points to a card that is gone.
   clearZoneLinks(next, at);
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.
@@ -338,7 +344,7 @@ export const ygoModule: GameModule = {
   resources: [{ id: "lp", name: "LP", start: 8000, min: 0, loseAtZero: true }], zones,
   initialState({ seatCount, firstSeat = 0, bestOf, tournament }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
-    return { gameId: "ygo", seatCount, ...(tournament ? { tournament: true } : {}), match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
+    return { gameId: "ygo", seatCount, ...(tournament ? { tournament: true } : {}), detection: {}, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [], knownHand: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, revealedHand: "until-played", updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
