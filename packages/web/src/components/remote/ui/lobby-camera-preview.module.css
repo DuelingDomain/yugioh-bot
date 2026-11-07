@@ -99,3 +99,11 @@
 .expand{position:absolute;right:8px;top:8px;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;border:1px solid var(--duel-rule);background:rgb(7 11 21/.78);color:var(--duel-ink);font-size:12px;letter-spacing:.04em;cursor:pointer}
 .expand:hover{border-color:var(--duel-chain)}
 .expand:focus-visible{outline:2px solid var(--duel-chain);outline-offset:2px}
+
+/* Tournament table: the short check before the match. */
+.tcheck{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0;padding:8px 12px;list-style:none;border:1px solid var(--duel-rule-lo);border-radius:6px;background:var(--duel-panel);font-size:13px;color:var(--duel-ink-2)}
+.tcheck li{display:inline-flex;align-items:center;gap:6px}
+.tcheck li[data-ok="true"] svg{color:var(--duel-ok)}
+.tcheck li[data-ok="false"]{color:var(--duel-ink)}
+.tcheck li[data-ok="false"] svg{color:var(--duel-chain)}
+.tcheckNote{flex-basis:100%;font-size:12px;color:var(--duel-ink-2)}

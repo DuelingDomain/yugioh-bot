@@ -5,6 +5,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
+import {isTournamentTable,readTournamentMode,saveTournamentMode,useAnnouncedModes,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
 import {remoteHandReadDecision,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
@@ -693,7 +694,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
-  const watch=useFieldWatcher({owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
+  const tournament=isTournamentTable(room);
+  const watch=useFieldWatcher({tournament:tournament?{saved:()=>readTournamentMode(room.slug,seat)}:undefined,owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
     async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   // Every camera lock step (the first lock at camera start, a re-lock, an anti-glare exposure step, lock off)
   // changes brightness and sharpness: the watcher learns its blur and shadow baselines again.
@@ -717,18 +719,32 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // Slow computer: one quiet offer of Tap to identify (a slow detector, or the browser video encoder reports it is CPU limited). Only the player changes the mode; the answer is remembered.
   const [tapOffer,setTapOffer]=useState(false),slowWatch=useRef(createSlowWatch());
   const setDetection=useCallback((on:boolean)=>{
-    saveTapChoice(on?'keep':'switch');setTapOffer(false);
+    // A tournament table keeps its own choice and leaves the device preference alone.
+    if(tournament)saveTournamentMode(room.slug,seat,on?'auto':'tap');else saveTapChoice(on?'keep':'switch');
+    setTapOffer(false);
     setSyncHold(on&&!watch.enabled&&current.current.room.state.seats[seat].twin.some(card=>publicField(card.zone)));
     watch.setEnabled(on);
-  },[watch.setEnabled,watch.enabled,seat,setSyncHold]);
-  const answerTapOffer=(choice:TapChoice)=>setDetection(choice==='keep');
+  },[watch.setEnabled,watch.enabled,seat,setSyncHold,tournament,room.slug]);
+  const modeReason=useRef<TournamentModeReason>('player');
+  const answerTapOffer=(choice:TapChoice)=>{modeReason.current='slow-offer';setDetection(choice==='keep');};
   const offerable=watch.enabled&&ownsSource&&hub.cameraOn&&room.status==='active';
   useEffect(()=>{
     if(tapOffer&&!offerable)setTapOffer(false);
-    if(tapOffer||!offerable||tapOfferShown()||readTapChoice())return;
+    if(tapOffer||!offerable||tapOfferShown()||(tournament?readTournamentMode(room.slug,seat):readTapChoice()))return;
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
     if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
+  // Tournament: the table gets my detection mode when it starts and on every switch, so the opponent can see it. The tell is public and changes no state.
+  const announced=useAnnouncedModes(room),sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
+  const mode:TournamentMode=watch.enabled?'auto':'tap';
+  useEffect(()=>{
+    if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
+    sentMode.current=mode;
+    if(announced.get(modeSeat)===mode)return;
+    const reason=announced.has(modeSeat)?modeReason.current:'start';modeReason.current='player';
+    void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason});}).catch(()=>{sentMode.current=null;});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
   // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
@@ -1119,7 +1135,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={scanField}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">This computer is slow for live tracking. Switch to tap-to-identify?<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:undefined}/>
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
   </>;
 }

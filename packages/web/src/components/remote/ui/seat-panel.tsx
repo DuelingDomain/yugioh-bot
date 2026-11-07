@@ -11,6 +11,7 @@ import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
 import { HandCount, HandStrip, type HandProps } from "./hand-ui";
+import { modeLabel, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -50,6 +51,7 @@ export type SeatPanelProps = {
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
+  /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -112,6 +114,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </> : null}
       </span> : null}
       {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
+      {p.detectionMode ? <span className={`${s.tag} ${s.dmode} ${p.detectionMode === "tap" ? s.tap : ""}`} data-testid={`detection-mode-${p.seat}`} title={`${p.name} identifies cards with ${modeLabel(p.detectionMode)}`}>{modeLabel(p.detectionMode)}</span> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
