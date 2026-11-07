@@ -2805,3 +2805,20 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(privatePick.room.state.seats[0].handCount).toBe(6);
 
 });
+
+it('projects a state without copying its undo data, keeping key order and the original state',async()=>{
+  const {projectRemoteState,projectRemoteSpectator}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`lean-${++serial}`,at:serial}),{facts:{}});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'a',slot:1,faceUp:false,position:'defense',cardId:46986414,name:'Dark Magician'}});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'b',slot:2,faceUp:false,position:'defense',cardId:46986414,name:'Dark Magician'}});
+  const frozen=JSON.stringify(state),view=projectRemoteState(state,new Set([1]));
+  expect(JSON.stringify(state)).toBe(frozen);
+  expect(Object.keys(view)).toEqual(Object.keys(state));
+  expect(view.undo?.actionId).toBe(state.undo!.actionId);
+  expect(view.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([undefined]);
+  expect(state.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([46986414]);
+  expect(view.undoHistory).toEqual([]);
+  const spectator=projectRemoteSpectator({table:{seats:[]} as never,state,events:[]});
+  expect(spectator.state.undo).toBeNull();expect(spectator.state.undoHistory).toEqual([]);expect(JSON.stringify(state)).toBe(frozen);
+});

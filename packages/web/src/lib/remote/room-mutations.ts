@@ -4,6 +4,12 @@ export type RoomMutation = (proposal:RemoteActionProposal,idempotencyKey?:string
 let lastActionError:{message:string;at:number}|undefined;
 export function noteRemoteActionError(error:unknown){lastActionError={message:error instanceof Error?error.message:String(error),at:Date.now()};}
 export const remoteActionError=()=>lastActionError;
+/**
+ * `remote:changed` only says that a table moved. The GET it used to start returns the same room that `remote:private` already carried
+ * (or that this browser's own action reply carried), so it is needed only when the announced sequence is newer than the newest one held.
+ * A lost private message leaves the held sequence behind, so the GET still runs; the slow poll repairs anything else.
+ */
+export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
 export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
 /** Manual reads, prompts and watcher changes share one queue and returned state. */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation) {
