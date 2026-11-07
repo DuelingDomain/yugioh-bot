@@ -1863,4 +1863,45 @@ function migrateRemoteDuels(db: Database.Database) {
   }
   addColumnIfMissing(db, "remote_events", "effects_json", "text");
   addColumnIfMissing(db, "remote_events", "messages_json", "text");
+  // Immutable JSON addressed by content, shared by undo positions and event facts.
+  db.exec(`
+    create table if not exists remote_values (
+      hash text primary key check(length(hash)=64), json text not null
+    ) without rowid;
+    create trigger if not exists remote_values_no_update before update on remote_values
+      begin select raise(abort, 'remote_values is immutable'); end;
+    create table if not exists remote_state_values (
+      table_id integer not null references remote_tables(id) on delete cascade,
+      value_hash text not null references remote_values(hash),
+      primary key(table_id,value_hash)
+    ) without rowid;
+    create index if not exists remote_state_values_hash on remote_state_values(value_hash);
+  `);
+  addColumnIfMissing(db, "remote_events", "facts_hash", "text references remote_values(hash)");
+  db.exec(`
+    create index if not exists remote_events_facts_hash on remote_events(facts_hash) where facts_hash is not null;
+    create index if not exists remote_tables_retention on remote_tables(ended_at) where status='ended';
+    create trigger if not exists remote_state_values_collect after delete on remote_state_values begin
+      delete from remote_values where hash=old.value_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.value_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.value_hash);
+    end;
+    create trigger if not exists remote_events_collect after delete on remote_events begin
+      delete from remote_values where hash=old.facts_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.facts_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.facts_hash);
+    end;
+    -- Events remain append-only while their room exists. Deleting an ended room
+    -- is the retention boundary for replay, facts, seats, and undo references.
+    drop trigger if exists remote_events_no_delete;
+    create trigger remote_events_no_delete before delete on remote_events
+      when exists(select 1 from remote_tables where id=old.table_id)
+      begin select raise(abort, 'remote_events is append-only'); end;
+    create trigger if not exists remote_tables_collect after delete on remote_tables begin
+      delete from remote_events where table_id=old.id;
+      delete from remote_seats where table_id=old.id;
+      delete from remote_bot_seats where table_id=old.id;
+      delete from remote_state_values where table_id=old.id;
+    end;
+  `);
 }

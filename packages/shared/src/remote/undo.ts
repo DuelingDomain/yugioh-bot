@@ -1,3 +1,4 @@
+import { copyRemoteHistory, freezeRemoteValue } from "./position.js";
 import { availableEffectCandidates } from "./effect-tracking.js";
 import { ygoBattleAllowed } from "./phases.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
@@ -8,7 +9,7 @@ export const REMOTE_UNDO_LIMIT = 20;
 export function remotePosition(state: RemoteState): RemotePosition {
   const { updatedAt: _at, undo: _undo, undoHistory: _history, ...position } = state;
   // Match the persisted JSON representation, including absent optional fields.
-  return JSON.parse(JSON.stringify(position));
+  return freezeRemoteValue(JSON.parse(JSON.stringify(position)));
 }
 const equal = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -96,7 +97,7 @@ function prune(history: RemoteUndoEntry[], turn: number): RemoteUndoEntry[] {
 export function rememberRemoteAction(before: RemoteState, next: RemoteState, action: RemoteAction): void {
   const previous = remotePosition(before), after = remotePosition(next);
   const cards = touchedCards(action, previous, after);
-  const history = structuredClone(before.undoHistory ?? []);
+  const history = copyRemoteHistory(before.undoHistory ?? []);
   // A camera correction of a card it just placed (the first read named it early)
   // joins that placement: one Undo still removes the card in one step.
   if (action.type === "card.identified" && action.source === "auto") {
@@ -216,7 +217,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   const reason = remoteUndoReason(state, entry, action.actorSeat);
   remoteAssert(!reason, reason ?? "Undo unavailable", 409, "UNDO_CONFLICT");
   const restored = restoredPosition(state, entry);
-  const history = structuredClone(state.undoHistory!);
+  const history = copyRemoteHistory(state.undoHistory!);
   for (const item of history) {
     item.blockedBy = item.blockedBy?.filter(id => id !== entry.actionId);
     if (item.turn > restored.turn) item.turn = restored.turn;
@@ -224,7 +225,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   }
   const next: RemoteState = { ...restored, updatedAt: action.at ?? state.updatedAt, undo: null, undoHistory: prune(history, restored.turn) };
   const latest = [...next.undoHistory!].reverse().find(e => !e.undone && !remoteUndoReason(next, e, e.actorSeat));
-  if (latest?.before) next.undo = { actionId: latest.actionId, at: latest.at, before: restoredPosition(next, latest) };
+  if (latest?.before) next.undo = { actionId: latest.actionId, at: latest.at, before: freezeRemoteValue(restoredPosition(next, latest)) };
   return next;
 }
 

@@ -1,3 +1,4 @@
+import { cloneRemoteCurrent } from "./position.js";
 import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
@@ -96,7 +97,7 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   const action = parsed.data, at = action.at ?? state.updatedAt;
   const legacyReplay = !!context?.replay && context.matchFlowVersion !== 1;
   if (action.type === "side.timeout" && !remoteSideTimeoutDue(state, at)) return state;
-  const next = structuredClone(state);
+  const next = cloneRemoteCurrent(state);
   next.updatedAt = at;
   if (legacyReplay) { next.undo = null; delete next.undoHistory; }
   const match = next.match;
