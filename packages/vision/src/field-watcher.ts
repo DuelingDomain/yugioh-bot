@@ -699,7 +699,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const keep=keepOutlines(),pileQuads=pileCells(),slotQuads=fieldCells().filter(c=>fieldZoneName(c.zone)).map(c=>cellQuad(c).quad).slice(0,20);
       // A dim mat is always dark: rescue only live tracks, on measured shadow or at most every 3 s.
       const shadowPass=shadowShare>=.03||sample.at-lastShadowPassAt>=SHADOW_PASS_EVERY_MS||options.recognizer.detectorBackend!=='webgpu'&&(urgentScan||scanSweep>0);if(shadowPass)lastShadowPassAt=sample.at;
-      const detectOpts=(r?:FractionalBox)=>r||keep.length||pileQuads.length||slotQuads.length?{shadowKeep:keepOutlines(true),...(shadowPass?{}:{shadowPass:false}),...(r?{region:r}:{}),...(keep.length?{keep}:{}),...(pileQuads.length?{piles:pileQuads.map(p=>p.quad)}:{}),...(slotQuads.length?{cells:slotQuads}:{})}:undefined;
+      const detectOpts=(r?:FractionalBox,allowShadow=shadowPass)=>r||keep.length||pileQuads.length||slotQuads.length?{shadowKeep:keepOutlines(true),...(allowShadow?{}:{shadowPass:false}),...(r?{region:r}:{}),...(keep.length?{keep}:{}),...(pileQuads.length?{piles:pileQuads.map(p=>p.quad)}:{}),...(slotQuads.length?{cells:slotQuads}:{})}:undefined;
       detected=await options.recognizer.detectCards(detectFrame,detectOpts(region));
       // A crop changes the detector's context. In particular, a plain sleeve
       // may be found only in the full frame. A missed crop must not add the
@@ -709,7 +709,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.view.faceDown===(c.kind==='face-down')&&evidence.motion(c)<=.025&&matchesLook(t,evidence.appearance?.(c))));
       if(region&&(!detected.length||detected.some(c=>c.partial)||unexplainedDifference)){
         closeFieldFrame(detectFrame);detectFrame=await clone(current);
-        detected=await options.recognizer.detectCards(detectFrame,detectOpts());region=undefined;
+        detected=await options.recognizer.detectCards(detectFrame,detectOpts(undefined,false));region=undefined;
       }
       // Pile-cell outlines below the pile floor are a debug probe only: record the best score, then drop them.
       const inCell=(c:DetectedQuad,q:DetectedQuad['quad'])=>{const a=boundsOf(c.quad),b=boundsOf(q),w=Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)),h=Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));return w*h/Math.max(1e-9,Math.min(a.w*a.h,b.w*b.h))>=.6;};
