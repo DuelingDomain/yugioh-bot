@@ -6,6 +6,7 @@ import {localFieldDiagnosticRequest,saveFieldDiagnostic} from '@/lib/field-diagn
 export const runtime='nodejs';
 const reply=(value:unknown,status:number)=>Response.json(value,{status,headers:{'cache-control':'private, no-store'}});
 export async function POST(request:Request) {
+  if(process.env.REMOTE_VISION_FEEDBACK!=='1')return reply({error:'not_found'},404);
   const actor=await requireWebAccess();if(!actor.ok)return actor.response;
   const host=new URL(request.url).hostname;
   if(!isOwnerUser(actor.userId)||!['localhost','127.0.0.1','[::1]'].includes(host)||!remoteDuelsEnabledFor(actor.userId))return reply({error:'not_found'},404);

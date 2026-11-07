@@ -103,3 +103,5 @@ export type { VisionFeedbackInput, VisionSample, VisionLearning } from './vision
 export * from "./archetype-bridges.js";
 
 export * from "./releases.js";
+
+export { pruneRemoteDuels } from "./remote-retention.js";

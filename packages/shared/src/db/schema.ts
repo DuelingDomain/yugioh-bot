@@ -1792,6 +1792,11 @@ function migrateCreatorAccess(db: Database.Database) {
 }
 
 function migrateRemoteDuels(db: Database.Database) {
+  // Pairing tables are web-owned. Associate new buckets with rooms so retention can remove them.
+  if (db.prepare("select 1 from sqlite_master where type='table' and name='remote_phone_attempts'").get()) {
+    addColumnIfMissing(db, "remote_phone_attempts", "slug", "text");
+    db.exec("create index if not exists remote_phone_attempts_room on remote_phone_attempts(slug)");
+  }
   // Independent from engine duels: remote calls never count as deploy-blocking activity.
   db.exec(`
     create table if not exists remote_tables (

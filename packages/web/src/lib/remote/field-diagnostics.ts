@@ -1,6 +1,6 @@
 import type {FieldEvent} from '@yugidraft/vision';
 
-/** Owner-machine debugging only. No frames, AI request or external upload. */
+/** Owner-machine card-crop diagnostics. The caller and route require REMOTE_VISION_FEEDBACK. */
 export async function saveLocalFieldDiagnostic(event:FieldEvent,entries:ReadonlyMap<string,{cardId:string;passcode:number;name:string}>):Promise<void> {
   if(typeof window==='undefined'||!['localhost','127.0.0.1','[::1]'].includes(window.location.hostname)||!event.result?.cropJpeg||event.track.faceDown)return;
   const result=event.result;

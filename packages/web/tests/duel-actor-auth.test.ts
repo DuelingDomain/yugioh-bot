@@ -400,5 +400,38 @@ describe("remote LiveKit credentials", () => {
     expect((await POST(request(), context)).status).toBe(409);
     state.db!.prepare("update remote_tables set status='ended',last_event_at=? where slug=?").run(Date.now(), room.slug);
     expect((await POST(request(), context)).status).toBe(409);
+
+    // Account deletion must also retire live SFU rooms after its SQL rows disappear.
+    const { Room, RoomServiceClient } = await import('livekit-server-sdk');
+    const { deleteUserAccount } = await import('@yugidraft/shared/services');
+    const keep=remote.create({guildId:'guild-1',userId:guest,displayName:'Guest',gameId:'ygo',seatCount:2});
+    const media=new Set([`remote-${room.slug}`,`remote-${room.slug}-voice`,`remote-${keep.slug}`,'unrelated-room','remote-not-a-duel']);
+    const list=vi.spyOn(RoomServiceClient.prototype,'listRooms').mockImplementation(async()=>[...media].map(name=>new Room({name})));
+    const participants=vi.spyOn(RoomServiceClient.prototype,'listParticipants').mockResolvedValue([]);
+    let fail=true;
+    const drop=vi.spyOn(RoomServiceClient.prototype,'deleteRoom').mockImplementation(async name=>{
+      if(fail){fail=false;throw new Error('temporary SFU failure');}media.delete(name);
+    });
+    const root=globalThis as typeof globalThis & {__remoteSpectatorJanitor?:ReturnType<typeof setInterval>};
+    vi.useFakeTimers();
+    try {
+      deleteUserAccount(state.db!,userId);
+      const {startSpectatorCleanup}=await import('../src/lib/remote/spectator-server');
+      startSpectatorCleanup();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(drop.mock.calls.map(([name])=>name)).toEqual([`remote-${room.slug}`,`remote-${room.slug}-voice`]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(media.has(`remote-${room.slug}`)).toBe(false);
+      expect(media.has(`remote-${room.slug}-voice`)).toBe(false);
+      expect(media.has(`remote-${keep.slug}`)).toBe(true);
+      expect(drop).toHaveBeenCalledTimes(3);
+      media.add(`remote-${room.slug}`); // A stale token must not recreate an abandoned room permanently.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(media.has(`remote-${room.slug}`)).toBe(false);
+      expect(drop).toHaveBeenCalledTimes(4);
+    } finally {
+      clearInterval(root.__remoteSpectatorJanitor);delete root.__remoteSpectatorJanitor;
+      vi.useRealTimers();list.mockRestore();participants.mockRestore();drop.mockRestore();
+    }
   });
 });
