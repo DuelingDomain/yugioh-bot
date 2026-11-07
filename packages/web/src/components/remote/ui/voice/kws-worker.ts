@@ -38,7 +38,8 @@ function swap(keywords: string): boolean {
 function work(samples: Float32Array) {
   const started = performance.now();
   stream!.accept(samples);
-  hits.push(...kws!.run(stream!));
+  // No reset on a hit: a reset drops the word said right after it ("activate" + name, "main" + "two").
+  hits.push(...kws!.run(stream!, false));
   busyMs += performance.now() - started; audioMs += samples.length / 16;
 }
 

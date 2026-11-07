@@ -70,6 +70,12 @@ describe("browser voice commands (KWS)", () => {
     expect(combineHits([fixed("END"), fixed("TURN")], set.meanings).canonical).toBe("end turn");
     expect(combineHits([fixed("BATTLE"), fixed("PHASE")], set.meanings).canonical).toBe("battle phase");
     expect(combineHits([fixed("DRAW")], set.meanings).canonical).toBe("draw");
+    expect(combineHits([fixed("PASS")], set.meanings).canonical).toBe("end turn");
+    // A verb and one card, in either order; a partial shared by two cards stays ambiguous.
+    expect(combineHits([fixed("EFFECT OF"), fixed("UTOPIA")], set.meanings).canonical).toBe("activate effect of Number 39: Utopia");
+    expect(combineHits([fixed("UTOPIA"), fixed("EFFECT")], set.meanings).canonical).toBe("activate effect of Number 39: Utopia");
+    expect(combineHits([fixed("KASHTIRA")], set.meanings).ambiguous[0].names).toEqual(["Kashtira Fenrir", "Kashtira Unicorn"]);
+    expect(combineHits([fixed("KASHTIRA"), fixed("FENRIR")], set.meanings).canonical).toBe("Kashtira Fenrir");
   });
 
   it("accepts a spoken phase only as the next phase or a legal skip, from the turn player", () => {

@@ -1,3 +1,4 @@
+import { ALIASES } from "./aliases";
 import type { SentencePiece } from "./sentencepiece";
 
 /**
@@ -17,7 +18,19 @@ export type PhraseSet = {
   lines: string[];
   meanings: Map<string, PhraseMeaning>;
   counts: { fixed: number; fullNames: number; runs: number; words: number; ambiguous: number; skipped: string[] };
+  /** Every phrase sent to the model with its tokens and settings, for the voice check page. */
+  entries: PhraseEntry[];
 };
+export type PhraseEntry = { tag: string; kind: "fixed" | "joiner" | "full" | "run" | "word" | "alias"; spoken: string; tokens: string[]; boost: number; threshold: number; names?: string[] };
+export type PhraseOptions = {
+  /** Base boost and threshold shift for all phrases (commands included). */
+  boost?: number; thresholdShift?: number;
+  /** Added on top of those for card names only. */
+  nameBoost?: number; nameShift?: number;
+};
+
+/** Tuned on text-to-speech audio through the real model (recall vs. false triggers on chatter); the voice check page can still move them. */
+export const DEFAULT_PHRASE_OPTIONS: Required<PhraseOptions> = { boost: 0.5, thresholdShift: -0.35, nameBoost: 1, nameShift: 0.2 };
 
 type Fixed = [spoken: string, canonical: string];
 /** Phases first. "draw" alone stays a card draw (command-parser.ts); the phase needs the word "phase". */
@@ -28,10 +41,10 @@ export const FIXED_PHRASES: readonly Fixed[] = [
   ["MAIN ONE", "main phase one"], ["MAIN PHASE ONE", "main phase one"],
   ["MAIN TWO", "main phase two"], ["MAIN PHASE TWO", "main phase two"],
   ["BATTLE", "battle phase"], ["BATTLE PHASE", "battle phase"],
-  ["END", "end phase"], ["END PHASE", "end phase"], ["END TURN", "end turn"],
+  ["END", "end phase"], ["END PHASE", "end phase"], ["END TURN", "end turn"], ["PASS", "end turn"],
   ["NEXT PHASE", "next phase"], ["GO BACK A PHASE", "go back a phase"],
   ["UNDO", "undo"], ["UNDO THAT", "undo"],
-  ["EFFECT", "effect"], ["ACTIVATE", "activate"], ["ACTIVATE EFFECT", "activate effect"],
+  ["EFFECT", "effect"], ["ACTIVATE", "activate"], ["ACTIVATE EFFECT", "activate effect"], ["EFFECT OF", "effect"], ["ACTIVATE EFFECT OF", "activate effect"],
   ["ATTACK", "attack"], ["ATTACKS", "attacks"], ["ATTACK WITH", "attack with"], ["DIRECT ATTACK", "direct attack"],
   ["DRAW", "draw"],
 ];
@@ -63,28 +76,53 @@ export function spokenForm(name: string): string {
 function thresholdFor(words: number, boost: number, shift: number) {
   // Short phrases are easier to hit by accident, so they need more evidence (starting values, tuned in the voice check).
   const base = words === 1 ? 0.4 : words === 2 ? 0.3 : 0.25;
-  return { boost: Math.round((words === 1 ? boost + 0.5 : boost) * 100) / 100, threshold: Math.min(0.95, Math.round((base + shift) * 100) / 100) };
+  return { boost: Math.round((words === 1 ? boost + 0.5 : boost) * 100) / 100, threshold: Math.max(0.05, Math.min(0.95, Math.round((base + shift) * 100) / 100)) };
 }
 
-export function buildPhrases(names: readonly string[], sp: SentencePiece, options: { boost?: number; thresholdShift?: number } = {}): PhraseSet {
-  const boost = options.boost ?? 1.5; const shift = options.thresholdShift ?? 0;
+/** Extra ways to say a word run: each hard word respelled alone, then all hard words with their first, then second, respelling. */
+function variantsOf(words: string[]): string[][] {
+  const out: string[][] = [words];
+  const key = (list: string[]) => list.join(" ");
+  const seen = new Set([key(words)]);
+  const push = (list: string[]) => { if (!seen.has(key(list))) { seen.add(key(list)); out.push(list); } };
+  words.forEach((word, index) => {
+    for (const alias of ALIASES[word] ?? []) if (alias !== word) push([...words.slice(0, index), ...alias.split(" "), ...words.slice(index + 1)]);
+  });
+  for (const pick of [0, 1]) {
+    if (words.filter(word => ALIASES[word]).length > 1) push(words.flatMap(word => { const list = ALIASES[word]; return list ? list[Math.min(pick, list.length - 1)].split(" ") : [word]; }));
+  }
+  return out;
+}
+
+const RUN_MAX = 4;
+/** A run of words that can stand for a card: no function word at an edge, and at least one word that is not everyday English. */
+function usableRun(words: string[]): boolean {
+  if (FUNCTION_WORDS.has(words[0]) || FUNCTION_WORDS.has(words[words.length - 1]) || words[0] === "THE") return false;
+  return words.some(word => !STOP.has(word) && !FUNCTION_WORDS.has(word));
+}
+
+export function buildPhrases(names: readonly string[], sp: SentencePiece, options: PhraseOptions = {}): PhraseSet {
+  const { boost, thresholdShift: shift, nameBoost, nameShift } = { ...DEFAULT_PHRASE_OPTIONS, ...options };
   const meanings = new Map<string, PhraseMeaning>();
   const lines: string[] = [];
+  const entries: PhraseEntry[] = [];
   const skipped: string[] = [];
   const reserved = new Set<string>();
   const tokens = (spoken: string) => { const pieces = sp.encode(spoken); return pieces.length && pieces.every(piece => piece !== "<unk>") ? pieces : null; };
-  const add = (spoken: string, meaning: PhraseMeaning, words = spoken.split(" ").length) => {
+  const add = (spoken: string, meaning: PhraseMeaning, entryKind: PhraseEntry["kind"], words = spoken.split(" ").length) => {
     const pieces = tokens(spoken);
     if (!pieces) { skipped.push(spoken); return null; }
     const tag = `${meaning.kind === "card" ? "C" : meaning.kind === "fixed" ? "F" : "J"}${meanings.size}`;
-    const { boost: b, threshold } = thresholdFor(words, boost, shift);
+    const isName = meaning.kind === "card";
+    const { boost: b, threshold } = thresholdFor(words, boost + (isName ? nameBoost : 0), shift + (isName ? nameShift : 0));
     meanings.set(tag, meaning);
     lines.push(`${pieces.join(" ")} :${b} #${threshold} @${tag}`);
+    entries.push({ tag, kind: entryKind, spoken, tokens: pieces, boost: b, threshold, ...(meaning.kind === "card" ? { names: meaning.names } : {}) });
     return tag;
   };
 
-  for (const [spoken, canonical] of FIXED_PHRASES) { reserved.add(spoken); add(spoken, { kind: "fixed", canonical, spoken }); }
-  for (const [spoken, word] of JOINERS) { reserved.add(spoken); add(spoken, { kind: "joiner", word, spoken }); }
+  for (const [spoken, canonical] of FIXED_PHRASES) { reserved.add(spoken); add(spoken, { kind: "fixed", canonical, spoken }, "fixed"); }
+  for (const [spoken, word] of JOINERS) { reserved.add(spoken); add(spoken, { kind: "joiner", word, spoken }, "joiner"); }
   const fixed = meanings.size;
 
   // spoken phrase -> the card names that can be meant by it
@@ -96,29 +134,33 @@ export function buildPhrases(names: readonly string[], sp: SentencePiece, option
     // "The Winged Dragon of Ra" is said without "The" as often as with it.
     const forms = [spoken.split(" ")]; if (/^THE /.test(spoken) && forms[0].length > 2) forms.push(forms[0].slice(1));
     for (const words of forms) {
-      put(full, words.join(" "), name);
-      for (let count = 2; count < words.length; count++) {
-        if (FUNCTION_WORDS.has(words[count - 1])) continue;
-        put(runs, words.slice(0, count).join(" "), name);
+      for (const variant of variantsOf(words)) put(full, variant.join(" "), name);
+      // Every run of 2 to 4 words inside the name ("blue eyes", "haunted mansion", "number thirty nine"), and every distinctive word.
+      for (let from = 0; from < words.length; from++) {
+        for (let count = 2; count <= RUN_MAX && from + count <= words.length; count++) {
+          const run = words.slice(from, from + count);
+          if (count === words.length || !usableRun(run)) continue;
+          for (const variant of variantsOf(run)) put(runs, variant.join(" "), name);
+        }
+        const word = words[from];
+        if (words.length > 1 && word.length >= 5 && !STOP.has(word) && !FUNCTION_WORDS.has(word)) for (const variant of variantsOf([word])) put(single, variant.join(" "), name);
       }
-      const first = words[0];
-      if (words.length > 1 && first.length >= 5 && !STOP.has(first) && !FUNCTION_WORDS.has(first)) put(single, first, name);
     }
   }
   let ambiguous = 0; const seen = new Set<string>();
-  const emit = (map: Map<string, Set<string>>) => {
+  const emit = (map: Map<string, Set<string>>, kind: PhraseEntry["kind"]) => {
     let count = 0;
     for (const [spoken, set] of map) {
       if (reserved.has(spoken) || seen.has(spoken)) continue;
       seen.add(spoken);
       const list = [...set]; if (list.length > 1) ambiguous++;
-      if (add(spoken, { kind: "card", names: list, spoken: spoken.toLowerCase() })) count++;
+      if (add(spoken, { kind: "card", names: list, spoken: spoken.toLowerCase() }, kind)) count++;
     }
     return count;
   };
   // A full name wins over a run or a word that another card shares: emit in that order.
-  const fullNames = emit(full); const runCount = emit(runs); const words = emit(single);
-  return { lines, meanings, counts: { fixed, fullNames, runs: runCount, words, ambiguous, skipped } };
+  const fullNames = emit(full, "full"); const runCount = emit(runs, "run"); const words = emit(single, "word");
+  return { lines, entries, meanings, counts: { fixed, fullNames, runs: runCount, words, ambiguous, skipped } };
 }
 
 /** A keyword that never fires, for the spotter's own list (streams carry the real phrases). */
@@ -129,26 +171,42 @@ export function placeholderLine(sp: SentencePiece): string {
 export type VoiceHit = { keyword: string; startTime?: number };
 export type Combined = { canonical: string; tags: string[]; heard: string[]; ambiguous: { spoken: string; names: string[] }[] };
 
+const VERBS = new Set(["effect", "activate", "activate effect"]);
+type Part = { text: string; verb?: boolean; names?: string[]; spoken?: string };
+
 /**
  * One utterance, in order. The spotter resets after every hit, so "main" can fire before "two" is said: the joiners
  * put the text back together ("main phase" + "two" = "main phase two", "end phase" + "turn" = "end turn").
+ * Card hits in a row narrow each other ("kashtira" + "fenrir" = Kashtira Fenrir), and a verb with one card, in either
+ * order ("effect of Fenrir", "Blue-Eyes effect", "activate Utopia"), becomes "activate effect of <card>".
  */
 export function combineHits(hits: readonly VoiceHit[], meanings: ReadonlyMap<string, PhraseMeaning>): Combined {
-  const parts: string[] = []; const tags: string[] = []; const heard: string[] = []; const ambiguous: Combined["ambiguous"] = [];
+  const parts: Part[] = []; const tags: string[] = []; const heard: string[] = [];
   for (const hit of hits) {
     const meaning = meanings.get(hit.keyword);
     if (!meaning) continue;
     tags.push(hit.keyword); heard.push(meaning.spoken.toLowerCase());
     const last = parts.length - 1;
-    if (meaning.kind === "fixed") parts.push(meaning.canonical);
+    if (meaning.kind === "fixed") parts.push({ text: meaning.canonical, verb: VERBS.has(meaning.canonical) });
     else if (meaning.kind === "card") {
-      if (meaning.names.length > 1) { ambiguous.push({ spoken: meaning.spoken, names: meaning.names }); parts.push(meaning.spoken); } else parts.push(meaning.names[0]);
-    } else if (meaning.word === "phase") { if (last < 0 || !/\bphase$/.test(parts[last])) parts.push("phase"); }
-    else if (meaning.word === "turn") { if (parts[last] === "end phase") parts[last] = "end turn"; else parts.push("turn"); }
-    else if (last >= 0 && /^main phase$/.test(parts[last])) parts[last] = `main phase ${meaning.word}`;
-    else parts.push(meaning.word);
+      const common = parts[last]?.names?.filter(name => meaning.names.includes(name)) ?? [];
+      if (common.length) { parts[last].names = common; parts[last].spoken = meaning.spoken }
+      else parts.push({ text: "", names: meaning.names, spoken: meaning.spoken });
+    } else if (meaning.word === "phase") { if (last < 0 || !/\bphase$/.test(parts[last].text)) parts.push({ text: "phase" }); }
+    else if (meaning.word === "turn") { if (parts[last]?.text === "end phase") parts[last].text = "end turn"; else parts.push({ text: "turn" }); }
+    else if (last >= 0 && /^main phase$/.test(parts[last].text)) parts[last].text = `main phase ${meaning.word}`;
+    else parts.push({ text: meaning.word });
   }
-  return { canonical: parts.join(" "), tags, heard, ambiguous };
+  const ambiguous: Combined["ambiguous"] = [];
+  for (const part of parts) if (part.names) {
+    if (part.names.length > 1) { ambiguous.push({ spoken: part.spoken!, names: part.names }); part.text = part.spoken!; } else part.text = part.names[0];
+  }
+  const verbs = parts.filter(part => part.verb); const cards = parts.filter(part => part.names);
+  let canonical: string;
+  if (verbs.length && cards.length === 1 && verbs.length + 1 === parts.length) canonical = `activate effect of ${cards[0].text}`;
+  else if (verbs.length > 1 && verbs.length === parts.length) canonical = verbs.map(part => part.text).sort((a, b) => b.length - a.length)[0];
+  else canonical = parts.map(part => part.text).join(" ");
+  return { canonical, tags, heard, ambiguous };
 }
 
 /** A bare one-word phase ("battle", "end") counts only as a short, isolated utterance. Longer chatter that contains it is ignored. */
@@ -156,5 +214,5 @@ export const BARE_WORD_MAX_MS = 1200;
 export function isChatter(combined: Combined, meanings: ReadonlyMap<string, PhraseMeaning>, speechMs: number): boolean {
   if (combined.tags.length !== 1) return false;
   const meaning = meanings.get(combined.tags[0]);
-  return meaning?.kind === "fixed" && !meaning.spoken.includes(" ") && speechMs > BARE_WORD_MAX_MS;
+  return (meaning?.kind === "fixed" || meaning?.kind === "card") && !meaning.spoken.includes(" ") && speechMs > BARE_WORD_MAX_MS;
 }

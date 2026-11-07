@@ -68,7 +68,7 @@ export function createKws(m: Mod, options: KwsOptions) {
       return h ? stream(h) : null;
     },
     /** Decodes everything ready and returns the hits. A hit resets the stream. */
-    run(s: KwsStream): KwsHit[] {
+    run(s: KwsStream, resetOnHit = true): KwsHit[] {
       const hits: KwsHit[] = [];
       while (m._SherpaOnnxIsKeywordStreamReady(handle, s.handle) === 1) {
         m._SherpaOnnxDecodeKeywordStream(handle, s.handle);
@@ -76,7 +76,7 @@ export function createKws(m: Mod, options: KwsOptions) {
         const json = m.UTF8ToString(m.getValue(r + 24, "i8*"));
         m._SherpaOnnxDestroyKeywordResult(r);
         const parsed = JSON.parse(json) as { keyword?: string; start_time?: number; timestamps?: number[]; tokens?: string[] };
-        if (parsed.keyword) { hits.push({ keyword: parsed.keyword, startTime: parsed.start_time ?? 0, timestamps: parsed.timestamps ?? [], tokens: parsed.tokens ?? [] }); m._SherpaOnnxResetKeywordStream(handle, s.handle); }
+        if (parsed.keyword) { hits.push({ keyword: parsed.keyword, startTime: parsed.start_time ?? 0, timestamps: parsed.timestamps ?? [], tokens: parsed.tokens ?? [] }); if (resetOnHit) m._SherpaOnnxResetKeywordStream(handle, s.handle); }
       }
       return hits;
     },

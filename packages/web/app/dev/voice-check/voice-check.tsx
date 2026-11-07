@@ -5,7 +5,7 @@ import { ygoModule, remoteActionSchema, type RemoteState } from "@yugidraft/shar
 import { interpret, type GrammarContext, type VoiceIntent } from "@/components/remote/ui/grammar";
 import { cardInfo, loadCards } from "@/components/remote/ui/catalog";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
-import { buildPhrases, combineHits, isChatter, placeholderLine, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
+import { DEFAULT_PHRASE_OPTIONS, buildPhrases, combineHits, isChatter, placeholderLine, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
 import { HEARD_PHASES, PHASE_LABEL, VOICE_PHASES, heardPhaseOf, judgePhaseWord, type HeardPhase, type VoicePhase } from "@/components/remote/ui/voice/phase-plausibility";
 import { KwsClient, type KwsReady, type KwsStatus, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
@@ -37,7 +37,7 @@ function describe(intent: VoiceIntent): string {
 function fixture(names: string[], phase: VoicePhase, turn: number): RemoteState {
   let state = { ...ygoModule.initialState({ seatCount: 2 }), turn, phase } as RemoteState;
   try {
-    names.slice(0, 4).forEach((name, index) => {
+    names.slice(0, 6).forEach((name, index) => {
       state = ygoModule.reduce(state, remoteActionSchema.parse({ type: "twin.place", actorSeat: index % 2, seat: index % 2, zone: "monster", at: 1000 + index,
         idempotencyKey: `voice-check-${index}`, card: { ref: `fx-${index}`, name, slot: Math.floor(index / 2) + 1, faceUp: true, position: "attack" } }));
     });
@@ -45,14 +45,19 @@ function fixture(names: string[], phase: VoicePhase, turn: number): RemoteState 
   return state;
 }
 
-const HEARD_LABEL: Record<HeardPhase, string> = { draw: "draw phase", standby: "standby", main: "main", main1: "main one", battle: "battle", main2: "main two", end: "end", endTurn: "end turn" };
+const HEARD_LABEL: Record<HeardPhase, string> = { draw: "draw phase", standby: "standby", main: "main / main phase", main1: "main one", battle: "battle / battle phase", main2: "main two", end: "end / end phase", endTurn: "end turn / pass" };
+/** The phase a heard word names, to mark the row that matches where the table is now. */
+const HEARD_TARGET: Partial<Record<HeardPhase, VoicePhase>> = { draw: "draw", standby: "standby", main1: "main1", battle: "battle", main2: "main2", end: "end" };
 
 export function VoiceCheck() {
   const [text, setText] = useState("Kashtira Fenrir\nKashtira Unicorn\nApophis the Dark\nBlue-Eyes White Dragon\nGhost Belle & Haunted Mansion\nNumber 39: Utopia");
   const [decks, setDecks] = useState<SavedDeck[]>([]);
   const [deckNote, setDeckNote] = useState("");
-  const [boost, setBoost] = useState(1.5);
-  const [shift, setShift] = useState(0);
+  const [boost, setBoost] = useState(DEFAULT_PHRASE_OPTIONS.boost);
+  const [nameBoost, setNameBoost] = useState(DEFAULT_PHRASE_OPTIONS.nameBoost);
+  const [nameShift, setNameShift] = useState(DEFAULT_PHRASE_OPTIONS.nameShift);
+  const [listFilter, setListFilter] = useState("");
+  const [shift, setShift] = useState(DEFAULT_PHRASE_OPTIONS.thresholdShift);
   const [trayOpen, setTrayOpen] = useState(false);
   const [status, setStatus] = useState<"off" | "loading" | "listening">("off");
   const [ready, setReady] = useState<KwsReady | null>(null);
@@ -71,7 +76,7 @@ export function VoiceCheck() {
   const client = useRef<KwsClient | null>(null);
   const meaningsRef = useRef<PhraseSet["meanings"]>(new Map());
   const names = useMemo(() => [...new Set(text.split("\n").map(line => line.trim()).filter(Boolean))], [text]);
-  const set = useMemo(() => buildPhrases(names, sp, { boost, thresholdShift: shift }), [names, boost, shift]);
+  const set = useMemo(() => buildPhrases(names, sp, { boost, thresholdShift: shift, nameBoost, nameShift }), [names, boost, shift, nameBoost, nameShift]);
   const lines = useMemo(() => set.lines.join("/"), [set]);
   const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names, simPhase, simTurn), players: PLAYERS, me: 0, trayOpen, cardNames: names, now: 1100 }), [names, trayOpen, simPhase, simTurn]);
   const sim = useMemo(() => ({ phase: simPhase, turn: simTurn, mine: simMine }), [simPhase, simTurn, simMine]);
@@ -122,7 +127,7 @@ export function VoiceCheck() {
         }
       }
     }
-    if (combined.ambiguous.length) note = [note, `ambiguous: ${combined.ambiguous.map(a => `${a.spoken} = ${a.names.join(" | ")}`).join("; ")}`].filter(Boolean).join("; ");
+    if (combined.ambiguous.length) note = [note, combined.ambiguous.map(a => `ambiguous: ${a.names.join(" or ")}`).join("; ")].filter(Boolean).join("; ");
     const acts = intent.kind !== "none" && intent.kind !== "name";
     if (left !== null) setChat(counts => ({ utterances: counts.utterances + 1, hits: counts.hits + (hits.length ? 1 : 0), acts: counts.acts + (acts ? 1 : 0) }));
     if (!hits.length && left === null) return;
@@ -189,21 +194,23 @@ export function VoiceCheck() {
           <span>{deckNote}</span>
         </div>
         <div>
-          <label>Boost {boost.toFixed(1)} <input type="range" min={0.5} max={4} step={0.1} value={boost} onChange={e => setBoost(Number(e.target.value))} /></label>{" "}
-          <label>Threshold shift {shift >= 0 ? "+" : ""}{shift.toFixed(2)} <input type="range" min={-0.2} max={0.4} step={0.05} value={shift} onChange={e => setShift(Number(e.target.value))} /></label>{" "}
+          <label>Boost {boost.toFixed(1)} <input type="range" min={0} max={4} step={0.1} value={boost} onChange={e => setBoost(Number(e.target.value))} /></label>{" "}
+          <label>Threshold shift {shift >= 0 ? "+" : ""}{shift.toFixed(2)} <input type="range" min={-0.4} max={0.4} step={0.05} value={shift} onChange={e => setShift(Number(e.target.value))} /></label>{" "}
+          <label>Name boost {nameBoost >= 0 ? "+" : ""}{nameBoost.toFixed(1)} <input type="range" min={-1} max={2} step={0.1} value={nameBoost} onChange={e => setNameBoost(Number(e.target.value))} /></label>{" "}
+          <label>Name threshold shift {nameShift >= 0 ? "+" : ""}{nameShift.toFixed(2)} <input type="range" min={-0.2} max={0.4} step={0.05} value={nameShift} onChange={e => setNameShift(Number(e.target.value))} /></label>{" "}
           <label><input type="checkbox" checked={trayOpen} onChange={e => setTrayOpen(e.target.checked)} /> card tray open</label>
         </div>
         <div data-testid="phase-sim" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
           <b>Phase simulator</b> (spoken phase words are judged against this; an accepted word moves it)<br />
-          Current phase: <b data-testid="sim-phase">{PHASE_LABEL[simPhase]}</b>{" "}
+          Current phase: <b data-testid="sim-phase" style={{ color: "#e0b050" }}>{PHASE_LABEL[simPhase]}</b>{" "}
           {VOICE_PHASES.map(phase => <button key={phase} onClick={() => setSimPhase(phase)} style={phase === simPhase ? { background: "#6b4a1a", borderColor: "#e0b050" } : undefined}>{PHASE_LABEL[phase]}</button>)}<br />
           <label>Turn <input type="number" min={1} value={simTurn} onChange={e => setSimTurn(Math.max(1, Number(e.target.value) || 1))} style={{ width: 56 }} /></label>{" "}
           <label><input type="checkbox" checked={simMine} onChange={e => setSimMine(e.target.checked)} /> I am the turn player</label>
           <table style={{ borderCollapse: "collapse", marginTop: 6, fontSize: 13 }} data-testid="sim-table">
-            <thead><tr><th style={cell}>Heard</th><th style={cell}>Result</th></tr></thead>
+            <thead><tr><th style={cell}>Heard (now in {PHASE_LABEL[simPhase]}, turn {simTurn})</th><th style={cell}>Result</th></tr></thead>
             <tbody>{HEARD_PHASES.map(heard => {
               const verdict = judgePhaseWord(simPhase, simTurn, simMine, heard);
-              return <tr key={heard}><td style={cell}>{HEARD_LABEL[heard]}</td>
+              return <tr key={heard} style={HEARD_TARGET[heard] === simPhase ? { background: "#2a2414" } : undefined}><td style={cell}>{HEARD_LABEL[heard]}{HEARD_TARGET[heard] === simPhase ? " (current phase)" : ""}</td>
                 <td style={{ ...cell, color: verdict.accept ? "#8c6" : "#aaa" }}>{verdict.accept ? `accept: ${verdict.move.kind === "turn" ? "end the turn" : `go to ${PHASE_LABEL[verdict.move.phase]}`}` : `ignore: ${verdict.reason}`}</td></tr>;
             })}</tbody>
           </table>
@@ -212,6 +219,18 @@ export function VoiceCheck() {
           {set.lines.length} phrases: {set.counts.fixed} fixed, {set.counts.fullNames} full names, {set.counts.runs} word runs, {set.counts.words} one-word partials, {set.counts.ambiguous} shared by 2+ cards
           {set.counts.skipped.length ? `, skipped ${set.counts.skipped.length}: ${set.counts.skipped.slice(0, 5).join(", ")}` : ""}
         </div>
+        <details data-testid="keyword-list">
+          <summary>Keyword list sent to the model ({set.entries.length} phrases: what can be heard, with tokens, boost and threshold)</summary>
+          <input value={listFilter} onChange={e => setListFilter(e.target.value)} placeholder="filter, for example fenrir" style={{ width: 260, margin: "6px 0", background: "#1c1c1c", color: "#eee" }} />
+          <div style={{ maxHeight: 320, overflow: "auto" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
+              <thead><tr><th style={cell}>Kind</th><th style={cell}>Spoken</th><th style={cell}>Tokens</th><th style={cell}>Boost</th><th style={cell}>Thr</th><th style={cell}>Card</th></tr></thead>
+              <tbody>{set.entries.filter(e => !listFilter || `${e.spoken} ${e.names?.join(" ") ?? ""}`.toLowerCase().includes(listFilter.toLowerCase())).slice(0, 400).map(e => (
+                <tr key={e.tag}><td style={cell}>{e.kind}</td><td style={cell}>{e.spoken.toLowerCase()}</td><td style={cell}>{e.tokens.join(" ")}</td><td style={cell}>{e.boost}</td><td style={cell}>{e.threshold}</td>
+                  <td style={cell}>{e.names ? (e.names.length > 1 ? `${e.names.length} cards: ` : "") + e.names.join(" | ") : ""}</td></tr>))}</tbody>
+            </table>
+          </div>
+        </details>
         <div>
           {status === "off" ? <button onClick={() => start()} data-testid="start">Start</button> : <button onClick={stop}>Stop</button>}{" "}
           <span data-testid="status">{status}</span>{" "}
