@@ -331,27 +331,26 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
   const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
   useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
-  const lastMode = useRef<DetectionMode | null>(null);
+  // The last known mode bridges a camera change, when the watcher reloads its settings and the mode is unknown for a moment.
+  const [knownMode, setKnownMode] = useState<DetectionMode | null>(null);
   useEffect(() => {
     if (!detectMode) return;
-    const was = lastMode.current; lastMode.current = detectMode;
-    if (!was || was === detectMode) return;
-    // The player switched mode here: the old choice is dropped, the new mode's default applies.
-    setChoice({ hidden: null, mode: detectMode });
+    setKnownMode(detectMode);
+    // A choice made in the other mode is dropped; the new mode's default applies. A change of nothing leaves the keys alone.
+    if (choice.hidden === null || choice.mode === null || choice.mode === detectMode) return;
+    setChoice({ hidden: null, mode: null });
     try { localStorage.removeItem(WEBCAM_ONLY_KEY); localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked */ }
-  }, [detectMode]);
-  const webcamOnly = resolveWebcamOnly(choice, detectMode);
+  }, [detectMode, choice]);
+  const shownMode = detectMode ?? knownMode;
+  const webcamOnly = resolveWebcamOnly(choice, shownMode);
   const setWebcamOnly = useCallback((next: boolean) => {
-    setChoice({ hidden: next, mode: detectMode });
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (detectMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, detectMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
-  }, [detectMode]);
+    setChoice({ hidden: next, mode: shownMode });
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (shownMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, shownMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
+  }, [shownMode]);
   /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
   // Another player in Tap to identify: the camera names no zones, so attacks need the board. Not my own seat: my camera stays where it is.
   const tapSeats = useSyncExternalStore(hub.subscribeFieldBacks, () => room.seats.filter(item => item.seat !== room.mySeat && hub.tapMode(item.seat)).map(item => item.seat).join(","), () => "");
-  // My Tap to identify default hides the fields. An opponent's field that has cards stays shown (it follows their camera), unless I hid the fields by hand.
-  const opponentFieldShown = (seat: number) => detectMode === "tap" && choice.hidden === null && seat !== mySeat && !solo
-    && !!state.seats[seat]?.twin.some(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
-  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat)) || opponentFieldShown(seat);
+  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
   /** The read in progress. No popup is open for it, so Esc, another layer and the time limit stop it here. */
@@ -1366,7 +1365,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
-        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),
+        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone: zone as "graveyard" | "banished", cardRefs }),
         onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
       } : {})} /> : null}

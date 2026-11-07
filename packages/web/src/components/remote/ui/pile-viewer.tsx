@@ -10,8 +10,9 @@ import type { Verdict } from "./placement";
 import { BigArt, CardText, type Rect } from "./popup";
 import s from "./remote-ui.module.css";
 
-export type PileZone = "graveyard" | "banished";
-export const PILE_LABEL: Record<PileZone, string> = { graveyard: "Graveyard", banished: "Banished" };
+/** Graveyard and Banished are public. Deck and Extra Deck are private: only the owner opens them (the cards the table holds there). */
+export type PileZone = "graveyard" | "banished" | "deck" | "extra";
+export const PILE_LABEL: Record<PileZone, string> = { graveyard: "Graveyard", banished: "Banished", deck: "Deck", extra: "Extra Deck" };
 
 /** The cards of one pile, newest first. The twin list keeps GY and banished cards oldest to newest, so the newest is the last. */
 export const pileCards = (twin: readonly TwinCard[], zone: PileZone): TwinCard[] => twin.filter(card => card.zone === zone).reverse();
@@ -32,8 +33,11 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   /** Owner only. Names an unnamed face-up card (`card.identified` with its ref), and removes a card (`twin.remove`). */
   onName?: (card: TwinCard, cardId: number, name: string) => void; onRemove?: (card: TwinCard) => void;
 }) {
-  const cards = pileCards(twin, zone);
-  const counts: Record<PileZone, number> = { graveyard: pileCards(twin, "graveyard").length, banished: pileCards(twin, "banished").length };
+  // An opponent's Deck and Extra Deck stay private, even if the viewer is pointed at them.
+  const cards = !mine && (zone === "deck" || zone === "extra") ? [] : pileCards(twin, zone);
+  const counts: Record<PileZone, number> = { graveyard: pileCards(twin, "graveyard").length, banished: pileCards(twin, "banished").length, deck: pileCards(twin, "deck").length, extra: pileCards(twin, "extra").length };
+  // Only Graveyard and Banished have an order the table can change.
+  const canOrder = !!onOrder && (zone === "graveyard" || zone === "banished");
   const list = useRef<HTMLUListElement>(null);
   const [active, setActive] = useState(0);
   const [hot, setHot] = useState<string | null>(null);
@@ -86,7 +90,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
 
   /** Swaps a tile with its newer (-1) or older (+1) neighbour. The viewer lists newest first; the action wants oldest first. */
   function shift(index: number, by: -1 | 1) {
-    const next = [...cards]; const to = index + by; if (!onOrder || ordering || to < 0 || to >= next.length) return;
+    const next = [...cards]; const to = index + by; if (!canOrder || !onOrder || ordering || to < 0 || to >= next.length) return;
     [next[index], next[to]] = [next[to], next[index]];
     setOrdering(true);
     void Promise.resolve(onOrder(zone, next.map(card => card.ref).reverse())).finally(() => setOrdering(false));
@@ -108,7 +112,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
       <div className={s.pileHead}>
         <h2 className={s.pileTitle}>{name}<small>{mine ? "your pile" : "public pile"}</small></h2>
         <div className={s.seg} role="group" aria-label="Pile">
-          {(["graveyard", "banished"] as const).map(id => <button type="button" key={id} aria-pressed={zone === id} data-testid={`pile-tab-${id}`} onClick={() => { setActive(0); setHot(null); onZone(id); }}>{PILE_LABEL[id]} <b>{counts[id]}</b></button>)}
+          {((mine ? ["graveyard", "banished", "deck", "extra"] : ["graveyard", "banished"]) as PileZone[]).map(id => <button type="button" key={id} aria-pressed={zone === id} data-testid={`pile-tab-${id}`} onClick={() => { setActive(0); setHot(null); onZone(id); }}>{PILE_LABEL[id]} <b>{counts[id]}</b></button>)}
         </div>
         <button type="button" className={s.ibtn} aria-label="Close pile" onClick={onClose} data-testid="pile-close"><Icon name="x" /></button>
       </div>
@@ -131,7 +135,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
                 <span className={s.pileNo}>{index === 0 ? "TOP" : index + 1}</span>
                 <span className={s.pileName}>{title}</span>
               </button>
-              {onOrder && cards.length > 1 ? <span className={s.pileOrd}>
+              {canOrder && cards.length > 1 ? <span className={s.pileOrd}>
                 <button type="button" disabled={ordering || index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
                 <button type="button" disabled={ordering || index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
               </span> : null}
@@ -151,7 +155,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         <p className={s.dmeta}>Selected: card {at + 1} of {cards.length}</p>
         <NameIt key={previewCard!.ref} onName={(id, nm) => onName!(previewCard!, id, nm)} onRemove={onRemove ? () => onRemove(previewCard!) : undefined} />
       </div> : null}
-      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{onOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? `, drag a card to ${fieldHidden ? "the hand" : "the field or hand"} to bring it back` : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
+      <p className={s.pileHint}>{cards.length ? <>Newest first. <kbd>Arrows</kbd> move, <kbd>Enter</kbd> opens a card{canOrder ? ", the arrow buttons on a card change the order" : ""}{dnd ? `, drag a card to ${fieldHidden ? "the hand" : "the field or hand"} to bring it back` : ""}. <kbd>Esc</kbd> closes.</> : <><kbd>Esc</kbd> closes.</>}</p>
     </div>
     {dnd ? <div className={s.pileHand} data-hand-drop data-testid="pile-hand-drop" aria-hidden="true"><Icon name="hand" />Drop here: to hand</div> : null}
     {dragging && typeof document !== "undefined" ? createPortal(<DragGhost card={twin.find(card => card.ref === dragging.ref)} info={info} x={dragging.x} y={dragging.y} verdict={dragging.verdict} />, document.body) : null}

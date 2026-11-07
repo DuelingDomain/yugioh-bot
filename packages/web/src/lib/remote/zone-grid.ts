@@ -97,11 +97,11 @@ export function useMissingPiles(seat: number): readonly string[] {
   return value.seat === seat ? value.zones : [];
 }
 /** "Scan field" beside the virtual board: the field watcher re-syncs the board at once. Local only. `ready` is false while the camera is off. */
-export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; ready: boolean; scan?: () => void; setDetection?: (on: boolean) => void }
+export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; /** The saved mode is read, so `enabled` is the player's mode. */ loaded?: boolean; ready: boolean; scan?: () => void; setDetection?: (on: boolean) => void }
 let fieldScan: FieldScanState = { seat: null, scanning: false, enabled: false, ready: false };
 const scanListeners = new Set<() => void>();
 export function publishFieldScan(next: FieldScanState) {
-  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.ready === next.ready && fieldScan.scan === next.scan && fieldScan.setDetection === next.setDetection) return;
+  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.loaded === next.loaded && fieldScan.ready === next.ready && fieldScan.scan === next.scan && fieldScan.setDetection === next.setDetection) return;
   fieldScan = next; for (const listener of scanListeners) listener();
 }
 /** Starts a field scan for my seat when the camera is on and auto-detect is watching; the S key calls it. Returns false when it did nothing. */
@@ -110,19 +110,20 @@ export function runFieldScan(): boolean {
   fieldScan.scan(); return true;
 }
 const useFieldScanStore = () => useSyncExternalStore(listener => { scanListeners.add(listener); return () => { scanListeners.delete(listener); }; }, () => fieldScan, () => fieldScan);
-/** Card detection of my seat at the table: Auto-detect or Tap to identify. Null before the watcher is on the page. */
+/** Card detection of my seat at the table: Auto-detect or Tap to identify. Null before the watcher is on the page and has read the saved mode. */
 export function useCardDetection(): { seat: number; autoDetect: boolean; set: (on: boolean) => void } | null {
   const value = useFieldScanStore();
-  return value.seat !== null && value.setDetection ? { seat: value.seat, autoDetect: value.enabled, set: value.setDetection } : null;
+  return value.seat !== null && value.setDetection && value.loaded ? { seat: value.seat, autoDetect: value.enabled, set: value.setDetection } : null;
 }
 /** Read outside React: this seat is mine and in Tap to identify. */
 export const tapToIdentifyNow = (seat: number) => fieldScan.seat === seat && !!fieldScan.setDetection && !fieldScan.enabled;
-/** Card detection of my seat as a name; null while there is no watcher (no camera yet). */
+/** Card detection of my seat as a name. */
 export type DetectionMode = "auto" | "tap";
 /**
  * The virtual field in "Webcam only" terms. In Tap to identify the board does not follow the camera, so it starts hidden;
  * with Auto-detect it starts shown. A choice made by hand wins while the mode stays the same; a mode change drops it.
- * With no known mode (no camera) the old default stays: hidden.
+ * A null mode (the watcher is not on the page yet, or has not read the saved mode) resolves to hidden until the first mode is known.
+ * A player with no camera still has the watcher's default, "auto", so the field shows for them.
  */
 export function resolveWebcamOnly(choice: { hidden: boolean | null; mode: string | null }, mode: DetectionMode | null): boolean {
   if (choice.hidden !== null && (mode === null || choice.mode === null || choice.mode === mode)) return choice.hidden;

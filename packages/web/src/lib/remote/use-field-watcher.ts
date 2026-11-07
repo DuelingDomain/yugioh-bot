@@ -154,7 +154,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration,galleryKey]);
-  return {placed,aspectChanged,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
+  return {placed,aspectChanged,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,/** The saved detection mode is read: `enabled` is not the player's mode before this. */ settingsLoaded:loaded===storageKey,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>watcher.current?.confirm(id,cardId,ref,human),[]),
     dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),

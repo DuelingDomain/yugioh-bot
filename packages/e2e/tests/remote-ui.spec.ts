@@ -1738,8 +1738,10 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     for(const page of [a,b])await page.getByTestId('camera-on-feed').click();
     const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
     const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
-    const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
-    expect(await boxes()).toEqual(shown);
+    await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
+    // Tap to identify starts with the virtual field hidden, so the camera may move once. After that it stays put.
+    await expect(a.getByTestId('field-toggle-0')).toContainText('Show virtual field');
+    const settled=await boxes();await a.waitForTimeout(800);expect(await boxes()).toEqual(settled);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the Settings menu; the checkbox follows.
     await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();

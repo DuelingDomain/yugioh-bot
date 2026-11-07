@@ -35,7 +35,7 @@ export type SeatPanelProps = {
   twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; extraZones?: boolean; facing?: { name: string; twin: readonly TwinCard[] } | null; boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[]; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
-  onPile?: (zone: "graveyard" | "banished", opener: HTMLElement | null) => void;
+  onPile?: (zone: "graveyard" | "banished" | "deck" | "extra", opener: HTMLElement | null) => void;
   drag?: FieldDrag;
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
@@ -93,6 +93,7 @@ export function SeatPanel(p: SeatPanelProps) {
     setDelta(p.lp - previous.current); previous.current = p.lp;
     const timer = setTimeout(() => setDelta(0), 2400); return () => clearTimeout(timer);
   }, [p.lp]);
+  const deckHeld = p.twin.filter(card => card.zone === "deck").length, extraHeld = p.twin.filter(card => card.zone === "extra").length;
   const gy = p.twin.filter(card => card.zone === "graveyard").length; const banished = p.twin.filter(card => card.zone === "banished").length;
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
@@ -104,6 +105,10 @@ export function SeatPanel(p: SeatPanelProps) {
       {p.webcamOnly && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
         <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
         <button type="button" onClick={event => p.onPile?.("banished", event.currentTarget)} aria-label={`${p.name} Banished: ${banished} cards. Open`}>BAN <b className={s.num}>{banished}</b></button>
+        {p.you ? <>
+          <button type="button" onClick={event => p.onPile?.("deck", event.currentTarget)} aria-label={`${p.name} Deck: ${deckHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered deck: ${p.deckListSizes.deck} cards` : undefined}>DECK <b className={s.num}>{deckHeld}</b></button>
+          <button type="button" onClick={event => p.onPile?.("extra", event.currentTarget)} aria-label={`${p.name} Extra Deck: ${extraHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered Extra Deck: ${p.deckListSizes.extra} cards` : undefined}>EX <b className={s.num}>{extraHeld}</b></button>
+        </> : null}
       </span> : null}
       {p.webcamOnly && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
