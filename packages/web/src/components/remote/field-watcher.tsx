@@ -729,15 +729,23 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
     if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
-  // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`). Own state, so it never uses up the Tap offer. Only the player changes the rate.
+  // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
+  // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
   const videoOfferable=ownsSource&&hub.videoRateAvailable&&hub.cameraOn&&room.status==='active'&&hub.videoRate===30;
   useEffect(()=>{
     if(videoOffer&&!videoOfferable)setVideoOffer(false);
-    if(videoOffer||!videoOfferable||videoOfferShown()||readVideoChoice())return;
-    if(hub.cpuConstrained&&!document.hidden){markVideoOfferShown();setVideoOffer(true);}
-  },[videoOffer,videoOfferable,hub.cpuConstrained]);
-  useEffect(()=>{if(!videoOffer)return;const timer=setTimeout(()=>setVideoOffer(false),VIDEO_OFFER_MS);return()=>clearTimeout(timer);},[videoOffer]);
+    if(videoOffer||!videoOfferable||videoOfferShown()||readVideoChoice()||!hub.cpuConstrained||document.hidden)return;
+    let live=true;
+    void hub.cpuStillLimited().then(still=>{if(live&&still&&!document.hidden)setVideoOffer(true);});
+    return()=>{live=false;};
+  },[videoOffer,videoOfferable,hub.cpuConstrained,hub.cpuStillLimited]);
+  const videoOfferShowing=videoOffer&&!failedUpdate&&!recovery&&!syncHold&&!shiftHint&&!notice&&!tapOffer;
+  useEffect(()=>{
+    if(!videoOfferShowing)return;
+    markVideoOfferShown();
+    const timer=setTimeout(()=>setVideoOffer(false),VIDEO_OFFER_MS);return()=>clearTimeout(timer);
+  },[videoOfferShowing]);
   const answerVideoOffer=(rate:15|30)=>{hub.setVideoRate(rate);setVideoOffer(false);};
   // No answer in time: the offer goes and nothing is saved.
   useEffect(()=>{if(!tapOffer)return;const timer=setTimeout(()=>setTapOffer(false),TAP_OFFER_MS);return()=>clearTimeout(timer);},[tapOffer]);
@@ -1104,7 +1112,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={scanField}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">This computer is slow for live tracking. Switch to tap-to-identify?<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOffer?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:undefined}/>
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">This computer is slow for live tracking. Switch to tap-to-identify?<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
   </>;
 }

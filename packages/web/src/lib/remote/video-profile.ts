@@ -107,16 +107,22 @@ export async function republishAsFallback(participant: LocalParticipant, camera:
 /**
  * An encoder can fail after a good publish (the browser lists H.264 but makes no frames): opponents then see no video.
  * A zero only counts when the room and the publisher connection are connected, the camera runs and its sender exists; slow ICE or a reconnect
- * is not an encoder fault. Two such checks in a row with zero frames (`waitMs` apart) publish again as VP8, at most 4 checks in all.
- * A failed second publish is retried once with a fresh capture, then reported through `failed`. Returns a cancel function.
+ * is not an encoder fault. Two such checks in a row with zero frames (`waitMs` apart) publish again as VP8. Only checks that count are limited
+ * (4); a connection that is not ready yet is waited for, up to 12 checks in all. A failed second publish is retried once with a fresh capture,
+ * then reported through `failed`. Returns a cancel function.
  */
-export function watchEncoder(participant: LocalParticipant, camera: LocalVideoTrack, codec: string, hooks: { closed: () => boolean; connected: () => boolean; rate: () => VideoRate; republished: () => void; failed: (error: unknown) => void }, waitMs: number = CAMERA_PUBLISH.encoderCheckMs): () => void {
+export function watchEncoder(participant: LocalParticipant, camera: LocalVideoTrack, codec: string, hooks: { closed: () => boolean; connected: () => boolean; rate: () => VideoRate; /** Runs one publish step after the ones before it. */ run: <T>(work: () => Promise<T>) => Promise<T>; republished: () => void; failed: (error: unknown) => void }, waitMs: number = CAMERA_PUBLISH.encoderCheckMs): () => void {
   if (codec === CAMERA_PUBLISH.fallbackCodec) return () => undefined;
-  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, checks = 0, zeros = 0;
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, checks = 0, counted = 0, zeros = 0;
   const gone = () => stopped || hooks.closed();
   const republish = async () => {
     for (let attempt = 0; ; attempt++) {
-      try { await republishAsFallback(participant, camera, gone, hooks.rate()); if (!gone()) hooks.republished(); return; }
+      try {
+        // The step is queued behind other publishes (a rate change): look again when it starts.
+        const done = await hooks.run(async () => { if (gone()) return false; await republishAsFallback(participant, camera, gone, hooks.rate()); return true; });
+        if (done && !hooks.closed()) hooks.republished();
+        return;
+      }
       catch (error) { if (gone()) return; if (attempt >= 1) { hooks.failed(error); return; } }
     }
   };
@@ -127,11 +133,12 @@ export function watchEncoder(participant: LocalParticipant, camera: LocalVideoTr
       const ready = hooks.connected() && publisherConnected(participant) && !camera.isMuted && !camera.mediaStreamTrack.muted
         && camera.mediaStreamTrack.readyState === "live" && !!camera.sender;
       if (ready) {
+        counted++;
         if (await framesEncoded(camera) > 0) return;
         if (++zeros >= 2) { await republish(); return; }
       } else zeros = 0;
     } catch { zeros = 0; }
-    if (checks < 4) timer = setTimeout(() => void check(), waitMs);
+    if (counted < 4 && checks < 12) timer = setTimeout(() => void check(), waitMs);
   };
   timer = setTimeout(() => void check(), waitMs);
   return () => { stopped = true; clearTimeout(timer); };
@@ -152,6 +159,12 @@ export async function applyCameraRate(participant: LocalParticipant, camera: Loc
       // The low and mid layers keep their own bitrate caps; the full layer (and a single stream) follows the rate.
       parameters.encodings.forEach(encoding => { encoding.maxFramerate = rate; if (encoding.rid !== "q" && encoding.rid !== "h") encoding.maxBitrate = topAt(rate).maxBitrate; });
       await sender.setParameters(parameters);
+    }
+    // The SDK reads these objects again after a full reconnect, a restart with another resolution and a late backup codec: keep them in step.
+    const next = cameraPublishOptions(codec, rate);
+    const publication = participant.getTrackPublication(Track.Source.Camera) as { options?: Record<string, unknown> } | undefined;
+    for (const options of [camera.publishOptions as Record<string, unknown> | undefined, publication?.options]) {
+      if (options) Object.assign(options, { videoEncoding: next.videoEncoding, videoSimulcastLayers: next.videoSimulcastLayers, backupCodec: next.backupCodec });
     }
     return "live";
   } catch {
@@ -179,16 +192,23 @@ export async function cpuLimited(camera: LocalVideoTrack): Promise<boolean> {
  * held for `holdMs` in a row while the page was visible (a hidden tab throttles timers and encoders and starts the count again).
  * Start it from the event. Returns a cancel function.
  */
-export function watchCpuLimit(camera: LocalVideoTrack, sustained: () => void, holdMs = 20_000, everyMs = 5000): () => void {
+export function watchCpuLimit(camera: LocalVideoTrack, sustained: () => void, ended: () => void, holdMs = 20_000, everyMs = 5000): () => void {
   let stopped = false, since: number | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  // The watch ends on its own (sustained, the limit went away, stats failed): tell the owner, so a later event can start a new one. Not after a cancel.
+  const finish = (sustain: boolean) => { if (stopped) return; stopped = true; ended(); if (sustain) sustained(); };
   const sample = async () => {
     if (stopped) return;
     try {
       const hidden = typeof document !== "undefined" && document.hidden;
       if (hidden) since = undefined;
-      else if (await cpuLimited(camera)) { since ??= Date.now(); if (Date.now() - since >= holdMs) { sustained(); return; } }
-      else return; // The limit went away: a later event starts a new watch.
-    } catch { return; }
+      else {
+        const limited = await cpuLimited(camera);
+        if (stopped) return;
+        if (!limited) return finish(false); // The limit went away: a later event starts a new watch.
+        since ??= Date.now();
+        if (Date.now() - since >= holdMs) return finish(true);
+      }
+    } catch { return finish(false); }
     timer = setTimeout(() => void sample(), everyMs);
   };
   timer = setTimeout(() => void sample(), everyMs);

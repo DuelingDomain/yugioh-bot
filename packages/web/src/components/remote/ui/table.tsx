@@ -102,6 +102,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
     {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
+    {hub.sendFailed ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} data-testid="retry-video" onClick={() => hub.retryVideo()}>Retry video</button> : null}
     <CameraSettingsMore lock={hub.cameraLock} />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
