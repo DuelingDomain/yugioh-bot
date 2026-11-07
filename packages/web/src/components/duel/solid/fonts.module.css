@@ -1,0 +1,4 @@
+.fonts {
+  --sv-font: "Solid UI Ext", var(--sv-font-base);
+  --sv-font-num: "Solid Numerals Ext", var(--sv-font-num-base);
+}

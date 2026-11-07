@@ -4,10 +4,6 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 const getDuelCards = vi.hoisted(() => vi.fn());
 vi.mock("@/components/duel/api", () => ({ getDuelCards }));

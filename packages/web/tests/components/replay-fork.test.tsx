@@ -6,10 +6,6 @@ import type { DuelRoom, ReplayForkControl } from "@yugidraft/shared/duels";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV2, session } from "./replay-fixtures";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));

@@ -14,11 +14,6 @@ export function LinkStub({ href, children, ...props }: React.AnchorHTMLAttribute
   );
 }
 
-export function fontMock() {
-  const font = () => ({ className: "font-class", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-}
-
 export const NOT_LIVE = { yourDuel: null, liveCount: 0 };
 
 export function stubFetch(

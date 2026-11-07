@@ -9,10 +9,6 @@ import { normalizeReplay } from "@/components/duel/replay-controller";
 import { DuelReplayView } from "@/components/duel/replay";
 import { replayV2 } from "./replay-fixtures";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));

@@ -6,10 +6,6 @@ import { describeWithCores, needs } from "../../duel-server/tests/support/cores"
 import { liveNseat } from "../../duel-server/tests/support/live-nseat";
 import { FIRST, openDetachGame, openDuoDrive, reachDetach, SECOND, XYZ } from "../../duel-server/tests/support/xyz-detach";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("@/components/duel/api", () => ({ getDuelCards: vi.fn(async () => ({ cards: [] })) }));
 
 type Dom = {

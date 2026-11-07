@@ -16,10 +16,6 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font-class", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 // A player who is in a lobby or a live draft gets a way back into it from the Dashboard and the Drafts page.
 

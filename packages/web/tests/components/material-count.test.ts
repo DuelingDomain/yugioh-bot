@@ -4,10 +4,6 @@ import type { PromptDraft } from "@/components/duel/prompts";
 import { materialCountScenarios, runMaterialCountScenario } from "../../../duel-server/tests/material-count-fixture.js";
 import { describeWithCores, needs } from "../../../duel-server/tests/support/cores.js";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 import { pickCopy } from "@/components/duel/prompt-center";
 import { canConfirm } from "@/components/duel/prompts";

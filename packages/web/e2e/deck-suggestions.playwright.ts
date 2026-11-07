@@ -367,12 +367,12 @@ await build({
   plugins: [{
     name: "suggestions-next-stubs", enforce: "pre",
     resolveId(source: string) {
-      if (source === "next/font/google" || source === "next/font/local") return "\0fonts";
+      if (source === "next/font/local") return "\0fonts";
       if (source === "next/link") return "\0link";
       if (source === "next/image") return "\0image";
     },
     load(source: string) {
-      if (source === "\0fonts") return `const font = () => ({ className: "", variable: "", style: {} }); export { font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed, font as Barlow_Condensed, font as Barlow_Semi_Condensed }; export default font;`;
+      if (source === "\0fonts") return `const font = () => ({ className: "", variable: "", style: {} }); export default font;`;
       if (source === "\0link") return `import { createElement } from "react"; export default function Link({ href, prefetch, ...rest }) { return createElement("a", { href: String(href), ...rest }); }`;
       if (source === "\0image") return `import { createElement } from "react"; export default function Image({ src, alt, fill, priority, unoptimized, ...rest }) { return createElement("img", { src: String(src), alt, ...rest }); }`;
     },

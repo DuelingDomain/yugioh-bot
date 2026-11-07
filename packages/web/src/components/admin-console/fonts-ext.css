@@ -1,0 +1,46 @@
+/* Non-Latin Google Fonts subsets. Keep the original unicode-range values.
+ * These faces load only when their characters are rendered; do not preload them.
+ * Sources and licenses: src/lib/fonts/README.md. */
+
+/* Schibsted Grotesk — latin-ext */
+@font-face {
+  font-family: "Admin Sans Ext";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(./../../lib/fonts/schibsted-grotesk-400-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Martian Mono — cyrillic-ext */
+@font-face {
+  font-family: "Admin Mono Ext";
+  font-style: normal;
+  font-weight: 400 500;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(./../../lib/fonts/martian-mono-400-500-cyrillic-ext.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+
+/* Martian Mono — cyrillic */
+@font-face {
+  font-family: "Admin Mono Ext";
+  font-style: normal;
+  font-weight: 400 500;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(./../../lib/fonts/martian-mono-400-500-cyrillic.woff2) format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+/* Martian Mono — latin-ext */
+@font-face {
+  font-family: "Admin Mono Ext";
+  font-style: normal;
+  font-weight: 400 500;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(./../../lib/fonts/martian-mono-400-500-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}

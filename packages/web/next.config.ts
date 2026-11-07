@@ -7,7 +7,9 @@ const worktreeRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  experimental: { turbopackFileSystemCacheForBuild: process.env.NEXT_BUILD_FS_CACHE === "1" },
+  experimental: {
+    turbopackFileSystemCacheForBuild: process.env.NEXT_BUILD_FS_CACHE === "1",
+  },
   env: { NEXT_PUBLIC_SENTRY_ENVIRONMENT: process.env.SENTRY_ENVIRONMENT ?? "", NEXT_PUBLIC_SENTRY_RELEASE: process.env.SENTRY_RELEASE ?? "" },
   poweredByHeader: false,
   // The "N" badge covers the corner of the board in screenshots and in the 3D mode preview (dev only; no effect in a build).

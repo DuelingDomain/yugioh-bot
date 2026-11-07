@@ -7,10 +7,6 @@ import { livePileCards, livePileTitle, type PileHost } from "../src/components/d
 import { describeWithCores, needs } from "../../duel-server/tests/support/cores";
 import { XYZ_MATERIALS, XYZ_NAME, xyzMaterialsGame } from "../../duel-server/tests/support/xyz-materials";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("@/components/duel/api", () => ({ getDuelCards: vi.fn(async () => []) }));
 
 type Dom = {
