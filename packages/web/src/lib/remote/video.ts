@@ -14,13 +14,13 @@ import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
 import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
-import { CAMERA_PUBLISH, cameraPublishOptions } from './video-profile';
+import { CAMERA_PUBLISH, publishCamera, watchEncoder } from './video-profile';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
   connection: ConnectionState; feeds: VideoFeed[]; devices: MediaDeviceInfo[];
-  cameraId: string; microphone: boolean; error: string; /** The signal link dropped and the SDK is trying to resume it. */ signalLost?: boolean; result?: { fromSeat: number; message: RecognitionResult };
+  cameraId: string; microphone: boolean; error: string; /** The signal link dropped and the SDK is trying to resume it. */ signalLost?: boolean; /** LiveKit reports the encoder is CPU limited. Only tells; nothing changes by itself. */ cpuConstrained?: boolean; result?: { fromSeat: number; message: RecognitionResult };
 };
 /** @yugidraft/vision integration point: crop/recognize on this unprocessed local capture track.
  * Honor signal; return at most five candidates, with the reader's tier, within 10 seconds. No frames enter the data channel.
@@ -29,7 +29,7 @@ export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: Recog
 
 export class RemoteVideo {
   private voice = new RemoteVoice({ slug: () => this.options.slug, guildId: () => this.options.guildId, members: () => this.options.members, changed: () => this.sync(), failed: error => this.fail(error) });
-  private room = new Room({ adaptiveStream: true, dynacast: true, stopLocalTrackOnUnpublish: false, disconnectOnPageLeave: false });
+  private room = new Room({ adaptiveStream: false, dynacast: true, stopLocalTrackOnUnpublish: false, disconnectOnPageLeave: false });
   readonly phone: DesktopPhoneLink;
   private camera?: LocalVideoTrack;
   private readyTrack?: MediaStreamTrack;
@@ -119,6 +119,8 @@ export class RemoteVideo {
           ? publication === camera && this.phone.mode(participant) !== "scan"
           : publication.source === Track.Source.Camera);
         if (publication.isDesired !== allowed) publication.setSubscribed(allowed);
+        // Every player asks for the top layer, as a spectator does: freeze, peek and Read all need the full frame. Adaptive stream is off, so a small tile never picks a lower one.
+        if (allowed && !this.pinned.has(publication)) { publication.setVideoQuality(CAMERA_PUBLISH.receiverLayer); if (publication.isSubscribed) this.pinned.add(publication); }
       }
       if (seat === undefined) continue;
       feeds.push({ seat, phone: phoneSeat !== undefined, mode: phoneSeat !== undefined ? this.phone.mode(participant) : undefined, video: camera?.track?.kind === Track.Kind.Video && this.phone.mode(participant) !== "scan" ? camera.videoTrack : undefined,
@@ -260,14 +262,18 @@ export class RemoteVideo {
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
   }
-  /** Publish with the profile. A browser that cannot encode H.264 publishes VP8 with the same caps, silently. */
+  /** Publish with the profile (VP8 fallback in `publishCamera`), then watch that the encoder makes frames. */
   private async publishCamera(camera: LocalVideoTrack) {
-    const options = cameraPublishOptions();
-    try { await this.room.localParticipant.publishTrack(camera, { ...options, source: Track.Source.Camera }); }
-    catch (error) {
-      if (options.videoCodec === CAMERA_PUBLISH.fallbackCodec || this.closed) throw error;
-      await this.room.localParticipant.publishTrack(camera, { ...cameraPublishOptions(CAMERA_PUBLISH.fallbackCodec), source: Track.Source.Camera });
-    }
+    const participant = this.room.localParticipant;
+    this.stopEncoderWatch?.();
+    const codec = await publishCamera(participant, camera, () => this.closed);
+    camera.on(TrackEvent.CpuConstrained, () => { if (this.camera === camera) this.patch({ cpuConstrained: true }); });
+    this.encoderWatch(camera, codec);
+  }
+  private stopEncoderWatch?: () => void;
+  private pinned = new WeakSet<object>();
+  private encoderWatch(camera: LocalVideoTrack, codec: string) {
+    this.stopEncoderWatch = watchEncoder(this.room.localParticipant, camera, codec, () => this.closed || this.camera !== camera, () => this.sync());
   }
   /** Raw WebRTC counters of every camera this device sends or receives, for the owner Debug panel. Never throws. */
   async trafficStats(): Promise<CameraTraffic[]> {

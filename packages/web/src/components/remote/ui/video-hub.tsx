@@ -38,6 +38,8 @@ type Hub = {
   answerPhoneScan(note: string): void;
   connection: ConnectionState | "local" | "off";
   cameraOn: boolean;
+  /** The browser encoder is CPU limited while sending the camera. Used only for the slow computer offer. */
+  cpuConstrained: boolean;
   starting: boolean;
   error: string;
   devices: MediaDeviceInfo[];
@@ -75,7 +77,7 @@ type Hub = {
 };
 const emptyBacks:FieldBack[]=[];
 const noop = async () => undefined;
-const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
+const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, cpuConstrained: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,tapMode:()=>false,
   sourceFor: () => null, trafficStats: async () => [], health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
@@ -308,7 +310,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     receivePhone: async () => { await stopLocal(); await controller?.connect("",false); },
     answerPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note);},
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
-    connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
+    connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, cpuConstrained: !localOnly && !!snap.cpuConstrained, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, trafficStats: () => controller?.trafficStats() ?? Promise.resolve([]), setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,

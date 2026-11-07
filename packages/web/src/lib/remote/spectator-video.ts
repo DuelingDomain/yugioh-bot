@@ -4,8 +4,8 @@ import { FIELD_TRACKS_TOPIC, FieldTrackCache } from "./field-track-cache";
 import { CAMERA_PUBLISH } from "./video-profile";
 
 export type SpectatorVideoSnapshot = { connection: ConnectionState; feeds: { seat: number; video: RemoteVideoTrack }[]; error: string; /** Another tab of this person holds the video: only a click takes it back, else the two tabs would remove each other for ever. */ needsClick?: boolean };
-/** A spectator asks for the same top simulcast layer as a seated player. The low layer is only LiveKit's own fallback when the network cannot carry the top one. Adaptive stream stays off so a small tile does not choose a lower layer. */
-const spectatorLayer = () => CAMERA_PUBLISH.spectatorLayer;
+/** A spectator asks for the same top simulcast layer as a seated player (`CAMERA_PUBLISH.receiverLayer`). LiveKit alone falls back to a lower layer when the network cannot carry it. Adaptive stream stays off so a small tile does not pick a lower layer. */
+const spectatorLayer = () => CAMERA_PUBLISH.receiverLayer;
 
 /** A server-minted phone identity. A spectator has no phone roster, and the server removes a revoked phone from the room. */
 function phoneSeat(identity: string, metadata: string | undefined, guildId: string, slug: string, members: VideoMember[]): number | undefined {

@@ -713,7 +713,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [syncHold,setSyncHoldState]=useState(()=>{try{return sessionStorage.getItem(holdKey)==='1';}catch{return false;}});
   const setSyncHold=useCallback((on:boolean)=>{setSyncHoldState(on);try{if(on)sessionStorage.setItem(holdKey,'1');else sessionStorage.removeItem(holdKey);}catch{/* Memory-only fallback. */}},[holdKey]);
   enabledRef.current=watch.enabled&&!watch.calibrationNeeded&&!syncHold;tracks.current=watch.snapshot.tracks;
-  // Slow computer: one quiet offer of Tap to identify. Only the player changes the mode; the answer is remembered.
+  // Slow computer: one quiet offer of Tap to identify (a slow detector, or the browser video encoder reports it is CPU limited). Only the player changes the mode; the answer is remembered.
   const [tapOffer,setTapOffer]=useState(false),slowWatch=useRef(createSlowWatch());
   const setDetection=useCallback((on:boolean)=>{
     saveTapChoice(on?'keep':'switch');setTapOffer(false);
@@ -726,8 +726,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(tapOffer&&!offerable)setTapOffer(false);
     if(tapOffer||!offerable||tapOfferShown()||readTapChoice())return;
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
-    if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
-  },[watch.snapshot,offerable,recognition.backend,tapOffer]);
+    if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)||hub.cpuConstrained){markTapOfferShown();setTapOffer(true);}
+  },[watch.snapshot,offerable,recognition.backend,tapOffer,hub.cpuConstrained]);
   // No answer in time: the offer goes and nothing is saved.
   useEffect(()=>{if(!tapOffer)return;const timer=setTimeout(()=>setTapOffer(false),TAP_OFFER_MS);return()=>clearTimeout(timer);},[tapOffer]);
   // Show a still outline on the board at once (local only). The saved "Reading" card takes its place with the same look.

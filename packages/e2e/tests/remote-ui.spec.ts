@@ -1265,7 +1265,6 @@ test.describe("remote duels, spectators", () => {
       for (const seat of [0, 1]) {
         const video = c.locator(`[data-testid="feed-${seat}"] video`);
         await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0), { timeout: 60_000 }).toBeGreaterThan(0);
-        expect(await video.evaluate((v: HTMLVideoElement) => v.videoHeight)).toBeLessThanOrEqual(720);
         await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "high");
       }
       // Player talk is off: nobody joins the voice room, and no audio track exists in the room of the spectator.
