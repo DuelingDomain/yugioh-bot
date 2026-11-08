@@ -44,6 +44,8 @@
 .crumb b{color:var(--ink2);font-weight:600}
 .crumbLink{color:var(--gold-ink);text-decoration:underline;text-underline-offset:3px}
 .crumbLink b{color:inherit}
+.adminBadge,.adminPill{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--gold);background:rgb(232 185 79/.14);border-radius:999px;padding:4px 8px;color:var(--gold-ink);min-width:0;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adminStrip{display:none}
 .cchip{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:13px;color:var(--ink3);border-right:1px solid var(--line)}
@@ -704,6 +706,10 @@
   .shell{display:block;height:auto;padding-bottom:var(--dockh,128px)}
   .top{position:sticky;top:0;gap:8px;padding:0 10px;height:var(--hdr)}
   .crumb,.cchip,.logo b,.tb .lbl{display:none}
+  /* The phone header is full: the badge moves to its own row under it, in the page flow, so it covers nothing. */
+  .adminBadge{display:none}
+  .adminStrip{display:flex;justify-content:center;padding:6px 10px 0}
+  .adminPill{max-width:100%}
   .seg button{padding:6px 10px}
   .tb{padding:0 9px}
   .stage{display:flex;flex-direction:column;padding:var(--gap);gap:10px}

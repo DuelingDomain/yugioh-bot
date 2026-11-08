@@ -31,3 +31,6 @@
 .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .back{color:var(--pen-ink)}
 @media (max-width:640px){.lobby{padding:14px;border-radius:0;border-width:1px 0}}
+.watchRow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--p2);font-weight:600}
+.watchInfo{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;min-width:0}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;border:1px solid var(--gold);background:rgb(232 185 79/.12);color:var(--gold-ink);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
