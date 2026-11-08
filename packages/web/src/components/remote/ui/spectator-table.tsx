@@ -10,6 +10,8 @@ import { SpectatorVideo } from "@/lib/remote/spectator-video";
 import { publicTrackedTwin } from "@/lib/remote/field-track-cache";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { useCardInfo } from "./catalog";
+import { HandStrip } from "./hand-ui";
+import { handCountOf, knownHandOf } from "./reveal-model";
 import { CardPopover, type CardActions, type Subject } from "./card-view";
 import { Rail, LpStrip } from "./chrome";
 import { tabId } from "./api";
@@ -119,7 +121,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
-  const info = useCardInfo([...state.seats.flatMap(item => item.twin.map(cardCode)), subject?.cardId]);
+  const info = useCardInfo([...state.seats.flatMap(item => [...item.twin.map(cardCode), ...(item.knownHand ?? []).map(card => card.cardId)]), subject?.cardId]);
   const extraZones = hasExtraZones(room.format?.id);
   const format = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
 
@@ -128,6 +130,12 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     const id = card?.faceUp !== false && card ? cardCode(card) : undefined; if (!card || !id) return;
     setSubject({ from: "camera", cardId: id, seat, ref: card.ref, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     setPopAt({ anchor, feed }); layers.open("card");
+  };
+  // A revealed card opens the same popover as a card on the field, next to the tray.
+  const showKnown = (seat: number, card: { cardId: number; name: string }) => {
+    const box = document.querySelector(`[data-testid="hand-strip-${seat}"]`)?.getBoundingClientRect(); if (!box) return;
+    setSubject({ from: "camera", cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
+    setPopAt({ anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, feed: null }); layers.open("card");
   };
   const onFeed = (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => {
     if (!video) return;
@@ -193,8 +201,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
             <div className={s.sbody}>
               {video ? <SpectatorFeed seat={seat} name={name(seat)} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
               <div className={`${s.fside} ${v.side}`}>
-                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span>
-                  <span data-testid={`hand-count-${seat}`}>Hand: <b>{state.seats[seat]?.handCount ?? "?"}</b></span></div>
+                <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
+                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
                 <ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
