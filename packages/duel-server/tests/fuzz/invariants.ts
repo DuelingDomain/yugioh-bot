@@ -401,6 +401,14 @@ export class InvariantChecker {
       }
       for (const event of view.events) {
         if (event.id <= (this.lastEvent[vi] as number) || !event.card) continue;
+        // A face-up banish reveals the card even from a hidden source. It can return to the
+        // Extra Deck in the same batch, so the board at the next check may already hide it again.
+        // Require an explicit face-up destination; face-down banishes do not teach an identity.
+        if (event.kind === "move" && event.zone?.location === LOC.REMOVED && event.faceDown === false) {
+          known.add(event.card.code);
+          this.bump("banished-face-up");
+          continue;
+        }
         // A card that turns face-up is public, also when it leaves the field before the next check
         // (a face-down monster flipped by an attack, then shuffled into the Deck).
         if (event.kind === "position" && event.toPosition !== undefined && (event.toPosition & FACEDOWN) === 0) {
