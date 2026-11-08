@@ -54,9 +54,9 @@ export function peerVisionChanged(before: PeerVision | undefined, next: PeerVisi
 
 /** The chip text, or null when there is nothing to say yet (the reader has not started and Auto-detect is on). */
 export function peerVisionLabel(value: PeerVision): string | null {
-  if (value.detect === "tap") return "Auto-detect off";
-  if (value.backend === "pending") return null;
-  return [value.backend === "gpu" ? "GPU" : "CPU", value.ms === undefined ? "" : `${value.ms} ms`, value.fps === undefined ? "" : `${value.fps} fps`].filter(Boolean).join(" · ");
+  const tap = value.detect === "tap";
+  if (value.backend === "pending") return tap ? "Auto-detect off" : null;
+  return [tap ? "Tap" : "", value.backend === "gpu" ? "GPU" : "CPU", value.ms === undefined ? "" : `${value.ms} ms`, tap || value.fps === undefined ? "" : `${value.fps} fps`].filter(Boolean).join(" · ");
 }
 export function peerVisionTitle(value: PeerVision, name: string): string {
   const reader = value.backend === "pending" ? "Card reader is starting." : `Card reader runs on the ${value.backend === "gpu" ? "graphics card (GPU)" : "processor (CPU)"}${value.ms === undefined ? "." : `. Last read: about ${value.ms} ms.`}`;

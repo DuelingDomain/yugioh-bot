@@ -4,7 +4,7 @@ import { peerVisionLabel, peerVisionTitle, type PeerVision } from "@/lib/remote/
 import s from "./remote-ui.module.css";
 
 /**
- * What another player's card reader does, on their feed: "GPU · 82 ms · 24 fps" or "Auto-detect off". The same style as the chip on my own feed.
+ * What another player's card reader does, on their feed: "GPU · 82 ms · 24 fps" or "Tap · GPU · 82 ms" when Auto-detect is off. The same style as the chip on my own feed.
  * Nothing shows until they send a summary, or while their reader has not started.
  */
 export function PeerVisionChip({ stats, name }: { stats: PeerVision | undefined; name: string }) {
