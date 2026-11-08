@@ -40,3 +40,12 @@ test('GPU and single-worker layouts preserve read thread counts',async()=>{
   assert.deepEqual(await chooseWorkerLayout('auto','wasm'),{split:false,threads:2});
  }finally {if(original)Object.defineProperty(globalThis,'navigator',original);else delete (globalThis as any).navigator;}
 });
+
+test('GPU still-board scans stay within 1.5 seconds with cards or an empty board',()=>{
+ let backend='webgpu';const p=createFieldPacer({cores:8},0,()=>backend);
+ for(const hasCards of [true,false]){
+  assert.equal(p.stillEvery(20000,hasCards),1500);
+  p.changed(20001);assert.ok(p.stillEvery(20002,hasCards)<=1500);
+ }
+ backend='wasm';assert.equal(p.stillEvery(40000,true),4000);assert.equal(p.stillEvery(40000,false),15000);
+});

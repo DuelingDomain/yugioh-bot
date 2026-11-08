@@ -56,7 +56,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
       changedAt=at;
     },
     stillEvery(at,hasCards){
-      const every=hasCards?STILL_CARDS_MS:STILL_EMPTY_MS;
+      const every=backend()==='webgpu'?1500:hasCards?STILL_CARDS_MS:STILL_EMPTY_MS;
       return at-changedAt<RETRY_FOR_MS?Math.min(every,RETRY_MS*backoff):every;
     },
     tickMs(state){return (state==='still'?250:state==='burst'?66:100)*(state==='still'?backoff:1);},
