@@ -31,9 +31,9 @@ const HAS_BOT = "exists(select 1 from duel_seats bs where bs.duel_id = d.id and 
 const MS = (column: string) => `cast(round((julianday(${column}) - 2440587.5) * 86400000) as integer)`;
 const iso = (ms: number) => new Date(ms).toISOString();
 
-type Bounds = { guild: string; floor: string; from: string; to: string; curFromMs: number; all: 0 | 1 };
+type Bounds = { guild: string; floor: string; from: string; to: string; curFromMs: number; prevToMs: number; all: 0 | 1 };
 const boundsOf = (guild: string, range: DuelRangeInfo, includeBots: boolean): Bounds => ({
-  guild, floor: iso(range.previous.fromMs - DAY_MS), from: iso(range.previous.fromMs), to: iso(range.toMs), curFromMs: range.fromMs, all: includeBots ? 1 : 0,
+  guild, floor: iso(range.previous.fromMs - DAY_MS), from: iso(range.previous.fromMs), to: iso(range.toMs), curFromMs: range.fromMs, prevToMs: range.previous.toMs, all: includeBots ? 1 : 0,
 });
 
 const emptyEndings = (): DuelEndingCounts => ({ win: 0, surrender: 0, timeout: 0, idle: 0, interrupted: 0, draw: 0, cancelled: 0, running: 0 });
@@ -62,7 +62,8 @@ function engineGroups(db: Database.Database, b: Bounds): EngineGroup[] {
       from duels d
       where d.guild_id = @guild and d.kind = 'play' and d.started_at is not null
         and julianday(coalesce(d.ended_at, d.created_at)) >= julianday(@floor)
-        and julianday(d.started_at) >= julianday(@from) and julianday(d.started_at) < julianday(@to))
+        and julianday(d.started_at) >= julianday(@from) and julianday(d.started_at) < julianday(@to)
+        and (${MS("d.started_at")} >= @curFromMs or ${MS("d.started_at")} < @prevToMs))
     select p, format, mode, genesys, ending, is_test, has_bot, count(*) as n,
       sum(case when status = 'completed' then turn_count end) as turns_sum, count(case when status = 'completed' then turn_count end) as turns_n,
       sum(case when status = 'completed' and ended_at is not null then (julianday(ended_at) - julianday(started_at)) * 1440 end) as minutes_sum,
@@ -89,7 +90,8 @@ function remoteGroups(db: Database.Database, guild: string, range: DuelRangeInfo
       exists(select 1 from remote_bot_seats rb where rb.table_id = t.id) as has_bot, count(*) as n
     from remote_tables t
     where t.guild_id = @guild and t.started_at is not null and t.started_at >= @from and t.started_at < @to
-    group by p, has_bot`).all({ guild, curFromMs: range.fromMs, from: range.previous.fromMs, to: range.toMs }) as RemoteGroup[];
+      and (t.started_at >= @curFromMs or t.started_at < @prevToMs)
+    group by p, has_bot`).all({ guild, curFromMs: range.fromMs, prevToMs: range.previous.toMs, from: range.previous.fromMs, to: range.toMs }) as RemoteGroup[];
 }
 
 function remoteStarts(db: Database.Database, guild: string, range: DuelRangeInfo, all: boolean): number[] {

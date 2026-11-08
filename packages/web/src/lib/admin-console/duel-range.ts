@@ -16,13 +16,22 @@ const daysBetween = (from: string, to: string): number => {
 
 const isRealDay = (key: string): boolean => DAY_KEY.test(key) && addDays(key, 0) === key;
 
-export function rangeOf(from: string, to: string): DuelRangeInfo {
+/**
+ * The range and the period of the same length right before it. When `now` is inside the range the range is still running, so the
+ * previous period ends after the same elapsed time (`partial`): a half day is not compared with a full day.
+ */
+export function rangeOf(from: string, to: string, now?: number): DuelRangeInfo {
   const days = daysBetween(from, to);
   const previousFrom = addDays(from, -days);
   const previousTo = addDays(from, -1);
+  const fromMs = easternMidnight(from);
+  const toMs = easternMidnight(addDays(to, 1));
+  const previousFromMs = easternMidnight(previousFrom);
+  const fullPreviousToMs = easternMidnight(from);
+  const partial = now !== undefined && now >= fromMs && now < toMs;
   return {
-    from, to, days, fromMs: easternMidnight(from), toMs: easternMidnight(addDays(to, 1)),
-    previous: { from: previousFrom, to: previousTo, fromMs: easternMidnight(previousFrom), toMs: easternMidnight(from) },
+    from, to, days, fromMs, toMs,
+    previous: { from: previousFrom, to: previousTo, fromMs: previousFromMs, toMs: partial ? Math.min(fullPreviousToMs, previousFromMs + (now - fromMs)) : fullPreviousToMs, partial },
   };
 }
 
@@ -41,10 +50,10 @@ export function resolveDuelRange(query: URLSearchParams | undefined, now: number
     const last = to > today ? today : to;
     if (from > last) return { ok: false, message: "The first day is after the last day." };
     if (daysBetween(from, last) > DUEL_RANGE_MAX_DAYS) return { ok: false, message: `A range is at most ${DUEL_RANGE_MAX_DAYS} days.` };
-    return { ok: true, range: rangeOf(from, last) };
+    return { ok: true, range: rangeOf(from, last, now) };
   }
   const preset = (query?.get("range") ?? "today") as DuelRangePreset;
   const length = preset === "7d" ? 7 : preset === "30d" ? 30 : preset === "today" ? 1 : 0;
   if (length === 0) return { ok: false, message: "Unknown range." };
-  return { ok: true, range: rangeOf(addDays(today, 1 - length), today) };
+  return { ok: true, range: rangeOf(addDays(today, 1 - length), today, now) };
 }

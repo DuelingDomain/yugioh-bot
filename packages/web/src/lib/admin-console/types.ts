@@ -229,7 +229,7 @@ export interface DuelRangeInfo {
   fromMs: number;
   toMs: number;
   /** The period of the same number of days right before: the base of every change. */
-  previous: { from: string; to: string; fromMs: number; toMs: number };
+  previous: { from: string; to: string; fromMs: number; toMs: number; partial: boolean };
 }
 /** Engine duels by `duels.format`, plus Remote tables. */
 export interface DuelFormatCounts { "1v1": number; ffa3: number; ffa4: number; tag: number; remote: number }
