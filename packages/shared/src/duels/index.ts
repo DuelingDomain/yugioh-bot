@@ -725,7 +725,8 @@ export interface DuelHistoryOptions {
 }
 
 export interface DuelHistoryPage {
-  duels: DuelListItem[];
+  /** Each row can resume history immediately after itself, including inside a merged page. */
+  duels: (DuelListItem & { cursor: string })[];
   nextCursor: string | null;
   canSeeAll: boolean;
 }

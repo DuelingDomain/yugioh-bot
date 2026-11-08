@@ -84,6 +84,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json(mergeHistory({
       cursor: options.cursor,
+      limit: options.limit,
       online: (cursor) => actor.duels.listHistory(actor.guildId, actor.playerId, { ...options, cursor }),
       remote: cursor => remoteHistory(cursor),
       remoteKeep: status === "completed" ? item => item.winnerSeat !== null : undefined,

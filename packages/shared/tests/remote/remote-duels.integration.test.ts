@@ -3972,7 +3972,7 @@ describe("remote match history and replay", () => {
     return { ...s, a, b, outsider, slug };
   }
 
-  it("lists an ended table in the history of its players and rebuilds its final board", () => {
+  it("lists an ended table in the history of its players and rebuilds its final board", async () => {
     const s = endedTable();
     const mine = s.service.listHistory("g", s.a);
     expect(mine.items).toHaveLength(1);
@@ -3985,7 +3985,8 @@ describe("remote match history and replay", () => {
     expect(s.service.listHistory("g", s.a, { format: "ffa3" }).items).toHaveLength(0);
 
     for (const user of [s.a, s.b]) {
-      const replay = s.service.replayFrames(s.slug, "g", user);
+      const replay = await s.service.replayFramesAsync(s.slug, "g", user);
+      expect(s.service.replayFrames(s.slug, "g", user)).toBe(replay);
       expect(replay.viewer).toBe("player");
       const last = replay.steps.reduce((view, step) => applyPatch(view, step.ops), replay.initial);
       const live = s.service.get(s.slug, "g", user).state;
@@ -4004,7 +4005,8 @@ describe("remote match history and replay", () => {
   it("keeps reading Remote rows on later pages when they are all older than the online page", () => {
     const s = endedTable();
     const remote = s.service.listHistory("g", s.a).items[0]!;
-    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt }) as never;
+    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt,
+      cursor: Buffer.from(JSON.stringify({ v: 1, time: Date.parse(endedAt) / 86_400_000 + 2440587.5, id })).toString("base64url") }) as never;
     // Page 1 holds online rows newer than the Remote table and online has more; page 2 is the last online page.
     const first = { duels: [online(1, "2999-01-02T00:00:00.000Z"), online(2, "2999-01-01T00:00:00.000Z")], nextCursor: "o2", canSeeAll: false };
     const last = { duels: [online(3, "1999-01-01T00:00:00.000Z")], nextCursor: null, canSeeAll: false };
