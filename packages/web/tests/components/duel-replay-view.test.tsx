@@ -132,11 +132,11 @@ describe("DuelReplayView transport", () => {
     stubServer(byVisibility((visibility) => replayV2({ visibility })));
     await open();
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("Move 1 / 3")).toBeTruthy();
+    expect(await screen.findByText("Move 1 / 3")).toBeTruthy();
     fireEvent.keyDown(window, { key: "End" });
-    expect(screen.getByText("Move 3 / 3")).toBeTruthy();
+    expect(await screen.findByText("Move 3 / 3")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Home" });
-    expect(screen.getByText("Move 0 / 3")).toBeTruthy();
+    expect(await screen.findByText("Move 0 / 3")).toBeTruthy();
     // A focused field keeps its own keys.
     fireEvent.keyDown(screen.getByRole("slider", { name: "Playback speed" }), { key: "ArrowRight" });
     expect(screen.getByText("Move 0 / 3")).toBeTruthy();
