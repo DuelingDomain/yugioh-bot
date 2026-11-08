@@ -2061,7 +2061,7 @@ export function PromptCenter(props: PromptCenterProps) {
       </div>
     );
     return (
-      <div ref={layerRef} className={styles.layer}>
+      <div ref={layerRef} className={styles.layer} data-prompt-layer="">
         {body}
       </div>
     );

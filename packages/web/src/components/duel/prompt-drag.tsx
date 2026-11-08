@@ -34,11 +34,20 @@ export function clampDragOffset(rect: ClampRect, offset: DragOffset, target: Dra
     bottom: rect.bottom + target.y - offset.y,
   };
   const fix = clampBarShift(moved, { dx: 0, dy: 0 }, area, edge);
-  return { x: target.x + fix.dx, y: target.y + fix.dy };
+  // A surface as wide as its area (the compact top sheet) only moves up and down: a sideways clamp would make it jump.
+  const full = rect.right - rect.left > area.right - area.left - 2 * edge;
+  return { x: full ? offset.x : target.x + fix.dx, y: target.y + fix.dy };
 }
 
-/** The place a player dragged a prompt to, kept while the same prompt goes on (each pick of a one-by-one choice is a new engine prompt). */
-let memory: { key: string; offset: DragOffset } | null = null;
+/**
+ * The place a player dragged a prompt to, kept only while the same prompt goes on (each pick of a one-by-one choice is a new engine
+ * prompt with the same key, mounted a moment after the last one closed). A different prompt, or the same title a while later, starts
+ * at its own planned place: the offset is relative to that place, so an old one could land on the legal targets.
+ */
+let memory: { key: string; offset: DragOffset; closedAt: number | null } | null = null;
+
+/** How long (ms) a closed prompt's place is kept for the next prompt with the same key. */
+const MEMORY_MS = 1500;
 
 const SURFACE = "[data-prompt-surface], [data-prompt-panel], [data-drag-surface]";
 
@@ -51,8 +60,28 @@ function setOffset(surface: HTMLElement, offset: DragOffset) {
   surface.style.setProperty("--drag-y", `${offset.y}px`);
 }
 
-/** The box the surface moves in: the element it is positioned against (the prompt layer, or the window of a pile viewer). */
+/** The board box of a prompt layer: the table stage marks itself `data-prompt-scope`, else it is the layer's parent (as `boardOf` in prompt-center.tsx). */
+function boardRect(layer: HTMLElement): ClampRect | null {
+  let board: HTMLElement | null = layer.closest<HTMLElement>("[data-prompt-scope]");
+  if (!board) {
+    board = layer.parentElement;
+    while (board && board.style.display === "contents" && board.parentElement) board = board.parentElement;
+  }
+  if (!board) return null;
+  const { left, right, top, bottom } = board.getBoundingClientRect();
+  return { left, right, top, bottom };
+}
+
+/**
+ * The box the surface moves in: the element it is positioned against (the prompt layer). The Materials window is fixed to the screen
+ * on a phone, so it moves in the board box instead and never goes under the HUD.
+ */
 function areaOf(surface: HTMLElement): ClampRect | null {
+  if (surface.hasAttribute("data-drag-surface")) {
+    const layer = surface.closest<HTMLElement>("[data-prompt-layer]");
+    const board = layer ? boardRect(layer) : null;
+    if (board) return board;
+  }
   const parent = surface.offsetParent;
   if (!parent) return null;
   const { left, right, top, bottom } = parent.getBoundingClientRect();
@@ -68,25 +97,43 @@ export function DragGrip({ memoryKey, variant = "bar" }: { memoryKey: string; va
   const gripRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; from: DragOffset; rect: ClampRect; area: ClampRect } | null>(null);
 
-  // A new surface starts where the player left the prompt, and a moved surface stays inside its area when the window or the surface changes size.
+  // A new surface starts where the player left the same prompt, else at its planned place (the surface element is reused between prompts).
   useLayoutEffect(() => {
     const grip = gripRef.current;
     const surface = grip?.closest<HTMLElement>(SURFACE) ?? null;
     if (!surface) return undefined;
-    if (memory && memory.key === memoryKey) setOffset(surface, memory.offset);
-    const refit = () => {
-      const current = offsetOf(surface);
-      if (current.x === 0 && current.y === 0) return;
-      const area = areaOf(surface);
-      if (!area || area.right - area.left < 2 || area.bottom - area.top < 2) return;
-      const next = clampDragOffset(rectOf(surface), current, current, area);
-      if (next.x === current.x && next.y === current.y) return;
-      setOffset(surface, next);
-      memory = { key: memoryKey, offset: next };
+    const kept = memory && memory.key === memoryKey && (memory.closedAt == null || Date.now() - memory.closedAt < MEMORY_MS) ? memory.offset : null;
+    memory = kept && memory ? { key: memoryKey, offset: kept, closedAt: null } : null;
+    setOffset(surface, kept ?? { x: 0, y: 0 });
+    return () => {
+      if (memory && memory.key === memoryKey) memory.closedAt = Date.now();
+      surface.style.removeProperty("--drag-x");
+      surface.style.removeProperty("--drag-y");
     };
-    refit();
-    if (typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(refit);
+  }, [memoryKey]);
+
+  // A moved surface stays inside its area after every layout: the window or the surface changes size, or the planner moves the bar.
+  const fit = () => {
+    const surface = gripRef.current?.closest<HTMLElement>(SURFACE) ?? null;
+    if (!surface || drag.current) return;
+    const current = offsetOf(surface);
+    if (current.x === 0 && current.y === 0) return;
+    const area = areaOf(surface);
+    if (!area || area.right - area.left < 2 || area.bottom - area.top < 2) return;
+    const next = clampDragOffset(rectOf(surface), current, current, area);
+    if (next.x === current.x && next.y === current.y) return;
+    setOffset(surface, next);
+    memory = { key: memoryKey, offset: next, closedAt: null };
+  };
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+  useLayoutEffect(() => {
+    fitRef.current();
+  });
+  useLayoutEffect(() => {
+    const surface = gripRef.current?.closest<HTMLElement>(SURFACE) ?? null;
+    if (!surface || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => fitRef.current());
     observer.observe(surface);
     if (surface.offsetParent) observer.observe(surface.offsetParent);
     return () => observer.disconnect();
@@ -121,7 +168,7 @@ export function DragGrip({ memoryKey, variant = "bar" }: { memoryKey: string; va
     delete grip.dataset.dragging;
     if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
     const surface = grip.closest<HTMLElement>(SURFACE);
-    if (surface) memory = { key: memoryKey, offset: offsetOf(surface) };
+    if (surface) memory = { key: memoryKey, offset: offsetOf(surface), closedAt: null };
   };
 
   return (
@@ -130,7 +177,7 @@ export function DragGrip({ memoryKey, variant = "bar" }: { memoryKey: string; va
       className={styles.grip}
       data-variant={variant}
       data-drag-grip=""
-      role="presentation"
+      aria-hidden="true"
       title="Drag to move"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
