@@ -4,11 +4,15 @@ import { describeFailure } from "./failures.js";
 import { runAndVerify } from "./run-one.js";
 
 /**
- * Fuzz seeds that found real defects. Each one plays and replays a full duel with every invariant on.
+ * Fuzz seeds that found engine or checker defects. Each one plays and replays a full duel with every invariant on.
  * A seed depends on the card pool and the pinned card data: when those change, a seed may stop
  * reaching its old board. Keep the entry, it still plays one more duel.
  */
 const REGRESSIONS: Array<Scenario & { defect: string }> = [
+  {
+    defect: "face-up banish and return to the Extra Deck in one batch (checker only)",
+    seed: 1095574252, mode: "domain", masterRule: 5, maxSteps: 39,
+  },
   {
     defect: "privacy-text: Summoned Skull named in a viewer log while hidden",
     seed: 644659237, mode: "domain", masterRule: 5, maxSteps: 287,
