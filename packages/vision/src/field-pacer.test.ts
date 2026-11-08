@@ -9,10 +9,10 @@ test('CPU pacing rests one pass between bursts and sustains twenty percent',()=>
  for(;at<120_000;at+=10)if(p.allow(at)){at+=100;p.spend(100,at);busy+=100;}
  assert.ok(busy/at<=.225,`long-run duty ${busy/at}`);
 });
-test('CPU worker layout reserves one detector and two read threads',async()=>{
+test('CPU worker layout cuts detector threads while preserving the read budget',async()=>{
  const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{hardwareConcurrency:8,deviceMemory:8,userAgent:'Chromium'}});
- try {assert.deepEqual(await chooseWorkerLayout('auto','wasm'),{split:true,threads:1,readThreads:2});}
+ try {assert.deepEqual(await chooseWorkerLayout('auto','wasm'),{split:true,threads:1,readThreads:4});}
  finally {if(original)Object.defineProperty(globalThis,'navigator',original);else delete (globalThis as any).navigator;}
 });
 test('a fresh hand waits briefly for landing, and repeated wake credits stay within twenty-five percent',()=>{
@@ -28,4 +28,15 @@ test('slow detectors repay wake borrowing even when inference separates motion s
   for(;at<1_200_000;at+=100){p.changed(at);if(p.allow(at,true)){at+=cost;p.spend(cost,at);busy+=cost;}}
   assert.ok(busy/at<=.21,`${cost} ms detector used ${busy/at}`);
  }
+});
+
+test('GPU and single-worker layouts preserve read thread counts',async()=>{
+ const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+ try {
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{hardwareConcurrency:8,deviceMemory:8,userAgent:'Chromium',gpu:{requestAdapter:async()=>({})}}});
+  assert.deepEqual(await chooseWorkerLayout('auto','auto'),{split:true,threads:2});
+  assert.deepEqual(await chooseWorkerLayout('split','auto'),{split:true,threads:2});
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{hardwareConcurrency:4,userAgent:'Safari'}});
+  assert.deepEqual(await chooseWorkerLayout('auto','wasm'),{split:false,threads:2});
+ }finally {if(original)Object.defineProperty(globalThis,'navigator',original);else delete (globalThis as any).navigator;}
 });

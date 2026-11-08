@@ -49,21 +49,21 @@ const WASM_THREADS = (cores: number) => Math.max(1, Math.min(4, Math.floor(cores
  * run while a card is being read. They cost a second ONNX Runtime instance and detector session.
  * Measured (2026-11-03): see packages/vision/REPORT.md, "Split workers".
  */
-const oneCpuWorker = (cores: number) => ({ split: false, threads: 1 });
+const oneCpuWorker = (cores: number) => ({ split: false, threads: Math.min(2,WASM_THREADS(cores)) });
 export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number; readThreads?: number }> {
   const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } } }).navigator;
   const cores = nav?.hardwareConcurrency ?? 1;
-  // On a hardware GPU each worker gets half of the one-worker thread budget.
+  // Hardware GPU layouts retain half of the one-worker budget per lane.
   const half = Math.max(1, Math.floor(WASM_THREADS(cores) / 2));
   if (layout === 'single') return { split: false };
-  if (layout === 'split') return backend==='wasm'?{split:true,threads:1,readThreads:2}:{split:true,threads:half};
+  if (layout === 'split') return backend==='wasm'?{split:true,threads:1,readThreads:WASM_THREADS(cores)}:{split:true,threads:half};
   const mobile = nav?.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(nav?.userAgent ?? '');
   const one = oneCpuWorker(cores);
   if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return one;
-  // CPU, 8+ cores: leave room for outgoing video. Detection uses one thread and the rare read two.
+  // CPU, 8+ cores: leave room for outgoing video. Detection uses one thread and reads keep the original budget.
   // Below 8 cores, on Safari and without SharedArrayBuffer, two runtimes are not worth their cost.
   const safari = /^((?!chrome|chromium|android|edg).)*safari/i.test(nav?.userAgent ?? '');
-  const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 1, readThreads: 2 } : one;
+  const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 1, readThreads: WASM_THREADS(cores) } : one;
   if (backend === 'wasm' || !nav?.gpu) return cpu;
   try {
     const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
