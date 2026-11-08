@@ -38,6 +38,12 @@ export function migrateRemoteAnonymization(db: Database.Database): void {
         db.exec(replacement);
         db.exec(`insert into ${table}_anon_new select * from ${table}; drop table ${table};
           alter table ${table}_anon_new rename to ${table}`);
+        const columns = db.pragma(`table_info(${table})`) as {name:string;notnull:number}[];
+        for (const name of identities[table]) {
+          if (columns.find(column=>column.name === name)?.notnull !== 0) {
+            throw new Error(`Remote identity column ${table}.${name} must be nullable`);
+          }
+        }
         for (const index of indexes) db.exec(index.sql);
         if (sequence !== undefined) db.prepare("update sqlite_sequence set seq=? where name=?").run(sequence, table);
       }

@@ -94,7 +94,7 @@ export type RemoteSystemAction =
   | { type: "idle.warning"; closesAt: number }
   /** An admin started or stopped watching. A public fact: who and when, never camera data. */
   | { type: "admin.watching"; userId: number | null; name: string; watching: boolean }
-  | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
+  | { type: "table.ended"; reason: "idle" | "account-deleted" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
   action: RemoteAction | RemoteSystemAction;

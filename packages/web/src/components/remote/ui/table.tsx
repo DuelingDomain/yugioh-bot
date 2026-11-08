@@ -128,6 +128,7 @@ const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent
 function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
   if (room.endReason === "creator-left") return "The host left the lobby.";
+  if (room.endReason === "account-deleted") return "A player deleted their account.";
   return winner ? `${winner} won.` : "The game is over.";
 }
 
