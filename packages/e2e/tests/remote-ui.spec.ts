@@ -191,6 +191,71 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("match-result")).toHaveCount(0);
   });
 
+  test("surrender: the top bar button and the Deck menu ask first, then the game ends for both players; LP 0 ends it too", async ({ browser, context }) => {
+    test.setTimeout(300_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }); const bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [who, userId] of [[alice, 101], [bob, 102]] as const) { await authenticatePlayer(who.request, { userId }, process.env.E2E_AUTH_SECRET!, url); await bothView(who); }
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(); const b = await bob.newPage();
+      // A cold dev server can time out the first table request, so each page loads again until the table shows.
+      for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
+      await shot(a, "surrender-1-button");
+      if (SHOTS) {
+        for (const [w, h] of [[1366, 768], [390, 844], [375, 812], [360, 740]]) {
+          await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
+          await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
+          // The flag sits fully inside the screen.
+          expect(await a.getByTestId("surrender-button").evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+          await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
+          await a.locator('[data-zone="deck"][data-seat="0"]').click(); await shot(a, `surrender-3-deck-menu-${w}`); await a.keyboard.press("Escape");
+        }
+        await a.setViewportSize({ width: 1920, height: 1080 });
+      }
+      // Cancel keeps the game.
+      await a.getByTestId("surrender-button").click();
+      await expect(a.getByTestId("surrender-game")).toHaveText("Game 1 of 3");
+      await shot(a, "surrender-2-confirm");
+      await a.getByTestId("surrender-no").click();
+      await expect(a.getByTestId("surrender-confirm")).toHaveCount(0);
+      await expect(a.getByTestId("match-result")).toHaveCount(0);
+      // My Deck on the virtual field opens a menu with the same question.
+      await a.locator('[data-zone="deck"][data-seat="0"]').click();
+      await expect(a.getByTestId("deck-menu")).toBeVisible();
+      await shot(a, "surrender-3-deck-menu");
+      await a.getByTestId("deck-menu-surrender").click();
+      await expect(a.getByTestId("surrender-confirm")).toBeVisible();
+      await a.getByTestId("surrender-yes").click();
+      // Both players see the end of the game; the loser sees it as a defeat.
+      await expect(a.getByTestId("match-result")).toContainText("Defeat", { timeout: 15_000 });
+      await expect(b.getByTestId("match-result")).toContainText("Victory", { timeout: 15_000 });
+      await expect(b.getByTestId("match-reason")).toContainText("conceded");
+      await shot(a, "surrender-4-end-loser"); await shot(b, "surrender-5-end-winner");
+      await expect(a.getByTestId("surrender-button")).toHaveCount(0);
+    } finally { await alice.close(); await bob.close(); }
+    // A solo test table: the same button ends the game. Setting a seat to 0 LP ends a game on a table that is not in a tournament.
+    const solo = await soloTable(context.request, 2);
+    const page = await context.newPage();
+    await page.goto(`/duels/remote/${solo}`);
+    await expect(page.getByTestId("rail")).toBeVisible({ timeout: 30_000 });
+    // The Deck menu of the other seat gives up that seat, and the question names it.
+    await page.locator('[data-zone="deck"][data-seat="1"]').click();
+    await page.getByTestId("deck-menu-surrender").click();
+    await expect(page.getByTestId("surrender-confirm")).toContainText("Test Bot 1");
+    await page.getByTestId("surrender-yes").click();
+    await expect(page.getByTestId("match-result")).toContainText("Game over", { timeout: 15_000 });
+    const soloRoom = await (await context.request.get(`/api/remote/${solo}`)).json();
+    expect(soloRoom.state.seats.map((seat: { eliminated?: boolean }) => !!seat.eliminated)).toEqual([false, true]);
+    const lpTable = await soloTable(context.request, 2);
+    const room = await (await context.request.get(`/api/remote/${lpTable}`)).json();
+    const lpDown = await context.request.post(`/api/remote/${lpTable}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "lp.change", actorSeat: 0, seat: 1, delta: -8000, reason: "test", idempotencyKey: crypto.randomUUID() } } });
+    expect(lpDown.ok(), await lpDown.text()).toBe(true);
+    await page.goto(`/duels/remote/${lpTable}`);
+    await expect(page.getByTestId("match-result")).toBeVisible({ timeout: 30_000 });
+    await shot(page, "surrender-6-lp-zero");
+  });
+
   // Camera / field swap: per viewer and per seat, animated, remembered, keyboard reachable, and cards keep their own click.
   for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
     test(`the field and the camera swap places, per seat, and the choice is remembered: ${mode}`, async ({ page, context }) => {
