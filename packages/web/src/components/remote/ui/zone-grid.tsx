@@ -6,6 +6,8 @@ import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZ
 import { cameraRates, trafficLine, type CameraRate, type CameraTraffic } from "@/lib/remote/video-stats";
 import { FieldOrientationSelect } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
+import { useRecognitionBackend } from "./recognition-backend";
+import { useSendHealth } from "@/lib/remote/send-health-store";
 import type { FieldCalibration, FieldTrack } from "@yugidraft/vision";
 import s from "./remote-ui.module.css";
 
@@ -91,6 +93,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
   const view = useFieldDebug(), allowed = useFieldDeveloper(), enabled = useFieldDebugEnabled();
   const hub = useVideoHub(), camera = hub.cameraLock?.debug;
   const traffic = useVideoTraffic(hub.trafficStats, allowed && enabled);
+  const reader = useRecognitionBackend(), sendHealth = useSendHealth();
   if (!allowed || !enabled || !box || (!view && !camera && !traffic.length)) return null;
   const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
   const debug = view?.debug, live = view?.tracks.filter(t => !t.removed) ?? [];
@@ -110,6 +113,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
       <FieldProfilePanel />
       {traffic.length ? <span style={{ right: 8, top: 8, position: "absolute", background: "rgb(0 0 0/.82)", color: "#e8f6ff", fontSize: 10, lineHeight: 1.35, padding: "4px 6px", whiteSpace: "pre", fontFamily: "ui-monospace,monospace" }} title="Real WebRTC traffic per camera: RTP payload kbps over the last 2 s, without transport overhead" data-testid="field-debug-traffic">
         {traffic.map(trafficLine).join("\n")}
+        {`\nvision ${reader.backend ?? "–"}${reader.ms === null ? "" : ` · ${reader.ms} ms per frame`}${sendHealth.visionSlowed ? "\nVision slowed to keep video smooth" : ""}`}
       </span> : null}
     </div>
   </>;
