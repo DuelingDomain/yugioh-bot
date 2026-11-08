@@ -11,6 +11,14 @@ const TIGHT_ROOM = 250;
 // One saved offset per anchor: an offset from the top of the seat means nothing from its bottom. The CSS names the anchor in --dock-anchor.
 const KEY = (seat: number, anchor: string) => `dd-remote-notify-pos2:${seat}:${anchor}`;
 const anchorOf = (node: HTMLElement) => getComputedStyle(node).getPropertyValue("--dock-anchor").trim() || "top";
+/** Life points, with the revealed-hand tray above them (webcam only): one block the stack must clear. */
+const lpBlock = (area: HTMLElement, seat: number): DOMRect | undefined => {
+  const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect();
+  const tray = area.querySelector(`[data-tray="${seat}"]`)?.getBoundingClientRect();
+  if (!lp?.width || !tray?.width) return lp;
+  const left = Math.min(lp.left, tray.left), top = Math.min(lp.top, tray.top);
+  return new DOMRect(left, top, Math.max(lp.right, tray.right) - left, Math.max(lp.bottom, tray.bottom) - top);
+};
 const readOffset = (seat: number, anchor: string): Offset => {
   try { const value = JSON.parse(localStorage.getItem(KEY(seat, anchor)) ?? "null"); if (value && Number.isFinite(value.dx) && Number.isFinite(value.dy)) return { dx: value.dx, dy: value.dy }; } catch { /* no storage */ }
   return { dx: 0, dy: 0 };
@@ -50,7 +58,7 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
   const headBottom = (area: HTMLElement) => area.querySelector("header")?.getBoundingClientRect().bottom ?? area.getBoundingClientRect().top;
   // The tallest the stack can be with the seat header and the LP buttons clear. It depends only on the seat and the stack width, so a resize cannot make it flip.
   const fitRoom = (node: HTMLElement, area: HTMLElement) => {
-    const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect();
+    const lp = lpBlock(area, seat);
     if (!lp?.width) { node.style.removeProperty("--dock-room"); node.removeAttribute("data-tight"); return; }
     const bounds = area.getBoundingClientRect(); const head = headBottom(area);
     const beside = lp.left - bounds.left - 8 >= node.getBoundingClientRect().width;
@@ -60,7 +68,7 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
   // The stack must not cover the LP buttons or the seat header. It moves above the buttons, or else beside them. The position the person chose stays saved.
   const clearLp = (next: Offset, base: Offset): Offset => {
     const node = root.current; const area = node?.parentElement; if (!node || !area) return next;
-    const lp = area.querySelector(`[data-testid="lp-${seat}"]`)?.getBoundingClientRect(); if (!lp?.width) return next;
+    const lp = lpBlock(area, seat); if (!lp?.width) return next;
     const box = node.getBoundingClientRect(); const bounds = area.getBoundingClientRect();
     const left = box.left + next.dx - base.dx, right = box.right + next.dx - base.dx, top = box.top + next.dy - base.dy, bottom = box.bottom + next.dy - base.dy;
     if (left >= lp.right || right <= lp.left || top >= lp.bottom || bottom <= lp.top) return next;
@@ -81,8 +89,10 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
   useLayoutEffect(() => {
     const node = root.current; const area = node?.parentElement; if (!node || !area || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => place.current()); observer.observe(node); observer.observe(area);
+    // The tray grows when the first revealed card arrives; the stack steps clear of it.
+    const tray = area.querySelector(`[data-tray="${seat}"]`); if (tray) observer.observe(tray);
     return () => observer.disconnect();
-  }, []);
+  }, [seat]);
   const down = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { x: event.clientX, y: event.clientY, from: offset };
