@@ -193,9 +193,9 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
       root.dataset.replayPad = "true";
     };
     apply();
-    const observer = new ResizeObserver(apply);
-    observer.observe(bar);
-    return () => { observer.disconnect(); root.style.removeProperty("--replay-pad"); delete root.dataset.replayPad; };
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(apply) : null;
+    observer?.observe(bar);
+    return () => { observer?.disconnect(); root.style.removeProperty("--replay-pad"); delete root.dataset.replayPad; };
   }, [replay, hud]);
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
   useEffect(() => { if (inputSuspended && !replay) closeHud(); }, [inputSuspended, replay, closeHud]);
