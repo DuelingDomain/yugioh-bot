@@ -99,6 +99,8 @@ const MOVE_VERBS = new Set(["put", "place", "move", "send", "summon", "set", "br
 const MOVE_FILLER = new Set(["to", "in", "into", "on", "onto", "at", "as", "the", "my", "it", "this", "that", "card", "face", "down", "up", "mode", "position", "from"]);
 
 /** Zone words, positions and face words in one line. The words left over name the card. Null when the line is not a move. */
+const CARD_TYPE_WORDS = new Set(["a", "an", "the", "one", "my", "card", "monster", "spell", "trap", "monsters", "spells", "traps"]);
+
 export function parseMove(raw: string): MoveIntent | null {
   let text = ` ${norm(raw)} `;
   if (text.length > 200) return null;
@@ -127,6 +129,8 @@ export function parseMove(raw: string): MoveIntent | null {
   if (!found && viaSet && !setWord) return null;
   const words = text.trim().split(/\s+/).filter(word => word && !MOVE_VERBS.has(word) && !MOVE_FILLER.has(word));
   const query = words.join(" ");
+  // "set a monster face down" names a card type, not a card; the fuzzy name match would pick some card with that word in its name.
+  if (words.length && !dest && words.every(word => CARD_TYPE_WORDS.has(word))) return null;
   // A leftover of more than six words is a sentence, not a card name.
   if (words.length > 6) return null;
   return { ...(query ? { query } : {}), ...(dest ? { dest } : {}), ...(position ? { position } : {}), ...(faceUp !== undefined ? { faceUp } : {}) };
@@ -155,18 +159,21 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   let flipSummon = false;
   if (natural) {
     raw = natural.text; text = norm(raw); flipSummon = natural.flip === true;
-    // The live table has no other phase check, so a spoken phase must be a legal next phase, from the turn player (same rule as the voice check page).
-    const heard = heardPhaseOf(text);
-    if (heard && heard !== "endTurn") {
-      const current = ctx.state.phase as VoicePhase;
-      if (!VOICE_PHASES.includes(current) || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
-    }
     // Passing the turn must not replace the attack that is waiting for its confirm.
     if (text === "end turn" && ctx.state.attack) return { kind: "none" };
   }
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
-  if (phase) return phase;
+  if (phase) {
+    // The live table has no other phase check, so a spoken phase must be a legal next phase, from the turn player (same rule as the voice check page).
+    // "back to X", "go back a phase" and "set phase to X" are the correction path and are not judged.
+    if (phase.kind === "phase" && !/\b(?:back|previous|last phase|undo phase|set phase)\b/.test(text)) {
+      const current = ctx.state.phase as VoicePhase;
+      const heard = heardPhaseOf(`${phase.phase === "main1" ? "main phase one" : phase.phase === "main2" ? "main phase two" : `${phase.phase} phase`}`);
+      if (!heard || !VOICE_PHASES.includes(current) || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
+    }
+    return phase;
+  }
   const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state,now:ctx.now,lookupCard:ctx.lookupCard});
   if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
   if (ctx.trayOpen) {

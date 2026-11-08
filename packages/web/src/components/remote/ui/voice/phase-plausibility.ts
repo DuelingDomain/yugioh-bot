@@ -45,6 +45,8 @@ export function judgePhaseWord(
   const target: VoicePhase = heard === "main" ? (VOICE_PHASES.indexOf(current) <= VOICE_PHASES.indexOf("main1") ? "main1" : "main2") : heard;
   if (target === current) return ignore(`already in ${PHASE_LABEL[current]}`);
   if (target === "battle" && !(options.battleAllowed ?? turn > 1)) return ignore("no Battle Phase this turn");
-  if (NEXT[current].includes(target)) return { accept: true, move: { kind: "phase", phase: target } };
+  // With no Battle Phase this turn, Main 1 goes straight on to Main 2.
+  const next = current === "main1" && !(options.battleAllowed ?? turn > 1) ? ["main2", ...NEXT.main1] : NEXT[current];
+  if (next.includes(target)) return { accept: true, move: { kind: "phase", phase: target } };
   return ignore(VOICE_PHASES.indexOf(target) < VOICE_PHASES.indexOf(current) ? "not a next phase" : "skips too far");
 }

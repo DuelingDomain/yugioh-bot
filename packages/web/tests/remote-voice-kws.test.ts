@@ -118,7 +118,11 @@ describe("browser voice commands (KWS)", () => {
         ["pass turn", "turn"], ["I pass", "turn"], ["I'll pass", "turn"], ["pass", "turn"], ["end my turn", "turn"], ["turn end", "turn"],
         ["that's my turn", "turn"], ["your turn", "turn"], ["your go", "turn"],
         ["going to battle", "phase battle"], ["into battle", "phase battle"], ["enter battle", "phase battle"], ["go to battle", "phase battle"], ["moving to end phase", "phase end"],
-        ["main two", "phase main2"], ["main phase one", "phase main1"], ["next phase", "phase battle"], ["standby", "phase standby"],
+        ["main two", "phase main2", "battle"], ["main phase one", "phase main1", "standby"], ["next phase", "phase battle"], ["standby", "phase standby", "draw"], ["battle phase", "phase battle"],
+        // The explicit forms use the same rule: a phase that is not a legal next phase is ignored, and "back to" is the way to correct.
+        ["main phase one", "none", "main2"], ["end phase", "none", "draw"], ["draw phase", "none", "end"], ["battle phase", "none", "main2"], ["back to main phase one", "phase main1", "main2"],
+        // A card type is not a card name: it must not reach the fuzzy name match (Monster Reborn).
+        ["set a monster face down", "none"], ["set a spell face down", "none"], ["set a trap", "none"], ["set Monster Reborn face down", "move {\"query\":\"monster reborn\",\"faceUp\":false}"],
         ["swing at Dark Magician", "attack"], ["swing", "attack"], ["Blue-Eyes White Dragon swings at Dark Magician", "attack"], ["I attack with Blue-Eyes White Dragon", "attack"],
         ["Blue-Eyes White Dragon attacks Dark Magician", "attack"], ["attack directly", "attack"], ["direct attack", "attack"], ["go direct", "attack"],
         ["chain", "wake"], ["I chain", "wake"], ["in response", "wake"], ["respond", "wake"],
