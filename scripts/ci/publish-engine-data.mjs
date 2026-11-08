@@ -13,7 +13,10 @@ const PIN_FILES = [PIN_FILE, ...CORE_PIN_FILES];
 const TABLE_FILE = "packages/duel-server/duelingbook-alt-passcodes.json";
 const NAMES_FILE = "packages/duel-server/duelingbook-alt-passcode-names.json";
 const COMPATIBILITY_FILES = [TABLE_FILE, NAMES_FILE];
-const DATA_FILES = [...PIN_FILES, ...COMPATIBILITY_FILES, ...BRIDGE_FILES];
+// Remote Duels card logic: four packed id lists generated from the card data. Inert JSON, imported by the web app.
+export const CARD_LOGIC_FILE = "packages/web/src/lib/remote/card-logic-data.json";
+const LOGIC_FILES = [CARD_LOGIC_FILE];
+const DATA_FILES = [...PIN_FILES, ...COMPATIBILITY_FILES, ...BRIDGE_FILES, ...LOGIC_FILES];
 export const BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const pinKeys = ["scripts", "database", "strings"];
 const pinPattern = (key) => new RegExp(`(["']?\\b${key}\\b["']?\\s*:\\s*["'])([a-f0-9]{40})(["'])`, "g");
@@ -71,6 +74,18 @@ function validateCompatibility(tableBytes, nameBytes) {
   }
 }
 
+/** The card logic file is exactly four base36 id lists in canonical JSON, never code. */
+export function validateCardLogic(bytes) {
+  const keys = ["SELF_EQUIP", "EQUIPPERS", "TAKE_CONTROL", "REVIVE_OPPONENT_GY"];
+  if (Buffer.byteLength(bytes) > 200_000) throw new Error("Card logic JSON is too large");
+  const value = JSON.parse(bytes);
+  if (!value || typeof value !== "object" || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort()) ||
+      keys.some(key => typeof value[key] !== "string" || value[key].length > 50_000 || (value[key] !== "" && !/^[0-9a-z]+( [0-9a-z]+)*$/.test(value[key]))) ||
+      JSON.stringify(value, keys, 2) + "\n" !== bytes) {
+    throw new Error("Card logic JSON must be exactly four canonical lists of base36 card ids");
+  }
+}
+
 function defaultRun(command, args, options) {
   return execFileSync(command, args, { ...options, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
@@ -84,6 +99,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   validateBridgeCandidate(cwd, artifactDir, artifact.bridge);
   const compatibilityChanged = artifact.files?.some(file => COMPATIBILITY_FILES.includes(file));
   const bridgeChanged = artifact.files?.some(file => BRIDGE_FILES.includes(file));
+  const logicChanged = artifact.files?.some(file => LOGIC_FILES.includes(file));
   const skip = (reason) => { log(`::warning::Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
   if (!artifact.changed) return skip("unchanged");
   const base = env.BASE_BRANCH || "main";
@@ -130,14 +146,14 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
         if (!Array.isArray(published)) throw new Error("Invalid card data history");
         if (!published.some(entry => entry.pullRequest.url === pr)) historyRepair = published;
       }
-      if (historyRepair === null && !compatibilityChanged && !bridgeChanged) return skip("identical-pins");
+      if (historyRepair === null && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-pins");
     }
-    if (historyRepair === null && artifact.matchingPrHead === updateSha && !compatibilityChanged && !bridgeChanged) return skip("identical-data");
+    if (historyRepair === null && artifact.matchingPrHead === updateSha && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-data");
   }
   const original = git("show", `${baseSha}:${PIN_FILE}`);
   const old = readPinsFromSource(original);
   const pinsChanged = pinKeys.some((key) => old[key] !== artifact.next[key]);
-  if (!pinsChanged && !compatibilityChanged && !bridgeChanged) return skip("identical-pins");
+  if (!pinsChanged && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-pins");
   if (!pinsChanged) historyRepair = null;
   let expected = original;
   for (const key of pinKeys) expected = expected.replace(pinPattern(key), (_, prefix, _old, suffix) => `${prefix}${artifact.next[key]}${suffix}`);
@@ -152,7 +168,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     const updated = source.replace(pattern, (_, prefix, _old, suffix) => `${prefix}${artifact.next.scripts}${suffix}`);
     if (updated !== source) expectedSources.set(file, updated);
   }
-  const expectedFiles = [...expectedSources.keys(), ...artifact.files.filter(file => COMPATIBILITY_FILES.includes(file) || BRIDGE_FILES.includes(file))].sort();
+  const expectedFiles = [...expectedSources.keys(), ...artifact.files.filter(file => COMPATIBILITY_FILES.includes(file) || BRIDGE_FILES.includes(file) || LOGIC_FILES.includes(file))].sort();
   if (JSON.stringify([...artifact.files].sort()) !== JSON.stringify(expectedFiles)) {
     throw new Error("Artifact files must include exactly the changed synchronized pins and Dueling Book JSON");
   }
@@ -173,6 +189,11 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
       validateCompatibility(table, names);
       for (const file of COMPATIBILITY_FILES) if (artifact.files.includes(file)) expectedSources.set(file, file === TABLE_FILE ? table : names);
     }
+    for (const file of artifact.files.filter(file => LOGIC_FILES.includes(file))) {
+      const logic = indexGit("show", `:${file}`);
+      validateCardLogic(logic);
+      expectedSources.set(file, logic);
+    }
     for (const file of artifact.files.filter(file => BRIDGE_FILES.includes(file))) expectedSources.set(file, readFileSync(join(artifactDir, file)));
     for (const [file, source] of expectedSources) {
       const modeBefore = git("ls-tree", baseSha, "--", file).split(" ")[0];
@@ -185,7 +206,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 
-  if (pr && updateSha && (compatibilityChanged || bridgeChanged)) {
+  if (pr && updateSha && (compatibilityChanged || bridgeChanged || logicChanged)) {
     const identical = DATA_FILES.every(file => {
       const source = expectedSources.get(file);
       // Older bases may predate optional artifacts. Unchanged missing files
@@ -210,7 +231,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   const details = history === null || !pinsChanged ? null : historyDetails(artifact);
   const date = new Date().toISOString();
   const title = pinsChanged ? `chore(engine): update Project Ignis card data to ${date.slice(0, 10)}`
-    : bridgeChanged ? "chore(cards): rebuild archetype bridges" : "chore(engine): update Dueling Book passcode table";
+    : bridgeChanged ? "chore(cards): rebuild archetype bridges" : logicChanged && !compatibilityChanged ? "chore(remote): regenerate Remote Duels card logic" : "chore(engine): update Dueling Book passcode table";
   const recordHistory = (url) => {
     writeFileSync(join(cwd, HISTORY_FILE), JSON.stringify(appendHistory(history, details,
       { date, label: `Project Ignis ${date.slice(0, 10)}`, url, repository: repo }), null, 2) + "\n");

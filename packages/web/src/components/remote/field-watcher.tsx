@@ -15,7 +15,7 @@ import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,f
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
+import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -116,7 +116,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const tokenAway=useRef(new Map<string,{cell:FieldZone;zone:FieldZone}>());
   const tokenUndo=useRef<{trackId:string;actionId:string}>(undefined);
   /** A plain monster that stands in a Spell & Trap Zone: Move / Keep. `rowKept` holds the refs the player kept there. */
-  const [rowPrompt,setRowPrompt]=useState<{ref:string;name:string;zone:FieldZone;target:FieldZone}|null>(null),rowKept=useRef(new Set<string>());
+  const [rowPrompts,setRowPrompts]=useState<{ref:string;name:string}[]>([]),rowKept=useRef(new Set<string>());
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
@@ -131,7 +131,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** Prompts waiting for a choice (set each render) and the time of the last automatic Scan field. */
   const promptCount=useRef(0),autoScanAt=useRef(-Infinity);
   const rowFixes=useRef(new Map<string,number>()),[shiftHint,setShiftHint]=useState(false),shiftHinted=useRef(false);
-  useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);rowKept.current.clear();setRowPrompt(null);},[room.slug,seat]);
+  useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);rowKept.current.clear();setRowPrompts([]);},[room.slug,seat]);
   const noteRowFix=(ref:string)=>{
     const at=performance.now();rowFixes.current.set(ref,at);
     for(const [key,when] of rowFixes.current)if(at-when>120_000)rowFixes.current.delete(key);
@@ -517,7 +517,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
       if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);
       // A monster that stays in a Spell & Trap Zone is asked about once: the player knows if it is equipped or placed by a card.
-      if(projected.shiftTo&&projected.zone?.startsWith('S')&&!rowKept.current.has(target.card.ref))setRowPrompt({ref:target.card.ref,name:entry?.name??'Monster',zone:projected.zone,target:projected.shiftTo});
+      if(projected.shiftTo&&projected.zone?.startsWith('S')&&!rowKept.current.has(target.card.ref))setRowPrompts(list=>list.some(p=>p.ref===target.card.ref)?list:[...list,{ref:target.card.ref,name:entry?.name??'Monster'}]);
     }finally{setPending(false);}
   }
   function handleHeld(event:HeldCardEvent) {
@@ -943,16 +943,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     });
   }
   /** The player says a monster in a Spell & Trap Zone belongs in a Monster Zone: one move, then the camera keeps it there. */
-  function moveFromSpellTrap(value:{ref:string;name:string;target:FieldZone}) {
-    setRowPrompt(null);
+  function moveFromSpellTrap(value:{ref:string;name:string}) {
+    setRowPrompts(list=>list.filter(p=>p.ref!==value.ref));
     void queue(async act=>{
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);
       if(!live()||!card||card.zone!=='spell-trap')return;
-      const updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...fieldZoneLocation(value.target),...(card.faceUp?{name:value.name}:{}),...(card.position?{position:card.position}:{})});
-      if(updated){holdForPlayer(card.ref);setNotice(`${value.name} → ${value.target}`);setUndoId(updated.state.undo?.actionId??'');}
+      // The free zone is read now, not when the prompt opened.
+      const target=nearestFreeMonsterZone(current.current.room.state.seats[seat].twin as never,`S${card.slot??1}` as FieldZone,card.ref);
+      if(!target){setNotice('No free Main Monster Zone. Choose a zone manually.');return;}
+      const updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,...fieldZoneLocation(target),...(card.faceUp?{name:value.name}:{}),...(card.position?{position:card.position}:{})});
+      if(updated){holdForPlayer(card.ref);setNotice(`${value.name} → ${target}`);setUndoId(updated.state.undo?.actionId??'');}
     });
   }
-  useEffect(()=>{if(rowPrompt&&!room.state.seats[seat].twin.some(c=>c.ref===rowPrompt.ref&&c.zone==='spell-trap'))setRowPrompt(null);},[room.state,rowPrompt,seat]);
+  useEffect(()=>{const gone=rowPrompts.filter(p=>!room.state.seats[seat].twin.some(c=>c.ref===p.ref&&c.zone==='spell-trap'));if(gone.length)setRowPrompts(list=>list.filter(p=>!gone.includes(p)));},[room.state,rowPrompts,seat]);
+  const rowCard=rowPrompts[0]&&room.state.seats[seat].twin.find(c=>c.ref===rowPrompts[0].ref),rowZone=rowCard?`S${rowCard.slot??'?'}`:'a Spell/Trap Zone',rowTarget=rowCard?nearestFreeMonsterZone(room.state.seats[seat].twin as never,`S${rowCard.slot??1}` as FieldZone,rowCard.ref):undefined;
   function redirect(zone:string) {
     void queue(async act=>{
       const value=departureRef.current;if(!value||!live())return;
@@ -1261,9 +1265,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(event.track.id,{cell,zone});void queue(act=>apply(event,act),event);}}>{zone}</button>)}
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:false})}>Back</button></span>:tokenPrompt?<span data-testid="token-clash">A token is in {tokenPrompt.zone}. Tribute/remove the token and place {tokenPrompt.name} here?
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queue(async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
-        <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:rowPrompt?<span data-testid="monster-in-st">{rowPrompt.name} is a monster in {rowPrompt.zone}.
-        <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompt)}>Move to {rowPrompt.target}</button>
-        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{rowKept.current.add(rowPrompt.ref);setRowPrompt(null);}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+        <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:rowPrompts[0]?<span data-testid="monster-in-st">{rowPrompts[0].name} is a monster in {rowZone}.
+        <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
+        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}

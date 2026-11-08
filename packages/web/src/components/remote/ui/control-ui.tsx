@@ -61,7 +61,8 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
 
   /** A self-equipping monster in my Spell & Trap Zone: which monster does it equip? No link is made until the player clicks. */
   const askEquip = (seat: number, card: TwinCard) => {
-    if (!may(seat) || layers.layer === "control") return false;
+    // Another popup or the inspector is open: wait. The caller asks again once the layer closes, so nothing is replaced.
+    if (!may(seat) || layers.layer !== null) return false;
     open({ step: "equip", seat, card });
     return true;
   };
@@ -71,7 +72,7 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
     const done = (updated: RemoteRoom | null) => { if (updated) close(); };
     // The player's own Graveyard: no control change, a plain move.
     if (v.from === v.taker) void act({ type: "twin.move", actorSeat, seat: v.taker, cardRef: v.card.ref, zone: "monster", slot, faceUp: true, position: v.position ?? "attack" }).then(done);
-    else void act({ type: "twin.control", actorSeat, seat: v.from, toSeat: v.taker, cardRef: v.card.ref, zone: "monster", slot, faceUp: true,
+    else void act({ type: "twin.control", actorSeat, seat: v.from, toSeat: v.taker, cardRef: v.card.ref, zone: "monster", slot, faceUp: v.revive ? true : v.card.faceUp,
       ...(v.revive && v.position ? { position: v.position } : {}) }).then(done);
   };
 

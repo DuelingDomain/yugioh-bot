@@ -738,6 +738,17 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.identified).toMatchObject({ notInDecklist: false, addErrors: [] });
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
+  it("keeps a face-down monster face-down through take and return, hidden from the other seat and spectators", () => {
+    const s = deckSession("normal"); s.select(s.save().id); s.start();
+    s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "opp-card", cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: 2, position: "defense" } });
+    const view = () => s.room.state.seats.flatMap(seat => seat.twin).find(c => c.ref === "opp-card")!;
+    s.act({ type: "twin.control", actorSeat: 0, seat: 1, toSeat: 0, cardRef: "opp-card", zone: "monster", slot: 1, faceUp: false });
+    expect(view()).toMatchObject({ faceUp: false, ownerSeat: 1 });
+    s.act({ type: "twin.control", actorSeat: 0, seat: 0, toSeat: 1, cardRef: "opp-card", zone: "monster", slot: 3 });
+    expect(s.room.state.seats[1].twin.find(c => c.ref === "opp-card")).toMatchObject({ zone: "monster", slot: 3, faceUp: false });
+    for (const viewer of [new Set([0]), new Set<number>()]) expect(projectRemoteState(s.room.state, viewer).seats[1].twin.find(c => c.ref === "opp-card")).not.toHaveProperty("cardId");
+    expect(projectRemoteSpectator(s.service.snapshot(s.room.slug, "g")).state.seats[1].twin.find(c => c.ref === "opp-card") ?? {}).not.toHaveProperty("cardId");
+  });
   it.each(["normal", "domain"] as const)("shows why an addition cannot stay legal in %s", format => {
     const s = deckSession(format); s.select(s.save(Array.from({ length: 60 }, (_, i) => i + 1)).id); s.start();
     s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "click" });

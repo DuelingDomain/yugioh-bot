@@ -205,7 +205,7 @@ jobs:
         if: steps.candidate.outputs.changed == 'true'
         run: |
           prlimit --core=0 -- node --import tsx packages/duel-server/scripts/build-card-logic.ts
-          file=packages/web/src/lib/remote/card-logic-data.ts
+          file=packages/web/src/lib/remote/card-logic-data.json
           if [ -n "$(git diff --numstat -- "$file")" ]; then
             jq --arg file "$file" '.files = ((.files + [$file]) | unique)' "$UPDATE_ARTIFACT_DIR/update.json" > "$UPDATE_ARTIFACT_DIR/update.json.tmp"
             mv "$UPDATE_ARTIFACT_DIR/update.json.tmp" "$UPDATE_ARTIFACT_DIR/update.json"

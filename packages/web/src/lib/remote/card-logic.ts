@@ -1,4 +1,5 @@
-import { EQUIPPERS, REVIVE_OPPONENT_GY, SELF_EQUIP, TAKE_CONTROL } from './card-logic-data';
+import data from './card-logic-data.json';
+const { EQUIPPERS, REVIVE_OPPONENT_GY, SELF_EQUIP, TAKE_CONTROL } = data;
 
 /**
  * Card logic for Remote Duels, from the engine data (cards.cdb type bits and the card scripts, see

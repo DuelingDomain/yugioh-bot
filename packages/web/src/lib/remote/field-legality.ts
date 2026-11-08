@@ -102,6 +102,12 @@ function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|unde
   return {legal:'unusual',shift:true,reason:'A monster with no Equip, Set or Continuous effect is in a Spell/Trap Zone. Is it equipped or placed by a card?'};
 }
 
+/** The Main Monster Zone nearest the column of `zone` that is free right now (the card `ref` itself does not count). Read it at click time: the board can change while a prompt is open. */
+export function nearestFreeMonsterZone(twins:readonly FieldTwin[],zone:FieldZone,ref?:string):FieldZone|undefined {
+  const col=columnOf(zone);
+  return [1,2,3,4,5].sort((a,b)=>Math.abs(a-col)-Math.abs(b-col)||a-b).map(slot=>`M${slot}` as FieldZone).find(target=>!zoneTaken(twins,target,ref,false));
+}
+
 /** "Check zone?": only for an exception card in an unusual zone. Never a reason to move the card. */
 export function fieldZoneCheck(facts:FieldZoneFacts|undefined,zone:string,slot?:number,context:ZoneContext={}):string|undefined {
   const verdict=zoneVerdict(facts,zone,slot,context);

@@ -380,7 +380,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       card.zone = action.zone;
       if (action.slot !== undefined && !pile) card.slot = action.slot;
       if (action.position !== undefined) card.position = action.position;
-      card.faceUp = pile ? true : action.faceUp ?? true;
+      // A card taken from or returned to the field keeps its face; only a card sent to a pile shows face up.
+      card.faceUp = pile ? true : action.faceUp ?? card.faceUp;
       to.twin.push(card);
       break;
     }
