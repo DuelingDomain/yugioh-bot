@@ -16,8 +16,8 @@ export interface MatFitResult {
   flipped?:{corners:[Point,Point,Point,Point];orientation:FieldOrientation};
   metrics:{inliers:number;rows:number;columns:number;columnSpan:number;meanErrorPitch:number;maxErrorPitch:number};
 }
-interface Rect {score:number;cx:number;cy:number;w:number;h:number;angle:number}
-interface Lattice {rows:number[];cols:number[];rspan:number;cspan:number;nr:number;nc:number;px:number;py:number}
+interface Rect {nested?:boolean;edgeMin:number;printed?:boolean;score:number;cx:number;cy:number;w:number;h:number;angle:number}
+interface Lattice {theta:number;rows:number[];cols:number[];rspan:number;cspan:number;nr:number;nc:number;px:number;py:number}
 interface Hypothesis {side:'top'|'bottom';mirror:boolean;r0:number;c0:number;score:number}
 const rad=Math.PI/180;
 const median=(v:number[])=>{v.sort((a,b)=>a-b);return (v[(v.length-1)>>1]+v[v.length>>1])/2;};
@@ -138,42 +138,158 @@ function search(hor:Uint8Array,vert:Uint8Array,w:number,h:number,angle:number):R
         // At least three supported sides; the missing side can be occluded by a hand or card.
         if(Number(top>=.3)+Number(bottom>=.3)+Number(left>=.3)+Number(right>=.3)<3)continue;
         const score=.8*(sum-worst)/3+.2*worst;
-        if(score>=.5)found.push({score,cx:x+rw/2,cy:y+rh/2,w:rw,h:rh,angle});
+        if(score>=.5)found.push({score,edgeMin:worst,cx:x+rw/2,cy:y+rh/2,w:rw,h:rh,angle});
       }
     }
   }
-  found.sort((a,b)=>b.score-a.score);const keep:Rect[]=[];
+  found.sort((a,b)=>b.score-a.score);const groups:Rect[][]=[];
   for(const a of found){
-    if(keep.some(b=>{
+    const group=groups.find(([b])=>{
       const ix=Math.max(0,Math.min(a.cx+a.w/2,b.cx+b.w/2)-Math.max(a.cx-a.w/2,b.cx-b.w/2)),iy=Math.max(0,Math.min(a.cy+a.h/2,b.cy+b.h/2)-Math.max(a.cy-a.h/2,b.cy-b.h/2)),inter=ix*iy;
       return inter/(a.w*a.h+b.w*b.h-inter)>.25;
-    }))continue;
-    keep.push(a);if(keep.length>=40)break;
+    });
+    if(group)group.push(a);else if(groups.length<40)groups.push([a]);
   }
+  const keep=groups.flatMap(group=>{
+    const anchor=group[0],sizes=new Map<string,Rect>();
+    for(const a of group)if(Math.hypot(a.cx-anchor.cx,a.cy-anchor.cy)<=.1*Math.max(a.h,anchor.h)&&a.h/anchor.h>=.8&&a.h/anchor.h<=1.25){
+      const key=`${a.w}:${a.h}`;if(!sizes.has(key))sizes.set(key,a);
+    }
+    return [...sizes.values()];
+  });
   const c=Math.cos(angle*rad),s=Math.sin(angle*rad);
   return keep.map(a=>({...a,cx:w/2+c*(a.cx-w/2)-s*(a.cy-h/2),cy:h/2+s*(a.cx-w/2)+c*(a.cy-h/2)}));
 }
-function filter(rects:Rect[]):Rect[] {
-  const merged:Rect[]=[];rects.sort((a,b)=>b.score-a.score);
-  for(const a of rects)if(!merged.some(b=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<=.45*Math.min(a.h,b.h)))merged.push(a);
-  const d=merged.filter(a=>a.score>=.55);if(d.length<3)return d;
-  let best=d[0],score=-1;
-  for(const a of d){const s=d.filter(b=>Math.abs(b.h-a.h)<.14*a.h).reduce((v,b)=>v+b.score,0);if(s>score){score=s;best=a;}}
-  const height=median(d.filter(a=>Math.abs(a.h-best.h)<.14*best.h).map(a=>a.h)),width=median(d.filter(a=>Math.abs(a.h-height)<.14*height).map(a=>a.w));
-  const sized=d.filter(a=>Math.abs(a.h-height)<.09*height&&Math.abs(a.w-width)<.17*width);
-  return sized.filter((a,i)=>sized.some((b,j)=>{
-    if(i===j)return false;
-    const dx=b.cx-a.cx,dy=b.cy-a.cy,w=(a.w+b.w)/2,h=(a.h+b.h)/2,dist=Math.hypot(dx,dy);
-    return dist>=w&&dist<=2.1*w&&Math.abs(dy)<.36*Math.abs(dx)+.15*h&&Math.abs(dx)>.8*w
-      ||dist>=.95*h&&dist<=1.6*h&&Math.abs(dx)<.36*Math.abs(dy)+.15*w&&Math.abs(dy)>.8*h;
-  }));
+/** An aligned outer outline wins over a stronger card edge inside it. */
+function outerFrame(outer:Rect,inner:Rect):boolean {
+  const ratio=outer.h/inner.h;
+  return outer.edgeMin>=.3&&ratio>=1.05&&ratio<=1.25&&Math.hypot(outer.cx-inner.cx,outer.cy-inner.cy)<=.1*outer.h&&outer.w>=inner.w;
 }
-function cluster(values:number[],gap:number,minPitch:number,maxPitch:number) {
+function outline(group:Rect[]):Rect {
+  const anchor=group[0];
+  return group.filter(a=>a===anchor||outerFrame(a,anchor)).sort((a,b)=>b.h-a.h||b.score-a.score)[0];
+}
+function neighbours(a:Rect,b:Rect):boolean {
+  const dx=b.cx-a.cx,dy=b.cy-a.cy,w=(a.w+b.w)/2,h=(a.h+b.h)/2,dist=Math.hypot(dx,dy);
+  return dist>=w&&dist<=3.2*w&&Math.abs(dy)<.36*Math.abs(dx)+.15*h&&Math.abs(dx)>.8*w
+    ||dist>=.95*h&&dist<=1.6*h&&Math.abs(dx)<.36*Math.abs(dy)+.15*w&&Math.abs(dy)>.8*h;
+}
+function filter(rects:Rect[]):Rect[] {
+  const groups:Rect[][]=[];rects.sort((a,b)=>b.score-a.score);
+  for(const a of rects){
+    const group=groups.find(([b])=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<=.45*Math.min(a.h,b.h));
+    if(group)group.push(a);else groups.push([a]);
+  }
+  // Vote once per physical centre at each size, so repeated angle searches
+  // and strong card edges cannot outweigh a connected set of printed frames.
+  const sizes=new Map<string,Rect>();
+  for(const a of rects)sizes.set(`${a.w}:${a.h}`,a);
+  let frames:Rect[]=[],support=-1,height=0,width=0;
+  for(const target of sizes.values()){
+    const candidates=groups.map(group=>{const sized=group.filter(a=>Math.abs(a.h-target.h)<.09*target.h&&Math.abs(a.w-target.w)<.17*target.w);return sized.length?outline(sized):undefined;}).filter((a):a is Rect=>!!a);
+    const lat=candidates.length>=3?lattice(candidates):null;
+    const bands:Rect[][]=[];
+    const y=(a:Rect)=>a.cy*Math.cos((lat?.theta??0)*rad)-a.cx*Math.sin((lat?.theta??0)*rad);
+    for(const a of [...candidates].sort((a,b)=>y(a)-y(b))){
+      const last=bands.at(-1);if(!last||y(a)-y(last.at(-1)!)>.35*target.h)bands.push([a]);else last.push(a);
+    }
+    const aligned=bands.filter(row=>row.length>=2).sort((a,b)=>b.length-a.length).slice(0,2).flat();
+    const connected=aligned.filter(a=>aligned.some(b=>a!==b&&neighbours(a,b)));
+    const count=(connected.length>=3&&lattice(connected).nc>=4?1:0)*connected.reduce((sum,a)=>sum+connected.filter(b=>a!==b&&neighbours(a,b)).length,0);
+    if(count>support||count===support&&target.h>height){support=count;frames=connected;height=target.h;width=target.w;}
+  }
+  frames=frames.filter(a=>a.score>=.55).sort((a,b)=>b.score-a.score).filter((a,i,all)=>!all.slice(0,i).some(b=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<.3*Math.min(a.h,b.h)));
+  const printedHeight=frames.length?median(frames.map(a=>a.h)):height;
+  frames=frames.map(a=>{
+    const group=groups.find(group=>group.includes(a))!;
+    const inner=group.find(b=>b.h<=a.h/1.05&&b.h>=a.h/1.25);
+    const concentric=!inner||Math.hypot(a.cx-inner.cx,a.cy-inner.cy)<=.08*a.h;
+    const nested=group.some(b=>a.h-b.h>=.14*a.h&&outerFrame(a,b));
+    return {...a,nested,printed:a.h>=printedHeight/1.05&&concentric};
+  });
+  // Smaller card centres can support the fit, but cannot establish its outer columns.
+  const angle=frames.length?median(frames.map(a=>a.angle))*rad:0;
+  const sameRow=(a:Rect,b:Rect)=>Math.abs((a.cy-b.cy)*Math.cos(angle)-(a.cx-b.cx)*Math.sin(angle))<.2*height;
+  const cards=groups.filter(group=>!frames.some(b=>Math.hypot(group[0].cx-b.cx,group[0].cy-b.cy)<.45*height))
+    .map(group=>group.find(a=>a.score>=.55&&a.h<height/1.05&&a.h>=height/1.25&&a.w<width*1.05&&frames.some(b=>sameRow(a,b)&&neighbours(a,b))))
+    .filter((a):a is Rect=>!!a).map(a=>({...a,printed:false}));
+  return [...frames,...cards];
+}
+
+/** A filled card has a sustained tone step across its edges; an empty printed
+ * outline is a thin ridge on the same mat. Use all four sides conservatively. */
+function filledRectangle(a:Rect,image:RGBAImage,w:number,h:number,theta:number):boolean {
+  const c=Math.cos(theta*rad),s=Math.sin(theta*rad),differences:number[]=[];
+  const value=(x:number,y:number)=>{
+    const ix=Math.round(x*image.width/w),iy=Math.round(y*image.height/h);
+    if(ix<0||iy<0||ix>=image.width||iy>=image.height)return NaN;
+    const i=(iy*image.width+ix)*4;return (.299*image.data[i]+.587*image.data[i+1]+.114*image.data[i+2])/255;
+  };
+  for(let side=0;side<4;side++){
+    let difference=0,count=0;
+    for(let j=2;j<18;j++)for(const offset of [4,6]){
+      const u=(j+.5)/20-.5,sign=side%2?1:-1;
+      const x=side<2?u*a.w:sign*a.w/2,y=side<2?sign*a.h/2:u*a.h;
+      const nx=side<2?0:sign,ny=side<2?sign:0;
+      const point=(d:number)=>value(a.cx+c*(x+nx*d)-s*(y+ny*d),a.cy+s*(x+nx*d)+c*(y+ny*d));
+      const delta=point(offset)-point(-offset);if(Number.isFinite(delta)){difference+=delta;count++;}
+    }
+    if(!count)return false;differences.push(difference/count);
+  }
+  return differences.every(d=>d>.06)||differences.every(d=>d<-.06);
+}
+
+/** Check faint outer frames directly in the ridges: the global edge threshold
+ * can hide them when many brighter card outlines occupy the mat. */
+function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,w:number,h:number,image:RGBAImage):Rect[] {
+  if(rects.length<4)return rects;
+  const threshold=percentile(strength,.8,true),lat=lattice(rects),theta=lat.theta*rad,c=Math.cos(theta),s=Math.sin(theta);
+  const supported=(x:number,y:number,family:number)=>{
+    const px=Math.round(x),py=Math.round(y);
+    if(px<0||py<0||px>=w||py>=h)return false;
+    const i=py*w+px,expected=theta+(family?0:Math.PI/2);
+    return strength[i]>threshold&&Math.abs(mod(phi[i]-expected+Math.PI/2,Math.PI)-Math.PI/2)<14*rad;
+  };
+  rects=rects.map(a=>a.nested?a:{...a,printed:a.printed&&!filledRectangle(a,image,w,h,lat.theta)});
+  const outer=rects.map(a=>{
+    let best:Rect|undefined,quality=0;
+    for(const kh of [1.15,1.2,1.25])for(const kw of [1.18,1.24,1.3]){
+      const rw=a.w*kw,rh=a.h*kh,sides=[0,0,0,0];
+      // Keep clear of the card's own short edges, including ridge blur.
+      if(rw<a.h*.78)continue;
+      for(let j=0;j<20;j++){
+        const u=(j+.5)/20;
+        for(let side=0;side<4;side++){
+          const x=side<2?(u-.5)*rw:(side===2?-.5:.5)*rw,y=side<2?(side===0?-.5:.5)*rh:(u-.5)*rh;
+          if(supported(a.cx+c*x-s*y,a.cy+s*x+c*y,side<2?1:0))sides[side]++;
+        }
+      }
+      const min=Math.min(...sides)/20,mean=sides.reduce((v,n)=>v+n)/80;
+      if(min>=.5&&mean>quality){quality=mean;best={...a,w:rw,h:rh,printed:true};}
+    }
+    return best;
+  });
+  const evidence=outer.filter((a):a is Rect=>!!a);
+  if(evidence.length<2)return rects;
+  const proof=lattice(evidence);if(proof.nc<2)return rects;
+  const cardHeight=median(rects.filter((_,i)=>outer[i]).map(a=>a.h));
+  return rects.map((a,i)=>outer[i]??(Math.abs(a.h-cardHeight)<.09*cardHeight?{...a,printed:false}:a));
+}
+
+function cluster(values:number[],gap:number,minPitch:number,maxPitch:number,maxSpan:number) {
   const order=values.map((_,i)=>i).sort((a,b)=>values[a]-values[b]),groups:number[][]=[];
   for(const i of order){const last=groups.at(-1);if(!last||values[i]-values[last.at(-1)!]>gap)groups.push([i]);else last.push(i);}
   const centers=groups.map(g=>g.reduce((s,i)=>s+values[i],0)/g.length),gaps=centers.slice(1).map((v,i)=>v-centers[i]);
   if(!gaps.length)return {indices:values.map(()=>0),span:0,count:1,pitch:minPitch};
-  const eligible=gaps.filter(g=>g>=minPitch);let pitch=Math.min(maxPitch,Math.min(...(eligible.length?eligible:gaps)));
+  // Vote for a whole lattice, rather than treating the shortest noisy gap as
+  // a pitch. Missing columns and perspective can make that gap misleading.
+  let pitch=minPitch,best=Infinity;
+  for(let candidate=minPitch;candidate<=maxPitch;candidate+=.25){
+    const indices=centers.map(c=>Math.round((c-centers[0])/candidate));
+    if(Math.max(...indices)>maxSpan)continue;
+    const error=centers.reduce((sum,c,i)=>sum+Math.min(.04,((c-centers[0])/candidate-indices[i])**2),0);
+    if(error<best){best=error;pitch=candidate;}
+  }
   let k=centers.map(c=>Math.round((c-centers[0])/pitch));
   const mx=k.reduce((a,b)=>a+b)/k.length,my=centers.reduce((a,b)=>a+b)/k.length;
   const den=k.reduce((s,x)=>s+(x-mx)**2,0);
@@ -190,8 +306,8 @@ function lattice(d:Rect[]):Lattice {
     for(const y of ys)for(const y2 of ys)score+=Math.exp(-.5*((y-y2)/(.1*h))**2);
     if(score>best){best=score;theta=deg;}
   }
-  const c=Math.cos(theta*rad),s=Math.sin(theta*rad),rows=cluster(d.map(p=>p.cy*c-p.cx*s),.45*h,.95*h,1.7*h),cols=cluster(d.map(p=>p.cx*c+p.cy*s),.55*w,.95*w,2.6*w);
-  return {rows:rows.indices,cols:cols.indices,rspan:rows.span,cspan:cols.span,nr:rows.count,nc:cols.count,px:cols.pitch,py:rows.pitch};
+  const c=Math.cos(theta*rad),s=Math.sin(theta*rad),rows=cluster(d.map(p=>p.cy*c-p.cx*s),.45*h,.95*h,1.7*h,2),cols=cluster(d.map(p=>p.cx*c+p.cy*s),.55*w,.95*w,2.6*w,6);
+  return {theta,rows:rows.indices,cols:cols.indices,rspan:rows.span,cspan:cols.span,nr:rows.count,nc:cols.count,px:cols.pitch,py:rows.pitch};
 }
 function hypotheses(lat:Lattice,n:number,options:MatFitOptions):Hypothesis[] {
   const out:Hypothesis[]=[];
@@ -262,7 +378,7 @@ export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
   for(const delta of [-6,-4,-2,0,2,4,6]){
     const [bh,bv]=lineMasks(strength,angle,w,h,theta+delta);rects.push(...search(bh,bv,w,h,theta+delta));
   }
-  const d=filter(rects);result.flags.zonesFound=d.length;
+  const d=recoverOuterFrames(filter(rects),strength,angle,w,h,image);result.flags.zonesFound=d.length;
   if(d.length<3)return fail('too-few-zones');
   const lat=lattice(d);result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
   result.flags.colWindowAmbiguous=lat.cspan!==6;
@@ -285,14 +401,23 @@ export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
   if(!map)return fail('unstable-fit');
   const inliers=active.filter(i=>distance(map!(model[i]),dest[i])<.35);
   if(inliers.length!==active.length){active=inliers;map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);}
+  // Trim inconsistent centres before the coverage check. The minimum of six
+  // inliers and the printed-frame span still have to survive this rejection.
+  while(map&&active.length>6){
+    const errors=active.map(i=>distance(map!(model[i]),dest[i]));
+    const max=Math.max(...errors),mean=errors.reduce((a,b)=>a+b)/errors.length;
+    if(mean<.1&&max<.2)break;
+    active=active.filter((_,i)=>i!==errors.indexOf(max));
+    map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);
+  }
   result.metrics.inliers=active.length;
   if(!map||active.length<6)return fail('too-few-inliers');
   const errors=active.map(i=>distance(map!(model[i]),dest[i]));
   result.metrics.meanErrorPitch=errors.reduce((a,b)=>a+b)/errors.length;result.metrics.maxErrorPitch=Math.max(...errors);
   // Recheck coverage AFTER outlier rejection; an outlier cannot prove a seventh column.
-  const rows=new Set(active.map(i=>lat.rows[i])),cols=new Set(active.map(i=>lat.cols[i]));
+  const rows=new Set(active.map(i=>lat.rows[i])),cols=new Set(active.map(i=>lat.cols[i])),printedCols=active.filter(i=>d[i].printed).map(i=>lat.cols[i]);
   result.metrics.rows=rows.size;result.metrics.columns=cols.size;result.metrics.columnSpan=Math.max(...cols)-Math.min(...cols)+1;
-  result.flags.colWindowAmbiguous ||= Math.max(...cols)-Math.min(...cols)!==6;
+  result.flags.colWindowAmbiguous ||= Math.max(...printedCols)-Math.min(...printedCols)!==6;
   if(result.flags.colWindowAmbiguous)return fail('show-whole-mat-width');
   if(rows.size<2||cols.size<4)return fail('too-few-rows-or-columns');
   if(Math.max(...rows)-Math.min(...rows)!==lat.rspan)return fail('inconsistent-zones');
