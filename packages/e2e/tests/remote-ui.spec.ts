@@ -2223,20 +2223,19 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
     await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
     await page.waitForTimeout(1500);
-    const sees = (id: string, faceDown: boolean) => page.evaluate(([trackId, down]) => {
+    const sees = (id: string, cardId: string) => page.evaluate(([trackId, code]) => {
       const w = window as unknown as { __tracks: unknown[]; __e2eField: { entries: { current: Map<string, unknown> }; handle: (event: unknown) => void } };
-      const now = performance.now(), cardId = "900000001";
+      const now = performance.now(), down = false, cardId = code;
       const track = { id: trackId, zone: "M3", faceDown: down, cardId: down ? undefined : cardId, revision: 0, state: "identified", firstSeen: now - 3000, lastSeen: now, removed: false, visible: true, position: "attack",
         card: { kind: down ? "face-down" : "face-up", confidence: 1, partial: false, quad: [{ x: .4, y: .4 }, { x: .5, y: .4 }, { x: .5, y: .5 }, { x: .4, y: .5 }] } };
-      w.__e2eField.entries.current.set(cardId, { cardId, passcode: 900000001, name: "Origin fixture 1" });
+      w.__e2eField.entries.current.set(cardId, { cardId, passcode: Number(cardId), name: `Origin fixture ${cardId.slice(-1)}` });
       w.__tracks = [track]; w.__e2eField.handle({ type: "placed", track });
-    }, [id, faceDown] as const);
+    }, [id, cardId] as const);
 
     // Choose another zone: the picker offers the other free monster zones, never M3. The card goes where the player picks and the token stays.
-    // The real reader keeps sending events, so the fake one repeats until the table has taken the first.
     const clash = page.getByTestId("token-clash");
-    const seesUntilAsked = (id: string) => expect(async () => { await sees(id, false); await expect(clash).toBeVisible({ timeout: 3000 }); }).toPass({ timeout: 30_000 });
-    await seesUntilAsked("cam1");
+    await sees("cam1", "900000001");
+    await expect(clash).toBeVisible();
     await page.getByTestId("token-clash-other").click();
     await expect(page.getByTestId("token-clash-zones")).toBeVisible();
     await expect(page.getByTestId("token-clash-zone-M3")).toHaveCount(0);
@@ -2244,11 +2243,13 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
 
     // The first card is lifted off and a new card lies on the same cell: it asks again (the choice was for the first card only). Remove token puts it in M3, and one Undo brings the token back and clears the card.
-    await seesUntilAsked("cam2");
+    await sees("cam2", "900000002");
+    await expect(clash).toBeVisible();
     await page.getByTestId("token-clash-remove").click();
     const cell = async () => (await mine()).filter(c => c.startsWith("monster:3:"));
     await expect.poll(cell).toEqual(["monster:3:card"]);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect.poll(cell).toEqual(["monster:3:token"]);
+    // The whole board is back: the token in M3, the first card in M4, no card in M3.
+    await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
   });
 });
