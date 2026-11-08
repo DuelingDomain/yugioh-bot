@@ -11,6 +11,7 @@ import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
+import { applyRemoteOpening } from "../../src/remote/match.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -94,9 +95,9 @@ writeFileSync(join(deckData, "strings.conf"), "");
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
-function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true) {
+function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true, serviceOptions: { openingRoll?: boolean } = {}) {
   const { db, users } = setup();
-  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"] });
+  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"], ...serviceOptions });
   let room = service.create({ guildId: "g", userId: users[0], displayName: "Sulman", gameId: "ygo", seatCount: 2, solo, format }, 2000);
   const decks = createSavedDeckService(db, new Map());
   const save = (main = Array.from({ length: format.includes("domain") ? 60 : 40 }, (_, i) => i + 1), extra: number[] = [], owner = users[0]) =>
@@ -215,6 +216,55 @@ it('preserves a tournament LP request when another FFA seat is eliminated and re
     expect(state).toMatchObject({ended:true, winnerSeat:0,
       match:{phase:'done', winnerSeat:0, games:[{reason:'lp', winnerSeat:0}]}});
   }
+});
+
+it('rolls a public opening die for game 1: the winner chooses who goes first, and a missed choice means the winner goes first', () => {
+  for (const choice of ['second', 'timeout'] as const) {
+    const s = deckSession('normal', false, { openingRoll: true });
+    s.select(s.save().id);
+    s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
+    s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
+    let room = s.room;
+    const opening = room.state.match.opening!;
+    const last = opening.rounds.at(-1)!;
+    expect(opening.rounds.every(round => round.every(roll => roll === null || (roll >= 1 && roll <= 6)))).toBe(true);
+    expect(last.filter(roll => roll === Math.max(...last.filter(r => r !== null) as number[]))).toHaveLength(1);
+    expect(last[opening.winnerSeat]).toBe(Math.max(...last.filter(r => r !== null) as number[]));
+    expect(opening).toMatchObject({ startedAt: 2003, deadline: 2003 + opening.rounds.length * 3000 + 20000 });
+    expect(opening.chosenSeat).toBeUndefined();
+    // Everyone, spectators included, sees the same roll in the public start event.
+    const startEvent = (room: { events: { action: { type: string } }[] }) => room.events.find(e => e.action.type === 'table.started')!.action;
+    expect(startEvent(s.service.get(s.room.slug, 'g', s.users[1]))).toMatchObject({ opening });
+    expect(startEvent(s.service.spectatorSnapshot(s.room.slug, 'g'))).toMatchObject({ opening });
+    const winner = opening.winnerSeat, loser = 1 - winner;
+    const actAs = (seat: number, input: Record<string, unknown>) => room = s.service.act(room.slug, 'g', s.users[seat],
+      { baseSeq: room.lastSeq, action: remoteActionSchema.parse({ actorSeat: seat, idempotencyKey: `open-${seat}-${input.type}-${room.lastSeq}`, ...input }) }, 2100 + room.lastSeq);
+    // Play waits for the choice, and only the winner may choose.
+    expect(() => actAs(winner, { type: 'log.note', text: 'too early' })).toThrow(/choose who goes first/);
+    expect(() => actAs(loser, { type: 'match.first', seatGoesFirst: loser })).toThrow(/die-roll winner/);
+    if (choice === 'second') {
+      actAs(winner, { type: 'match.first', seatGoesFirst: loser });
+      expect(room.state).toMatchObject({ turnSeat: loser, startedSeats: [loser], match: { opening: { chosenSeat: loser } } });
+      expect(() => actAs(winner, { type: 'match.first', seatGoesFirst: winner })).toThrow();
+      actAs(loser, { type: 'log.note', text: 'game on' });
+    } else {
+      expect(s.service.sweepIdle(opening.deadline - 1)).toEqual([]);
+      expect(s.service.sweepIdle(opening.deadline)).toHaveLength(1);
+      room = s.service.get(room.slug, 'g', s.users[0]);
+      expect(room.state).toMatchObject({ turnSeat: winner, startedSeats: [winner], match: { opening: { chosenSeat: winner } } });
+    }
+    expect(s.service.replay(room.slug, 'g', s.users[0])).toEqual(s.service.get(room.slug, 'g', s.users[0]).state);
+  }
+  // A winner who left the game hands the choice, and the default, to the next living seat by roll order.
+  let three = ygoModule.initialState({ seatCount: 3, bestOf: 1 });
+  applyRemoteOpening(three, { rounds: [[3, 6, 5]], winnerSeat: 1, startedAt: 1000, deadline: 24000 });
+  three = ygoModule.reduce(three, { type: 'player.concede', actorSeat: 1, idempotencyKey: 'out', at: 2000 });
+  const first = (actorSeat: number, seatGoesFirst: number) => ygoModule.reduce(three, { type: 'match.first', actorSeat, seatGoesFirst, idempotencyKey: `f-${actorSeat}-${seatGoesFirst}`, at: 3000 });
+  expect(() => first(1, 1)).toThrow(/die-roll winner/);
+  expect(() => first(0, 0)).toThrow(/die-roll winner/);
+  expect(() => first(2, 1)).toThrow(/out of the game/);
+  expect(first(2, 0)).toMatchObject({ turnSeat: 0, match: { opening: { chosenSeat: 0 } } });
+  expect(ygoModule.reduce(three, { type: 'side.timeout', actorSeat: 0, idempotencyKey: 'late', at: 24000 })).toMatchObject({ turnSeat: 2, match: { opening: { chosenSeat: 2 } } });
 });
 
 it('logs detection mode per seat as a public fact without changing the board or private information', () => {

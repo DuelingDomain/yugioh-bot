@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { getRemoteGame, remoteActionSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
 import { applyRemoteFormat } from "../remote/deck-checks.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
-import { initialRemoteMatch } from "../remote/match.js";
+import { applyRemoteOpening, initialRemoteMatch } from "../remote/match.js";
 import { readRemoteEffects, readRemoteState } from "../remote/storage.js";
 
 const DAY = 86_400_000;
@@ -118,7 +118,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         if (action.bestOf !== undefined) state.match=initialRemoteMatch(row.seat_count,action.bestOf);
         state.showCardsSetFromDeck=action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
         state.revealedHand=action.revealedHand ?? state.revealedHand ?? 'until-played';
-      } else if (action.type === 'table.started' && action.handCounts === 1) initializeRemoteHandCounts(state);
+      } else if (action.type === 'table.started' && action.handCounts === 1) { initializeRemoteHandCounts(state); if (action.opening) applyRemoteOpening(state, action.opening); }
       else if (action.type === 'seat.deck') { state.deckChecks.registrations[action.seat]=action.registration; state.undo=null; delete state.undoHistory; }
       else if (action.type === 'seat.left') delete state.deckChecks.registrations[action.seat];
       // Concede/LP clear the eliminated seat's twins. Keep only its last public cards.

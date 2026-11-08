@@ -49,7 +49,7 @@ export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number
   );
 }
 
-function Countdown({ iso, label, now }: { iso: string; label: string; now: number }) {
+export function Countdown({ iso, label, now }: { iso: string; label: string; now: number }) {
   const seconds = secondsUntil(iso, now);
   if (seconds == null) return null;
   return (
