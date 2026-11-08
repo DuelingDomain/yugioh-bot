@@ -16,6 +16,38 @@ const centers=[
   [792,701],[989,508],[983,708],[1174,513],[1174,712],[1365,524],[1367,725],
 ];
 const names=['DECK','GY','S5','M5','S4','M4','S3','M3','S2','M2','S1','M1','EXTRA','FIELD'];
+test('camera widths and harmless edge crops preserve every named row and column',async t=>{
+  // Visible printed/card centres, with the arm-covered right column continued
+  // along the same independently marked rows (not derived from a fitted grid).
+  const occupiedPoints=[
+    [125,240],[120,355],[245,241],[238,363],[347,246],[344,366],[452,253],
+    [451,369],[558,260],[557,372],[663,264],[665,374],[775,267],[773,374],
+  ];
+  const crops=[{name:'none',left:0,top:0,right:0,bottom:0},
+    {name:'left20',left:20,top:0,right:0,bottom:0},
+    {name:'top40',left:0,top:40,right:0,bottom:0},
+    {name:'bottom60',left:0,top:0,right:0,bottom:60},
+    {name:'right80',left:0,top:0,right:80,bottom:0}];
+  for(const fixture of ['base','prod']){
+    const source=await frame(`circuit-break-${fixture}.png`),points=fixture==='base'?centers:occupiedPoints;
+    for(const width of [928,998,1280,1920]){
+      const scaled=await sharp(source.data,{raw:{width:source.width,height:source.height,channels:4}}).resize({width}).raw().toBuffer({resolveWithObject:true});
+      for(const crop of crops)await t.test(`${fixture} ${width} ${crop.name}`,async()=>{
+        const w=width-crop.left-crop.right,h=scaled.info.height-crop.top-crop.bottom;
+        const data=await sharp(scaled.data,{raw:{width,height:scaled.info.height,channels:4}})
+          .extract({left:crop.left,top:crop.top,width:w,height:h}).raw().toBuffer();
+        const start=performance.now(),cpu=process.cpuUsage(),result=fitMat({data,width:w,height:h},{playerSide:'top'});
+        const elapsed=performance.now()-start,used=process.cpuUsage(cpu),grid=matFitCalibration(result);
+        assert.ok(grid,JSON.stringify(result));
+        for(const [i,[x,y]] of points.entries()){
+          const nx=(x*width/source.width-crop.left)/w,ny=(y*scaled.info.height/source.height-crop.top)/h;
+          assert.equal(mapFieldZone({quad:[{x:nx-.005,y:ny-.005},{x:nx+.005,y:ny-.005},{x:nx+.005,y:ny+.005},{x:nx-.005,y:ny+.005}],confidence:1,partial:false,kind:'face-up'},grid).zone,names[i]);
+        }
+        if(width===1920)console.log(`matrix ${fixture} ${crop.name}: wall=${elapsed.toFixed(0)}ms CPU=${((used.user+used.system)/1000).toFixed(0)}ms`);
+      });
+    }
+  }
+});
 test('fits printed centres and assigns M to the printed monster row, including saved reload',async()=>{
   const image=await frame(),start=performance.now(),cpu=process.cpuUsage(),result=fitMat(image,{playerSide:'top'}),ms=performance.now()-start,used=process.cpuUsage(cpu),cpuMs=(used.user+used.system)/1000;
   const grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));
@@ -46,9 +78,12 @@ test('fits printed centres and assigns M to the printed monster row, including s
   assert.ok(cpuMs<=1500,`CPU ${cpuMs}ms exceeds budget`);
 });
 test('refuses a missing Deck/GY column and unclear zones without a calibration',async()=>{
-  const image=await frame(),crop=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).extract({left:335,top:0,width:image.width-335,height:image.height}).raw().toBuffer();
-  const partial=fitMat({data:new Uint8ClampedArray(crop),width:image.width-335,height:image.height} as ImageData);
-  assert.equal(partial.flags.colWindowAmbiguous,true);assert.equal(matFitCalibration(partial),undefined);
+  const image=await frame();
+  for(const width of [928,1280,1920]){
+    const crop=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).extract({left:335,top:0,width:image.width-335,height:image.height}).resize({width}).raw().toBuffer({resolveWithObject:true});
+    const partial=fitMat({data:crop.data,width,height:crop.info.height});
+    assert.equal(partial.flags.colWindowAmbiguous,true);assert.equal(matFitCalibration(partial),undefined,`${width}: missing Deck/GY column`);
+  }
   for(const data of [new Uint8ClampedArray(640*360*4).fill(128)]) {
     const result=fitMat({width:640,height:360,data} as ImageData);assert.equal(matFitCalibration(result),undefined);assert.equal(result.confidence,'low');
   }

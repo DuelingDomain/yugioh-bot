@@ -16,7 +16,7 @@ export interface MatFitResult {
   flipped?:{corners:[Point,Point,Point,Point];orientation:FieldOrientation};
   metrics:{inliers:number;rows:number;columns:number;columnSpan:number;meanErrorPitch:number;maxErrorPitch:number};
 }
-interface Rect {nested?:boolean;edgeMin:number;printed?:boolean;score:number;cx:number;cy:number;w:number;h:number;angle:number}
+interface Rect {edgeMin:number;printed?:boolean;score:number;cx:number;cy:number;w:number;h:number;angle:number}
 interface Lattice {theta:number;rows:number[];cols:number[];rspan:number;cspan:number;nr:number;nc:number;px:number;py:number}
 interface Hypothesis {side:'top'|'bottom';mirror:boolean;r0:number;c0:number;score:number}
 const rad=Math.PI/180;
@@ -50,20 +50,21 @@ function blur(a:Float32Array,w:number,h:number,sigma:number):Float32Array {
   }
   return out;
 }
-function ridges(image:RGBAImage) {
-  // Half resolution, bounded for 4K cameras. Rectangle search never processes more than 832x600.
-  const scale=Math.min(.5,832/image.width,600/image.height),w=Math.round(image.width*scale),h=Math.round(image.height*scale);
+function ridges(image:RGBAImage,workingWidth:number) {
+  // Exact area averages keep thin strokes stable across camera resolutions.
+  // Every ridge kernel and rectangle step runs on a bounded working raster.
+  const scale=Math.min(workingWidth/image.width,600/image.height),w=Math.round(image.width*scale),h=Math.round(image.height*scale);
   const gray=new Float32Array(w*h),{data}=image;
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    // Four subpixel samples approximate area downsampling and suppress thin camera noise.
+    const x0=x*image.width/w,x1=(x+1)*image.width/w,y0=y*image.height/h,y1=(y+1)*image.height/h;
     let g=0;
-    for(const dy of [.25,.75])for(const dx of [.25,.75]){
-      const ix=Math.min(image.width-1,Math.floor((x+dx)/scale)),iy=Math.min(image.height-1,Math.floor((y+dy)/scale)),i=(iy*image.width+ix)*4;
-      g+=.299*data[i]+.587*data[i+1]+.114*data[i+2];
+    for(let iy=Math.floor(y0);iy<Math.ceil(y1);iy++)for(let ix=Math.floor(x0);ix<Math.ceil(x1);ix++){
+      const weight=(Math.min(ix+1,x1)-Math.max(ix,x0))*(Math.min(iy+1,y1)-Math.max(iy,y0));
+      const i=(iy*image.width+ix)*4;g+=weight*(.299*data[i]+.587*data[i+1]+.114*data[i+2]);
     }
-    gray[y*w+x]=Math.round(g/4)/255;
+    gray[y*w+x]=g/((x1-x0)*(y1-y0)*255);
   }
-  const mean=blur(gray,w,h,10);
+  const tone=gray.slice(),mean=blur(gray,w,h,10);
   for(let i=0;i<gray.length;i++)gray[i]/=mean[i]+.08;
   const gs=blur(gray,w,h,1.1),strength=new Float32Array(w*h),angle=new Float32Array(w*h);
   for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
@@ -74,7 +75,7 @@ function ridges(image:RGBAImage) {
     strength[i]=Math.max(0,bright,dark);
     angle[i]=mod(.5*Math.atan2(2*xy,xx-yy)+(bright>=dark?0:Math.PI/2),Math.PI);
   }
-  return {strength,angle,w,h};
+  return {strength,angle,w,h,tone};
 }
 function estimateTilt(r:Float32Array,phi:Float32Array,w:number):number {
   const threshold=percentile(r,.94),points:{x:number;y:number;a:number;v:number}[]=[];let re=0,im=0;
@@ -128,11 +129,11 @@ function search(hor:Uint8Array,vert:Uint8Array,w:number,h:number,angle:number):R
     ch[y*(w+1)+x+1]=ch[y*(w+1)+x]+hor[y*w+x];cv[(y+1)*w+x]=cv[y*w+x]+vert[y*w+x];
   }
   const found:Rect[]=[];
-  for(let rh=Math.floor(.12*h);rh<=Math.floor(.3*h);rh+=6)for(const aspect of [.62,.68,.74]){
+  for(let rh=Math.floor(.12*h);rh<=Math.floor(.3*h);rh+=2)for(const aspect of [.62,.68,.74]){
     const rw=Math.round(rh*aspect);
-    for(let y=0;y+rh<h;y+=3){
+    for(let y=0;y+rh<h;y+=2){
       const ht=y*(w+1),hb=(y+rh)*(w+1),vt=y*w,vb=(y+rh)*w;
-      for(let x=0;x+rw<w;x+=3){
+      for(let x=0;x+rw<w;x+=2){
         const top=(ch[ht+x+rw]-ch[ht+x])/rw,bottom=(ch[hb+x+rw]-ch[hb+x])/rw,left=(cv[vb+x]-cv[vt+x])/rh,right=(cv[vb+x+rw]-cv[vt+x+rw])/rh;
         const worst=Math.min(top,bottom,left,right),sum=top+bottom+left+right;
         // At least three supported sides; the missing side can be occluded by a hand or card.
@@ -204,8 +205,7 @@ function filter(rects:Rect[]):Rect[] {
     const group=groups.find(group=>group.includes(a))!;
     const inner=group.find(b=>b.h<=a.h/1.05&&b.h>=a.h/1.25);
     const concentric=!inner||Math.hypot(a.cx-inner.cx,a.cy-inner.cy)<=.08*a.h;
-    const nested=group.some(b=>a.h-b.h>=.14*a.h&&outerFrame(a,b));
-    return {...a,nested,printed:a.h>=printedHeight/1.05&&concentric};
+    return {...a,printed:a.h>=printedHeight/1.05&&concentric};
   });
   // Smaller card centres can support the fit, but cannot establish its outer columns.
   const angle=frames.length?median(frames.map(a=>a.angle))*rad:0;
@@ -216,32 +216,49 @@ function filter(rects:Rect[]):Rect[] {
   return [...frames,...cards];
 }
 
-/** A filled card has a sustained tone step across its edges; an empty printed
- * outline is a thin ridge on the same mat. Use all four sides conservatively. */
-function filledRectangle(a:Rect,image:RGBAImage,w:number,h:number,theta:number):boolean {
-  const c=Math.cos(theta*rad),s=Math.sin(theta*rad),differences:number[]=[];
-  const value=(x:number,y:number)=>{
-    const ix=Math.round(x*image.width/w),iy=Math.round(y*image.height/h);
-    if(ix<0||iy<0||ix>=image.width||iy>=image.height)return NaN;
-    const i=(iy*image.width+ix)*4;return (.299*image.data[i]+.587*image.data[i+1]+.114*image.data[i+2])/255;
-  };
+function luminanceAt(image:Float32Array,w:number,h:number,x:number,y:number):number {
+  if(x<0||y<0||x>w-1||y>h-1)return NaN;
+  const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,nx=Math.min(ix+1,w-1),ny=Math.min(iy+1,h-1);
+  return (1-fy)*((1-fx)*image[iy*w+ix]+fx*image[iy*w+nx])+fy*((1-fx)*image[ny*w+ix]+fx*image[ny*w+nx]);
+}
+
+/** Inspect actual line peaks before comparing inside/outside tones. Rectangle
+ * search tolerates a missing side, so its sampled border can sit off a card edge. */
+function outlineEvidence(a:Rect,image:Float32Array,w:number,h:number) {
+  const c=Math.cos(a.angle*rad),s=Math.sin(a.angle*rad),step=.5,radius=Math.max(1,.025*a.h),reach=Math.ceil(.22*a.h/step),outside=Math.ceil(.18*a.h/step),r=Math.max(16,Math.ceil(radius/step)),ridgeRadius=Math.ceil(radius/step);
+  let nestedSides=0;const differences:number[]=[];
   for(let side=0;side<4;side++){
-    let difference=0,count=0;
-    for(let j=2;j<18;j++)for(const offset of [4,6]){
-      const u=(j+.5)/20-.5,sign=side%2?1:-1;
-      const x=side<2?u*a.w:sign*a.w/2,y=side<2?sign*a.h/2:u*a.h;
-      const nx=side<2?0:sign,ny=side<2?sign:0;
-      const point=(d:number)=>value(a.cx+c*(x+nx*d)-s*(y+ny*d),a.cy+s*(x+nx*d)+c*(y+ny*d));
-      const delta=point(offset)-point(-offset);if(Number.isFinite(delta)){difference+=delta;count++;}
+    const profile:number[]=[];
+    for(let k=-reach-r;k<=outside+r;k++){
+      let sum=0,count=0;
+      for(let j=4;j<16;j++){
+        const u=(j+.5)/20-.5,sign=side%2?1:-1;
+        const x=side<2?u*a.w:sign*(a.w/2+k*step),y=side<2?sign*(a.h/2+k*step):u*a.h;
+        const value=luminanceAt(image,w,h,a.cx+c*x-s*y,a.cy+s*x+c*y);
+        if(Number.isFinite(value)){sum+=value;count++;}
+      }
+      profile.push(count?sum/count:NaN);
     }
-    if(!count)return false;differences.push(difference/count);
+    const peaks:number[]=[];
+    for(let k=r;k<profile.length-r;k++){
+      const mid=profile[k],lo=profile[k-ridgeRadius],hi=profile[k+ridgeRadius];
+      if(Math.abs(mid-(lo+hi)/2)-Math.abs(lo-hi)/2>.025)peaks.push(k);
+    }
+    const position=(k:number)=>(k-reach-r)*step;
+    // A card has one outline; a printed frame around it has two distinct peaks.
+    if(peaks.some(outer=>Math.abs(position(outer))<.1*a.h&&peaks.some(inner=>(outer-inner)*step>.04*a.h&&(outer-inner)*step<.18*a.h)))nestedSides++;
+    peaks.sort((i,j)=>Math.abs(position(i))-Math.abs(position(j)));
+    if(peaks.length){
+      // Six/eight working pixels clear the stroke before comparing tones.
+      const k=peaks[0];differences.push((profile[k+12]+profile[k+16]-profile[k-12]-profile[k-16])/2);
+    }
   }
-  return differences.every(d=>d>.06)||differences.every(d=>d<-.06);
+  return {nested:nestedSides>=3,filled:differences.filter(d=>d>.06).length>=3||differences.filter(d=>d<-.06).length>=3};
 }
 
 /** Check faint outer frames directly in the ridges: the global edge threshold
  * can hide them when many brighter card outlines occupy the mat. */
-function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,w:number,h:number,image:RGBAImage):Rect[] {
+function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,w:number,h:number,image:Float32Array):Rect[] {
   if(rects.length<4)return rects;
   const threshold=percentile(strength,.8,true),lat=lattice(rects),theta=lat.theta*rad,c=Math.cos(theta),s=Math.sin(theta);
   const supported=(x:number,y:number,family:number)=>{
@@ -250,9 +267,12 @@ function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,
     const i=py*w+px,expected=theta+(family?0:Math.PI/2);
     return strength[i]>threshold&&Math.abs(mod(phi[i]-expected+Math.PI/2,Math.PI)-Math.PI/2)<14*rad;
   };
-  rects=rects.map(a=>a.nested?a:{...a,printed:a.printed&&!filledRectangle(a,image,w,h,lat.theta)});
-  const outer=rects.map(a=>{
-    let best:Rect|undefined,quality=0;
+  const outlines=rects.map(a=>outlineEvidence(a,image,w,h));
+  // Direct evidence can recover printed frames that lost the global size vote.
+  // Mask dilation alone cannot turn a single card outline into printed proof.
+  rects=rects.map((a,i)=>({...a,printed:outlines[i].nested||(a.printed&&!outlines[i].filled)}));
+  const outer=rects.map((a,i)=>{
+    let best:Rect|undefined,quality=0;const filled=outlines[i].filled;
     for(const kh of [1.15,1.2,1.25])for(const kw of [1.18,1.24,1.3]){
       const rw=a.w*kw,rh=a.h*kh,sides=[0,0,0,0];
       // Keep clear of the card's own short edges, including ridge blur.
@@ -265,7 +285,8 @@ function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,
         }
       }
       const min=Math.min(...sides)/20,mean=sides.reduce((v,n)=>v+n)/80;
-      if(min>=.5&&mean>quality){quality=mean;best={...a,w:rw,h:rh,printed:true};}
+      const candidate={...a,w:rw,h:rh,printed:true};
+      if(min>=.5&&mean>quality&&(!filled||outlineEvidence(candidate,image,w,h).nested)){quality=mean;best=candidate;}
     }
     return best;
   });
@@ -347,7 +368,7 @@ function fitPlane(src:Point[],dst:Point[],projective:boolean):((p:Point)=>Point)
 }
 
 /** Pure, one-shot CPU detector. Supply RAW camera pixels before drawing any grid or labels. */
-export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
+function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number):MatFitResult {
   const result:MatFitResult={corners:null,orientation:{playerSide:options.playerSide??'bottom',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason:''},reason:'',metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
   const fail=(reason:string)=>{result.reason=result.flags.reason=reason;return result;};
   if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return fail('invalid-frame');
@@ -372,13 +393,13 @@ export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
     if(fitted.flipped)fitted.flipped={corners:restore(fitted.flipped.corners),orientation:orientation(fitted.flipped.orientation)};
     return fitted;
   }
-  const {strength,angle,w,h}=ridges(image);
+  const {strength,angle,w,h,tone}=ridges(image,workingWidth);
   if(percentile(strength,.99)<.001)return fail('no-zones');
   const theta=estimateTilt(strength,angle,w),rects:Rect[]=[];
   for(const delta of [-6,-4,-2,0,2,4,6]){
     const [bh,bv]=lineMasks(strength,angle,w,h,theta+delta);rects.push(...search(bh,bv,w,h,theta+delta));
   }
-  const d=recoverOuterFrames(filter(rects),strength,angle,w,h,image);result.flags.zonesFound=d.length;
+  const d=recoverOuterFrames(filter(rects),strength,angle,w,h,tone);result.flags.zonesFound=d.length;
   if(d.length<3)return fail('too-few-zones');
   const lat=lattice(d);result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
   result.flags.colWindowAmbiguous=lat.cspan!==6;
@@ -436,6 +457,18 @@ export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
   }
   if(result.flags.sideByPrior&&!result.flipped){result.corners=null;return fail('side-not-clear');}
   result.confidence='high';return result;
+}
+/** Normalize camera pixels before detection. Thin printed strokes and wider
+ * occupied outlines need different ridge scales; each must pass every fit gate.
+ * These sizes bound the ridge and rectangle search cost. */
+export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
+  let refusal:MatFitResult|undefined;
+  for(const width of [832,768,512,480,448,416]){
+    const result=fitMatAtScale(image,options,width);
+    if(result.confidence==='high'||result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
+    refusal??=result;
+  }
+  return refusal!;
 }
 /** The owner rule in one place: callers can only apply a high-confidence, unambiguous fit. */
 export function matFitCalibration(result:MatFitResult):FieldCalibration|undefined {
