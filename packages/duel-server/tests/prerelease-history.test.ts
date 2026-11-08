@@ -1,12 +1,17 @@
 import { execFileSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { readPrereleaseHistory } from "../scripts/prerelease-history.js";
+vi.mock("node:child_process", async importOriginal => {
+ const actual=await importOriginal<typeof import("node:child_process")>();
+ return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
 const dirs:string[]=[];
-afterEach(()=>{dirs.splice(0).forEach(dir=>rmSync(dir,{recursive:true,force:true}));vi.unstubAllEnvs();});
+afterEach(()=>{dirs.splice(0).forEach(dir=>rmSync(dir,{recursive:true,force:true}));vi.unstubAllEnvs();vi.restoreAllMocks();});
 it("retains every supported pinned preview identity across edits and file deletion, skipping Rush",async()=>{
  const root=mkdtempSync(join(tmpdir(),"preview-history-"));dirs.push(root);
  const git=(args:string[])=>execFileSync("git",["-C",root,...args],{encoding:"utf8"}).trim();
@@ -41,14 +46,19 @@ it("retains alternate artwork aliases in history while excluding tokens", async 
 });
 
 
-it("downloads historical database blobs in a single partial-clone fetch", async () => {
+it.each([
+ { count: 5, serverLimit: 32, attempts: 1 },
+ { count: 35, serverLimit: 32, attempts: 2 },
+ { count: 5, serverLimit: 2, attempts: 5 },
+ { count: 5, serverLimit: 0, attempts: 3 },
+])("fetches promised blobs without commit negotiation ($count blobs, server limit $serverLimit)", async ({ count, serverLimit, attempts }) => {
  const root=mkdtempSync(join(tmpdir(),"preview-history-batch-"));dirs.push(root);
  const upstream=join(root,"upstream"),repo=join(root,"partial"),trace=join(root,"packets.log");
  execFileSync("git",["init","-q",upstream]);
  const git=(args:string[])=>execFileSync("git",["-C",upstream,...args],{encoding:"utf8"}).trim();
  git(["config","uploadpack.allowFilter","true"]);git(["config","uploadpack.allowAnySHA1InWant","true"]);
  const pins:string[]=[];
- for(let i=0;i<5;i++) {
+ for(let i=0;i<count;i++) {
   const db=new Database(join(upstream,"prerelease-a.cdb"));
   db.exec("CREATE TABLE IF NOT EXISTS datas(id INTEGER PRIMARY KEY,type INTEGER,ot INTEGER,alias INTEGER); CREATE TABLE IF NOT EXISTS texts(id INTEGER PRIMARY KEY,name TEXT); DELETE FROM datas; DELETE FROM texts");
   db.prepare("INSERT INTO datas VALUES(?,33,257,0)").run(100000001+i);
@@ -58,9 +68,30 @@ it("downloads historical database blobs in a single partial-clone fetch", async 
  }
  execFileSync("git",["clone","--filter=blob:none","--no-checkout",`file://${upstream}`,repo],{stdio:"pipe"});
  vi.stubEnv("GIT_TRACE_PACKET",trace);
- const history=await readPrereleaseHistory(repo,pins[0]!,pins[4]!,join(root,"output"));
- expect(history).toHaveLength(5);
- expect(readFileSync(trace,"utf8").match(/fetch> command=fetch/g)).toHaveLength(1);
+ const fetchSizes: number[]=[];
+ const realExec=vi.mocked(execFileSync).getMockImplementation()!;
+ vi.spyOn(childProcess,"execFileSync").mockImplementation(((file: string, args: string[], options: { input?: string }) => {
+  if (file === "git" && args.includes("fetch") && args.includes("--stdin")) {
+   const size=String(options.input).trim().split("\n").length;
+   fetchSizes.push(size);
+   if(size > serverLimit) throw new Error("server rejected blob batch");
+  }
+  return realExec(file,args,options);
+ }) as typeof execFileSync);
+ const result=readPrereleaseHistory(repo,pins[0]!,pins[count-1]!,join(root,"output"));
+ if(serverLimit === 0) {
+  await expect(result).rejects.toThrow("server rejected blob batch");
+  expect(fetchSizes).toEqual([5,2,1]);
+  return;
+ }
+ const history=await result;
+ expect(history).toHaveLength(count);
+ expect(fetchSizes).toHaveLength(attempts);
+ expect(Math.max(...fetchSizes)).toBeLessThanOrEqual(32);
+ const packets=readFileSync(trace,"utf8");
+ expect(packets.match(/fetch> command=fetch/g)).toHaveLength(serverLimit === 2 ? 3 : attempts);
+ // A commit in this partial clone does not mean its reachable blobs are local.
+ expect(packets).not.toMatch(/fetch> have /);
 });
 
 it("includes previews on a merged branch even when the merge restores the original file", async () => {
