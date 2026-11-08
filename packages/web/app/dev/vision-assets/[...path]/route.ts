@@ -1,9 +1,8 @@
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
-import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { extname } from "node:path";
 import { Readable } from "node:stream";
 import { fxLabEnabled, visionAssetsEnabled } from "@/lib/fx-lab";
 import { remoteDuelsForViewer } from "@/lib/remote-duels";
+import { contentEtag, etagMatches, openVisionAsset, statEtag } from "@/lib/vision-assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,12 +22,10 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-function inside(root: string, candidate: string): boolean {
-  const path = relative(root, candidate);
-  return path !== "" && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
-}
-
-/** Local, generated assets stay outside public/ so the request-time lab gate always applies. */
+/**
+ * Generated assets stay outside public/ so the request-time lab gate always applies. worker.js, NOTICE and ort/* come
+ * from the web image (VISION_CODE_DIR); everything else, and those three when the image lacks them, from VISION_DATA_DIR.
+ */
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   if (!visionAssetsEnabled()) return new Response(null, { status: 404 });
   // Outside the public lab these files belong to Remote Duels, so the rollout list applies.
@@ -43,33 +40,23 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const mime = ["LICENSE", "NOTICE"].includes(path.at(-1)!) ? "text/plain; charset=utf-8" : MIME_TYPES[extname(path.at(-1)!).toLowerCase()];
   if (!mime) return new Response(null, { status: 404 });
 
-  // Next runs with packages/web as cwd; an explicit directory may be absolute or relative to it.
-  const dataDir = resolve(process.cwd(), process.env.VISION_DATA_DIR || "../../data/vision");
-  let file;
+  let asset;
   try {
-    const root = await realpath(dataDir);
-    const candidate = resolve(root, ...path);
-    if (!inside(root, candidate)) return new Response(null, { status: 404 });
-    const target = await realpath(candidate);
-    if (!inside(root, target)) return new Response(null, { status: 404 });
-    if (inside(resolve(root, "diagnostics"), target)) return new Response(null, { status: 404 });
-    // Refuse a final-component symlink introduced between realpath and open, too.
-    file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const stat = await file.stat();
-    if (!stat.isFile()) {
-      await file.close();
-      return new Response(null, { status: 404 });
-    }
-    const etag = `"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+    asset = await openVisionAsset(path);
+    if (!asset) return new Response(null, { status: 404 });
+    const { file, stat, code } = asset;
+    // Code ships with the image: a content hash and a revalidation on every load put a new image in front of browsers
+    // without a ?v= bump. Data files keep the longer cache; the manual copy preserves their mtimes.
+    const etag = code ? await contentEtag(asset) : statEtag(stat);
     const headers = new Headers({
       "Content-Type": mime,
       "Content-Length": String(stat.size),
-      "Cache-Control": "private, max-age=3600, must-revalidate",
+      "Cache-Control": code ? "private, no-cache" : "private, max-age=3600, must-revalidate",
       "ETag": etag,
-      "Last-Modified": stat.mtime.toUTCString(),
       "X-Content-Type-Options": "nosniff",
     });
-    if (request.headers.get("if-none-match") === etag) {
+    if (!code) headers.set("Last-Modified", stat.mtime.toUTCString());
+    if (etagMatches(request.headers.get("if-none-match"), etag)) {
       await file.close();
       headers.delete("Content-Length");
       return new Response(null, { status: 304, headers });
@@ -81,7 +68,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     const stream = file.createReadStream({ autoClose: true });
     return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, { headers });
   } catch {
-    await file?.close().catch(() => {});
+    await asset?.file.close().catch(() => {});
     return new Response(null, { status: 404 });
   }
 }
