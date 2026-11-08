@@ -149,7 +149,7 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     await expect(page).toHaveURL(/#duels-today$/);
     const list = view(page, "Duels").getByRole("table", { name: "Duels today" });
     await expect(list).toBeInViewport({ ratio: 0.05 });
-    await expect(view(page, "Duels")).toContainText("Since 00:00 ET");
+    await expect(view(page, "Duels")).toContainText("Since 12:00 AM ET");
     const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"], a[href="/admin/watch/duel/${slug}"]`) });
 
     // Tag: partners win together.
