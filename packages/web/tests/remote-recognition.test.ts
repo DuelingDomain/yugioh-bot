@@ -565,7 +565,7 @@ it('failed compensating Undo exposes a recoverable stale-placement error with th
 });
 
 it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Check zone',async()=>{
- const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
+ const {projectFieldZone,hardFieldZone,freeFieldZones}=await import('../src/lib/remote/field-legality');
  // Owner, Infinite Impermanence in a Monster Zone: a Trap without Trap Monster facts goes to the same column's S/T zone.
  const result=projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal',race:'Normal'},twins:[]});
  expect(result).toEqual({zone:'S4',label:'Spell/Trap Zone 4',moved:'Trap → S4'});
@@ -576,9 +576,8 @@ it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Chec
  const monster={type:'Normal Monster',frameType:'normal',race:'Warrior'},token={ref:'token',zone:'monster',slot:2,token:{atk:0,def:0}};
  expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
- // "Choose another zone" for a face-down card on the token's own cell: it takes the nearest free cell.
- expect(projectFieldZone({zone:'M2',faceDown:true,twins:[token],tokenHolds:true}).zone).toBe('M1');
- expect(projectFieldZone({zone:'M2',faceDown:true,twins:[token]}).zone).toBe('M2');
+ // "Choose another zone" for a face-down card: the player picks from the free cells, and the token's cell is not one.
+ expect(freeFieldZones([token],'M')).toEqual(['M1','M3','M4','M5']);
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
