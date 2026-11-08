@@ -154,15 +154,17 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
 
 it("sends a Rescan request to one seat, answers off or started, and keeps one request per 15 s per requester", async () => {
   const { RescanChannel } = await import("../src/lib/remote/video-protocol");
-  let now = 1000; const started: number[] = []; let autoDetect = true;
+  let now = 1000; const started: number[] = []; let answer: "started" | "off" | "paused" | "busy" = "started";
   const channels: InstanceType<typeof RescanChannel>[] = [];
   for (let seat = 0; seat < 3; seat++) channels.push(new RescanChannel(seat, async (message, destination) => { void channels[destination].receive(seat, message); },
-    from => { if (!autoDetect) return "off"; started.push(from); return "started"; }, () => now, 200));
+    from => { if (answer === "started") started.push(from); return answer; }, () => now, 200));
   expect(await channels[0].request(1)).toBe("started"); expect(started).toEqual([0]);
   expect(await channels[0].request(1)).toBe("limited");          // requester side: 15 s per seat
   expect(await channels[0].request(0)).toBe("unavailable");      // not yourself
-  now += 15_000; autoDetect = false;
+  now += 15_000; answer = "off";
   expect(await channels[0].request(1)).toBe("off"); expect(started).toEqual([0]);
+  now += 15_000; answer = "paused";                              // the other client waits on a prompt, the sync hold or calibration
+  expect(await channels[0].request(1)).toBe("paused");
   const lonely = new RescanChannel(0, async () => undefined, () => "started", () => now, 50);
   expect(await lonely.request(2)).toBe("unavailable");           // no answer in time
   [...channels, lonely].forEach(channel => channel.close());
@@ -844,9 +846,9 @@ it('quick setup: rows placed the wrong way round read as a mirrored mat, and Swa
  const fixed=swapFieldCalibrationRows(swapped);
  expect(fixed.orientation?.mirrored).toBe(false);expect(zoneOf(fixed,monster)).toBe('S1');expect(zoneOf(fixed,spell)).toBe('M5');
  for(const point of [{x:.3,y:.4},{x:.6,y:.8}]){const a=fieldMatPoint(point,fixed),b=fieldMatPoint(point,truth);expect(a.x).toBeCloseTo(b.x,6);expect(a.y).toBeCloseTo(b.y,6);}
- // One row toward the player / away from the player.
- const down=shiftFieldCalibrationRows(right,1);expect(zoneOf(down,card(.228,.5))).toBe('S1');expect(zoneOf(down,card(.228,1/6))).toBe('M1');
- expect(zoneOf(shiftFieldCalibrationRows(down,-1),card(.228,.5))).toBe('M1');
+ // One row away from the player (the same card now sits nearer to the player), and back toward the player.
+ const down=shiftFieldCalibrationRows(right,-1);expect(zoneOf(down,card(.228,.5))).toBe('S1');expect(zoneOf(down,card(.228,1/6))).toBe('M1');
+ expect(zoneOf(shiftFieldCalibrationRows(down,1),card(.228,.5))).toBe('M1');
 });
 it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
  const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');

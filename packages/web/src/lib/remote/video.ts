@@ -5,7 +5,7 @@ import {
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
-  participantSeat, RecognitionChannel, RescanChannel, RECOGNITION_TOPIC, PENDING_TOPIC, RESCAN_TOPIC, NO_ANSWER, type RescanResult,
+  participantSeat, RecognitionChannel, RescanChannel, RECOGNITION_TOPIC, PENDING_TOPIC, RESCAN_TOPIC, NO_ANSWER, type RescanResult, type RescanReply,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
 import {FieldTrackCache,FIELD_BACKS_TOPIC,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
@@ -50,7 +50,7 @@ export class RemoteVideo {
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
     onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void;
-    /** Another seat asked this client to Scan field. Answer `off` when Auto-detect is not watching. */ onRescan?: (from: number) => "started" | "off" }) {
+    /** Another seat asked this client to Scan field. Answer `off` when Auto-detect is not watching. */ onRescan?: (from: number) => RescanReply }) {
     this.rescan = new RescanChannel(this.options.seat, async (message, destination) => {
       const member = this.options.members.find(p => p.seat === destination && p.userId !== null);
       if (!member || this.room.state !== ConnectionState.Connected) throw new Error("That player is not connected");

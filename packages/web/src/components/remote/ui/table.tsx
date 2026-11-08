@@ -116,7 +116,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
 
 /** One plain sentence on why a table ended. */
 /** What the Rescan button shows after the other seat answered. */
-const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent" : result === "off" ? "Their Auto-detect is off" : result === "limited" ? "Wait a few seconds" : "Could not reach them";
+const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent" : result === "off" ? "Their Auto-detect is off" : result === "busy" ? "Their scan is already running" : result === "paused" ? "Their Auto-detect is paused" : result === "limited" ? "Wait a few seconds" : "Could not reach them";
 
 function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
@@ -1332,7 +1332,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
           const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
-          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
+          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && !isTournamentTable(room) && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}

@@ -104,14 +104,17 @@ export class RecognitionChannel {
 export const RESCAN_TOPIC = "remote.rescan.v1";
 /** One Rescan request per requester seat per this long, checked by both sides. */
 export const RESCAN_EVERY_MS = 15_000;
+/** What the other client did: ran a Scan field, Auto-detect is off, a scan already runs (busy), or it waits on its player (paused: a prompt, the sync hold, calibration or a tournament table). */
+export type RescanReply = "started" | "off" | "busy" | "paused";
 /** How the other side answered. `limited`/`unavailable` come from the requester's own checks or the reply. */
-export type RescanResult = "started" | "off" | "limited" | "unavailable";
-type RescanMessage = { type: "rescan.request"; id: string } | { type: "rescan.reply"; id: string; result: "started" | "off" | "limited" };
+export type RescanResult = RescanReply | "limited" | "unavailable";
+const RESCAN_REPLIES = ["started", "off", "busy", "paused", "limited"];
+type RescanMessage = { type: "rescan.request"; id: string } | { type: "rescan.reply"; id: string; result: RescanReply | "limited" };
 function rescanMessage(value: unknown): RescanMessage | undefined {
   const v = value as Record<string, unknown> | null;
   if (!v || typeof v !== "object" || typeof v.id !== "string" || v.id.length < 1 || v.id.length > 100) return undefined;
   if (v.type === "rescan.request") return { type: "rescan.request", id: v.id };
-  if (v.type === "rescan.reply" && (v.result === "started" || v.result === "off" || v.result === "limited")) return { type: "rescan.reply", id: v.id, result: v.result };
+  if (v.type === "rescan.reply" && typeof v.result === "string" && RESCAN_REPLIES.includes(v.result)) return { type: "rescan.reply", id: v.id, result: v.result as RescanReply | "limited" };
   return undefined;
 }
 /**
@@ -125,7 +128,7 @@ export class RescanChannel {
   private lastAccepted = new Map<number, number>();
   private closed = false;
   constructor(private seat: number, private send: (message: RescanMessage, destination: number) => Promise<void>,
-    private handle: (from: number) => "started" | "off", private now = () => Date.now(), private wait = 4000) {}
+    private handle: (from: number) => RescanReply, private now = () => Date.now(), private wait = 4000) {}
   async request(owner: number): Promise<RescanResult> {
     if (this.closed || owner === this.seat) return "unavailable";
     if (this.now() - (this.lastSent.get(owner) ?? -Infinity) < RESCAN_EVERY_MS) return "limited";

@@ -8,7 +8,7 @@ import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/
 import {markBackTiming} from '@/lib/remote/field-timing';
 import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
-import type { RescanResult } from "@/lib/remote/video-protocol";
+import type { RescanReply, RescanResult } from "@/lib/remote/video-protocol";
 import type { CameraTraffic } from "@/lib/remote/video-stats";
 import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
@@ -32,7 +32,7 @@ type Hub = {
   /** Asks another seat's Auto-detect to Scan field again (a data message, not a game action). Needs a seat; 15 s apart per seat. */
   requestRescan(seat: number): Promise<RescanResult>;
   /** The Auto-detect of my seat answers Rescan requests here: `started` when it runs a Scan field, `off` when it is not watching. */
-  setRescanHandler(handler: ((from: number) => "started" | "off") | null): void;
+  setRescanHandler(handler: ((from: number) => RescanReply) | null): void;
   /** False until the room's saved camera choice (phone, manual) has loaded. Do not start a camera before this is true. */
   rosterReady: boolean;
   phones: PhoneMember[];
@@ -127,8 +127,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const [phoneScan,setPhoneScan] = useState<PhoneScan|null>(null);
   const manual = useCallback((seat:number) => roster.data?.modes.some(m => m.seat===seat && m.mode==="manual") ?? false,[roster.data]);
   const roomRef = useRef(room); roomRef.current = room;
-  const rescanHandler = useRef<((from: number) => "started" | "off") | null>(null);
-  const setRescanHandler = useCallback((handler: ((from: number) => "started" | "off") | null) => { rescanHandler.current = handler; }, []);
+  const rescanHandler = useRef<((from: number) => RescanReply) | null>(null);
+  const setRescanHandler = useCallback((handler: ((from: number) => RescanReply) | null) => { rescanHandler.current = handler; }, []);
   const [controller, setController] = useState<RemoteVideo | null>(null);
   const [snap, setSnap] = useState<VideoSnapshot>(emptySnapshot);
   const [frozen, setFrozenState] = useState<Record<number, boolean>>({});
