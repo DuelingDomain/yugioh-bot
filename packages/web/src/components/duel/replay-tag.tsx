@@ -85,7 +85,7 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
   const actor = frameCaption(frame, index, atEnd, nameOf);
   const headline = replayResultHeadline(session, result, nameOf);
   const canSwitchCards = model.version === 2 && model.mySeat != null;
-  const publicOnly = model.mySeat == null || model.visibility === "public";
+  const publicOnly = (model.mySeat == null || model.visibility === "public") && !model.revealAll;
   const seats = [0, 1, 2, 3];
   const note = checkNoteOf(model);
   const checked = note !== "exact";

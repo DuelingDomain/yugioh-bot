@@ -220,7 +220,7 @@ export function ReplayFfa({
       newLines={newLines}
       result={result ? { headline: replayResultHeadline(session, result, playerName), reason: result.reason } : null}
       visibility={visibility}
-      hiddenNote={model.mySeat == null || model.visibility === "public"}
+      hiddenNote={(model.mySeat == null || model.visibility === "public") && !model.revealAll}
       canSwitchCards={canSwitchCards}
       onVisibility={onVisibility}
       allCards={allCards}

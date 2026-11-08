@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward, TriangleAlert } from "lucide-react";
@@ -38,6 +38,7 @@ import { ReplayOwnerTools, forkTarget, isOwnerModel, useForkStart, type OwnerVie
 import { useOpenForks } from "./replay-open-forks";
 import { ReplayAllCardsToggle } from "./replay-all-cards";
 import { RevealSetCardsContext } from "./card-face";
+import { ReplayToast } from "./replay-toast";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { ReplayStatus } from "./replay-status";
@@ -149,6 +150,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const routed = useSearchParams();
   const [forkStepId, setForkStepId] = useState<string | null>(() => readFrameParam(routed?.toString() ?? ""));
   const [notice, setNotice] = useState<string | null>(null);
+  const dismissNotice = useCallback(() => setNotice(null), []);
   // The owner opened a replay that could not be checked. It rides in the address too (?unchecked=1), so a reload keeps it.
   // Only the owner page may ask; the routes refuse anyone else.
   const uncheckedInUrl = canInspectSource && routed?.get(UNCHECKED_PARAM) === "1";
@@ -405,12 +407,11 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   );
   const battleLog = (
     <ReplayBattleLog timeline={timeline} index={index} mySeat={model.mySeat} seatCount={seatCount} playerName={playerName}
-      onSeek={controller.seek} reducedMotion={preferences.reducedMotion}
+      onSeek={controller.seek} reducedMotion={preferences.reducedMotion} revealAll={model.revealAll}
       onInspectCard={(card) => {
         const target: InspectTarget = "location" in card ? { type: "card", card } : { type: "info", card };
-        // On a phone the preview is a sheet (nothing else shows a card); on a wide screen the log stays open.
-        if (window.matchMedia("(max-width: 900px)").matches) showInspector(target, true);
-        else setInspect(target);
+        // A click opens the card: the Card tab on a wide screen, the sheet on a phone. Hover alone shows the small preview.
+        showInspector(target, true);
       }}
       details={<LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} playerName={playerName} />} />
   );
@@ -552,11 +553,11 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
               {/* A reserved row for the short notes, so switching card view does not change the board height. */}
               <div className={replayStyles.notes}>
                 {checkNoteOf(model) === "unverified" ? null : <ReplayVerificationNote verification={checkNoteOf(model)} />}
-                {model.mySeat == null || model.visibility === "public"
+                {(model.mySeat == null || model.visibility === "public") && !model.revealAll
                   ? <p className={replayStyles.note} title="Public view — hidden cards stay hidden">Public view — hidden cards stay hidden</p> : null}
               </div>
               {/* An error appears over the page, not in the column: a message that comes and goes must not move the board. */}
-              {notice ? <p role="alert" className={replayStyles.toast}>{notice}</p> : null}
+              <ReplayToast message={notice} onDismiss={dismissNotice} />
             </div>
           </div>
         </section>

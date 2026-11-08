@@ -44,7 +44,7 @@ const Group = memo(function Group({ group, shown, futureAfter, playhead, handler
   );
 });
 
-export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName, onSeek, onInspectCard, reducedMotion, details }: {
+export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName, onSeek, onInspectCard, reducedMotion, details, revealAll = false }: {
   timeline: ReplayTimeline;
   index: number;
   mySeat: number | null;
@@ -55,6 +55,8 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
   reducedMotion: boolean;
   /** The raw engine log, shown instead of the battle log while Details is on. */
   details: ReactNode;
+  /** The replay shows every card: the rows name any card they have an identity for. */
+  revealAll?: boolean;
 }) {
   const history = useSkinStyles(baseStyles, "history");
   const fork = useForkLabels();
@@ -71,9 +73,9 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
   // Names change the rows; `who` itself changes on every render.
   const names = Array.from({ length: seatCount }, (_, seat) => who(seat)).join("\u0000");
   const log = useMemo<ReplayBattleLog>(
-    () => buildReplayBattleLog(timeline, { mySeat, who, seatCount }),
+    () => buildReplayBattleLog(timeline, { mySeat, who, seatCount, revealAll }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [timeline, mySeat, names, seatCount],
+    [timeline, mySeat, names, seatCount, revealAll],
   );
   const playhead = playheadKey(log, index);
   // Only the group that holds the playhead row gets it, so a step re-renders one group, not all of them.

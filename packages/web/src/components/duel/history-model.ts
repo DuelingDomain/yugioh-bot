@@ -552,9 +552,10 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
           const turn = Math.max(1, ctx.turn - mp1After[index]);
           sep.turn = turn;
           sep.turnSeat = seatForTurn(turn);
-          while (items.length > 0) {
-            const tail = items[items.length - 1];
-            if (tail.type !== "tile" || tail.kind !== "move" || tail.move?.reason !== "draw") break;
+          // Only the turn-start draw (one tile, by the turn player). A draw before it that belongs to the End Phase of the
+          // turn before (an effect) stays under that turn.
+          const tail = items[items.length - 1];
+          if (tail && tail.type === "tile" && tail.kind === "move" && tail.move?.reason === "draw" && (sep.turnSeat == null || tail.seat === sep.turnSeat)) {
             leading.unshift({ ...tail, turn, turnSeat: sep.turnSeat });
             items.pop();
           }

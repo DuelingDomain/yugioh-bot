@@ -326,6 +326,39 @@ it.each(["plain", "gzip"])("reads %s final boards for result, admin reveal, bug 
   expect(changed.body.frames.at(-1)?.view.turn).toBe(13);
 });
 
+it("shows all cards of a finished duel only to its players and admins, and not while its series runs", async () => {
+  const finalWorker = new ReplayWorker();
+  await finalWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
+  const publicBoard = { ...await finalWorker.view(null), revision: 100, turn: 12, result: { winnerSeat: 0, reason: "Finished" } };
+  const own = await Promise.all([finalWorker.view(0), finalWorker.view(1)]);
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seat0_json=?,snapshot_seat1_json=?,snapshot_seats_json=null where web_slug=?")
+    .run(JSON.stringify(publicBoard), JSON.stringify(own[0]), JSON.stringify(own[1]), slug);
+  const rivalHand = (body: DuelReplayV2) => body.frames.at(-1)?.view.seats.find(seat => seat.seat === 1)?.hand[0]?.code;
+  // No series: a player sees every card.
+  const plain = await post({ playerId: 64, version: 2, all: true });
+  expect(plain.body.revealAll).toBe(true);
+  expect(rivalHand(plain.body)).toBe(901);
+  // Game 1 of a series that goes on: no scouting of the rival hand.
+  db.prepare("insert into duel_series(id,guild_id,best_of,player0_id,player1_id,created_by_player_id,mode,settings_json,status) values(7,?,3,64,65,64,'normal','{}','between_games')").run(owner.guildId);
+  db.prepare("update duels set series_id=7,game_number=1 where web_slug=?").run(slug);
+  const running = await post({ playerId: 64, version: 2, all: true });
+  expect(running.response.status).toBe(200);
+  expect(running.body.revealAll).toBeUndefined();
+  expect(rivalHand(running.body)).toBeUndefined();
+  // The same series once it is over.
+  db.prepare("update duel_series set status='completed' where id=7").run();
+  const over = await post({ playerId: 64, version: 2, all: true });
+  expect(over.body.revealAll).toBe(true);
+  expect(rivalHand(over.body)).toBe(901);
+  // An app admin who did not play: allowed. A player who did not play and is not an admin gets the normal view.
+  const admin = await post({ playerId: owner.playerId, version: 2, all: true });
+  expect(admin.body.revealAll).toBe(true);
+  db.prepare("update duels set series_id=null where web_slug=?").run(slug);
+  const stranger = await post({ playerId: 63, version: 2, all: true });
+  if (stranger.response.status === 200) { expect(stranger.body.revealAll).toBeUndefined(); expect(rivalHand(stranger.body)).toBeUndefined(); }
+  else expect(stranger.response.status).toBe(403);
+});
+
 it("schedules one retention sweep at a time and waits for it during shutdown", async () => {
   const jobs = await import("@yugidraft/shared/services");
   await host.close();

@@ -2029,6 +2029,25 @@ export function createDuelHost(options: {
     return { key, resources, previous, alternate: previous ? undefined : alternate };
   }
 
+  /**
+   * THE rule for "Show all cards" (every hand, Extra Deck, set card and private log line of a finished duel). One place, so
+   * it can be widened later (for example to scouting of public duels once the owner decides). Today:
+   *  - never a replay fork (a fork is a real game with private hands);
+   *  - only a viewer who played in this duel (any seat) or an app admin (owner access);
+   *  - a player sees it only when the duel is not a game of a series that is still running: between games, or in game 2 or 3,
+   *    the rival's hand of game 1 would be scouting. A tournament series is a series too. Admins already read every replay.
+   */
+  function mayShowAllCards(session: DuelSession, room: DuelRoom, isAdmin: boolean): boolean {
+    if (isReplayFork(session)) return false;
+    if (isAdmin) return true;
+    if (room.mySeat === null) return false;
+    if (session.seriesId == null) return true;
+    try {
+      const status = series.get(session.seriesId, session.guildId).status;
+      return status === "completed" || status === "cancelled";
+    } catch { return false; }
+  }
+
   async function replay(slug: string, guildId: string, room: DuelRoom,
     projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal,
     selectedResources?: EngineResources): Promise<ReplayHttpResult> {
@@ -2076,8 +2095,7 @@ export function createDuelHost(options: {
           }
         }
       }
-      // The replay of a fork is a real game with private hands; only the replay of a finished source shows every card.
-      const all = projection.all === true && projection.version === 2 && !isReplayFork(state.session);
+      const all = projection.all === true && projection.version === 2 && mayShowAllCards(state.session, room, projection.ownerPlayerId !== undefined);
       if ((projection.reveal || all) && finalView) {
         const ownViews = source.session.seats.map(seat => readSaved(seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) {

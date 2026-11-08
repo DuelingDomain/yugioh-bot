@@ -289,6 +289,14 @@
   margin: 0 auto;
   pointer-events: auto;
 }
+/* The floating Updates and Report bug chips sit at the bottom right of a wide window: the bar ends before them, so its move counter
+   and speed button stay visible and clickable. */
+@media (min-width: 900px) {
+  .replayCorner {
+    width: min(980px, calc(100% - 264px));
+    margin: 0 250px 0 auto;
+  }
+}
 /* Narrow screen: a full-width row above the turn track. */
 .replayBar {
   position: relative;
