@@ -29,7 +29,7 @@ const timeOf = (item: DuelHistoryPage["duels"][number] | RemoteHistoryItem) => {
 
 /**
  * Merge two keyset pages, advancing each source only through consumed rows. Unread rows are fetched again on the next
- * request. Stop when either source needs another fetch, including when filtering hides a whole Remote page.
+ * request. Stop when either source needs another fetch.
  * Each source's id order is preserved on equal timestamps, with online rows first across sources.
  */
 export function mergeHistory(input: {
@@ -37,8 +37,6 @@ export function mergeHistory(input: {
   online: (cursor: string | undefined) => DuelHistoryPage;
   remote: (cursor: string | undefined) => RemoteHistoryPage;
   limit?: number;
-  /** Hides Remote rows after the page is read. Hidden rows still count as read, so the next page starts after them. */
-  remoteKeep?: (item: RemoteHistoryItem) => boolean;
 }): MergedHistoryPage {
   const cursor = readComposite(input.cursor);
   const limit = Math.min(input.limit ?? 50, 100);
@@ -55,7 +53,7 @@ export function mergeHistory(input: {
     if (!o && !r) break;
     if (r && (!o || timeOf(r) > timeOf(o))) {
       remoteRead++;
-      if (!input.remoteKeep || input.remoteKeep(r)) duels.push(r);
+      duels.push(r);
     } else {
       onlineRead++;
       duels.push(o!);
@@ -63,7 +61,7 @@ export function mergeHistory(input: {
   }
   const onlineMore = !!online && (onlineRead < onlineItems.length || !!online.nextCursor);
   const remoteMore = !!remote && (remoteRead < remoteItems.length || !!remote.nextCursor);
-  // On a fully consumed source page, use its continuation even if corrupt/hidden rows were omitted from its items.
+  // On a fully consumed source page, use its continuation even if corrupt rows were omitted from its items.
   const onlineNext = onlineRead === onlineItems.length ? online?.nextCursor : onlineRead ? onlineItems[onlineRead - 1]!.cursor : cursor.o;
   const remoteNext = remoteMore ? (remoteRead === remoteItems.length ? remote!.nextCursor : remoteRead ? remoteItems[remoteRead - 1]!.cursor : cursor.r ?? "") : null;
   const done = !onlineMore && remoteNext === null;

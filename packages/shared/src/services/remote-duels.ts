@@ -41,6 +41,7 @@ const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,st
 const REPLAY_CACHE_SIZE = 6;
 /** One small cache per database: the web makes a new service for each request. */
 const replayCaches = new WeakMap<Database.Database, Map<string, RemoteReplay>>();
+const replayRebuilds = new WeakMap<Database.Database, Map<string, Promise<RemoteReplay>>>();
 type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number; effects_json: string | null; messages_json: string | null; facts_hash: string | null };
 type EventMessage = { seat: number; text: string };
 
@@ -179,8 +180,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
     return applyTableRule(state,row);
   }
   /** Capture all journal facts in one read transaction before yielding; retention can then safely delete the table. */
-  function* replayFrames(slug: string, guildId: string, userId: number): Generator<void, RemoteReplay> {
-    const saved = db.transaction(() => {
+  function readReplay(slug: string, guildId: string, userId: number, shareRebuild = false) {
+    return db.transaction(() => {
       const row = load(slug, guildId), metadata = table(row);
       const seated = metadata.seats.some(s => s.userId === userId), admin = isOwnerUser(userId);
       remoteAssert(seated || admin || (!row.solo && row.visibility === "public" && row.tournament_match_id == null), "Remote table not found", 404, "REMOTE_NOT_FOUND");
@@ -190,12 +191,18 @@ export function createRemoteDuelService(db: Database.Database, options: {
       const key = `${row.id}:${row.last_seq}:${spectator ? "spectator" : [...mine].join(",")}`;
       const cached = cache.get(key);
       if (cached) { cache.delete(key); cache.set(key, cached); }
-      const events = cached ? [] : (db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[])
+      // Authorization above applies to every request, including callers joining an existing rebuild.
+      const rebuilds = replayRebuilds.get(db) ?? replayRebuilds.set(db, new Map()).get(db)!;
+      const pending = shareRebuild ? rebuilds.get(key) : undefined;
+      const events = cached || pending ? [] : (db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[])
         .map(e => event(e, metadata.seats));
-      return { row, metadata, seated, mine, spectator, cache, key, cached, events };
+      return { row, metadata, mine, spectator, cache, key, cached, events, rebuilds, pending,
+        mySeat: seated ? metadata.seats.find(s => s.userId === userId)!.seat : null };
     })();
+  }
+  function* replayFrames(saved: ReturnType<typeof readReplay>): Generator<void, RemoteReplay> {
     if (saved.cached) return saved.cached;
-    const { row, metadata, seated, mine, spectator, cache, key, events } = saved;
+    const { row, metadata, mine, spectator, cache, key, events, mySeat } = saved;
     const project = (state: RemoteState, events: RemoteEvent[]) => {
       // Undo holds a board per action. Exclude it before the privacy projection copies the board.
       const board = { ...state, undo: null, undoHistory: [] } as RemoteState;
@@ -212,7 +219,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       previous = view.state;
       yield;
     }
-    const replay: RemoteReplay = { table: projectRemoteTable(metadata, mine), viewer: spectator ? "spectator" : "player", mySeat: seated ? metadata.seats.find(s => s.userId === userId)!.seat : null, initial, steps };
+    const replay: RemoteReplay = { table: projectRemoteTable(metadata, mine), viewer: spectator ? "spectator" : "player", mySeat, initial, steps };
     cache.set(key, replay);
     if (cache.size > REPLAY_CACHE_SIZE) cache.delete(cache.keys().next().value!);
     return replay;
@@ -702,6 +709,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       const seated = "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=@viewer)";
       const when = "coalesce(t.ended_at,t.created_at)";
       const where = ["t.guild_id=@guild", "t.status='ended'", "t.started_at is not null", "t.solo=0"];
+      if (options.completed) where.push("coalesce(json_extract(t.state_json,'$.match.winnerSeat'),json_extract(t.state_json,'$.winnerSeat')) is not null");
       if (scope === "mine") where.push(seated);
       else if (!canSeeAll) where.push(`(${seated} or (t.visibility='public' and t.tournament_match_id is null))`);
       const instant = (value: string, field: string) => {
@@ -755,20 +763,28 @@ export function createRemoteDuelService(db: Database.Database, options: {
      * Same guild scope and privacy as the live views: a private table is only for its players and admins.
      */
     replayFrames(slug: string, guildId: string, userId: number): RemoteReplay {
-      const frames = replayFrames(slug, guildId, userId);
+      const frames = replayFrames(readReplay(slug, guildId, userId));
       let step = frames.next();
       while (!step.done) step = frames.next();
       return step.value;
     },
     /** The web path yields every ~8 ms while rebuilding a cold replay, so other requests can run. */
     async replayFramesAsync(slug: string, guildId: string, userId: number): Promise<RemoteReplay> {
-      const frames = replayFrames(slug, guildId, userId);
-      let slice = performance.now(), step = frames.next();
-      while (!step.done) {
-        if (performance.now() - slice >= 8) { await setImmediate(); slice = performance.now(); }
-        step = frames.next();
-      }
-      return step.value;
+      const saved = readReplay(slug, guildId, userId, true);
+      if (saved.cached) return saved.cached;
+      if (saved.pending) return saved.pending;
+      const rebuild = (async () => {
+        const frames = replayFrames(saved);
+        let slice = performance.now(), step = frames.next();
+        while (!step.done) {
+          if (performance.now() - slice >= 8) { await setImmediate(); slice = performance.now(); }
+          step = frames.next();
+        }
+        return step.value;
+      })();
+      saved.rebuilds.set(saved.key, rebuild);
+      try { return await rebuild; }
+      finally { saved.rebuilds.delete(saved.key); }
     },
     replay(slug: string, guildId: string, userId: number): RemoteState {
       return db.transaction(() => {

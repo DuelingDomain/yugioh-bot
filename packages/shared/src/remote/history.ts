@@ -34,6 +34,8 @@ export type RemoteHistoryItem = {
 
 export type RemoteHistoryOptions = {
   scope?: "mine" | "all";
+  /** Only tables with a match or legacy game winner, filtered before pagination. */
+  completed?: boolean;
   from?: string;
   to?: string;
   /** "1v1", "tag", "ffa3" or "ffa4". Remote has no Tag, so "tag" lists nothing. */

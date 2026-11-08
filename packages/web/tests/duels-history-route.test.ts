@@ -68,10 +68,10 @@ it("paginates dense Remote history newest-first for members, admins and the Remo
   }
   for (let i = 0; i < 122; i++) {
     const room = remote.create({ guildId: "history-test", userId: 102, displayName: "Member", gameId: "ygo", seatCount: 2, bestOf: 1, visibility: "private" });
-    // Over 50 rows between two online rows, equal timestamps, and two rows older than every dated online row.
-    const time = base - (i < 120 ? Math.floor(i / 2) * 1000 : 4_000_000 + i);
-    db.prepare("update remote_tables set status='ended', started_at=?, ended_at=?, state_json=json_set(state_json,'$.winnerSeat',?) where slug=?")
-      .run(time - 1000, time, i < 75 ? null : 0, room.slug);
+    // The newest 75 have no winner; also cover timestamp ties and two rows older than every dated online row.
+    const time = base + (i < 75 ? 120_000 : 0) - (i < 120 ? Math.floor(i / 2) * 1000 : 4_000_000 + i);
+    db.prepare("update remote_tables set status='ended', started_at=?, ended_at=?, state_json=json_set(state_json,?,?) where slug=?")
+      .run(time - 1000, time, i % 2 ? "$.match.winnerSeat" : "$.winnerSeat", i < 75 ? null : 0, room.slug);
     expected.push({ slug: room.slug, time, remote: true, completed: i >= 75 });
   }
   // Stable ties follow each source's descending id order.
@@ -84,6 +84,7 @@ it("paginates dense Remote history newest-first for members, admins and the Remo
       do {
         const response = await get(query.toString()); expect(response.status).toBe(200);
         const page = await response.json();
+        expect(page.duels.length).toBeGreaterThan(0);
         expect(page.duels.length).toBeLessThanOrEqual(50);
         slugs.push(...page.duels.map((row: { slug: string }) => row.slug));
         if (!page.nextCursor) break;
