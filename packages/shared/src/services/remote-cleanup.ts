@@ -22,12 +22,13 @@ export function deleteRemoteRooms(db: Database.Database, rooms: {id: number; slu
 /** Remove ended-room sessions and expired rate limits; keep all replay/history inputs. */
 export function pruneRemoteSessions(db: Database.Database, now: number): void {
   // These are live session bookkeeping, never inputs to history, replay or Undo.
-  // SFU discovery retries media teardown even after phone rows have been removed.
+  // Leave time for phone teardown retries and the ten-minute game-end Undo window.
+  const endedBefore = now - 15 * 60_000;
   for (const name of ["remote_phone_pairs", "remote_phone_modes", "remote_phone_attempts"]) {
-    if (hasTable(db, name)) db.prepare(`delete from ${name} where slug in (select slug from remote_tables where status='ended')`).run();
+    if (hasTable(db, name)) db.prepare(`delete from ${name} where exists (select 1 from remote_tables t where t.slug=${name}.slug and t.status='ended' and t.ended_at<?)`).run(endedBefore);
   }
   for (const name of ["remote_spectators", "remote_spectator_tabs", "remote_admin_watch"]) {
-    db.prepare(`delete from ${name} where table_id in (select id from remote_tables where status='ended')`).run();
+    db.prepare(`delete from ${name} where exists (select 1 from remote_tables t where t.id=${name}.table_id and t.status='ended' and t.ended_at<?)`).run(endedBefore);
   }
   if (hasTable(db, "remote_phone_attempts")) {
     db.prepare("delete from remote_phone_attempts where slug is null or started_at<=?").run(now - 5 * 60_000);

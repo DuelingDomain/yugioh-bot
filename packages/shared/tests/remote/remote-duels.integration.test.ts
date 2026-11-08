@@ -3372,6 +3372,68 @@ it('upgrades the event deletion guard atomically and leaves current SQL untouche
   } finally {spy.mockRestore();}
 });
 
+it('uses the abandoned-lobby partial index after repeated migrations', () => {
+  const {db,service}=setup();
+  migrate(db); migrate(db);
+  const plans:string[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('select id,slug from remote_tables ')) {
+      plans.push(...(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(86_400_000,100) as {detail:string}[]).map(row=>row.detail));
+    }
+    return prepare(sql);
+  });
+  try { service.purgeEnded(86_400_000,100,2*86_400_000,true); }
+  finally { spy.mockRestore(); }
+  expect(plans).toEqual(['SEARCH remote_tables USING INDEX remote_tables_unstarted_retention (ended_at<?)']);
+});
+
+it('prunes sessions with indexed room lookups only after the Undo and phone cleanup grace', () => {
+  const {db,service,users}=setup();
+  const now=86_400_000, grace=15*60_000;
+  db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer,revoked integer,cleanup_pending integer);
+    create table remote_phone_modes(slug text,user_id integer);
+    create table remote_phone_attempts(bucket text primary key,slug text,started_at integer,count integer);`);
+  const sessions=['remote_phone_pairs','remote_phone_modes','remote_phone_attempts','remote_spectators','remote_spectator_tabs','remote_admin_watch'];
+  const rooms=[grace+1,grace,1].map(age=>{
+    const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now-age);
+    const {id}=db.prepare('select id from remote_tables where slug=?').get(room.slug) as {id:number};
+    db.prepare("update remote_tables set status='ended',ended_at=? where id=?").run(now-age,id);
+    db.prepare('insert into remote_phone_pairs values(?,?,?,1,1)').run(room.slug,room.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(room.slug,users[0]);
+    db.prepare('insert into remote_phone_attempts values(?,?,?,1)').run(room.slug,room.slug,now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(id,users[1],now);
+    db.prepare('insert into remote_spectator_tabs values(?,?,?,?)').run(id,users[1],'tab',now);
+    db.prepare('insert into remote_admin_watch values(?,?,null)').run(id,users[1]);
+    return {...room,id};
+  });
+  const plans:{sql:string;details:string[]}[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('delete from') && sql.includes('remote_tables')) {
+      plans.push({sql,details:(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(sql.includes('?')?[now-grace]:[])) as {detail:string}[]).map(row=>row.detail)});
+    }
+    return prepare(sql);
+  });
+  try { service.pruneSessions(now); }
+  finally { spy.mockRestore(); }
+  for(const name of sessions) {
+    const key=name.startsWith('remote_phone')?'slug':'table_id';
+    const remaining=db.prepare(`select ${key} as room from ${name}`).all();
+    expect(remaining,name).toEqual(rooms.slice(1).map(room=>({room:key==='slug'?room.slug:room.id})));
+  }
+  expect(plans).toHaveLength(6);
+  for(const {sql,details} of plans) {
+    expect(details.join('; '),sql).toContain('CORRELATED SCALAR SUBQUERY');
+    expect(details.join('; '),sql).not.toMatch(/LIST SUBQUERY|SCAN (?:t|remote_tables)\b/);
+    expect(details.join('; '),sql).toMatch(/SEARCH t USING (?:INDEX sqlite_autoindex_remote_tables_1 \(slug=\?\)|INTEGER PRIMARY KEY \(rowid=\?\))/);
+  }
+  // Undo can reopen a recently ended room; its sessions survive subsequent pruning.
+  db.prepare("update remote_tables set status='active',ended_at=null where id=?").run(rooms[2].id);
+  service.pruneSessions(now+1);
+  for(const name of sessions) expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:1});
+});
+
 it('keeps history and replay indefinitely, prunes transient data, and supports an optional retention cap', async () => {
   const {pruneRemoteDuels} = await import('../../src/services/remote-retention.js');
   const s=deckSession('domain',false);
