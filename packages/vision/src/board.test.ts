@@ -376,6 +376,48 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
 
+test('moving, turning and resizing the grid keep every zone on its cell at any angle and side, and the corner order stays the mat\'s',()=>{
+  const base=[{x:.2,y:.2},{x:.8,y:.2},{x:.8,y:.8},{x:.2,y:.8}],aspect=16/9,orientation={playerSide:'right' as const,mirrored:true};
+  const original=zones.createFieldCalibration(base,orientation),near=(a:number,b:number,eps=1e-6)=>Math.abs(a-b)<eps;
+  const mat=(zone:string)=>{const cell=zones.fieldZoneCells().find(c=>c.zone===zone)!;return {x:cell.x+cell.w/2,y:cell.y+cell.h/2};};
+  const shows=(cal:ReturnType<typeof zones.createFieldCalibration>,at:(zone:string)=>{x:number;y:number})=>{
+    for(const zone of ['M1','S5','DECK','GY','EXTRA']){const p=at(zone);assert.equal(zones.mapFieldZone(card(p.x-.01,p.y-.01,.02,.02),cal).zone,zone);}
+  };
+  // A quarter turn, a half turn, three quarters and odd angles: where each zone lands is worked out by hand (turn in pixels about the centre, then the size the fit left).
+  for(const degrees of [0,90,180,270,37,-100]){
+    const out=zones.turnFieldQuad(base,degrees,aspect)!,k=1/out.restore,rad=degrees*Math.PI/180;
+    shows(zones.createFieldCalibration(out.corners,orientation),zone=>{
+      const p=zones.fieldMatPoint(mat(zone),original),x=(p.x-.5)*aspect,y=p.y-.5;
+      return {x:.5+k*(x*Math.cos(rad)-y*Math.sin(rad))/aspect,y:.5+k*(x*Math.sin(rad)+y*Math.cos(rad))};
+    });
+    assert.ok(near(zones.fieldQuadTurn(out.corners,aspect),(degrees+360)%360,1e-4));
+    assert.ok(out.corners.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1));
+  }
+  // The grid is wider than the picture is tall, so a quarter turn makes it smaller; turning back returns the size.
+  const quarter=zones.turnFieldQuad(base,90,aspect)!,back=zones.turnFieldQuad(quarter.corners,-90,aspect,quarter.restore)!;
+  assert.ok(quarter.restore>1&&back.restore===1&&back.corners.every((c,i)=>near(c.x,base[i].x,1e-9)&&near(c.y,base[i].y,1e-9)));
+  // Card shapes are measured with width and height swapped when the mat runs sideways: side left/right XOR a 90/270 turn.
+  const sideways=(side:'bottom'|'right',degrees:number)=>zones.fieldQuarterTurn(zones.createFieldCalibration(zones.turnFieldQuad(base,degrees,aspect)!.corners,{playerSide:side,mirrored:false}),aspect);
+  assert.deepEqual([sideways('bottom',0),sideways('bottom',90),sideways('right',0),sideways('right',90),sideways('bottom',180),sideways('bottom',270)],[false,true,true,false,false,true]);
+  // Move: exact, and it stops at the picture's edge.
+  const moved=zones.moveFieldQuad(base,.03,-.02)!;
+  assert.ok(moved.every((c,i)=>near(c.x,base[i].x+.03)&&near(c.y,base[i].y-.02)));
+  assert.ok(near(Math.max(...zones.moveFieldQuad(base,1,0)!.map(c=>c.x)),1));
+  // A corner handle: the opposite corner stays put and the dragged corner follows the pointer; Shift keeps the proportions.
+  const corner=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85})!;
+  assert.ok(near(corner[0].x,.2)&&near(corner[0].y,.2)&&near(corner[2].x,.9)&&near(corner[2].y,.85));
+  const kept=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85},true)!;
+  assert.ok(near((kept[2].x-kept[0].x)/(kept[2].y-kept[0].y),(base[2].x-base[0].x)/(base[2].y-base[0].y)));
+  // An edge handle changes one side only.
+  const edge=zones.resizeFieldQuad(base,{x:.5,y:0},{x:.4,y:.1})!;
+  assert.ok(near(edge[0].y,.1)&&near(edge[1].y,.1)&&near(edge[0].x,.2)&&near(edge[2].x,.8)&&near(edge[2].y,.8)&&near(edge[3].y,.8));
+  // Dragging past the picture stops at its edge, and a pinch grows the grid in place.
+  assert.ok(zones.resizeFieldQuad(base,{x:1,y:1},{x:3,y:3})!.every(c=>c.x<=1&&c.y<=1));
+  const grown=zones.pinchFieldQuad(base,1.2,0,aspect)!;
+  assert.ok(grown[2].x-grown[0].x>base[2].x-base[0].x&&near(grown[0].x+grown[2].x,1)&&near(grown[0].y+grown[2].y,1));
+});
+
+
 test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}]);
   for(const format of ['normal','domain','genesys','genesys-domain'] as const) {

@@ -118,9 +118,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
-  // A solo test and a tournament match play with their own cards on camera, so the deck is optional there (the server only checks a deck that is seated).
-  const deckOptional = room.solo || isTournamentTable(room);
-  const blocked = !me?.ready && ((!deckOptional && !me?.deck) || !!me?.deck?.validation.issues.length);
+  // Every table plays with physical cards on camera, so the deck is always optional (the server only checks a deck that is seated).
+  const blocked = !me?.ready && !!me?.deck?.validation.issues.length;
   const alert = error ?? (deckNote ? `Your deck was not seated: ${deckNote} Pick a deck below.` : saved.error?.message ?? null);
   // The tournament sets the rules; the server refuses a change (TOURNAMENT_RULES_LOCKED), so they show read-only.
   const rulesLocked = isTournamentTable(room);
@@ -173,9 +172,10 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
               <span className={room_.seatActions}><span className={cx(room_.status, seat.ready && room_.statusReady)}><Icon size={15} strokeWidth={1.7} aria-hidden />{seat.ready ? "Ready" : "Not ready"}</span></span>
               <div className={r.deck}>
                 <SheetSelect label="Deck" ariaLabel={`Deck for ${seat.displayName}`} value={seat.deck?.savedDeckId ?? ""} disabled={busy || !editable} testId={`deck-${seat.seat}`}
-                  choices={[{ value: "", label: !editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : deckOptional ? "No deck (optional)" : "Choose a saved deck" },
+                  choices={[{ value: "", label: !editable && seat.deckRegistered ? "Deck registered (private)" : "No deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
+                {mine && editable ? <p className={ui.hint}>A deck list makes card reads faster and more accurate. Optional.</p> : null}
                 {mine && editable ? <LobbyDeckList disabled={busy} mode={current.id === "normal" ? "standard" : (current.id as "domain" | "genesys" | "genesys-domain")} seated={!!seat.deck} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}
                 {seat.deck ? <p className={r.listOn} data-testid={`deck-list-on-${seat.seat}`}>Deck list: on · {seat.deck.deck.main.length + seat.deck.deck.extra.length} cards</p> : null}
                 {seat.deck?.validation.issues.length ? <ul className={r.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>
@@ -203,7 +203,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
               </SheetButton> : null}
             </div>
             <SheetButton kind="quiet" disabled={busy} onClick={() => void operation("leave")}>Leave table</SheetButton>
-            {blocked ? <p className={r.startHint}>{me?.deck?.validation.issues.length ? "Fix the deck problems to get ready." : "Choose a saved deck to get ready."}</p>
+            {blocked ? <p className={r.startHint}>Fix the deck problems, or choose No deck, to get ready.</p>
               : !host ? <p className={r.startHint}>Waiting for the host to start the table.</p>
               : !canStart ? <p className={r.startHint}>{room.seats.length < room.seatCount ? "Start unlocks when every seat is filled and ready." : "Start unlocks when every seat is ready."}</p> : null}
           </div>
