@@ -100,3 +100,60 @@ export class RecognitionChannel {
   }
   close() { this.closed = true; this.pending.clear(); this.lastAccepted.clear(); }
 }
+
+export const RESCAN_TOPIC = "remote.rescan.v1";
+/** One Rescan request per requester seat per this long, checked by both sides. */
+export const RESCAN_EVERY_MS = 15_000;
+/** What the other client did: ran a Scan field, Auto-detect is off, a scan already runs (busy), or it waits on its player (paused: a prompt, the sync hold, calibration or a tournament table). */
+export type RescanReply = "started" | "off" | "busy" | "paused";
+/** How the other side answered. `limited`/`unavailable` come from the requester's own checks or the reply. */
+export type RescanResult = RescanReply | "limited" | "unavailable";
+const RESCAN_REPLIES = ["started", "off", "busy", "paused", "limited"];
+type RescanMessage = { type: "rescan.request"; id: string } | { type: "rescan.reply"; id: string; result: RescanReply | "limited" };
+function rescanMessage(value: unknown): RescanMessage | undefined {
+  const v = value as Record<string, unknown> | null;
+  if (!v || typeof v !== "object" || typeof v.id !== "string" || v.id.length < 1 || v.id.length > 100) return undefined;
+  if (v.type === "rescan.request") return { type: "rescan.request", id: v.id };
+  if (v.type === "rescan.reply" && typeof v.result === "string" && RESCAN_REPLIES.includes(v.result)) return { type: "rescan.reply", id: v.id, result: v.result as RescanReply | "limited" };
+  return undefined;
+}
+/**
+ * "Rescan" for another seat: a request on the table's data channel, never a game action, so it never moves baseSeq. The other client
+ * runs its own Scan field on its local camera and answers `started` or `off` (its Auto-detect is off). `from` is the SFU-bound seat,
+ * so a spectator (no seat) never reaches this class. Both sides keep the 15 s limit per requester.
+ */
+export class RescanChannel {
+  private pending = new Map<string, { owner: number; resolve: (result: RescanResult) => void; timer: ReturnType<typeof setTimeout> }>();
+  private lastSent = new Map<number, number>();
+  private lastAccepted = new Map<number, number>();
+  private closed = false;
+  constructor(private seat: number, private send: (message: RescanMessage, destination: number) => Promise<void>,
+    private handle: (from: number) => RescanReply, private now = () => Date.now(), private wait = 4000) {}
+  async request(owner: number): Promise<RescanResult> {
+    if (this.closed || owner === this.seat) return "unavailable";
+    if (this.now() - (this.lastSent.get(owner) ?? -Infinity) < RESCAN_EVERY_MS) return "limited";
+    this.lastSent.set(owner, this.now());
+    const id = crypto.randomUUID();
+    const answer = new Promise<RescanResult>(resolve => {
+      const timer = setTimeout(() => { this.pending.delete(id); resolve("unavailable"); }, this.wait);
+      this.pending.set(id, { owner, resolve, timer });
+    });
+    try { await this.send({ type: "rescan.request", id }, owner); } catch { const p = this.pending.get(id); if (p) { clearTimeout(p.timer); this.pending.delete(id); } return "unavailable"; }
+    return answer;
+  }
+  async receive(from: number, input: unknown) {
+    const message = rescanMessage(input); if (this.closed || !message) return;
+    if (message.type === "rescan.request") {
+      if (from === this.seat) return;
+      const limited = this.now() - (this.lastAccepted.get(from) ?? -Infinity) < RESCAN_EVERY_MS;
+      if (!limited) this.lastAccepted.set(from, this.now());
+      const result = limited ? "limited" : this.handle(from);
+      await this.send({ type: "rescan.reply", id: message.id, result }, from).catch(() => undefined);
+    } else {
+      const pending = this.pending.get(message.id);
+      if (!pending || pending.owner !== from) return;
+      clearTimeout(pending.timer); this.pending.delete(message.id); pending.resolve(message.result);
+    }
+  }
+  close() { this.closed = true; for (const p of this.pending.values()) { clearTimeout(p.timer); p.resolve("unavailable"); } this.pending.clear(); }
+}

@@ -7,6 +7,7 @@ import ui from "@/components/duel/sheet-ui.module.css";
 import { FieldOrientationControls } from "../field-orientation";
 import { defaultSideFor } from "@/lib/remote/zone-grid";
 import s from "./lobby-camera-preview.module.css";
+import { ZoneRowDiagram } from "./zone-row-diagram";
 
 /**
  * The lobby's "Calibrate zones" step for a webcam. The grid on the preview shows the result live.
@@ -38,9 +39,9 @@ export function LobbyZonesStep({ live, calibrated, changed = false, skipped, cal
         <SheetButton size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Recalibrate</SheetButton>
       </div>
     </> : calibrated ? null : <>
-      {state === "first" ? <p className={ui.hint}>{live
-        ? "Put a monster upright in M1 (front-left) and a spell or trap upright in S5 (back-right). Then press Calibrate zones. The dashed grid is only a guess until you calibrate."
-        : "Turn on the camera to calibrate the zones."}</p>
+      {state === "first" ? <><p className={ui.hint}>{live
+        ? "Put a monster upright in M1: in the Main Monster row (the row nearer the middle of the table), at the far left. Put a spell or trap upright in S5: in the Spell & Trap row (the row nearest you), at the far right. Then press Calibrate zones. The dashed grid is only a guess until you calibrate."
+        : "Turn on the camera to calibrate the zones."}</p>{live ? <ZoneRowDiagram /> : null}</>
         : <p className={ui.hint}>At the table, you can choose your side and calibrate the zones.</p>}
       <div className={s.zonesActions}>
         <SheetButton kind={state === "first" ? "primary" : "secondary"} size="sm" disabled={!live} onClick={onCalibrate} data-testid="lobby-cam-calibrate">Calibrate zones</SheetButton>
