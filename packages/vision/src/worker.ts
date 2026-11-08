@@ -7,6 +7,8 @@ import { embeddingGpuCheck } from './gpu-check';
 import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
 import { CARD_DETECTOR } from './detector/spec';
+import { ScenePixels } from './scene-pixels';
+import { SceneRefiner } from './scene-refiner';
 import { detectScene, lastShadowPasses } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
@@ -134,6 +136,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     embedderSession=undefined;pipeline=undefined;throw error;
   }
 }
+const sceneRefiner=new SceneRefiner();
 let pixelCanvas:OffscreenCanvas|undefined;
 function pixels(frame: ImageBitmap | ImageData): RGBAImage {
   if ('close' in frame) {
@@ -188,8 +191,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         }
         if(message.type==='detect') {
           const detectorSession=await ensureDetector();
-          const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
-          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
+          const start=performance.now();
+          const source='close' in message.frame?new ScenePixels(message.frame):undefined;
+          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame),pixelsMs=performance.now()-start;
+          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
           const split=last?{shadowPasses:lastShadowPasses(),preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};

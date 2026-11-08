@@ -158,6 +158,41 @@ caps both cards of a stack. Hands, missing detections and nearly coincident
 stacks are not reliably detected; this does not reconstruct hidden artwork or
 inherit upstream's private-footage calibration.
 
+### Remote Duels detector cost (2026-11-07)
+
+The scene worker refines only plausible retained boxes, reuses quads whose original
+box moved less than two native pixels, and reads native pixels only around cards.
+Both backends use scene-change pacing: 4-second still-card scans, 20% CPU / 25%
+GPU sustain. CPU bursts rest 1:1; split CPU workers use one detector thread and two
+read threads. GPU shadow rescue is limited to live plausible tracks, cropped to
+the missing area, and permitted every 3 seconds or with measured shadow share
+at least .03. Settled face evidence is reused until look, motion, or pending face
+state requires another 96×140 card crop.
+
+Synthetic 1920×1080, 12-card Chromium/WASM comparison (Node 22, Chromium 153,
+8 logical cores, 25 warm passes; other builds active on the shared host):
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Median wall time/pass | 351 ms | 237 ms |
+| Worker CPU time/pass | 666 ms | 354 ms |
+| Mean refinement/postprocessing | 86 ms | 0.4 ms |
+
+Full passes retain 960 pixels: 640 lost the smallest-card fixture (11/12 at 960,
+0/12 at 640). The optimized 960 path retains 11/12; normal-sized boards retain
+12/12. Motion crops remain 448. Hardware GPU timing is unavailable (SwiftShader
+fallback only), and the ≤200 ms CPU target is not certified by this shared-host
+run. Video encoding and transforms are unchanged.
+
+Reproduce the pass comparison with the same model/index/photo assets on both
+revisions (save the baseline bundles with `CPU_OUT` before changing code):
+
+```sh
+CPU_OUT=/tmp/vision-before CPU_LABEL=before CPU_SCENES=pass CPU_READS=0 CPU_PASSES=25 CPU_CONFIG='{"cardCount":12}' npx tsx scripts/vision/benchmark-cpu.ts
+CPU_OUT=/tmp/vision-after CPU_LABEL=after CPU_SCENES=pass CPU_READS=0 CPU_PASSES=25 CPU_CONFIG='{"cardCount":12}' npx tsx scripts/vision/benchmark-cpu.ts
+# Add "cardScale":0.35 to CPU_CONFIG for the smallest-card recall fixture.
+```
+
 Offline synthetic board measurements and validation are in the local measurement report (not in the repo).
 Reproduce using existing local models/index and the existing clean-photo corpus:
 
