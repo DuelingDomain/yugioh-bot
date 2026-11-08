@@ -4139,7 +4139,7 @@ describe("account deletion in live remote rooms", () => {
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
-  it.each([[2,"duel"],[2,"siding"],[3,"duel"],[4,"duel"]] as const)("ends an active %i-seat table during %s and prevents further actions", (seatCount,phase) => {
+  it.each([[2,"duel"],[2,"siding"]] as const)("ends an active %i-seat table during %s and prevents further actions", (seatCount,phase) => {
     const {db,service,users}=setup();
     let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount},1000);
     for(let seat=1;seat<seatCount;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
@@ -4153,9 +4153,56 @@ describe("account deletion in live remote rooms", () => {
     deleteUserAccount(db,users[1]);
     room=service.get(room.slug,"g",users[0]);
     expect(room).toMatchObject({status:"ended",endReason:"account-deleted"});
+    expect(service.listHistory("g",users[0]).items.find(item=>item.slug===room.slug)).toMatchObject({winnerSeat:null,seats:[{result:null},{result:null}]});
     expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:1,action:{type:"table.ended",reason:"account-deleted"}});
     expect(()=>service.act(room.slug,"g",users[0],{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:0,text:"hello",idempotencyKey:"after-delete"}})).toThrow(/not active/);
     expect(service.replayFrames(room.slug,"g",users[0]).steps).toHaveLength(room.lastSeq);
+  });
+
+  it.each([[3,1,"duel"],[4,1,"duel"],[3,3,"duel"],[4,3,"duel"],[3,3,"result"],[4,3,"siding"]] as const)("concedes only the deleted FFA seat until one player remains (%i seats, Bo%i, %s)", (seatCount,bestOf,phase) => {
+    const clock=vi.spyOn(Date,"now").mockReturnValue(2000);
+    try {
+      const {db,service,users}=setup();
+      let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount,bestOf},1000);
+      for(let seat=1;seat<seatCount;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
+      for(let seat=0;seat<seatCount;seat++) service.ready(room.slug,"g",users[seat],true,1002);
+      room=service.start(room.slug,"g",users[0],1003);
+      const keeper=users[seatCount-1];
+      const act = (actorSeat:number, action:Record<string,unknown>) => room=service.act(room.slug,"g",users[actorSeat],{baseSeq:room.lastSeq,
+        action:remoteActionSchema.parse({actorSeat,idempotencyKey:`ffa-${room.lastSeq}`, ...action})},Math.max(1004+room.lastSeq,room.state.updatedAt));
+      if(phase!=="duel") {
+        for(let seat=1;seat<seatCount;seat++) act(seat,{type:"player.concede"});
+        if(phase==="siding") act(1,{type:"match.continue"});
+      }
+      const undoDamage=seatCount===3 && bestOf===1;
+      if(undoDamage) act(seatCount-1,{type:"lp.change",seat:0,delta:-8000,reason:"damage"});
+      const damageId=room.events.at(-1)!.id;
+      for(let seat=0;seat<seatCount-1;seat++) {
+        deleteUserAccount(db,users[seat]);
+        room=service.get(room.slug,"g",keeper);
+        expect(room.state.seats[seat].eliminated).toBe(true);
+        expect(room.seats[seat]).toMatchObject({userId:null,displayName:"Deleted player"});
+        expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:seat,action:{type:"player.concede",actorSeat:seat}});
+        if(seat===0 && undoDamage) {
+          act(seatCount-1,{type:"undo",targetActionId:damageId});
+          expect(room.state.seats[0].eliminated).toBe(true);
+        }
+        if(seat===0 && phase!=="duel") {
+          if(phase==="result") act(1,{type:"match.continue"});
+          for(let readySeat=1;readySeat<seatCount;readySeat++) act(readySeat,{type:"side.ready",seat:readySeat});
+          act(1,{type:"match.first",seatGoesFirst:1});
+          expect(room.state.seats[0].eliminated).toBe(true);
+        }
+        if(seat<seatCount-2) {
+          expect(room).toMatchObject({status:"active",state:{ended:false,winnerSeat:null}});
+          room=service.act(room.slug,"g",keeper,{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:seatCount-1,text:"Still playing",idempotencyKey:`after-delete-${seat}`}});
+        }
+      }
+      expect(room).toMatchObject({status:"ended",state:{ended:true,winnerSeat:seatCount-1,match:{phase:"done",winnerSeat:seatCount-1}}});
+      expect(service.replay(room.slug,"g",keeper)).toMatchObject({ended:true,winnerSeat:seatCount-1});
+      expect(service.listHistory("g",keeper).items.find(item=>item.slug===room.slug)?.winnerSeat).toBe(seatCount-1);
+      expect(db.pragma("foreign_key_check")).toEqual([]);
+    } finally {clock.mockRestore();}
   });
 
   it.each(["lobby","active"] as const)("captures and anonymizes tournament evidence when a %s player deletes", async status => {

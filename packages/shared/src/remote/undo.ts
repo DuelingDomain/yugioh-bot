@@ -166,6 +166,9 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
       twins.splice(destination, 0, card);
     }
   }
+  for (const seat of restored.seats) if (state.seats[seat.seat].accountDeleted) {
+    seat.accountDeleted = true; seat.eliminated = true; seat.twin = []; seat.knownHand = [];
+  }
   const living = restored.seats.filter(s=>!s.eliminated);
   restored.ended = living.length <= 1;
   restored.winnerSeat = restored.ended ? living[0]?.seat ?? null : null;

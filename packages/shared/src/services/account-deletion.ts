@@ -13,11 +13,13 @@ export const DELETED_PLAYER_NAME = "Deleted player";
 
 export type AccountDeletionMode = "removed" | "anonymised";
 
-/** No personal data: IDs, a mode and row counts only. A count of zero is left out. */
+/** No personal data: IDs, mode, counts and changed room references. Zero counts are left out. */
 export interface AccountDeletionSummary {
   userId: number;
   mode: AccountDeletionMode;
   counts: Record<string, number>;
+  /** Committed Remote changes, including collected rooms, for transport invalidation. */
+  remoteTables?: {slug: string; guildId: string}[];
 }
 
 export interface AccountDeletionPreview {
@@ -71,13 +73,16 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  * `setup_json.replayFork.origin.sourceSeats[].displayName`, and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
+  let remoteTables: NonNullable<AccountDeletionSummary["remoteTables"]> = [];
   const run = db.transaction((): AccountDeletionSummary => {
     const user = db.prepare<[number], UserRow & { display_name: string; discord_user_id: string | null }>("select id, clerk_user_id, email, display_name, discord_user_id from users where id = ?").get(userId);
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
     // Remote opponents keep the game and replay; detach identity and remove authored private text.
-    note("remote_tables", deleteUserRemoteData(db, userId, DELETED_PLAYER_NAME));
+    const remote = deleteUserRemoteData(db, userId, DELETED_PLAYER_NAME);
+    remoteTables = remote.tables;
+    note("remote_tables", remote.deleted);
     note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
     db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
     suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);
@@ -190,6 +195,7 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     return { userId, mode: "anonymised", counts };
   });
   const result=run.immediate();
+  if (remoteTables.length) result.remoteTables = remoteTables;
   // Filesystem cleanup follows the successful account transaction, so a rolled
   // back deletion leaves both metadata and crop bytes intact.
   createVisionFeedbackService(db).prune();

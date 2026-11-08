@@ -47,6 +47,8 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  /** Trusted account-deletion concession, persisted for replay. */
+  accountDeletion?: 1;
   /** Preserve pre-review declaration and first-choice rules on historical replay. */
   matchFlowVersion?: 1;
   /** Server-owned solo seats readied with the human; persisted for deterministic replay. */

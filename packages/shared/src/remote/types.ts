@@ -15,6 +15,8 @@ export type RemoteKnownHandCard = {
   publicIdentity?: true;
 };
 export type RemoteSeatState = {
+  /** An FFA privacy concession survives the next game of a match. */
+  accountDeleted?: true;
   knownHand?: RemoteKnownHandCard[];
   /** Public count. Absent until a movement or an owner correction sets it. */
   handCount?: number;

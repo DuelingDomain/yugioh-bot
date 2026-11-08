@@ -37,7 +37,9 @@ export function finishRemoteGame(state: RemoteState, winnerSeat: number | null, 
     delete match.firstChooser; delete match.firstSeat;
   } else {
     match.phase = "result";
-    match.firstChooser = winnerSeat === null ? null : (winnerSeat + 1) % state.seatCount;
+    const contenders = state.seats.filter(s => !s.accountDeleted);
+    match.firstChooser = winnerSeat === null ? null : Array.from({length:state.seatCount},(_,i)=>(winnerSeat+i+1)%state.seatCount)
+      .find(seat=>contenders.some(s=>s.seat===seat)) ?? null;
     if (winnerSeat === null) match.firstSeat = state.startedSeats[0] ?? 0;
     else delete match.firstSeat;
   }
@@ -130,13 +132,17 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   else delete siding.firstChoiceDeadline;
   const choiceDue = siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline;
   if (at < siding.deadline && !(allReady && (match.firstSeat !== undefined || choiceDue))) return state;
-  const firstSeat = match.firstSeat ?? match.firstChooser ?? 0;
+  const chosen = match.firstSeat ?? match.firstChooser ?? 0;
+  const firstSeat = state.seats[chosen].accountDeleted ? state.seats.find(s=>!s.accountDeleted)!.seat : chosen;
   const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf, tournament: state.tournament });
   next.match = match; next.match.phase = "duel";
   delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat; delete next.match.opening;
   next.deckChecks = initialDeckChecks(structuredClone(state.deckChecks.format));
   next.deckChecks.registrations = structuredClone(state.deckChecks.registrations);
-  for (const seat of next.seats) seat.resources.lp = state.deckChecks.format.settings.startingLP;
+  for (const seat of next.seats) {
+    seat.resources.lp = state.deckChecks.format.settings.startingLP;
+    if (state.seats[seat.seat].accountDeleted) { seat.accountDeleted = true; seat.eliminated = true; }
+  }
   next.showCardsSetFromDeck = state.showCardsSetFromDeck;
   next.revealedHand = state.revealedHand;
   next.detection = structuredClone(state.detection ?? {});
@@ -207,7 +213,7 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
     const extendedFor = next.seats.filter(s => !!next.deckChecks.registrations[s.seat]).map(s => s.seat);
     match.phase = "siding";
     const seatDeadlines = Object.fromEntries(next.seats.map(s => [s.seat, at + (extendedFor.includes(s.seat) ? REMOTE_SIDE_DECK_MS : REMOTE_SIDE_MS)]));
-    match.siding = { deadline: Math.max(...Object.values(seatDeadlines)), seatDeadlines, ready: [], extendedFor };
+    match.siding = { deadline: Math.max(...Object.values(seatDeadlines)), seatDeadlines, ready: next.seats.filter(s=>s.accountDeleted).map(s=>s.seat), extendedFor };
     return next;
   }
   remoteAssert(match.phase === "siding" && match.siding, "Side decking is only available during siding", 409);
@@ -221,7 +227,9 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   switch (action.type) {
     case "match.first":
       remoteAssert(match.firstChooser === action.actorSeat, "Only the previous loser can choose the first player", 403);
-      validSeat(action.seatGoesFirst); match.firstSeat = action.seatGoesFirst; break;
+      validSeat(action.seatGoesFirst);
+      remoteAssert(!next.seats[action.seatGoesFirst].accountDeleted, "That seat has left the match", 409);
+      match.firstSeat = action.seatGoesFirst; break;
     case "side.ready": case "side.unready":
       remoteAssert(action.seat === action.actorSeat, "Only your own seat can change Ready", 403);
       siding.ready = siding.ready.filter(seat => seat !== action.seat);

@@ -9,6 +9,7 @@ import { runSeason } from "./season.js";
 import { mergeUsers } from "./merge-users.js";
 import { precreateUsers } from "./clerk-precreate-users.js";
 import { reconcileWaitlist } from "./clerk-reconcile-waitlist.js";
+import { effectsFromEnv } from "../effects.js";
 import { deleteUser } from "./delete-user.js";
 import { defaultReportPath, openReport, OpsError, type OpsContext } from "./report.js";
 
@@ -102,7 +103,7 @@ export async function runCli(argv: string[], opts: {
     else if (command === "merge-users") {
       out("Stop writers and revoke the source's Clerk sessions before applying this merge");
       report = mergeUsers(ctx, parsed.source!, parsed.target!);
-    } else if (command === "delete-user") report = await deleteUser(ctx, parsed.userId!);
+    } else if (command === "delete-user") report = await deleteUser(ctx, parsed.userId!, effectsFromEnv(env).remote);
     else if (command === "clerk-precreate-users") report = await precreateUsers(ctx);
     else report = await reconcileWaitlist(ctx);
     file.write({ command, ...report });

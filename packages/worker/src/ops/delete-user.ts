@@ -9,7 +9,7 @@ type ClerkOutcome = "none" | "skipped" | "would_delete" | "deleted" | "failed";
  * then the database transaction. Dry-run by default and offline. The report carries the
  * user ID, the mode and row counts only: no email, Clerk ID or Discord ID.
  */
-export async function deleteUser(ctx: OpsContext, userId: number) {
+export async function deleteUser(ctx: OpsContext, userId: number, notifyRemoteChange?: (slug: string, guildId: string) => Promise<void>) {
   const fail = (message: string, clerk: ClerkOutcome, extra: object = {}): never => {
     throw new OpsError(message, { status: "failed", userId, clerk, message, ...extra });
   };
@@ -37,6 +37,7 @@ export async function deleteUser(ctx: OpsContext, userId: number) {
 
   try {
     const summary = deleteUserAccount(ctx.db, userId);
+    if (notifyRemoteChange) await Promise.all((summary.remoteTables ?? []).map(table => notifyRemoteChange(table.slug,table.guildId)));
     const changed = Object.keys(summary.counts).length > 0;
     return {
       status: changed || clerk === "deleted" ? "applied" : "noop", userId, mode: summary.mode, clerk, counts: summary.counts,

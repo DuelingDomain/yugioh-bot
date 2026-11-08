@@ -693,7 +693,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       const iso = (ms: number | null) => ms == null ? null : new Date(ms).toISOString();
       const items = page.map((row): RemoteHistoryItem => {
         const [matchWinner, stateWinner, turn, games] = row.outcome ? JSON.parse(row.outcome) as [number | null, number | null, number | null, { winnerSeat: number | null }[] | null] : [null, null, null, null];
-        const winnerSeat = typeof matchWinner === "number" ? matchWinner : typeof stateWinner === "number" ? stateWinner : null;
+        const winnerSeat = typeof matchWinner === "number" ? matchWinner : row.best_of !== 3 && typeof stateWinner === "number" ? stateWinner : null;
         const wins = Array.from({ length: row.seat_count }, (_, seat) => (games ?? []).filter(game => game.winnerSeat === seat).length);
         const metadata = table(row);
         return { remote: true, slug: row.slug, cursor: Buffer.from(JSON.stringify({ t: row.history_time, id: row.id })).toString("base64url"), name: "Remote Duel", seatCount: row.seat_count, tableType: row.seat_count === 2 ? "1v1" : row.seat_count === 3 ? "ffa3" : "ffa4",
