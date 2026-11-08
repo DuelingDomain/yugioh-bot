@@ -182,6 +182,21 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const paneOpen = hud && hudState.pane != null;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
+  // Replay with the floating HUD: the transport sits over the bottom of the table, so the board keeps clear of it (its height
+  // changes with the width and the check note). Otherwise the Team LP bar sits under the panel.
+  useEffect(() => {
+    const root = rootRef.current;
+    const bar = replay && hud ? root?.querySelector<HTMLElement>('[data-testid="replay-transport"]') : null;
+    if (!root || !bar) return;
+    const apply = () => {
+      root.style.setProperty("--replay-pad", `${Math.ceil(bar.getBoundingClientRect().height) + 16}px`);
+      root.dataset.replayPad = "true";
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    return () => { observer.disconnect(); root.style.removeProperty("--replay-pad"); delete root.dataset.replayPad; };
+  }, [replay, hud]);
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
   useEffect(() => { if (inputSuspended && !replay) closeHud(); }, [inputSuspended, replay, closeHud]);
   const resetSeen = useRef(resetKey);
