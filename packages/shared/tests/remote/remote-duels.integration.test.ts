@@ -12,6 +12,7 @@ import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRem
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
 import { applyRemoteOpening } from "../../src/remote/match.js";
+import { applyPatch } from "../../src/remote/delta.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -3796,4 +3797,51 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
     expect(evidence()).toBeUndefined();
     expect(s.db.pragma("foreign_key_check")).toEqual([]);
   } finally {vi.unstubAllEnvs();}
+});
+
+describe("remote match history and replay", () => {
+  function endedTable() {
+    const s = deckSession("normal", false);
+    const [a, b, outsider] = s.users, slug = s.room.slug;
+    s.select(s.save().id);
+    s.service.configure(slug, "g", a, { bestOf: 1 }, 2001);
+    s.service.join(slug, "g", b, "Bea", undefined, 2001);
+    s.service.selectDeck(slug, "g", b, { savedDeckId: s.save(undefined, [], b).id }, 2001);
+    s.service.ready(slug, "g", b, true, 2002); s.service.ready(slug, "g", a, true, 2002);
+    s.service.start(slug, "g", a, 2003);
+    const send = (user: number, action: Record<string, unknown>, at: number) => s.service.act(slug, "g", user, { baseSeq: s.service.get(slug, "g", user).lastSeq,
+      action: remoteActionSchema.parse({ idempotencyKey: "hist-" + at, ...action }) }, at);
+    send(a, { type: "log.note", actorSeat: 0, text: "Good luck" }, 2100);
+    send(b, { type: "player.concede", actorSeat: 1 }, 2200);
+    return { ...s, a, b, outsider, slug };
+  }
+
+  it("lists an ended table in the history of its players and rebuilds its final board", () => {
+    const s = endedTable();
+    const mine = s.service.listHistory("g", s.a);
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]).toMatchObject({ remote: true, slug: s.slug, tableType: "1v1", mySeat: 0, winnerSeat: 0,
+      seats: [{ displayName: "Sulman", result: "win" }, { displayName: "Bea", result: "loss" }] });
+    expect(s.service.listHistory("g", s.b).items[0]).toMatchObject({ mySeat: 1 });
+    // Another guild sees nothing, and a private table is not in a member's All list.
+    expect(s.service.listHistory("h", s.a).items).toHaveLength(0);
+    expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items).toHaveLength(0);
+    expect(s.service.listHistory("g", s.a, { format: "ffa3" }).items).toHaveLength(0);
+
+    for (const user of [s.a, s.b]) {
+      const replay = s.service.replayFrames(s.slug, "g", user);
+      expect(replay.viewer).toBe("player");
+      const last = replay.steps.reduce((view, step) => applyPatch(view, step.ops), replay.initial);
+      const live = s.service.get(s.slug, "g", user).state;
+      expect(last).toEqual({ ...live, undo: null, undoHistory: [] });
+      expect(last.ended).toBe(true);
+      expect(replay.steps.map(step => step.seq)).toEqual(replay.steps.map((_, i) => i + 1));
+    }
+    expect(() => s.service.replayFrames(s.slug, "g", s.outsider)).toThrow(/not found/);
+    expect(() => s.service.replayFrames(s.slug, "h", s.a)).toThrow(/not found/);
+    // A public table shows to other members as a spectator replay.
+    s.db.prepare("update remote_tables set visibility='public' where slug=?").run(s.slug);
+    expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items.map(item => item.slug)).toEqual([s.slug]);
+    expect(s.service.replayFrames(s.slug, "g", s.outsider).viewer).toBe("spectator");
+  });
 });

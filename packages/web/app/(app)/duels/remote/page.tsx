@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
-import { remoteDuelsForViewer } from "@/lib/remote-duels";
-import { RemoteLobby } from "@/components/remote/ui/lobby";
+import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
-export default async function RemoteDuelsPage() {
-  if (!await remoteDuelsForViewer()) notFound();
-  return <RemoteLobby />;
+/** Remote tables are in the normal Duels lists now. */
+export default function RemoteDuelsPage() {
+  redirect("/duels");
 }

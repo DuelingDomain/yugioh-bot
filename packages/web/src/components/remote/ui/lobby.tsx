@@ -1,17 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import useSWR from "swr";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
-import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTable } from "@yugidraft/shared/remote";
-import { duelFontClasses } from "@/components/duel/fonts";
+import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteRoom } from "@yugidraft/shared/remote";
 import { AlertTriangle, Bot, Check, CheckCircle2, CircleDashed, Link2, Swords, UserPlus } from "lucide-react";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
 import room_ from "@/components/duel/room-lobby.module.css";
 import { COLORS } from "./model";
-import { remoteApi } from "./api";
 import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
@@ -19,46 +16,9 @@ import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from 
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
-import { AdminWatchList } from "./admin-watch-list";
-import l from "./remote-lobby.module.css";
 import r from "./lobby-room.module.css";
 
-const go = remoteTableHref;
 const formatName = remoteFormatName;
-
-function TableLinks({ title, tables, error }: { title: string; tables?: RemoteTable[]; error?: string }) {
-  return <section className={l.card} aria-label={title}>
-    <h2>{title}</h2>
-    {error ? <p className={l.err} role="alert">{error}</p> : !tables ? <p className={l.note}>Loading tables…</p> : tables.length === 0 ? <p className={l.note}>No tables yet.</p> :
-      <ul className={l.tables}>{tables.map(table => <li key={table.slug}>
-        <a href={go(table.slug)} data-testid={`table-link-${table.slug}`}>
-          <span>{table.slug}</span>
-          <span className={l.tag}>{formatName(table.format?.id)}</span>
-          {table.solo ? <span className={l.tag}>Solo test</span> : null}
-          {table.visibility === "private" ? <span className={l.tag}>Private</span> : null}
-          <span className={l.note}>{table.seats.length}/{table.seatCount} seats</span>
-          <span className={`${l.tag} ${table.status === "active" ? l.tagLive : ""}`}>{table.status}</span>
-        </a></li>)}</ul>}
-  </section>;
-}
-
-/** /duels/remote: the open and your own tables. Creating a table happens on the normal create screen. */
-export function RemoteLobby() {
-  const mine = useSWR("remote:mine", () => remoteApi<{ tables: RemoteTable[] }>("?scope=mine"), { refreshInterval: 5000 });
-  const open = useSWR("remote:open", () => remoteApi<{ tables: RemoteTable[] }>("?scope=open"), { refreshInterval: 5000 });
-  return <div className={`${duelFontClasses} ${l.lobby}`} data-testid="remote-lobby">
-    <div className={l.head}><h1>Remote Duels</h1><p className={l.sub}>Play with real cards on your webcam. The table keeps score.</p></div>
-    <div className={l.actions}>
-      <a className={`${l.btn} ${l.go}`} href="/duels/new?type=remote" data-testid="new-remote-duel">New Remote Duel</a>
-      <a className={l.back} href="/duels">Back to duels</a>
-    </div>
-    <div className={l.lists}>
-      <TableLinks title="Your tables" tables={mine.data?.tables} error={mine.error?.message} />
-      <TableLinks title="Open tables" tables={open.data?.tables} error={open.error?.message} />
-      <AdminWatchList />
-    </div>
-  </div>;
-}
 
 /** Copies the link of this table. Same control as the online lobby's Copy invite. */
 function CopyInvite({ slug }: { slug: string }) {
@@ -145,7 +105,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
         </div>
         <div className={room_.headActions}>
           {room.solo ? null : <CopyInvite slug={room.slug} />}
-          <a href="/duels/remote" className={sheetButtonClass("quiet", "sm")}>All tables</a>
+          <a href="/duels" className={sheetButtonClass("quiet", "sm")}>All tables</a>
         </div>
       </header>
 

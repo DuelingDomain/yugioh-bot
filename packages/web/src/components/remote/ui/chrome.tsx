@@ -20,7 +20,7 @@ export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], hea
   const dot = health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : "";
   const tone = health.q === "warn" ? s.warnc : health.q === "bad" ? s.badc : "";
   return <header className={s.top}>
-    <a className={s.logo} href={tournament?.href ?? "/duels/remote"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
+    <a className={s.logo} href={tournament?.href ?? "/duels"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
     <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
     <span className={s.cchip}>{chip}</span>
     {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}

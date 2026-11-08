@@ -1,3 +1,4 @@
+import type { RemoteHistoryItem } from "@yugidraft/shared/remote";
 import { duelFxClock } from "./fx-clock";
 import type {
   DuelBestOf,
@@ -185,7 +186,8 @@ export function duelRoomKey(slug: string, spectate = false, fork: ForkViewContro
 
 /** Live lists answer `{ duels }` only; history pages add the cursor and the admin flag. */
 export interface DuelListPage extends Partial<Omit<DuelHistoryPage, "duels">> {
-  duels: DuelListItem[];
+  /** History can hold ended Remote tables next to online duels (`remote: true`). */
+  duels: (DuelListItem | RemoteHistoryItem)[];
 }
 
 export function duelHistoryKey(
