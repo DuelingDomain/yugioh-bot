@@ -53,11 +53,19 @@ test('refuses a missing Deck/GY column and unclear zones without a calibration',
     const result=fitMat({width:640,height:360,data} as ImageData);assert.equal(matFitCalibration(result),undefined);assert.equal(result.confidence,'low');
   }
 });
-test('production camera frame either fits safely or explains why manual placement is needed',async()=>{
-  const result=fitMat(await frame('circuit-break-prod.png'));
-  console.log('production:',JSON.stringify({...result,corners:undefined}));
-  assert.equal(result.confidence,'low');assert.equal(matFitCalibration(result),undefined);
-  assert.equal(result.reason,'too-few-zones');assert.ok(result.flags.zonesFound<6);
+test('occupied production camera frame fits the correct printed rows',async()=>{
+  const image=await frame('circuit-break-prod.png'),result=fitMat(image,{playerSide:'top'}),grid=matFitCalibration(result);
+  assert.ok(grid,JSON.stringify(result));assert.equal(result.flags.sideByPrior,true);assert.ok(result.flipped);
+  // Approximate visible zone centres, marked independently in this crop.
+  // The owner's arm hides M1/Extra; the exposed monster row is the lower row.
+  const points=[['S4',347,246],['S3',452,253],['S2',558,260],['M5',238,363],['M4',344,366],['M3',451,369],['M2',557,372],['FIELD',773,374]] as const;
+  points.forEach(([name,x,y])=>{
+    const nx=x/image.width,ny=y/image.height;
+    assert.equal(mapFieldZone({quad:[{x:nx-.01,y:ny-.01},{x:nx+.01,y:ny-.01},{x:nx+.01,y:ny+.01},{x:nx-.01,y:ny+.01}],confidence:1,partial:false,kind:'face-up'},grid).zone,name);
+  });
+  console.log(`occupied: ${points.length}/${points.length} named zones correct; inliers=${result.metrics.inliers} mean=${result.metrics.meanErrorPitch.toFixed(3)} max=${result.metrics.maxErrorPitch.toFixed(3)} pitch`);
+  assert.ok(result.metrics.inliers>=6);assert.ok(result.metrics.rows>=2);assert.equal(result.metrics.columnSpan,7);
+  assert.ok(result.metrics.meanErrorPitch<.1);assert.ok(result.metrics.maxErrorPitch<.2);
 });
 
 // These retain real printed edges and move GT with the same known camera transform.
