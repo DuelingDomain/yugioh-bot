@@ -7,7 +7,7 @@ export const PEER_VISION_TOPIC = "remote.peer-vision.v1";
 /** At most one message this often, and only when a value changed meaningfully. */
 export const PEER_VISION_INTERVAL_MS = 3000;
 /** An unchanged summary is repeated this often, so a player who joins later gets it. */
-export const PEER_VISION_REFRESH_MS = 15_000;
+export const PEER_VISION_REFRESH_MS = 5_000;
 /** A summary nobody refreshed for this long is dropped (the sender left or stopped). */
 const EXPIRE_MS = 45_000;
 

@@ -15,7 +15,7 @@ import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 import { optimizeRecognitionCapture, releaseCameraLock } from '@/lib/remote/camera-lock';
 import { useCameraLock } from '@/lib/remote/use-camera-lock';
 import { currentZoneGrid, useCardDetection } from '@/lib/remote/zone-grid';
-import { useRecognitionBackend } from './recognition-backend';
+import { recognitionBackendNow, subscribeRecognitionBackend } from './recognition-backend';
 import type { PeerVision } from '@/lib/remote/peer-vision';
 import { readVideoRate, saveVideoRate, type VideoRate } from '@/lib/remote/video-rate';
 import { loadFieldCalibrationRecord } from '@/lib/remote/use-field-watcher';
@@ -187,13 +187,20 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   }, [room.slug, room.guildId, mySeat, localOnly, room.status === "ended"]);
   useEffect(() => { controller?.setMembers(JSON.parse(members)); }, [controller, members]);
   // Share a small summary of my card reader with the other players: where it runs, its speed, and whether Auto-detect is on.
-  const recognition = useRecognitionBackend(), detection = useCardDetection();
+  const detection = useCardDetection();
   const sharing = !!controller && snap.feeds.some(f => f.seat === mySeat && f.video) && !manual(mySeat);
-  const visionBackend = recognition.backend === "webgpu" ? "gpu" : recognition.backend ? "cpu" : "pending";
   const visionDetect = detection && !detection.autoDetect ? "tap" : "auto";
+  // The reader reports a new read time on every read. It is followed outside React, so the table does not render for each read.
   useEffect(() => {
-    controller?.setVision(sharing ? { backend: visionBackend, ms: recognition.ms ?? undefined, detect: visionDetect } : null);
-  }, [controller, sharing, visionBackend, recognition.ms, visionDetect]);
+    if (!controller) return;
+    const report = () => {
+      if (!sharing) return controller.setVision(null);
+      const { backend, ms } = recognitionBackendNow();
+      controller.setVision({ backend: backend === "webgpu" ? "gpu" : backend ? "cpu" : "pending", ms: ms ?? undefined, detect: visionDetect });
+    };
+    report();
+    return subscribeRecognitionBackend(report);
+  }, [controller, sharing, visionDetect]);
   const rosterKey = JSON.stringify(phones);
   useEffect(() => { controller?.phone.setRoster(JSON.parse(rosterKey),JSON.parse(members)); },[controller,rosterKey,members]);
   useEffect(() => {

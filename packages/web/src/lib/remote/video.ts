@@ -52,6 +52,8 @@ export class RemoteVideo {
   private visionReport?: Pick<PeerVision, "backend" | "ms" | "detect">;
   private visionSent?: PeerVision;
   private visionAt = 0;
+  /** The last time `sendVision` read the encoder stats: that read is the costly part, so it runs once per interval at most. */
+  private visionTried = 0;
   private visionBusy = false;
   private visionTimer?: ReturnType<typeof setInterval>;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: readVideoRate() };
@@ -402,8 +404,10 @@ export class RemoteVideo {
   }
   /** This player's reader state, from the card reader and the Auto-detect setting. Null when there is no camera to speak for. */
   setVision(report: Pick<PeerVision, "backend" | "ms" | "detect"> | null) {
+    const before = this.visionReport;
     this.visionReport = report ?? undefined;
-    if (report) void this.sendVision();
+    // Only stores the report: the interval sends it. A new reader backend or Auto-detect mode goes out at once, a read time does not.
+    if (report && (!before || before.backend !== report.backend || before.detect !== report.detect)) void this.sendVision();
   }
   private stopVisionTimer() { clearInterval(this.visionTimer); this.visionTimer = undefined; }
   /** Frames per second and size of the top layer this computer sends. Nothing when the camera is a phone or the encoder has no stats yet. */
@@ -414,11 +418,11 @@ export class RemoteVideo {
     const top = (await cameraTraffic("sent", this.options.seat, senders)).sort((a, b) => b.width - a.width)[0];
     return top && top.fps > 0 && top.width > 0 ? { fps: Math.round(top.fps), width: top.width, height: top.height } : {};
   }
-  /** At most one message per 3 s, and only when a value moved meaningfully (or every 15 s, for a player who joined later). */
+  /** At most one stats read and one message per 3 s, and only when a value moved meaningfully (or every 5 s, for a player who joined later). */
   private async sendVision() {
     const report = this.visionReport;
-    if (!report || this.closed || this.visionBusy || this.room.state !== ConnectionState.Connected || Date.now() - this.visionAt < PEER_VISION_INTERVAL_MS) return;
-    this.visionBusy = true;
+    if (!report || this.closed || this.visionBusy || this.room.state !== ConnectionState.Connected || Date.now() - this.visionTried < PEER_VISION_INTERVAL_MS - 200) return;
+    this.visionBusy = true; this.visionTried = Date.now();
     try {
       const next: PeerVision = { backend: report.backend, detect: report.detect, ...(report.ms === undefined ? {} : { ms: roundMs(report.ms) }), ...await this.sentVideo().catch(() => ({})) };
       const now = Date.now();
