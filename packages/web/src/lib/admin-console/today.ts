@@ -12,11 +12,17 @@ import type { LiveDuelFormat, SeatOutcome, TodayData, TodayDuel, TodayResult } f
 export const TODAY_LIMIT = 200;
 const DAY_MS = 24 * 60 * 60_000;
 
-type TodayRow = {
+export type TodayRow = {
   id: number; web_slug: string; name: string; status: string; format: string; ranked: number; genesys: number;
   started_at: string; ended_at: string | null; activity_at: string | null; winner_seat: number | null;
   turn_count: number | null; clock_turn: number | null; n_all: number; n_multi: number; n_ranked: number;
 };
+
+/** The columns of one list row. The duel history list reads the same ones. */
+export const TODAY_COLUMNS = `d.id, d.web_slug, d.name, d.status, d.format, d.ranked, d.started_at, d.ended_at, d.winner_seat, d.turn_count,
+      coalesce(d.last_activity_at, d.started_at, d.created_at) as activity_at,
+      case when json_valid(d.settings_json) then json_extract(d.settings_json, '$.genesys') is not null else 0 end as genesys,
+      case when d.status = 'active' and json_valid(d.clock_json) then json_extract(d.clock_json, '$.turn') end as clock_turn`;
 
 function resultOf(row: TodayRow, now: number): TodayResult {
   if (row.status === "completed") return row.winner_seat !== null ? "won" : "draw";
@@ -24,6 +30,28 @@ function resultOf(row: TodayRow, now: number): TodayResult {
   if (row.status === "cancelled") return "cancelled";
   // An open table past the idle cut-off is about to be closed by the duel host.
   return now - (dbTimeMs(row.activity_at) ?? 0) <= DUEL_LIVE_IDLE_AFTER_MS ? "live" : "idle";
+}
+
+/** List rows with seats and the result per seat. `fallbackMs` stands in for a start time that cannot be read. */
+export function toTodayDuels(db: Database.Database, rows: TodayRow[], now: number, fallbackMs: number): TodayDuel[] {
+  const seats = seatsOf(db, rows.map((row) => row.id));
+  return rows.map((row): TodayDuel => {
+    const format: LiveDuelFormat = isFormat(row.format) ? row.format : "1v1";
+    const result = resultOf(row, now);
+    const ended = result !== "live" && result !== "idle";
+    // Seats come in seat order. In Tag the winner's partner wins too (teamOfSeat).
+    const outcome = (seat: number): SeatOutcome => result === "draw" ? "draw"
+      : result === "won" && row.winner_seat !== null ? (teamOfSeat(format, seat) === teamOfSeat(format, row.winner_seat) ? "won" : "lost")
+      : null;
+    const startedAt = dbTimeMs(row.started_at) ?? fallbackMs;
+    return {
+      slug: row.web_slug, name: row.name, format, formatLabel: FORMAT_LABEL[format], ranked: row.ranked === 1, genesys: row.genesys === 1,
+      result, seats: (seats.get(row.id) ?? []).map((seat, i) => ({ ...seat, outcome: outcome(i) })),
+      turns: ended ? safeInt(row.turn_count) : safeInt(row.clock_turn),
+      startedAt, endedAt: ended ? dbTimeMs(row.ended_at) : null,
+      href: ended ? `/duels/${row.web_slug}/replay` : `/admin/watch/duel/${row.web_slug}`,
+    };
+  });
 }
 
 /**
@@ -35,10 +63,7 @@ function resultOf(row: TodayRow, now: number): TodayResult {
 export function loadTodayDuels(db: Database.Database, guild: string, now: number): TodayData {
   const dayStart = easternDayStart(now);
   const rows = db.prepare(`
-    select d.id, d.web_slug, d.name, d.status, d.format, d.ranked, d.started_at, d.ended_at, d.winner_seat, d.turn_count,
-      coalesce(d.last_activity_at, d.started_at, d.created_at) as activity_at,
-      case when json_valid(d.settings_json) then json_extract(d.settings_json, '$.genesys') is not null else 0 end as genesys,
-      case when d.status = 'active' and json_valid(d.clock_json) then json_extract(d.clock_json, '$.turn') end as clock_turn,
+    select ${TODAY_COLUMNS},
       count(*) over () as n_all,
       sum(d.format in ('tag', 'ffa3', 'ffa4')) over () as n_multi,
       sum(d.ranked = 1) over () as n_ranked
@@ -52,25 +77,7 @@ export function loadTodayDuels(db: Database.Database, guild: string, now: number
   }) as TodayRow[];
   const first = rows[0];
   const counts = { all: first?.n_all ?? 0, oneVsOne: (first?.n_all ?? 0) - (first?.n_multi ?? 0), multi: first?.n_multi ?? 0, ranked: first?.n_ranked ?? 0 };
-  const seats = seatsOf(db, rows.map((row) => row.id));
-
-  const duels = rows.map((row): TodayDuel => {
-    const format: LiveDuelFormat = isFormat(row.format) ? row.format : "1v1";
-    const result = resultOf(row, now);
-    const ended = result !== "live" && result !== "idle";
-    // Seats come in seat order. In Tag the winner's partner wins too (teamOfSeat).
-    const outcome = (seat: number): SeatOutcome => result === "draw" ? "draw"
-      : result === "won" && row.winner_seat !== null ? (teamOfSeat(format, seat) === teamOfSeat(format, row.winner_seat) ? "won" : "lost")
-      : null;
-    const startedAt = dbTimeMs(row.started_at) ?? dayStart;
-    return {
-      slug: row.web_slug, name: row.name, format, formatLabel: FORMAT_LABEL[format], ranked: row.ranked === 1, genesys: row.genesys === 1,
-      result, seats: (seats.get(row.id) ?? []).map((seat, i) => ({ ...seat, outcome: outcome(i) })),
-      turns: ended ? safeInt(row.turn_count) : safeInt(row.clock_turn),
-      startedAt, endedAt: ended ? dbTimeMs(row.ended_at) : null,
-      href: ended ? `/duels/${row.web_slug}/replay` : `/admin/watch/duel/${row.web_slug}`,
-    };
-  });
+  const duels = toTodayDuels(db, rows, now, dayStart);
   return { timezone: ADMIN_TIME_ZONE, dayStart, counts, duels, limit: TODAY_LIMIT };
 }
 

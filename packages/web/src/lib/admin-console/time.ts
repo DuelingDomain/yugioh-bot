@@ -7,6 +7,9 @@ import { EASTERN_TIME_LABEL, EASTERN_TIME_ZONE, easternDayKey } from "@yugidraft
 
 export { easternDayKey, easternDayKeys, easternDayStart, easternMidnight } from "@yugidraft/shared/util/eastern-time";
 export const ADMIN_TIME_ZONE = EASTERN_TIME_ZONE;
+const HOUR = new Intl.DateTimeFormat("en-US", { timeZone: EASTERN_TIME_ZONE, hour: "numeric", hourCycle: "h23" });
+/** The Eastern hour of day (0 to 23) of an instant. */
+export const easternHour = (ms: number): number => Number(HOUR.formatToParts(ms).find((part) => part.type === "hour")?.value ?? 0) % 24;
 export const ADMIN_TIME_ZONE_LABEL = EASTERN_TIME_LABEL;
 
 const cache = new Map<string, Intl.DateTimeFormat>();
