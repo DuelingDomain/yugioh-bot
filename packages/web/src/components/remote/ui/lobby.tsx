@@ -16,6 +16,7 @@ import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from 
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
+import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
 import r from "./lobby-room.module.css";
 
 const formatName = remoteFormatName;
@@ -109,7 +110,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
         </div>
       </header>
 
-      <p className={ui.hint}>Remote match history and board-state replays are kept with no time limit by default. Video is not recorded.</p>
+      <p className={ui.hint}>{REMOTE_RETENTION_NOTICE}</p>
 
       {alert ? <div className={cx(ui.banner, ui.bannerBad, r.alert)} role="alert"><AlertTriangle size={16} strokeWidth={1.7} aria-hidden /><div className={ui.bannerBody}>{alert}</div></div> : null}
 
