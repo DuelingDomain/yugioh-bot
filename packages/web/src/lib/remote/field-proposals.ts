@@ -121,7 +121,8 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
 export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly FieldTrack[],zone:FieldTrack['zone'],incomingRef:string,at=Math.max(-Infinity,...tracks.map(track=>track.lastSeen).filter(Number.isFinite))):TwinCard|undefined {
   const location=fieldZoneLocation(zone);
   if(!['monster','extra-monster','spell-trap','field'].includes(location.zone))return;
-  return twins.find(card=>card.ref!==incomingRef&&card.zone===location.zone&&card.slot===location.slot&&
+  // A token has no physical card, so it is never stale: only the player removes it.
+  return twins.find(card=>!card.token&&card.ref!==incomingRef&&card.zone===location.zone&&card.slot===location.slot&&
     !tracks.some(track=>track.id===card.ref&&!track.removed&&(track.visible||track.lastSeen>=at)));
 }
 

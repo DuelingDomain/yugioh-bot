@@ -14,13 +14,11 @@ type Act = (action: RemoteActionProposal) => Promise<RemoteRoom | null>;
 type Position = "attack" | "defense";
 const CENTER = { anchor: null, feed: null };
 const MAIN = ["m1", "m2", "m3", "m4", "m5"] as const;
-const EXTRA = ["e1", "e2"] as const;
 const MAX = 999_999;
 
-/** A zone key as the table action wants it. Only Monster Zone cells hold a token. */
-const landing = (key: ZoneKey) => key.startsWith("e") ? { zone: "extra-monster" as const, slot: Number(key[1]) } : { zone: "monster" as const, slot: Number(key[1]) };
-const zoneLabel = (key: ZoneKey) => key.startsWith("e") ? `Extra Monster Zone ${key[1]}` : `Monster Zone ${key[1]}`;
-const isMonsterCell = (key: ZoneKey) => (MAIN as readonly string[]).includes(key) || (EXTRA as readonly string[]).includes(key);
+/** Only Main Monster Zones 1-5 hold a token, never an Extra Monster Zone. */
+const isMainCell = (key: ZoneKey) => (MAIN as readonly string[]).includes(key);
+const zoneLabel = (key: ZoneKey) => `Monster Zone ${key[1]}`;
 const points = (text: string) => { const n = Number(text); return text.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= MAX ? n : null; };
 
 type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "card"; seat: number; ref: string; };
@@ -43,27 +41,26 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
 
   /** The create dialog. An empty Main Monster Zone passes its cell, the button leaves it open. */
   const create = useCallback((seat: number, key?: ZoneKey) => {
-    if (!owns(seat)) return false;
-    setView({ kind: "new", seat, key: key && (MAIN as readonly string[]).includes(key) ? key : null }); layers.open("token"); return true;
+    if (!owns(seat) || key && !isMainCell(key)) return false;
+    setView({ kind: "new", seat, key: key ?? null }); layers.open("token"); return true;
   }, [owns, layers]);
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
 
   const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
-    void act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: landing(draft.key).slot, faceUp: true, position: draft.position,
+    void act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
       token: { atk: draft.atk, def: draft.def, ...(draft.artId ? { artId: draft.artId } : {}) } } });
     close();
   };
   const moveTo = (seat: number, card: TwinCard, key: ZoneKey) => {
-    const land = landing(key);
-    void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: land.zone, slot: land.slot, cardRef: card.ref });
+    void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: "monster", slot: Number(key[1]), cardRef: card.ref });
   };
   const turn = (seat: number, card: TwinCard) => void act({ type: "twin.flip", actorSeat: actor(seat), seat, cardRef: card.ref, faceUp: true, position: card.position === "defense" ? "attack" : "defense" });
   const remove = (seat: number, card: TwinCard) => { void act({ type: "twin.remove", actorSeat: actor(seat), seat, cardRef: card.ref }); close(); };
 
-  /** Drag and drop: a token only lands on a free Monster Zone cell. Leaving the field is Remove, so a drop elsewhere says so. */
+  /** Drag and drop: a token only lands on a free Main Monster Zone cell. Leaving the field is Remove, so a drop elsewhere says so. */
   const judge = (seat: number, card: TwinCard, key: ZoneKey | "hand"): Verdict => {
-    if (key === "hand" || !isMonsterCell(key) || (EXTRA as readonly string[]).includes(key) && !extraZones) return { kind: "refuse", message: "A token stays in the Monster Zones. Use Remove to take it off the field." };
+    if (key === "hand" || !isMainCell(key)) return { kind: "refuse", message: "A token stays in the Main Monster Zones. Use Remove to take it off the field." };
     const cells = cellsFor(room.state.seats[seat]?.twin ?? [], extraZones);
     if (cells[key]?.card?.ref === card.ref) return { kind: "same" };
     return cells[key]?.card ? { kind: "refuse", message: "That zone is taken." } : { kind: "ok" };
@@ -76,7 +73,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const card = view?.kind === "card" ? room.state.seats[view.seat]?.twin.find(item => item.ref === view.ref) : undefined;
   const node = layers.layer === "token" && view ? view.kind === "new"
     ? <TokenDialog free={freeKeys(view.seat, MAIN)} start={view.key} onCreate={draft => place(view.seat, draft)} onClose={close} />
-    : card?.token ? <TokenPopover card={card} editable={owns(view.seat)} free={freeKeys(view.seat, extraZones ? [...MAIN, ...EXTRA] : MAIN)} art={info(card.token.artId)}
+    : card?.token ? <TokenPopover card={card} editable={owns(view.seat)} free={freeKeys(view.seat, MAIN)} art={info(card.token.artId)}
       onTurn={() => turn(view.seat, card)} onMove={key => moveTo(view.seat, card, key)} onRemove={() => remove(view.seat, card)} onClose={close} /> : null : null;
   return { create, open, judge, drop, trigger, node, owns };
 }

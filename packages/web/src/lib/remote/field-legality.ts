@@ -6,7 +6,7 @@ import { fieldZoneLocation, hasExtraMonsterZones, type FieldFormat, type FieldZo
  */
 export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null; effectText?:string|null; level?:number|null };
 /** `trapZone`: a Trap Monster keeps this Spell & Trap Zone occupied while it is a monster. */
-type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number };
+type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number; token?:unknown };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
 /** `moved`: the camera row was not legal for this card; it went to the nearest legal zone ("Trap → S3"). */
 type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string; moved?:string };
@@ -123,7 +123,8 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(piles.has(zone))return accept(zone);
   const occupied=(target:FieldZone)=>{
     const location=fieldZoneLocation(target);
-    return twins.some(twin=>twin.ref!==ref&&(twin.zone===target||
+    // A token has no physical card: it never pushes a camera card to a neighbour slot. The cell stays the card's, and the player chooses (see tokenInCell).
+    return twins.some(twin=>twin.ref!==ref&&!twin.token&&(twin.zone===target||
       (twin.zone===location.zone&&(location.slot===undefined||twin.slot===location.slot))||
       (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
       (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));
@@ -152,6 +153,13 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(!occupied(zone))return accept(zone,verdict.legal==='unusual'?verdict.reason:undefined);
   if(zone==='FIELD')return abstain('Field Spell Zone is occupied. Choose a zone manually.');
   return row(zone.startsWith('S')?'S':'M',check);
+}
+
+/** The token that holds this Main Monster Zone cell, if any. A camera card standing there asks the player; it is never moved away or placed over the token. */
+export function tokenInCell<T extends FieldTwin>(twins:readonly T[],zone:FieldZone|undefined):T|undefined {
+  if(!zone||!/^M[1-5]$/.test(zone))return;
+  const location=fieldZoneLocation(zone);
+  return twins.find(twin=>twin.token&&twin.zone===location.zone&&twin.slot===location.slot);
 }
 
 /** A rule target that differs from the card's zone: a card in a row its type does not allow (Trap in M, Field Spell in S/T). */

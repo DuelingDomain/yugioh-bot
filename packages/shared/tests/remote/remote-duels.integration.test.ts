@@ -3820,6 +3820,16 @@ it('keeps a token as public table state: created, moved and removed by its owner
   expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-2' } })).toThrow(/occupied/i);
   expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'spell-trap', card: { ...token, ref: 'token-2', slot: 3 } })).toThrow();
 
+  // A card on the token's cell is refused, by the camera or by hand: the token stays until its owner removes it. Never an Extra Monster Zone.
+  const real = { ref: 'real-1', name: 'Tribute Monster', slot: 2, faceUp: true, position: 'attack' };
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'extra-monster', card: { ...token, ref: 'token-emz', slot: 1 } })).toThrow();
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-6', slot: 6 } })).toThrow();
+  expect(() => s.act({ type: 'twin.move', seat: 0, zone: 'extra-monster', cardRef: 'token-1', slot: 1 })).toThrow();
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+
   // The camera never moves or removes it: an Auto-detect departure changes nothing.
   s.act({ type: 'twin.move', seat: 0, zone: 'hand', cardRef: 'token-1', source: 'auto' });
   s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: false, source: 'auto' });
@@ -3841,4 +3851,10 @@ it('keeps a token as public table state: created, moved and removed by its owner
   expect(mine()).toBeUndefined();
   expect(s.room.state.seats[0].twin.some(c => c.zone === 'graveyard')).toBe(false);
   expect(seenBy(projectRemoteSpectator(s.service.snapshot(s.room.slug, 'g')).state.seats[0].twin)).toBeUndefined();
+
+  // The player's own Remove frees the cell, and the card lands there.
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, slot: 2 } });
+  s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real });
+  expect(s.room.state.seats[0].twin.find(c => c.ref === 'real-1')).toMatchObject({ zone: 'monster', slot: 2 });
 });

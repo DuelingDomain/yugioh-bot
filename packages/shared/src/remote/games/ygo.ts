@@ -146,11 +146,6 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       card.trapZone !== undefined && card.trapZone === heldSlot)),
     "Physical field slot is occupied", 409, "TWIN_SLOT_OCCUPIED");
   };
-  /** A camera card that takes a Monster Zone cell replaces the token there: the token has no physical card to share it. */
-  const evictToken = (s: RemoteSeatState, zone: string, slot: number | undefined, exceptRef?: string) => {
-    if (!MONSTER_ZONES.has(zone) || slot === undefined) return;
-    s.twin = s.twin.filter(c => !(c.token && c.ref !== exceptRef && c.zone === zone && remotePhysicalSlot(c.zone, c.slot) === remotePhysicalSlot(zone, slot)));
-  };
   const endTurn = () => {
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
     let n = state.turnSeat;
@@ -233,7 +228,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = ownField(action.seat); validZone(action.zone);
       if (action.card.token) {
         const token = action.card;
-        remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.faceUp && !token.cardId && !token.passcode,
+        remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.slot >= 1 && token.slot <= 5 && token.faceUp && !token.cardId && !token.passcode,
           "A token goes face-up into a Main Monster Zone", 409);
         remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === token.ref), "Duplicate card ref or field is full", 409);
         freeSlot(s, "monster", token.slot);
@@ -246,7 +241,6 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
       const ref = reuse?.ref ?? action.card.ref;
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
-      evictToken(s, action.zone, action.card.slot, reuse?.ref);
       freeSlot(s, action.zone, action.card.slot, reuse?.ref, action.summon?.materialRefs);
       const card = { ...reuse?.card, ...action.card, ref, zone: action.zone };
       if (card.zone !== "hand") delete card.departedFrom;
@@ -274,8 +268,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
           break;
         }
         validZone(action.zone);
-        // Leaving the Monster Zones means the token disappears.
-        if (!MONSTER_ZONES.has(action.zone)) { gone(); break; }
+        // Leaving the Main Monster Zones means the token disappears; it never goes to an Extra Monster Zone.
+        if (action.zone === "extra-monster") remoteAssert(false, "A token stays in the Main Monster Zones", 409);
+        if (action.zone !== "monster") { gone(); break; }
         remoteAssert(action.faceUp !== false, "A token stays face-up", 409);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         remoteAssert(slot !== undefined, "A token needs a Monster Zone slot", 409);
@@ -294,7 +289,6 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (action.type === "twin.move") {
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
-        evictToken(s, action.zone, slot, card.ref);
         freeSlot(s, action.zone, slot, card.ref);
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
           card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };

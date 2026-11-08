@@ -61,7 +61,7 @@ const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
-import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
+import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
@@ -468,6 +468,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       const reading=owns&&!same&&physical?fieldReadingPlaceholder(current.state.seats[seat].twin,physical):undefined;
       same??=reading;
       const projected=physical?projectFieldZone({zone:physical,facts:found,twins:current.state.seats[seat].twin,ref:same?.ref,format:current.state.deckChecks.format.id}):undefined;
+      // A token holds that cell: no card is placed over it or moved aside. The player removes the token or picks another zone.
+      if(owns&&!same&&projected?.zone&&tokenInCell(current.state.seats[seat].twin,projected.zone)){toast(`A token is in ${projected.zone}. Remove the token first, or choose another zone.`,5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
       const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
       // A read below "sure" adds a card only to the zone where it was seen. Any other zone may be a phantom, so the person chooses.
       if(owns&&at.bestMatch&&!same&&physical&&(projected?.zone!==physical||projected.moved))return {updated:null,owns,ref:undefined,row:undefined,slot:undefined,askFirst:true};
@@ -705,12 +707,14 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     const planned=[...current.seats[seat].twin];
     const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number} }[] = [];
     if (tap) for (const card of sure) placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone: "" });
+    const tokenCells: string[] = [];
     for (const card of tap ? [] : fresh) {
       const observed=locationOf(card);
       const existing=observed?current.seats[seat].twin.find(c=>c.zone===observed.zone&&c.slot===observed.slot&&sameObservedCard(c,card)):undefined;
       const physical=calibration?.orientation?mapFieldZone({quad:card.quad,kind:'face-up',confidence:1,partial:false},calibration,[],current.deckChecks.format.id).zone:'M1';
       const projected=projectFieldZone({zone:physical,facts:cardInfo(card.cardId),twins:planned,ref:existing?.ref,format:now.format?.id??current.deckChecks.format.id});
       if(!projected.zone)continue;
+      if(owns&&!existing&&tokenInCell(planned,projected.zone)){tokenCells.push(projected.zone);continue;}
       const {zone,slot}=fieldZoneLocation(projected.zone),ref=existing?.ref??`b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`;
       const witnesses=sure.filter(other=>{
         if(other===card||!sameObservedCard(other,card)||!distinctFieldQuads(other.quad,card.quad))return false;
@@ -721,6 +725,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       if(!existing)planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
       placed.push({ref,card,zone,slot,copyProof});
     }
+    if (tokenCells.length) toast(`A token is in ${tokenCells.join(", ")}. Remove the token first, or move the card to another zone.`, 5000);
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
@@ -747,7 +752,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if (hidden) bits.push(`${hidden} face-down`);
     bits.push(`${(reading.ms / 1000).toFixed(1)} s`);
     return bits.join(" · ");
-  }, [act, name, hub]);
+  }, [act, name, hub, toast]);
 
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
