@@ -56,6 +56,7 @@
 .tb[aria-pressed=true],.tb[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
 .hdot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px currentColor;color:var(--ok)}
 .hdot.warn{background:var(--warn);color:var(--warn)}.hdot.bad{background:var(--lossd);color:var(--lossd)}
+.tb.tbSurrender{border-color:color-mix(in srgb,var(--lossd) 55%,transparent);color:var(--loss)}.tb.tbSurrender:hover{border-color:var(--lossd);color:var(--loss)}
 .tb.warnc{border-color:rgb(240 178 79/.6);color:var(--warn)}.tb.badc{border-color:rgb(228 90 77/.7);color:var(--loss)}
 .nb{position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);display:none}
 .nb.on{display:block}
@@ -1225,3 +1226,5 @@
 .hprev small{font-size:11px;color:var(--ink3)}
 /* A phone: the open search chip stays in one row at the top (below popovers, drawers and the tray), whatever seat is scrolled to. */
 @media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:calc(var(--hdr) + 46px);z-index:33;flex-wrap:nowrap;overflow-x:auto;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}.hchip>*{flex:none}}
+/* Narrow top bar: after the 900px rules, so these win. Keeps the Surrender flag on screen at 360px. */
+@media (max-width:480px){.top{gap:4px;padding:0 6px}.top .seg button{padding:6px 7px}.top .tb{padding:0 7px;gap:5px}.top .logo{gap:0}.top [data-testid=health-chip]{font-size:12px}.top [data-testid=health-chip] span:last-child{max-width:68px;overflow:hidden;text-overflow:ellipsis}}
