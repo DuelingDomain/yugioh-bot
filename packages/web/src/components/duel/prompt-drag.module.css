@@ -38,15 +38,16 @@
   cursor: grabbing;
 }
 
-/* Panels scroll: the handle is a row at the top of the panel and stays there while the list scrolls under it. */
+/* Panels scroll: the handle is a row of its own at the top of the panel and stays there while the list scrolls under it. It never
+   overlaps the header: the negative margins only take back the panel padding and the gap below the row. */
 .grip[data-variant="panel"] {
   position: sticky;
-  top: 0;
+  top: -6px;
   left: auto;
   flex: none;
   width: 100%;
-  height: 16px;
-  margin: -6px 0 -20px;
+  height: 12px;
+  margin: -6px 0 0;
   translate: none;
   background: var(--pc-surface, rgb(27 38 66 / 0.98));
 }
@@ -66,7 +67,9 @@
 
   .grip[data-variant="panel"] {
     position: sticky;
-    top: 0;
+    top: -4px;
+    height: 20px;
+    margin: -4px 0 -6px;
   }
 
   .grip::before {

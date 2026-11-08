@@ -976,9 +976,23 @@
     border-width: 0 0 1px;
     border-radius: 0 0 12px 12px;
   }
+  /* The Confirm / Pass row stays in view when a long list scrolls. */
+  .panel > .foot {
+    position: sticky;
+    bottom: -8px;
+    z-index: 1;
+    margin: 0 -10px -8px;
+    padding: 6px 10px 8px;
+    background: var(--pc-surface);
+  }
   .titles h2 { font-size: var(--pc-title); }
   .titles p { margin-top: 1px; }
   .pill { inset: 8px 0 auto 0; }
+}
+
+/* A touch screen keeps the 40px buttons, compact or not. */
+@media (max-width: 600px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+  .layer { --pc-btn-h: 40px; }
 }
 
 /* ---------- dense host (the 4-way grid) ----------
