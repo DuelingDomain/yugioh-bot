@@ -1,0 +1,77 @@
+/* The grab handle of a centred prompt (prompt-drag.tsx). On a desktop window it is a small bar on the top edge of the surface, inside
+   the padding, so the prompt keeps its size. On a phone, and in a short window, it is a row of its own, tall enough for a thumb.
+   Only the handle takes `touch-action: none`: the rest of the prompt scrolls and taps as usual. */
+
+.grip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 72px;
+  height: var(--pc-pad-y, 12px);
+  translate: -50% 0;
+  cursor: grab;
+  touch-action: none;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.grip::before {
+  content: "";
+  width: 30px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(239 231 213 / 0.34);
+  transition: background 0.12s;
+}
+
+.grip:hover::before,
+.grip[data-dragging="true"]::before {
+  background: var(--duel-pen-ink, #c6b6ff);
+}
+
+.grip[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+/* Panels scroll: the handle is a row at the top of the panel and stays there while the list scrolls under it. */
+.grip[data-variant="panel"] {
+  position: sticky;
+  top: 0;
+  left: auto;
+  flex: none;
+  width: 100%;
+  height: 16px;
+  margin: -6px 0 -20px;
+  translate: none;
+  background: var(--pc-surface, rgb(27 38 66 / 0.98));
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  .grip {
+    position: relative;
+    top: auto;
+    left: auto;
+    order: -1;
+    flex: none;
+    width: 100%;
+    height: 20px;
+    margin: -4px 0 -4px;
+    translate: none;
+  }
+
+  .grip[data-variant="panel"] {
+    position: sticky;
+    top: 0;
+  }
+
+  .grip::before {
+    width: 40px;
+    height: 5px;
+    background: rgb(239 231 213 / 0.5);
+  }
+}

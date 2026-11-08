@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
 import baseStyles from "./prompt-precheck.module.css";
+import { DragGrip } from "./prompt-drag";
 import { useSkinStyles } from "./skin";
 
 /** One thumbnail on the bar. `card` is what the left inspector shows on hover or focus. */
@@ -23,6 +24,8 @@ export interface PrecheckBarProps {
   tone: "chain" | "action";
   busy: boolean;
   reducedMotion: boolean;
+  /** Keeps a dragged bar where the player left it while the same prompt goes on. */
+  dragKey: string;
   onYes: () => void;
   onNo: () => void;
   onInspectCard?: (card: DuelCardInfo) => void;
@@ -35,7 +38,7 @@ export interface PrecheckBarProps {
  * pointer events. Enter / Y answer Yes and Esc / N answer No through the key handler in PromptCenter, which
  * owns every shortcut of the response prompts.
  */
-export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMotion, onYes, onNo, onInspectCard }: PrecheckBarProps) {
+export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMotion, dragKey, onYes, onNo, onInspectCard }: PrecheckBarProps) {
   const styles = useSkinStyles(baseStyles, "precheck");
   const yesRef = useRef<HTMLButtonElement>(null);
   // Focus Yes so Enter answers it, as the response panel focuses its primary button.
@@ -54,6 +57,7 @@ export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMoti
       aria-label={`${ask} ${name}`}
       aria-live="polite"
     >
+      <DragGrip memoryKey={dragKey} />
       <div className={styles.thumbs} data-count={cards.length}>
         {cards.map((entry, index) => (
           <span
