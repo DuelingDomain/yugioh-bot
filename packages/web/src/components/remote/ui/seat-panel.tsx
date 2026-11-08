@@ -10,7 +10,7 @@ import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, typ
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
-import { HandCount, HandStrip, type HandProps } from "./hand-ui";
+import { HandStrip, type HandProps } from "./hand-ui";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
@@ -110,7 +110,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const gy = p.twin.filter(card => card.zone === "graveyard").length; const banished = p.twin.filter(card => card.zone === "banished").length;
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
-  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
+  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
   return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={p.webcamOnly || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
@@ -178,7 +178,7 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.projector} />
         </div>
         </div>
-        {p.hand ? (p.webcamOnly ? <HandCount seat={p.seat} hand={p.hand} /> : <HandStrip seat={p.seat} name={p.name} hand={p.hand} />) : null}
+        {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={p.webcamOnly ? { ...p.hand, tray: true } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>

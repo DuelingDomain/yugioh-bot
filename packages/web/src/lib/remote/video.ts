@@ -14,9 +14,11 @@ import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
 import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
-import { CAMERA_PUBLISH, applyCameraRate, cpuLimited, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
+import { CAMERA_PUBLISH, applyCameraRate, capSendResolution, cpuLimited, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
 import { readVideoRate, saveVideoRate, type VideoRate } from './video-rate';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
+import { watchSendHealth } from './send-health';
+import { recognitionGeneration } from '@/components/remote/ui/recognition-backend';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -291,6 +293,8 @@ export class RemoteVideo {
       const codec = await publishCamera(this.room.localParticipant, camera, () => this.closed, undefined, used);
       if (here()) return;
       this.codec = codec; this.sentRate = used;
+      // Send at most 720p although the capture is 1080p (the card reader reads the capture, not the sent stream).
+      await capSendResolution(camera).catch(() => undefined);
       // One event is one monitor sample; the offer needs the limit to hold (see watchCpuLimit).
       camera.on(TrackEvent.CpuConstrained, () => {
         if (here() || this.stopCpuWatch) return;
@@ -308,6 +312,9 @@ export class RemoteVideo {
   private rateRead: VideoRate | undefined;
   private watchEncoder(camera: LocalVideoTrack) {
     const participant = this.room.localParticipant, here = () => this.closed || this.camera !== camera;
+    // Smooth video under load: slows card vision while the encoder is CPU limited and resets the encoder in place if the limit stays. Never republishes.
+    this.stopHealthWatch?.();
+    this.stopHealthWatch = watchSendHealth(camera, { gone: here, rate: () => this.snapshot.videoRate, run: work => this.serial(work), readerGeneration: recognitionGeneration });
     this.stopEncoderWatch = watchEncoder(participant, camera, this.codec, {
       closed: here, connected: () => this.room.state === ConnectionState.Connected,
       rate: () => (this.rateRead = this.snapshot.videoRate),
@@ -378,11 +385,13 @@ export class RemoteVideo {
   }
   private stopEncoderWatch?: () => void;
   private stopCpuWatch?: () => void;
+  private stopHealthWatch?: () => void;
   private pinned = new WeakSet<object>();
   /** The watches belong to one camera: end them, and clear the CPU flag, when a camera starts or stops. */
   private endWatches() {
     this.stopEncoderWatch?.(); this.stopEncoderWatch = undefined;
     this.stopCpuWatch?.(); this.stopCpuWatch = undefined;
+    this.stopHealthWatch?.(); this.stopHealthWatch = undefined;
     if (this.snapshot.cpuConstrained) this.patch({ cpuConstrained: false });
   }
   /** A camera starts or stops: the watches end, and nothing of the old publish stays (codec, failed state). */

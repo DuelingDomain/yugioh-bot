@@ -23,8 +23,8 @@ export type {RealsetSample,RealsetExport} from './calibration';
 
 export {createFieldWatcher,createHeldCardReader} from './field-watcher';
 export type {HeldCardEvent,HeldCardTrack,FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldDebug,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
-export {FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,shiftFieldCalibrationRows,swapFieldCalibrationRows,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,IDENTITY_FIELD_TRANSFORM,transformFieldCorners,flattenFieldCalibration} from './field-zones';
-export type {FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,FieldTransform,PlayerSide} from './field-zones';
+export {FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,shiftFieldCalibrationRows,swapFieldCalibrationRows,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,fieldQuadPoint,fieldQuadTurn, fieldQuarterTurn,moveFieldQuad,turnFieldQuad,pinchFieldQuad,resizeFieldQuad,flattenFieldCalibration} from './field-zones';
+export type {FieldHandle,FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,PlayerSide} from './field-zones';
 
 export {createFieldIdentityGallery} from './field-gallery';
 export type {FieldIdentityGallery,FieldIdentityEntry} from './field-gallery';

@@ -25,7 +25,7 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
 }) {
   const list = decks.data?.decks ?? [];
   const empty = decks.isLoading ? { value: "", label: "Loading decks…", disabled: true }
-    : { value: "", label: decks.error ? "Could not load decks · pick in the room" : solo ? "No deck (optional)" : list.length ? "Choose in the room" : "No saved decks · pick in the room" };
+    : { value: "", label: decks.error ? "Could not load decks · pick in the room" : "No deck (optional)" };
   return (
     <section className={styles.section} aria-labelledby="creator-remote" data-testid="remote-setup">
       <div className={styles.side}>
