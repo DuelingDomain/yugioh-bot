@@ -1016,7 +1016,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
    *  keeps Undo-kept cards, face holds and hand-moved cards, and says nothing when the board already matches. */
   function resync(manualScan=false,gentle=false) {
     const strict=manualScan&&!gentle;
-    if(resyncing.current||!live()||calibrationBusy.current){if(strict){setScanning(false);setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
+    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);if(strict){setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
     resyncing.current=true;
     void queue(async act=>{
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
@@ -1119,7 +1119,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   };
   useEffect(()=>{
     const every=recognition.backend==='webgpu'?4000:8000;
-    const timer=setInterval(()=>{if(!document.hidden)resyncRef.current();},every);
+    const timer=setInterval(()=>{if(!document.hidden&&scanTimer.current===undefined)resyncRef.current();},every);
     return()=>clearInterval(timer);
   },[room.slug,seat,recognition.backend]);
   // "Scan field": force two fresh full detector passes and the watcher's sweep (5 s at most on a slow CPU), then re-sync once.
