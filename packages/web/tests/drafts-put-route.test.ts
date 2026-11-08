@@ -1,13 +1,15 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import Database from "better-sqlite3";
+import { migrate } from "@yugidraft/shared/db";
 import type { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const syncDraftPool = vi.fn().mockResolvedValue([]);
-const tempDirs: string[] = [];
+let schema: Buffer;
+let routeDb: Database.Database;
+
+vi.mock("@/lib/db", () => ({ getDb: () => routeDb }));
 
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
@@ -28,35 +30,27 @@ vi.mock("@yugidraft/shared/services", async (importOriginal) => {
 });
 
 describe("PUT /api/drafts/[slug]", () => {
+  beforeAll(async () => {
+    // Migrate once; every test gets its own in-memory copy of the real schema.
+    const db = new Database(":memory:");
+    try { migrate(db); schema = db.serialize(); } finally { db.close(); }
+    vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
+    await import("../app/api/drafts/[slug]/route");
+  });
+
   beforeEach(() => {
-    vi.resetModules();
     auth.mockReset();
     syncDraftPool.mockReset().mockResolvedValue([]);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
-  afterEach(() => {
-    delete process.env.DATABASE_PATH;
-    delete process.env.DISCORD_GUILD_ID;
-    delete process.env.DISCORD_DEFAULT_CHANNEL_ID;
-    while (tempDirs.length > 0) {
-      const dir = tempDirs.pop();
-      if (dir) rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  afterEach(() => { if (routeDb?.open) routeDb.close(); });
+  afterAll(() => vi.unstubAllEnvs());
 
   async function setupDraftWithCustomPool() {
-    const tempDir = mkdtempSync(join(tmpdir(), "yugioh-put-route-"));
-    const dbPath = join(tempDir, "test.sqlite");
-    tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "guild-1";
-    process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-1";
-
-    const Database = (await import("better-sqlite3")).default;
-    const { migrate } = await import("@yugidraft/shared/db");
-    const db = new Database(dbPath);
-    migrate(db);
+    const db = routeDb = new Database(schema);
+    db.pragma("foreign_keys = ON");
     seedFixtureUsers(db, FIXTURE_KEYS);
 
     // Seed catalog cards (enough distinct to pass the create/edit feasibility check)
@@ -82,9 +76,6 @@ describe("PUT /api/drafts/[slug]", () => {
       poolCardIds: customCardIds,
     }));
     db.prepare("insert into draft_players (draft_id, player_id) values (1, ?)").run(playerRow.id);
-    db.close();
-
-    return dbPath;
   }
 
   it("keeps the stored deal and config when start wins an edit race", async () => {

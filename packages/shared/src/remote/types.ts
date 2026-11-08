@@ -3,7 +3,7 @@ import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
 import type { RemoteEffectTracking } from "./effect-tracking.js";
-import type { RemoteBestOf, RemoteMatch } from "./match-contract.js";
+import type { RemoteBestOf, RemoteMatch, RemoteOpening } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteRevealedHand = 'until-played' | 'one-turn';
@@ -90,8 +90,10 @@ export type RemoteSystemAction =
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
   | { type: "seat.ready"; seat: number; ready: boolean }
-  | { type: "table.started"; handCounts?: 1 }
+  | { type: "table.started"; handCounts?: 1; opening?: RemoteOpening }
   | { type: "idle.warning"; closesAt: number }
+  /** An admin started or stopped watching. A public fact: who and when, never camera data. */
+  | { type: "admin.watching"; userId: number; name: string; watching: boolean }
   | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
@@ -113,6 +115,10 @@ export type RemoteTable = {
   revealedHand?: RemoteRevealedHand;
   /** Same words as normal duels. Public tables can be watched; private tables take no spectators. */
   visibility?: RemoteVisibility;
+  /** Admins who watch now. Shown to the players as "Admin watching". Only on a table read for a room view. */
+  adminWatchers?: { userId: number; name: string }[];
+  /** People who watch now. Only on a table read for a room view, so socket updates keep the count current. */
+  spectatorCount?: number;
 };
 /** `isDeveloper` is decided on the server (owner list); the browser only reads it to show developer tools. */
 export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean;

@@ -5,7 +5,7 @@ import {
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
 } from "livekit-client";
 import {
-  participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
+  participantSeat, RecognitionChannel, RescanChannel, RECOGNITION_TOPIC, PENDING_TOPIC, RESCAN_TOPIC, NO_ANSWER, type RescanResult, type RescanReply,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
 import {FieldTrackCache,FIELD_BACKS_TOPIC,FIELD_TRACKS_TOPIC,emptyBacks} from './field-track-cache';
@@ -14,9 +14,11 @@ import { FIELD_CAMERA } from "@/components/remote/ui/camera-choice";
 import { RemoteVoice } from "./voice";
 import { REMOTE_TABLE_TALK } from "./table-talk";
 import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from './camera-lock';
-import { CAMERA_PUBLISH, applyCameraRate, cpuLimited, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
+import { CAMERA_PUBLISH, applyCameraRate, capSendResolution, cpuLimited, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
 import { readVideoRate, saveVideoRate, type VideoRate } from './video-rate';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
+import { watchSendHealth } from './send-health';
+import { recognitionGeneration } from '@/components/remote/ui/recognition-backend';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
@@ -43,11 +45,19 @@ export class RemoteVideo {
   private closed = false;
   private pagehide = () => { void this.voice.stop(); void this.room.disconnect().catch(error => this.fail(error)); };
   private fieldTracks=new FieldTrackCache();
+  /** Rescan requests between seats. Data channel only: no game action, so baseSeq never moves. */
+  private rescan: RescanChannel;
   private backsSent=false;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: readVideoRate() };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
-    onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void }) {
+    onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void;
+    /** Another seat asked this client to Scan field. Answer `off` when Auto-detect is not watching. */ onRescan?: (from: number) => RescanReply }) {
+    this.rescan = new RescanChannel(this.options.seat, async (message, destination) => {
+      const member = this.options.members.find(p => p.seat === destination && p.userId !== null);
+      if (!member || this.room.state !== ConnectionState.Connected) throw new Error("That player is not connected");
+      await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: RESCAN_TOPIC, destinationIdentities: [`remote-user-${member.userId}`] });
+    }, from => this.options.onRescan?.(from) ?? "off");
     // Guard SDK disconnects too. Do not wait for a driver reset before sending leave.
     const disconnect = this.room.disconnect.bind(this.room);
     this.room.disconnect = stopTracks => {
@@ -87,6 +97,7 @@ export class RemoteVideo {
         const value = JSON.parse(new TextDecoder().decode(bytes));
         if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value,{keepBacks:true});return;}
         if(topic===FIELD_BACKS_TOPIC){this.fieldTracks.receiveBacks(from,value);return;}
+        if(topic===RESCAN_TOPIC){void this.rescan.receive(from,value);return;}
         if(!this.channel)return;
         if (topic === PENDING_TOPIC) this.channel.announce(from, value.requestId, value.feedOwnerSeat);
         else if (topic === RECOGNITION_TOPIC) void this.channel.receive(from, value).catch(error => this.fail(error));
@@ -282,6 +293,8 @@ export class RemoteVideo {
       const codec = await publishCamera(this.room.localParticipant, camera, () => this.closed, undefined, used);
       if (here()) return;
       this.codec = codec; this.sentRate = used;
+      // Send at most 720p although the capture is 1080p (the card reader reads the capture, not the sent stream).
+      await capSendResolution(camera).catch(() => undefined);
       // One event is one monitor sample; the offer needs the limit to hold (see watchCpuLimit).
       camera.on(TrackEvent.CpuConstrained, () => {
         if (here() || this.stopCpuWatch) return;
@@ -299,6 +312,9 @@ export class RemoteVideo {
   private rateRead: VideoRate | undefined;
   private watchEncoder(camera: LocalVideoTrack) {
     const participant = this.room.localParticipant, here = () => this.closed || this.camera !== camera;
+    // Smooth video under load: slows card vision while the encoder is CPU limited and resets the encoder in place if the limit stays. Never republishes.
+    this.stopHealthWatch?.();
+    this.stopHealthWatch = watchSendHealth(camera, { gone: here, rate: () => this.snapshot.videoRate, run: work => this.serial(work), readerGeneration: recognitionGeneration });
     this.stopEncoderWatch = watchEncoder(participant, camera, this.codec, {
       closed: here, connected: () => this.room.state === ConnectionState.Connected,
       rate: () => (this.rateRead = this.snapshot.videoRate),
@@ -369,11 +385,13 @@ export class RemoteVideo {
   }
   private stopEncoderWatch?: () => void;
   private stopCpuWatch?: () => void;
+  private stopHealthWatch?: () => void;
   private pinned = new WeakSet<object>();
   /** The watches belong to one camera: end them, and clear the CPU flag, when a camera starts or stops. */
   private endWatches() {
     this.stopEncoderWatch?.(); this.stopEncoderWatch = undefined;
     this.stopCpuWatch?.(); this.stopCpuWatch = undefined;
+    this.stopHealthWatch?.(); this.stopHealthWatch = undefined;
     if (this.snapshot.cpuConstrained) this.patch({ cpuConstrained: false });
   }
   /** A camera starts or stops: the watches end, and nothing of the old publish stays (codec, failed state). */
@@ -434,6 +452,8 @@ export class RemoteVideo {
     this.backsSent=!!backs?.length;
     await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({type:'field.tracks',cards:[],backs:backs??[]})),{reliable:true,topic:FIELD_BACKS_TOPIC,destinationIdentities:seated});
   }
+  /** Asks another seat's client to run its own Scan field. Resolves with its answer, or `limited` / `unavailable`. */
+  requestRescan(seat: number): Promise<RescanResult> { return this.room.state === ConnectionState.Connected ? this.rescan.request(seat) : Promise.resolve("unavailable"); }
   requestRecognition(seat: number, x = 0.5, y = 0.5, force=false) {
     if (!this.channel || this.room.state !== ConnectionState.Connected) return Promise.reject(new Error("Connect table video first"));
     return this.channel.request(seat, x, y,undefined,force);
@@ -447,5 +467,5 @@ export class RemoteVideo {
     await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
-  dispose() { if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
+  dispose() { this.rescan.close(); if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
 }

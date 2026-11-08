@@ -134,6 +134,11 @@ export async function setup(config: { cards: { id: string; url: string }[]; scen
 }
 export const backend = () => reader?.backendStatus;
 export const placedCount = () => events.filter(e => e.type === 'placed').length;
+/** Every tracked card must finish its initial read before measuring a still board. */
+export const settled = () => {
+  const tracks = watcher?.getSnapshot().tracks ?? [];
+  return tracks.length >= Math.min(cardCount, 5) && tracks.every(t => t.state === 'identified' && !t.removed);
+};
 export function begin() { recording = true; beganAt = clock(); for (const k of Object.keys(stages)) delete stages[k]; metricsLog.length = 0; gaps = []; lag = []; lastVideoAt = 0; longTasks = { n: 0, ms: 0, max: 0 }; passes = { full: 0, crop: 0, shadow: 0 }; reads = 0; notifies = 0; }
 export function end() {
   recording = false;

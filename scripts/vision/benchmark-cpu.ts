@@ -80,7 +80,7 @@ for (const scene of scenes) {
       await page.waitForTimeout(8000);
       result = await measure(() => page.evaluate(spacing => (window as any).bench.active(spacing), 6000));
     } else {
-      if (scene === 'steady') { await page.waitForFunction('window.bench.placedCount() >= 5', undefined, { timeout: 90000 }).catch(() => undefined); await page.waitForTimeout(6000); } else if (scene === 'idle') await page.waitForTimeout(8000); else await page.waitForTimeout(3000);
+      if (scene === 'steady') { await page.waitForFunction('window.bench.settled ? window.bench.settled() : window.bench.placedCount() >= 5', undefined, { timeout: 90000 }); await page.waitForTimeout(6000); } else if (scene === 'idle') await page.waitForTimeout(8000); else await page.waitForTimeout(3000);
       result = await measure(async () => { await page.evaluate(() => (window as any).bench.begin()); await page.waitForTimeout(measureSeconds * 1000); return page.evaluate(() => (window as any).bench.end()); });
     }
     results[scene] = { info, backend: await page.evaluate(() => (window as any).bench.backend()), errors: errors.slice(0, 5), ...result };

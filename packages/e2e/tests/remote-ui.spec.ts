@@ -531,8 +531,9 @@ test.describe("remote lobby camera step", () => {
     await page.getByTestId("lobby-cam-calibrate").click();
     const dialog = page.getByRole("dialog", { name: "Calibrate field zones" });
     await dialog.getByTestId("camera-faces-me").click();
-    // The whole grid moves with the arrow keys; there are no per-zone or per-corner handles.
-    await expect(dialog.getByRole("button", { name: /grid corner/ })).toHaveCount(0);
+    // The whole grid moves with the arrow keys; it has eight resize handles and a turn knob, but no per-zone handles.
+    await expect(dialog.getByRole("button", { name: /Resize from the/ })).toHaveCount(8);
+    await expect(dialog.getByTestId("field-rotate-handle")).toHaveCount(1);
     await dialog.getByTestId("field-move").focus();
     for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
     for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `calibration-dialog-${w}`); }
@@ -542,11 +543,13 @@ test.describe("remote lobby camera step", () => {
     const view = page.getByTestId("lobby-zones-view");
     await expect(view).toBeVisible();
     await shot(page, "lobby-zones-view");
-    // The width slider changes the whole grid at once and saves it; the zones keep their shape (M3 and M4 stay the same size). Undo brings the width back.
+    // Dragging the right-hand edge handle narrows the whole grid and saves it; the zones keep their shape (M3 and M4 stay the same size). Undo brings the width back.
     const gridWidth = () => view.locator("polygon").evaluateAll(polygons => { const xs = polygons.flatMap(p => (p.getAttribute("points") ?? "").split(" ").map(pair => Number(pair.split(",")[0]))); return Math.max(...xs) - Math.min(...xs); });
     const cellWidth = async (zone: string) => { const xs = ((await view.locator(`polygon[data-zone="${zone}"]`).getAttribute("points")) ?? "").split(" ").map(pair => Number(pair.split(",")[0])); return Math.max(...xs) - Math.min(...xs); };
     const wide = await gridWidth(), m3Wide = await cellWidth("M3");
-    await view.getByTestId("field-width").fill("0.8");
+    const surfaceBox = (await view.getByTestId("field-move").boundingBox())!, edge = (await view.getByTestId("field-handle-e").boundingBox())!;
+    const edgeX = edge.x + edge.width / 2, edgeY = edge.y + edge.height / 2;
+    await page.mouse.move(edgeX, edgeY); await page.mouse.down(); await page.mouse.move(edgeX - surfaceBox.width * 0.15, edgeY, { steps: 6 }); await page.mouse.up();
     await expect.poll(gridWidth).toBeLessThan(wide - 50);
     expect(Math.abs((await cellWidth("M3")) - (await cellWidth("M4")))).toBeLessThan(2);
     await shot(page, "lobby-zones-edited");
@@ -698,6 +701,24 @@ test.describe("remote duels screen, moving cards by hand", () => {
         await targets.getByRole("button", { name: /Origin fixture 1/ }).click();
         await expect.poll(pendingTarget, { timeout: 12_000 }).toBe(`seat${other}`);
       }).toPass({ timeout: 100_000 });
+    } finally { await alice.close(); await bob.close(); }
+  });
+
+  test("Rescan sits on the opponent's seat only, and shows what the other side answered", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const page = await alice.newPage(); await page.goto(`/duels/remote/${slug}`);
+      const rescan = page.getByTestId("field-rescan-1");
+      await expect(rescan).toBeVisible(); await expect(page.getByTestId("field-rescan-0")).toHaveCount(0);
+      await rescan.click();
+      // Bob has no camera on, so he answers "off", or nothing arrives in time. Either way the button says so.
+      await expect(rescan.getByRole("status")).toHaveText(/Their Auto-detect is off|Could not reach them/);
+      if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `rescan-button-${w}`); }
     } finally { await alice.close(); await bob.close(); }
   });
 

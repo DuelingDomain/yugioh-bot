@@ -181,6 +181,22 @@ FROM build AS web-runtime-data
 RUN mkdir /web-effects && cp -a packages/shared/data/effects/. /web-effects/ \
     && rm /web-effects/tags.jsonl.gz /web-effects/bridge-mechanic-facts.json
 
+# Remote Duels card recognition runs in a browser Web Worker. Its code (worker.js)
+# and the ONNX Runtime WASM files it loads are version-locked to each other and to
+# the web bundle, so they ship in this image, not in the data volume. Models and
+# indexes stay in the volume. prepare.ts --code-only is offline: esbuild + file copies.
+# The files are staged as /stage/app/vision-code with every mtime fixed at the epoch,
+# and the web stage copies /stage/app over /app. That gives the layer the same digest
+# on every build while the runtime is unchanged, so deploys do not pull ~41 MB of
+# WASM again. (Copying only /app/vision-code would also write a fresh-mtime /app
+# entry into the layer.) The route hashes contents for its ETags.
+FROM build AS vision-code
+RUN mkdir -p /stage/app \
+    && VISION_DATA_DIR=/stage/app/vision-code npx tsx scripts/vision/prepare.ts --code-only \
+    && test -s /stage/app/vision-code/worker.js && test -s /stage/app/vision-code/ort/ort-wasm-simd-threaded.wasm \
+    && chmod -R a+rX,go-w /stage/app \
+    && find /stage/app -exec touch -h -d @0 {} +
+
 # Production stage for the Next.js web dashboard.
 # Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
 FROM node:22-bookworm-slim AS web
@@ -191,6 +207,8 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=web-runtime-data /web-effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
+# Root-owned and read-only to the node user. The vision-assets route reads it first (VISION_CODE_DIR).
+COPY --from=vision-code /stage/app /app
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
 VOLUME ["/app/data"]

@@ -11,6 +11,7 @@ import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
+import { applyRemoteOpening } from "../../src/remote/match.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -94,9 +95,9 @@ writeFileSync(join(deckData, "strings.conf"), "");
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
-function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true) {
+function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true, serviceOptions: { openingRoll?: boolean } = {}) {
   const { db, users } = setup();
-  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"] });
+  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"], ...serviceOptions });
   let room = service.create({ guildId: "g", userId: users[0], displayName: "Sulman", gameId: "ygo", seatCount: 2, solo, format }, 2000);
   const decks = createSavedDeckService(db, new Map());
   const save = (main = Array.from({ length: format.includes("domain") ? 60 : 40 }, (_, i) => i + 1), extra: number[] = [], owner = users[0]) =>
@@ -215,6 +216,55 @@ it('preserves a tournament LP request when another FFA seat is eliminated and re
     expect(state).toMatchObject({ended:true, winnerSeat:0,
       match:{phase:'done', winnerSeat:0, games:[{reason:'lp', winnerSeat:0}]}});
   }
+});
+
+it('rolls a public opening die for game 1: the winner chooses who goes first, and a missed choice means the winner goes first', () => {
+  for (const choice of ['second', 'timeout'] as const) {
+    const s = deckSession('normal', false, { openingRoll: true });
+    s.select(s.save().id);
+    s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
+    s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
+    let room = s.room;
+    const opening = room.state.match.opening!;
+    const last = opening.rounds.at(-1)!;
+    expect(opening.rounds.every(round => round.every(roll => roll === null || (roll >= 1 && roll <= 6)))).toBe(true);
+    expect(last.filter(roll => roll === Math.max(...last.filter(r => r !== null) as number[]))).toHaveLength(1);
+    expect(last[opening.winnerSeat]).toBe(Math.max(...last.filter(r => r !== null) as number[]));
+    expect(opening).toMatchObject({ startedAt: 2003, deadline: 2003 + opening.rounds.length * 3000 + 20000 });
+    expect(opening.chosenSeat).toBeUndefined();
+    // Everyone, spectators included, sees the same roll in the public start event.
+    const startEvent = (room: { events: { action: { type: string } }[] }) => room.events.find(e => e.action.type === 'table.started')!.action;
+    expect(startEvent(s.service.get(s.room.slug, 'g', s.users[1]))).toMatchObject({ opening });
+    expect(startEvent(s.service.spectatorSnapshot(s.room.slug, 'g'))).toMatchObject({ opening });
+    const winner = opening.winnerSeat, loser = 1 - winner;
+    const actAs = (seat: number, input: Record<string, unknown>) => room = s.service.act(room.slug, 'g', s.users[seat],
+      { baseSeq: room.lastSeq, action: remoteActionSchema.parse({ actorSeat: seat, idempotencyKey: `open-${seat}-${input.type}-${room.lastSeq}`, ...input }) }, 2100 + room.lastSeq);
+    // Play waits for the choice, and only the winner may choose.
+    expect(() => actAs(winner, { type: 'log.note', text: 'too early' })).toThrow(/choose who goes first/);
+    expect(() => actAs(loser, { type: 'match.first', seatGoesFirst: loser })).toThrow(/die-roll winner/);
+    if (choice === 'second') {
+      actAs(winner, { type: 'match.first', seatGoesFirst: loser });
+      expect(room.state).toMatchObject({ turnSeat: loser, startedSeats: [loser], match: { opening: { chosenSeat: loser } } });
+      expect(() => actAs(winner, { type: 'match.first', seatGoesFirst: winner })).toThrow();
+      actAs(loser, { type: 'log.note', text: 'game on' });
+    } else {
+      expect(s.service.sweepIdle(opening.deadline - 1)).toEqual([]);
+      expect(s.service.sweepIdle(opening.deadline)).toHaveLength(1);
+      room = s.service.get(room.slug, 'g', s.users[0]);
+      expect(room.state).toMatchObject({ turnSeat: winner, startedSeats: [winner], match: { opening: { chosenSeat: winner } } });
+    }
+    expect(s.service.replay(room.slug, 'g', s.users[0])).toEqual(s.service.get(room.slug, 'g', s.users[0]).state);
+  }
+  // A winner who left the game hands the choice, and the default, to the next living seat by roll order.
+  let three = ygoModule.initialState({ seatCount: 3, bestOf: 1 });
+  applyRemoteOpening(three, { rounds: [[3, 6, 5]], winnerSeat: 1, startedAt: 1000, deadline: 24000 });
+  three = ygoModule.reduce(three, { type: 'player.concede', actorSeat: 1, idempotencyKey: 'out', at: 2000 });
+  const first = (actorSeat: number, seatGoesFirst: number) => ygoModule.reduce(three, { type: 'match.first', actorSeat, seatGoesFirst, idempotencyKey: `f-${actorSeat}-${seatGoesFirst}`, at: 3000 });
+  expect(() => first(1, 1)).toThrow(/die-roll winner/);
+  expect(() => first(0, 0)).toThrow(/die-roll winner/);
+  expect(() => first(2, 1)).toThrow(/out of the game/);
+  expect(first(2, 0)).toMatchObject({ turnSeat: 0, match: { opening: { chosenSeat: 0 } } });
+  expect(ygoModule.reduce(three, { type: 'side.timeout', actorSeat: 0, idempotencyKey: 'late', at: 24000 })).toMatchObject({ turnSeat: 2, match: { opening: { chosenSeat: 2 } } });
 });
 
 it('logs detection mode per seat as a public fact without changing the board or private information', () => {
@@ -644,6 +694,16 @@ describe("remote deck registration and live checks", () => {
     expect(solo.room.seats[0].deck?.validation.issues.map(i => i.message)).toEqual(expect.arrayContaining(["Main Deck must have exactly 60 cards", "Duplicate card: filler 1"]));
     expect(() => solo.start()).toThrow(/60 cards|Duplicate card/);
     solo.select(null); solo.start(); expect(solo.room.status).toBe("active");
+  });
+  it("starts and plays a normal two-player table with no deck at all", () => {
+    const s = deckSession("normal", false);
+    s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+    s.service.ready(s.room.slug, "g", s.users[1], true, 2002);
+    s.start();
+    expect(s.room.status).toBe("active");
+    expect(s.room.seats.every(seat => !seat.deck)).toBe(true);
+    s.place("no-deck-card");
+    expect(s.room.state.seats[0].twin.some(c => c.ref === "no-deck-card")).toBe(true);
   });
   it("snapshots owned saved decks and resets ready on format changes", () => {
     const s = deckSession("normal"); const saved = s.save();
@@ -1082,6 +1142,76 @@ describe("solo remote tables", () => {
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
   });
 
+  it("lets an owner-list admin spectate a private table with a visible badge; others and actions stay closed", () => {
+    const { service, users, db } = setup();
+    vi.stubEnv("OWNER_USER_IDS", String(users[3]));
+    const t = Date.now();
+    try {
+      const slug = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 2 as SeatCount }, t + 0).slug;
+      expect(service.get(slug, "g", users[0]).visibility).toBe("private");
+      // A non-admin, and an admin who did not ask, get the public-only rule.
+      expect(() => service.spectate(slug, "g", users[2], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[3], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[2], t + 1, { admin: true })).toThrow("This table is private");
+      expect(() => service.list("g", users[2], "all")).toThrow();
+      const view = service.spectate(slug, "g", users[3], t + 2, { admin: true });
+      expect(view.spectator).toBe(true);
+      expect(view.spectatorCount).toBe(1);
+      // The players see the badge data; the log has one public line without camera data.
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([{ userId: users[3], name: expect.any(String) }]);
+      service.spectate(slug, "g", users[3], t + 3, { admin: true });
+      expect(service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching")).toHaveLength(1);
+      expect(service.list("g", users[3], "all").map(t => t.slug)).toContain(slug);
+      // The admin cannot act or take a seat.
+      expect(() => service.act(slug, "g", users[3], { baseSeq: 0, action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "x", type: "turn.end" }) }, t + 4)).toThrow();
+      expect(() => service.join(slug, "g", users[3], "Admin", 1, t + 4)).toThrow("cannot take a seat");
+      // Two tabs: one closing keeps the watch; the last one ends the slot at once.
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-one-aaaa" });
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-two-bbbb" });
+      service.stopSpectating(slug, "g", users[3], t + 5, "tab-one-aaaa");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toHaveLength(1);
+      service.stopSpectating(slug, "g", users[3], t + 6, "tab-two-bbbb");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([]);
+      // A reload within the grace adds no lines (not "stopped" then "started").
+      service.spectate(slug, "g", users[3], t + 7, { admin: true, tab: "tab-new-cccc" });
+      service.stopSpectating(slug, "g", users[3], t + 8, "tab-new-cccc");
+      service.spectate(slug, "g", users[3], t + 9, { admin: true, tab: "tab-new-dddd" });
+      const watchLines = () => service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching").map(e => (e.action as { watching: boolean }).watching);
+      expect(watchLines()).toEqual([true]);
+      // After the grace the stop line is written (by the next touch of the table, or the sweep).
+      service.stopSpectating(slug, "g", users[3], t + 10, "tab-new-dddd");
+      expect(watchLines()).toEqual([true]);
+      expect(service.sweepIdle(t + 10 + 15_000).map(x => x.slug)).toContain(slug);
+      expect(watchLines()).toEqual([true, false]);
+      expect(db.prepare("select count(*) as n from remote_spectators").get()).toEqual({ n: 0 });
+      // With no watch slot, the admin joins like any invited person (the private table's link is its invite).
+      expect(service.join(slug, "g", users[3], "Admin", 1, t + 20_000 + 10).seats.map(x => x.userId)).toContain(users[3]);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
+    const s = deckSession("normal", false);
+    vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
+    try {
+      s.select(s.save().id);
+      s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+      s.service.ready(s.room.slug, "g", s.users[1], true, 2002); s.start();
+      const t = 3000;
+      const read = s.service.get(s.room.slug, "g", s.users[0], t);
+      // The admin joins after the player read the table and before the player acts.
+      s.service.spectate(s.room.slug, "g", s.users[3], t + 1, { admin: true });
+      const acted = s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-joins", type: "detection.mode", mode: "tap", reason: "slow-offer" }) }, t + 2);
+      expect(acted.lastSeq).toBeGreaterThan(read.lastSeq + 1);
+      // A real game change in between still makes an old baseSeq stale.
+      expect(() => s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "really-stale", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 3)).toThrow("Stale sequence");
+      // Stopping adds a line too and still does not block the next move.
+      const read2 = s.service.get(s.room.slug, "g", s.users[0], t + 4);
+      s.service.stopSpectating(s.room.slug, "g", s.users[3], t + 5);
+      expect(s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read2.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-leaves", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 6).lastSeq).toBeGreaterThan(read2.lastSeq);
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
     const { service, users, db } = setup();
     db.prepare("update remote_tables set status='ended'").run();
@@ -3012,6 +3142,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(addSearch.room.state.seats[0].knownHand?.[0].by?.name).toBe('Terraforming');
     expect(publicAdd.state.seats[0].handCount).toBe(6);
     expect(publicAdd.state.seats[0].knownHand?.length).toBe(show?1:0);
+    expect(addSearch.service.spectatorSnapshot(addSearch.room.slug,'g').state.seats[0].knownHand?.length).toBe(show?1:0);
     expect(publicAdd.state.effectTracking?.origins[0].announcedCard?.cardId).toBe(show?47355498:undefined);
     if(!show) {
       expect(JSON.stringify(publicAdd)).not.toContain('Necrovalley');

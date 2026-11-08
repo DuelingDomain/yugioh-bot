@@ -161,7 +161,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
 }) {
   const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
   const viewOnly = subject.from === "camera";
-  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={s.bigCard}>
+  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""}`}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
     <BigArt id={subject.cardId} label={name} />
     <div className={s.bmain}>

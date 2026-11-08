@@ -345,8 +345,12 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       const third = jobs.start(actor(3), query("Blue-Eyes"));
       expect(third.state).toBe("queued");
       await vi.waitFor(async () => expect((await jobs.status(actor(3), third.jobId)).state).toBe("done"));
-      expect(await jobs.status(actor(), first.jobId)).toMatchObject({ state: "failed", error: expect.stringContaining("could not be saved") });
-      expect((await jobs.status(actor(2), second.jobId)).state).toBe("failed");
+      // The queued job needs only one free global slot. Each failed save has
+      // its own deadline, so its completion does not imply both have expired.
+      await vi.waitFor(async () => {
+        expect(await jobs.status(actor(), first.jobId)).toMatchObject({ state: "failed", error: expect.stringContaining("could not be saved") });
+        expect((await jobs.status(actor(2), second.jobId)).state).toBe("failed");
+      });
       expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "running" });
       expect(jobs.start(actor(), query("Argostars"))).toMatchObject({ state: "running" });
       expect(execute).toHaveBeenCalledTimes(4);
