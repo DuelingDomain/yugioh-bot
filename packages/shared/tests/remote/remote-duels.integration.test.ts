@@ -3860,6 +3860,11 @@ it('keeps a token as public table state: created, moved and removed by its owner
   s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
   s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real });
   expect(s.room.state.seats[0].twin.find(c => c.ref === 'real-1')).toMatchObject({ zone: 'monster', slot: 2 });
+  // Two actions, so the placement's Undo comes first and the removal's second: both undone restore the token.
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
 });
 
 describe("remote match history and replay", () => {

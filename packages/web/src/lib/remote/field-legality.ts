@@ -123,8 +123,8 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(piles.has(zone))return accept(zone);
   const occupied=(target:FieldZone)=>{
     const location=fieldZoneLocation(target);
-    // A token has no physical card: it never pushes a camera card to a neighbour slot. The cell stays the card's, and the player chooses (see tokenInCell).
-    return twins.some(twin=>twin.ref!==ref&&!twin.token&&(twin.zone===target||
+    // A token has no physical card, so it never pushes a camera card out of the cell the card is in (the player chooses, see tokenInCell). It still holds its cell against every other target.
+    return twins.some(twin=>twin.ref!==ref&&(!twin.token||target!==zone)&&(twin.zone===target||
       (twin.zone===location.zone&&(location.slot===undefined||twin.slot===location.slot))||
       (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
       (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));

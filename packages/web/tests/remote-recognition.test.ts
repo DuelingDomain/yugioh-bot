@@ -572,6 +572,10 @@ it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Chec
  expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card',race:'Quick-Play'},twins:[{ref:'busy',zone:'spell-trap',slot:3}]}).zone).toBe('S2');
  expect(hardFieldZone({type:'Trap Card'},'M3',[],'self')).toBe('S3');
  expect(projectFieldZone({zone:'EMZ1',facts:{type:'Trap Card'},twins:[]}).zone).toBe('S2');
+ // A token holds its cell: a camera card in that cell stays there (the player is asked), any other target treats the cell as taken.
+ const monster={type:'Normal Monster',frameType:'normal',race:'Warrior'},token={ref:'token',zone:'monster',slot:2,token:{atk:0,def:0}};
+ expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
