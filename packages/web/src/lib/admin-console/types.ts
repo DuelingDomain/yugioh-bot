@@ -215,6 +215,76 @@ export interface TodayData {
   limit: number;
 }
 
+/* ---- duel range (GET /api/admin/console/duel-stats and duel-history; days are Eastern time) ---- */
+export const DUEL_RANGE_PRESETS = ["today", "7d", "30d"] as const;
+export type DuelRangePreset = (typeof DUEL_RANGE_PRESETS)[number];
+/** The longest range the server answers, in Eastern days. */
+export const DUEL_RANGE_MAX_DAYS = 366;
+export interface DuelRangeInfo {
+  /** First and last Eastern day of the range, "YYYY-MM-DD", both included. */
+  from: string;
+  to: string;
+  days: number;
+  /** Start of `from` and end of `to` (the next midnight), epoch ms. */
+  fromMs: number;
+  toMs: number;
+  /** The period of the same number of days right before: the base of every change. */
+  previous: { from: string; to: string; fromMs: number; toMs: number; partial: boolean };
+}
+/** Engine duels by `duels.format`, plus Remote tables. */
+export interface DuelFormatCounts { "1v1": number; ffa3: number; ffa4: number; tag: number; remote: number }
+/** Engine duels by card format: Domain mode, Genesys, both, or neither. Remote tables have none. */
+export interface DuelCardFormatCounts { domain: number; genesys: number; genesysDomain: number; normal: number }
+/**
+ * How an engine duel ended. win: completed with a winner. surrender / timeout: completed by the result reason
+ * "Surrender" / "Time limit". idle: closed after 10 minutes without activity. interrupted: closed early any other way.
+ * draw: completed with no winner. cancelled: the table closed after the start with no result. running: not over yet.
+ */
+export interface DuelEndingCounts { win: number; surrender: number; timeout: number; idle: number; interrupted: number; draw: number; cancelled: number; running: number }
+export interface DuelPeriodStats {
+  /** Duels that started in the period, Remote tables included. Practice-bot and test duels only when asked for. */
+  total: number;
+  byFormat: DuelFormatCounts;
+  byCardFormat: DuelCardFormatCounts;
+  endings: DuelEndingCounts;
+  /** Distinct signed-in people seated in a counted duel. New = their first counted duel is in the period. */
+  players: { unique: number; new: number; returning: number };
+  /** Over completed engine duels with a saved count. Null when there are none. */
+  avgTurns: number | null;
+  avgMinutes: number | null;
+  /** Always counted apart, whether or not they are in the numbers above. */
+  practice: number;
+  test: number;
+  /** users.first_sign_in_at in the period. */
+  signups: number;
+  /** Waitlist requests with a recorded join alert (join_request_notifications, kind "join") in the period. Not guild scoped. */
+  waitlistJoins: number;
+  bugReports: number;
+  /** Distinct duels whose replay check failed, checked in the period. */
+  replayChecksFailed: number;
+}
+export interface DuelStatsData {
+  timezone: "America/New_York";
+  range: DuelRangeInfo;
+  includeBots: boolean;
+  current: DuelPeriodStats;
+  previous: DuelPeriodStats;
+  /** One entry per Eastern day of the range, oldest first. */
+  perDay: { day: string; n: number }[];
+  /** Duels started per Eastern hour of day (0 to 23), summed over the range. */
+  perHour: number[];
+}
+
+export interface DuelHistoryPage {
+  range: DuelRangeInfo;
+  includeBots: boolean;
+  /** Tab counts for the whole range. Sent with the first page only. */
+  counts?: TodayCounts;
+  duels: TodayDuel[];
+  /** Pass as `before` to get the next page. Null at the end. */
+  next: string | null;
+}
+
 /* ---- stats (Eastern days) ---- */
 export const STAT_KEYS = ["signups", "activeUsers", "duelsStarted", "duelsFinished", "draftsStarted", "draftsCompleted"] as const;
 export type StatKey = (typeof STAT_KEYS)[number];

@@ -51,12 +51,22 @@ export function sectionRouteWithQuery<K extends SectionId>(loader: SectionLoader
   };
 }
 
-async function answer<K extends SectionId>(loader: SectionLoader<K>, query: URLSearchParams | undefined): Promise<Response> {
+/** The one admin gate of every /api/admin/console route: 401 no session, 503 session unavailable, 404 for anyone who is not an owner. */
+export async function adminGate(): Promise<{ ok: true; userId: number } | { ok: false; response: Response }> {
   const actor = await requireWebAccess();
-  if (!actor.ok) return actor.response;
-  if (!isOwnerUser(actor.userId)) return NextResponse.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
+  if (!actor.ok) return { ok: false, response: actor.response };
+  if (!isOwnerUser(actor.userId)) return { ok: false, response: NextResponse.json({ error: "not_found" }, { status: 404, headers: NO_STORE }) };
+  return { ok: true, userId: actor.userId };
+}
+
+/** JSON answer of an admin route: never cached, never shared. */
+export const adminJson = (body: unknown, status = 200): Response => NextResponse.json(body, { status, headers: NO_STORE });
+
+async function answer<K extends SectionId>(loader: SectionLoader<K>, query: URLSearchParams | undefined): Promise<Response> {
+  const gate = await adminGate();
+  if (!gate.ok) return gate.response;
   let result: SectionResult<SectionDataMap[K]>;
-  try { result = await loader({ userId: actor.userId, now: Date.now(), query }); }
+  try { result = await loader({ userId: gate.userId, now: Date.now(), query }); }
   catch { result = failed("This section could not be loaded."); }
   return NextResponse.json(result, { headers: NO_STORE });
 }
