@@ -1749,7 +1749,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         .all({ ...query.params, limit: query.limit + 1 - rows.length }));
     }
     const page = rows.slice(0, query.limit);
-    return { duels: page.flatMap(tolerantItem), canSeeAll,
+    return { duels: page.flatMap(row => tolerantItem(row).map(item => ({ ...item, cursor: historyCursor(row) }))), canSeeAll,
       nextCursor: rows.length > query.limit ? historyCursor(page[page.length - 1]!) : null };
   };
 

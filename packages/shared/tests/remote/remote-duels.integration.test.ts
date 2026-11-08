@@ -14,7 +14,6 @@ import { readRemoteState } from "../../src/remote/storage.js";
 import { applyRemoteOpening } from "../../src/remote/match.js";
 import { applyPatch } from "../../src/remote/delta.js";
 import { mergeHistory } from "../../src/services/history-merge.js";
-import type { RemoteHistoryItem } from "../../src/remote/history.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -3972,7 +3971,7 @@ describe("remote match history and replay", () => {
     return { ...s, a, b, outsider, slug };
   }
 
-  it("lists an ended table in the history of its players and rebuilds its final board", () => {
+  it("lists an ended table in the history of its players and rebuilds its final board", async () => {
     const s = endedTable();
     const mine = s.service.listHistory("g", s.a);
     expect(mine.items).toHaveLength(1);
@@ -3985,7 +3984,8 @@ describe("remote match history and replay", () => {
     expect(s.service.listHistory("g", s.a, { format: "ffa3" }).items).toHaveLength(0);
 
     for (const user of [s.a, s.b]) {
-      const replay = s.service.replayFrames(s.slug, "g", user);
+      const replay = await s.service.replayFramesAsync(s.slug, "g", user);
+      expect(s.service.replayFrames(s.slug, "g", user)).toBe(replay);
       expect(replay.viewer).toBe("player");
       const last = replay.steps.reduce((view, step) => applyPatch(view, step.ops), replay.initial);
       const live = s.service.get(s.slug, "g", user).state;
@@ -4001,10 +4001,40 @@ describe("remote match history and replay", () => {
     expect(s.service.replayFrames(s.slug, "g", s.outsider).viewer).toBe("spectator");
   });
 
+  it("shares concurrent cold replay rebuilds across services after checking access", async () => {
+    const s = endedTable();
+    // Force a yield on every step so both requests overlap even on fast machines.
+    let tick = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => tick += 10);
+    try {
+      const first = s.service.replayFramesAsync(s.slug, "g", s.a);
+      const other = createRemoteDuelService(s.db);
+      await expect(other.replayFramesAsync(s.slug, "g", s.outsider)).rejects.toThrow(/not found/);
+      const second = other.replayFramesAsync(s.slug, "g", s.a);
+      const [a, b] = await Promise.all([first, second]);
+      expect(b).toBe(a);
+      expect(await other.replayFramesAsync(s.slug, "g", s.b)).not.toBe(a);
+    } finally { clock.mockRestore(); }
+  });
+
+  it("migrates an ordered index used by the Remote history query", () => {
+    const s = endedTable();
+    s.db.exec("drop index if exists remote_tables_history_idx");
+    migrate(s.db); migrate(s.db);
+    const prepare = vi.spyOn(s.db, "prepare");
+    s.service.listHistory("g", s.a, { completed: true, limit: 1 });
+    const sql = prepare.mock.calls.find(([sql]) => sql.includes("as history_time"))![0];
+    prepare.mockRestore();
+    const plan = s.db.prepare(`explain query plan ${sql}`).all({ guild: "g", viewer: s.a, limit: 2 }) as { detail: string }[];
+    expect(plan.some(row => row.detail.includes("USING INDEX remote_tables_history_idx"))).toBe(true);
+    expect(plan.some(row => row.detail.includes("TEMP B-TREE"))).toBe(false);
+  });
+
   it("keeps reading Remote rows on later pages when they are all older than the online page", () => {
     const s = endedTable();
     const remote = s.service.listHistory("g", s.a).items[0]!;
-    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt }) as never;
+    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt,
+      cursor: Buffer.from(JSON.stringify({ v: 1, time: Date.parse(endedAt) / 86_400_000 + 2440587.5, id })).toString("base64url") }) as never;
     // Page 1 holds online rows newer than the Remote table and online has more; page 2 is the last online page.
     const first = { duels: [online(1, "2999-01-02T00:00:00.000Z"), online(2, "2999-01-01T00:00:00.000Z")], nextCursor: "o2", canSeeAll: false };
     const last = { duels: [online(3, "1999-01-01T00:00:00.000Z")], nextCursor: null, canSeeAll: false };
@@ -4014,23 +4044,5 @@ describe("remote match history and replay", () => {
     const page2 = mergeHistory({ cursor: page1.nextCursor, online: cursor => (expect(cursor).toBe("o2"), last), remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
     expect(page2.duels.map(item => ("remote" in item ? item.slug : item.id))).toEqual([3, remote.slug]);
     expect(page2.nextCursor).toBeNull();
-  });
-
-  it("ends the list when a status filter hides every Remote row", () => {
-    // 120 Remote rows without a winner, read 50 at a time, and no online rows.
-    const rows = Array.from({ length: 120 }, (_, i) => ({ slug: `r${i}`, winnerSeat: null, endedAt: new Date(Date.UTC(2999, 0, 1) - i * 1000).toISOString(), cursor: String(i) }) as never as RemoteHistoryItem);
-    const remote = (cursor: string | undefined) => {
-      const start = cursor === undefined ? 0 : Number(cursor) + 1;
-      const items = rows.slice(start, start + 50);
-      return { items, nextCursor: start + 50 < rows.length ? items[items.length - 1]!.cursor : null, canSeeAll: true };
-    };
-    let cursor: string | null = null, pages = 0;
-    do {
-      const page = mergeHistory({ cursor, online: () => ({ duels: [], nextCursor: null, canSeeAll: true }), remote, remoteKeep: item => item.winnerSeat !== null });
-      expect(page.duels).toHaveLength(0);
-      cursor = page.nextCursor;
-    } while (cursor && ++pages < 10);
-    expect(cursor).toBeNull();
-    expect(pages).toBe(2);
   });
 });

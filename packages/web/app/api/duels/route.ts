@@ -63,14 +63,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(actor.duels.listHistory(actor.guildId, actor.playerId, options), { headers });
     }
     // Admin-only filters that cover online duels alone (a card search in decks, a stored status) leave Remote out.
-    const remoteHistory = (cursor: string | undefined, hideUnfinished = false) => {
+    const remoteHistory = (cursor: string | undefined) => {
       if (options.card || (status !== undefined && status !== "any" && status !== "completed")) {
         return { items: [], nextCursor: null, canSeeAll: false };
       }
       try {
-        const page = remote.listHistory(actor.guildId, actor.userId, { scope, from: options.from, to: options.to, format,
-          q: options.q, cursor, limit: options.limit });
-        return hideUnfinished ? { ...page, items: page.items.filter(item => item.winnerSeat !== null) } : page;
+        return remote.listHistory(actor.guildId, actor.userId, { scope, from: options.from, to: options.to, format,
+          q: options.q, cursor, limit: options.limit, completed: status === "completed" });
       } catch (error) {
         // A bad Remote row must not hide the online list. A bad request still fails.
         if (error instanceof RemoteDuelError && error.status === 400) throw new DuelServiceError(error.message, 400);
@@ -79,14 +78,14 @@ export async function GET(request: NextRequest) {
       }
     };
     if (type === "remote") {
-      const page = remoteHistory(options.cursor ?? undefined, status === "completed");
+      const page = remoteHistory(options.cursor ?? undefined);
       return NextResponse.json({ duels: page.items, nextCursor: page.nextCursor, canSeeAll: page.canSeeAll }, { headers });
     }
     return NextResponse.json(mergeHistory({
       cursor: options.cursor,
+      limit: options.limit,
       online: (cursor) => actor.duels.listHistory(actor.guildId, actor.playerId, { ...options, cursor }),
       remote: cursor => remoteHistory(cursor),
-      remoteKeep: status === "completed" ? item => item.winnerSeat !== null : undefined,
     }), { headers });
   } catch (error) {
     return duelErrorResponse(error);
