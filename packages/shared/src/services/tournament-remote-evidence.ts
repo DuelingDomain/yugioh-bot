@@ -36,15 +36,17 @@ export function captureRemoteTournamentEvidence(db: Database.Database, tableId: 
 
 function captureEvidence(db: Database.Database, tableId: number, now: number): void {
   db.transaction(() => {
-    const row = db.prepare(`select t.*,p1.user_id as user_one_id,p2.user_id as user_two_id,
+    const row = db.prepare(`select t.*,s1.user_id as user_one_id,s2.user_id as user_two_id,
       r.status as result_status,r.proposed_at,r.finalized_at,r.finalization_reason,r.organizer_decided_at
       from remote_tables t join tournament_matches tm on tm.id=t.tournament_match_id
       join tournaments tournament on tournament.id=tm.tournament_id
       join players p1 on p1.id=tm.player_one_id join players p2 on p2.id=tm.player_two_id
+      left join remote_seats s1 on s1.table_id=t.id and s1.user_id=p1.user_id
+      left join remote_seats s2 on s2.table_id=t.id and s2.user_id=p2.user_id
       join tournament_remote_matches r on r.tournament_match_id=tm.id and r.table_slug=t.slug
       where t.id=? and t.status='ended' and tournament.status!='cancelled'`).get(tableId) as
       { id:number; tournament_match_id:number; slug:string; game_id:string; seat_count:SeatCount; state_json:string;
-        started_at:number|null; ended_at:number; end_reason:string; user_one_id:number; user_two_id:number;
+        started_at:number|null; ended_at:number; end_reason:string; user_one_id:number|null; user_two_id:number|null;
         result_status:string; proposed_at:number|null; finalized_at:number|null; finalization_reason:string|null; organizer_decided_at:number|null } | undefined;
     if (!row) return;
     const cap = row.ended_at + 14 * DAY;

@@ -126,7 +126,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             </li>;
             const mine = seat.seat === room.mySeat;
             const editable = room.solo || mine;
-            const choices = decks.some(deck => deck.id === seat.deck?.savedDeckId) || !seat.deck ? decks : [...decks, { id: seat.deck.savedDeckId, name: seat.deck.name }];
+            const choices = decks.some(deck => deck.id === seat.deck?.savedDeckId) || !seat.deck || seat.deck.savedDeckId === null ? decks : [...decks, { id: seat.deck.savedDeckId, name: seat.deck.name }];
             const Icon = seat.ready ? CheckCircle2 : CircleDashed;
             return <li key={index} className={room_.seat} data-testid={`lobby-seat-${seat.seat}`} data-ready={seat.ready ? "true" : "false"} data-mine={mine ? "true" : undefined}>
               <span className={room_.avatar} aria-hidden>{seat.bot ? <Bot size={18} strokeWidth={1.5} /> : (seat.displayName.trim()[0] ?? "?").toUpperCase()}</span>

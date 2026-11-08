@@ -76,8 +76,8 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
-    // Remote Duels have no permanent history: remove rooms the user created, sat in or acted in.
-    note("remote_tables", deleteUserRemoteData(db, userId));
+    // Remote opponents keep the game and replay; detach identity and remove authored private text.
+    note("remote_tables", deleteUserRemoteData(db, userId, DELETED_PLAYER_NAME));
     note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
     db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
     suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);

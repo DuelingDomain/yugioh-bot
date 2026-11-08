@@ -88,12 +88,12 @@ export type RemoteSystemAction =
   | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
-  | { type: "seat.left"; seat: number; userId: number }
+  | { type: "seat.left"; seat: number; userId: number | null }
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started"; handCounts?: 1; opening?: RemoteOpening }
   | { type: "idle.warning"; closesAt: number }
   /** An admin started or stopped watching. A public fact: who and when, never camera data. */
-  | { type: "admin.watching"; userId: number; name: string; watching: boolean }
+  | { type: "admin.watching"; userId: number | null; name: string; watching: boolean }
   | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
@@ -107,7 +107,7 @@ export type RemoteTable = {
   detectionDefault?: "auto";
   bestOf?: RemoteBestOf;
   slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus; solo: boolean;
-  createdBy: number; createdAt: number; startedAt: number | null; endedAt: number | null;
+  createdBy: number | null; createdAt: number; startedAt: number | null; endedAt: number | null;
   lastEventAt: number; lastSeq: number; endReason: string | null; idleWarningAt: number | null;
   seats: RemoteSeat[];
   format?: RemoteFormat;

@@ -1,3 +1,4 @@
+import { anonymizeRemoteRoom, anonymizeRemoteEvidence } from "./remote-anonymization.js";
 import type Database from "better-sqlite3";
 
 function hasTable(db: Database.Database, name: string): boolean {
@@ -38,20 +39,27 @@ export function pruneRemoteSessions(db: Database.Database, now: number): void {
   }
 }
 
-export function deleteUserRemoteData(db: Database.Database, userId: number): number {
-  db.prepare('delete from tournament_remote_evidence where player_one_user_id=? or player_two_user_id=?').run(userId,userId);
+export function deleteUserRemoteData(db: Database.Database, userId: number, deletedName = "Deleted player"): number {
+  if (!db.inTransaction) throw new Error("Remote privacy deletion requires a transaction");
+  anonymizeRemoteEvidence(db,userId);
   const rooms = db.prepare(`select id,slug from remote_tables t where created_by=?
     or exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)
     or exists(select 1 from remote_events e where e.table_id=t.id and e.user_id=?)`)
     .all(userId, userId, userId) as {id: number; slug: string}[];
-  const deleted = deleteRemoteRooms(db, rooms);
+  const empty: typeof rooms = [];
+  for (const room of rooms) {
+    // Rate buckets hold a hashed IP with no user link. Discard this room's buckets, including legacy ones.
+    if (hasTable(db, "remote_phone_attempts")) db.prepare("delete from remote_phone_attempts where slug=? or slug is null").run(room.slug);
+    anonymizeRemoteRoom(db,room.id,userId,deletedName);
+    if (!db.prepare("select 1 from remote_seats where table_id=? and user_id is not null").get(room.id)) empty.push(room);
+  }
+  const deleted = deleteRemoteRooms(db, empty);
   db.prepare("delete from remote_spectators where user_id=?").run(userId);
   db.prepare("delete from remote_spectator_tabs where user_id=?").run(userId);
   db.prepare("delete from remote_admin_watch where user_id=?").run(userId);
   for (const name of ["remote_phone_pairs", "remote_phone_modes", "remote_vision_ai_limits"]) {
     if (hasTable(db, name)) db.prepare(`delete from ${name} where user_id=?`).run(userId);
   }
-  // Old buckets cannot be attributed to a user; discard them rather than keep them indefinitely.
   if (hasTable(db, "remote_phone_attempts")) db.prepare("delete from remote_phone_attempts where slug is null").run();
   return deleted;
 }

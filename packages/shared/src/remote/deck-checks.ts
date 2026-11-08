@@ -30,7 +30,7 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown, s
     throw error;
   }
 }
-export type RemoteDeckRegistration = { savedDeckId: number; name: string; deck: DuelDeck; validation: DuelDeckValidation };
+export type RemoteDeckRegistration = { savedDeckId: number | null; name: string; deck: DuelDeck; validation: DuelDeckValidation };
 export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra"; type?: number };
 export type RemoteCardFacts = Record<number, RemoteCardFact>;
 export type RemoteCardInstance = {

@@ -31,11 +31,11 @@ export const REMOTE_SPECTATOR_SLOT_MS = 90_000;
 /** After an admin's last tab leaves, the "stopped watching" line waits this long. A reload returns within it and adds no lines. */
 export const REMOTE_ADMIN_WATCH_GRACE_MS = 15_000;
 type TableRow = { tournament_match_id: number | null; id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
-  created_by: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
+  created_by: number | null; privacy_revision: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
   last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number; visibility: RemoteVisibility; revealed_hand?: RemoteRevealedHand | null };
 type Row = TableRow & { state_json: string };
 // Lists and idle notifications need metadata, never board/undo snapshots or event replay.
-const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
+const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,privacy_revision,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
   .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of,json_extract(t.state_json,'$.revealedHand') as revealed_hand";
 const REPLAY_CACHE_SIZE = 6;
 /** One small cache per database: the web makes a new service for each request. */
@@ -408,7 +408,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         .all(...(slug ? [now - 15 * 60_000, slug] : [now - 15 * 60_000])) as { id: number; slug: string; status: string; visibility: string }[];
       return rows.map(row => ({
         slug: row.slug,
-        seated: (db.prepare("select user_id from remote_seats where table_id=?").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
+        seated: (db.prepare("select user_id from remote_seats where table_id=? and user_id is not null").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
         slots: row.status === "ended" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id)
           // A private table has slots only for admins.
           .filter(user => row.visibility === "public" || isOwnerUser(user)),
@@ -728,9 +728,9 @@ export function createRemoteDuelService(db: Database.Database, options: {
           const view = spectator ? projectRemoteSpectator({ table: metadata, state: board, events }) : projectRemoteSnapshot({ table: metadata, state: board, events }, mine);
           return { state: view.state, events: view.events };
         };
-        // An ended table never changes, so a viewer who steps through the same replay again reuses the rebuilt frames.
+        // Account deletion advances the privacy revision, including across database connections/processes.
         const replayCache = replayCaches.get(db) ?? replayCaches.set(db, new Map()).get(db)!;
-        const cacheKey = `${row.id}:${row.last_seq}:${spectator ? "spectator" : [...mine].join(",")}`;
+        const cacheKey = `${row.id}:${row.last_seq}:${row.privacy_revision}:${spectator ? "spectator" : [...mine].join(",")}`;
         const cached = replayCache.get(cacheKey);
         if (cached) { replayCache.delete(cacheKey); replayCache.set(cacheKey, cached); return cached; }
         let initial: RemoteState | undefined, previous: RemoteState | undefined;
