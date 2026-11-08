@@ -917,6 +917,21 @@
 .bbar{grid-column:1 / -1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);padding-top:10px}
 .bbar .dact{margin:0}
 .bhint{color:var(--ink3);font-size:12px;display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap}
+/* A card opened from a pile: the text sits right of the art and gets the height. Small art and a wider popup show a long Pendulum text without a scroll; only the very longest scrolls inside the text block. */
+@media (min-width:901px){
+  .pop.big.show.fromPile{--aw:176px;width:min(calc(var(--aw) + 540px),calc(100vw - 16px));grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
+  .fromPile .bmain{max-height:none;min-height:0;align-self:stretch}
+  .fromPile .btext{font-size:13.5px;line-height:1.45}
+}
+/* Short windows: the action groups sit side by side so the text keeps the height. */
+@media (min-width:901px) and (max-height:780px){.fromPile .dgrp{flex-basis:auto}.fromPile .dact{margin-top:6px}}
+/* Tablet width: the art stays beside the text, as on desktop. */
+@media (min-width:601px) and (max-width:900px){
+  .pop.big.show.fromPile{--aw:150px;grid-template-columns:var(--aw) minmax(0,1fr);justify-items:stretch;grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
+  .pop.big.fromPile .bmain{order:0;max-height:none;min-height:0;align-self:stretch}
+  .pop.big.fromPile .bigart{order:0;justify-self:start}
+  .pop.big.fromPile .bbar{order:0}
+}
 @media (max-width:900px){
   .pop.big{--aw:min(calc(100vw - 40px),420px);left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-height:92dvh;overflow:auto}
   .pop.big.show{grid-template-columns:minmax(0,1fr);justify-items:center}
