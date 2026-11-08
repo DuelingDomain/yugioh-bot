@@ -26,7 +26,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     canvas.getContext('2d')!.drawImage(video,0,0,canvas.width,canvas.height);
     return canvas.toDataURL('image/jpeg',.75);
   });
-  const tf=useFieldTransform(initialCalibration?.corners),[error,setError]=useState('');
+  const tf=useFieldTransform(initialCalibration?.corners,undefined,video?.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:16/9),[error,setError]=useState('');
   cancel.current=onCancel;
   const [orientation,setOrientation]=useState<FieldOrientation|undefined>(initialCalibration?.orientation);
   const [calibrationCards,setCalibrationCards]=useState<DetectedQuad[]>([]);
@@ -80,7 +80,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
       {detectCalibrationCards?<div className={g.quick}><strong>Quick setup with two cards</strong><p>From your seat, place a MONSTER upright in M1 (front-left) and a SPELL/TRAP upright in S5 (back-right). Clear the rest of the mat. Keep both cards flat.</p><button type="button" className={table.btn} disabled={!image||busy} onClick={()=>void quickCalibration()}>{busy?'Finding both cards…':'Use cards in M1 and S5'}</button><p>Then tap the monster outline. The two different rows determine your side and mirroring.</p></div>:null}
       <div id={description}>
         <p>Move the field grid over your mat</p>
-        <p>Drag the grid, or press the arrow keys (Shift for larger steps). Use Size, Width and Height until the zones line up. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right.</p>
+        <p>Drag the grid over your mat. Drag a corner or edge to resize it; the opposite side stays put. Turn it to any angle with the round handle, or use the quarter-turn buttons. Arrow keys move it. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right.</p>
         <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
       </div>
       <FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setCalibrationCards([]);}}/>

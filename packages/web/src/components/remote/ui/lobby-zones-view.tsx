@@ -34,7 +34,7 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
     const side = latest.current?.orientation;
     if (!side) return;
     try { onChange(createFieldCalibration(corners, side)); } catch { /* the transform keeps the field inside the picture */ }
-  });
+  }, ratio);
 
   useEffect(() => {
     const el = video.current;
