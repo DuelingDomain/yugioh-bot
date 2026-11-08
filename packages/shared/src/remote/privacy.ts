@@ -75,7 +75,8 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
 }
 /**
  * What a spectator may know. A player sees some cards because the table told that player (a searched card, a reveal, a
- * card once public and now Set). A spectator gets none of that: no hand contents, no face-down names, no notes, no undo or deck data.
+ * card once public and now Set). A spectator gets none of that, except the revealed / returned-to-hand cards (public table
+ * knowledge, filtered like a player's view): no other hand contents, no face-down names, no notes, no undo or deck data.
  * Allow list for events: a new action type shows as a private line until it is added here.
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","seat.joined","seat.left","seat.ready","seat.deck",
@@ -110,7 +111,9 @@ function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs)
   delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
   next.deckChecks.registrations={}; next.deckChecks.flags=[]; next.deckChecks.instances=[];
   for(const seat of next.seats) {
-    delete seat.knownHand; delete seat.deckCount;
+    delete seat.deckCount;
+    // Revealed and returned-to-hand cards are public table knowledge: same filter as for players.
+    if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
     seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
     for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
       delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.publicIdentity; delete card.setBy;

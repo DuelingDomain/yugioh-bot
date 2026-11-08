@@ -55,13 +55,15 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   /** An unnamed face-up card the owner can name or remove. */
   const nameable = !!onName && ordered && !!previewCard && previewCard.faceUp && !cardCode(previewCard) && !previewCard.name;
   const previewCode = previewCard && shown(previewCard) ? cardCode(previewCard) : undefined;
+  const previewArt = previewCard ? <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} /> : null;
 
   /** Pointer drag (mouse and pen). A press that moves less than 6 px stays a click. */
   function begin(event: ReactPointerEvent<HTMLElement>, card: TwinCard) {
     if (!dnd?.can(card) || event.pointerType === "touch" || (event.pointerType === "mouse" && event.button !== 0)) return;
     const start = { x: event.clientX, y: event.clientY }; const id = event.pointerId; let started = false; let marked: Element | null = null; let markClass = "";
     const hit = (x: number, y: number): { key: ZoneKey | "hand"; el: Element } | null => {
-      const at = document.elementFromPoint(x, y);
+      // A toast over the target never blocks a drop.
+      const at = document.elementsFromPoint(x, y).find(el => !el.closest('[data-testid="toasts"]')) ?? null;
       const chip = at?.closest("[data-hand-drop]"); if (chip) return { key: "hand", el: chip };
       const cell = at?.closest<HTMLElement>("[data-zone][data-seat]");
       return cell && Number(cell.dataset.seat) === seat ? { key: cell.dataset.zone as ZoneKey, el: cell } : null;
@@ -146,9 +148,8 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         </ul> : <p className={s.pileEmpty} data-testid="pile-empty">No cards in the {PILE_LABEL[zone]} yet.</p>}
         <aside className={s.pilePrev} aria-hidden={previewCard ? undefined : true} data-testid="pile-preview">
           {previewCard ? <>
-            <BigArt id={previewCode ?? null} label={shown(previewCard) ? cardName(previewCard, info(previewCode)) : "Face-down card"} />
-            {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} />
-              : <h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2>}
+            {previewCode ? <CardText id={previewCode} info={info(previewCode)} name={previewCard.name} fallbackName={`Card ${previewCode}`} art={previewArt} />
+              : <div className={s.bhead}>{previewArt}<div className={s.bheadText}><h2 className={s.bname}>{shown(previewCard) ? cardName(previewCard, undefined) : "Face-down card"}</h2></div></div>}
             {!narrow && nameable ? <NameIt key={previewCard.ref} onName={(id, nm) => onName!(previewCard, id, nm)} onRemove={onRemove ? () => onRemove(previewCard) : undefined} /> : null}
           </> : null}
         </aside>

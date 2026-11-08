@@ -3072,6 +3072,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(addSearch.room.state.seats[0].knownHand?.[0].by?.name).toBe('Terraforming');
     expect(publicAdd.state.seats[0].handCount).toBe(6);
     expect(publicAdd.state.seats[0].knownHand?.length).toBe(show?1:0);
+    expect(addSearch.service.spectatorSnapshot(addSearch.room.slug,'g').state.seats[0].knownHand?.length).toBe(show?1:0);
     expect(publicAdd.state.effectTracking?.origins[0].announcedCard?.cardId).toBe(show?47355498:undefined);
     if(!show) {
       expect(JSON.stringify(publicAdd)).not.toContain('Necrovalley');

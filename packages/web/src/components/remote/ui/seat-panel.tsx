@@ -10,7 +10,7 @@ import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, typ
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
-import { HandCount, HandStrip, type HandProps } from "./hand-ui";
+import { HandStrip, type HandProps } from "./hand-ui";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
@@ -173,7 +173,7 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.projector} />
         </div>
         </div>
-        {p.hand ? (p.webcamOnly ? <HandCount seat={p.seat} hand={p.hand} /> : <HandStrip seat={p.seat} name={p.name} hand={p.hand} />) : null}
+        {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={p.webcamOnly ? { ...p.hand, tray: true } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>

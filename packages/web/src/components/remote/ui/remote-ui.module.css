@@ -537,6 +537,13 @@
 .toasts{position:fixed;left:50%;bottom:calc(var(--dock) + var(--rail) + var(--gap) + 14px);transform:translateX(-50%);z-index:320;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;padding:9px 16px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);font-size:14px;animation:pop .3s var(--ease)}
 .toast b{color:var(--gold-ink)}
+/* While the pile viewer is open the toasts sit under the header, clear of the dialog above the dock. */
+.toastsTop{position:fixed;left:50%;bottom:calc(var(--dock) + 12px);transform:translateX(-50%);z-index:320;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;max-width:94vw}
+/* Over an open dialog a toast sits on its quiet bottom hint row, lets clicks through, and keeps only its own buttons clickable. */
+.toastsTop .toast{pointer-events:none}
+.toastsTop .toast :is(button,a){pointer-events:auto}
+/* While a card is dragged out of the pile, the toast must not cover the drop-to-hand target. */
+:root:has(.pileRoot[data-dragging=on]) .toastsTop{visibility:hidden}
 /* Notification stack: recognition prompts, notices and toasts live here. It floats over the seat, so it never moves the camera. A notice stays off the camera until it needs the room to show in full.
    Both views: one stack per seat panel, floating at its top right (draggable, minimizable). Webcam only: the same, at the bottom of that player's seat. */
 .seatDock{--dock-anchor:top;position:absolute;right:8px;top:42px;z-index:30;width:min(clamp(204px,30cqw,280px),calc(100% - 16px));max-height:min(62%,420px);display:flex;flex-direction:column;gap:4px;pointer-events:none;overscroll-behavior:contain}
@@ -655,12 +662,13 @@
 @container seat (max-aspect-ratio:1.55){
   .seat[data-wc] .sbody{justify-content:center}
   .seat[data-wc] .feedcol{flex:0 1 auto;width:100%}
-  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 190px) * var(--vr)));max-height:none}
+  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 256px) * var(--vr)));max-height:none}
 }
 @container seat (min-aspect-ratio:1.55){
   .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
   .seat[data-wc] .feedcol{--cellw:calc(100cqw - 26px - 128px);justify-content:center}
-  .seat[data-wc] .fside{align-self:center;justify-content:flex-start}
+  .seat[data-wc] .fside{align-self:stretch;max-height:100%;min-height:0;justify-content:flex-start}
+  .seat[data-wc] .lp{flex:none}
   .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
   .seat[data-wc] .lpn{font-size:34px}
   .seat[data-wc] .lpin{width:100%;margin:0;order:4}
@@ -910,6 +918,11 @@
   .bmain{max-height:none;width:100%}
   .bbar{width:100%}
   .bhint{display:none}
+  /* A card opened from a pile: name and text first, the art small under them, so a long text reads without scrolling. */
+  .pop.big.fromPile{--aw:min(30vw,112px)}
+  .fromPile .bmain{order:-1}
+  .fromPile .bigart{order:1;justify-self:start}
+  .fromPile .bbar{order:2}
 }
 
 /* Gold flash on the live video where a click landed */
@@ -1030,7 +1043,7 @@
 
 /* Graveyard and Banished pile viewer. Fixed over the table, not modal: while a card is dragged the panel lets the pointer through. */
 .pileRoot{position:fixed;inset:0;z-index:44;pointer-events:none}
-.pile{position:absolute;left:50%;bottom:calc(var(--dock) + 12px);transform:translateX(-50%);display:flex;flex-direction:column;width:min(980px,calc(100vw - 32px));max-height:min(62dvh,560px);
+.pile{position:absolute;left:50%;bottom:calc(var(--dock) + 12px);transform:translateX(-50%);display:flex;flex-direction:column;--ph:min(72dvh,660px);width:min(1080px,calc(100vw - 32px));max-height:var(--ph);
   border:1px solid var(--gold);border-radius:12px;background:linear-gradient(180deg,#1a1030,#0d0819);box-shadow:0 24px 70px rgb(0 0 0/.7),0 0 40px rgb(232 185 79/.16);pointer-events:auto;animation:pop .28s var(--ease);overflow:hidden}
 .pileHead{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .pileTitle{margin:0;flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:10px;font:700 18px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1054,12 +1067,19 @@
 .pileNo{position:absolute;left:4px;top:4px;padding:2px 5px;border-radius:3px;background:rgb(7 4 14/.9);color:var(--ink2);font:700 10px/1 var(--font-duel-display),Oxanium,sans-serif;pointer-events:none}
 .pileItem:first-child .pileNo{background:var(--gold);color:#1b1204}
 .pileName{display:block;font-size:11.5px;font-weight:600;line-height:1.15;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
-.pilePrev{flex:none;width:230px;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto;--aw:200px}
+/* Detail panel: small art beside the name and facts, the card text full width under them. The text block takes the rest of the height and is the only part that scrolls. */
+.bhead{display:flex;gap:14px;align-items:flex-start}
+.bheadText{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px}
+.pilePrev{flex:none;width:500px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden;--aw:150px}
 .pilePrev:empty{display:none}
 .pilePrev>*{flex:none}
-@media (max-height:820px){.pilePrev{--aw:140px;width:180px}}
-.pilePrev .bname{font-size:17px;padding-right:0}
-.pilePrev .btext{font-size:12px;line-height:1.4}
+.bhead .bigart{flex:none}
+.pilePrev .bname{font-size:19px;padding-right:0}
+.pilePrev .btext{flex:1 1 auto;font-size:14px;line-height:1.45;overscroll-behavior:contain}
+@media (min-height:1200px){.pile{--ph:min(72dvh,780px)}.pilePrev{--aw:220px;width:560px}}
+/* Laptop browsers are ~650px tall: the art gives way first, the text keeps 13px and fits 900 characters. */
+@media (max-height:820px){.pilePrev{--aw:72px;width:540px;gap:8px}.pilePrev .bname{font-size:17px}.pilePrev .btext{font-size:13px;line-height:1.4;padding-top:6px}}
+@media (max-height:700px){.pilePrev{--aw:60px}}
 .pileEmpty{margin:auto;padding:28px 12px;color:var(--ink3);font-size:14px}
 .pileHint{margin:0;padding:7px 12px;border-top:1px solid var(--line);color:var(--ink3);font-size:11.5px}
 .pileHand{pointer-events:auto;position:absolute;left:50%;bottom:calc(var(--dock) + 14px);transform:translateX(-50%);display:none;align-items:center;gap:8px;height:44px;padding:0 20px;border:2px dashed var(--gold);border-radius:10px;background:rgb(26 16 48/.94);color:var(--gold-ink);font:700 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 10px 30px rgb(0 0 0/.6)}
@@ -1068,6 +1088,8 @@
 .pileHand.dropNo{border-color:rgb(240 100 120/.9);color:#ffb3bd}
 .pileRoot[data-dragging=on] .pile{opacity:.28;pointer-events:none;transition:opacity .12s}
 .pileRoot[data-dragging=on] .pileHand{display:inline-flex}
+/* The dialog has one fixed height on desktop (the same cap as max-height), so it never resizes when another card is hovered. */
+@media (min-width:1101px){.pile{height:var(--ph)}}
 @media (max-width:1100px){.pilePrev{display:none}}
 @media (max-width:700px){
   .pile{left:0;right:0;bottom:0;transform:none;width:auto;max-height:56dvh;border-radius:14px 14px 0 0;border-width:1px 0 0}
@@ -1076,6 +1098,8 @@
   .pileList{grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:10px 8px}
   .pileHint{display:none}
   .pileHand{bottom:auto;top:calc(var(--hdr) + 10px)}
+  /* Above the bottom sheet, away from the drop-to-hand target at the top. */
+  .toastsTop{bottom:calc(56dvh + 8px)}
 }
 @media (prefers-reduced-motion:reduce){.pile{animation:none}.pileArt{transition:none}}
 
@@ -1147,6 +1171,40 @@
 .hcount{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2)}
 .hcount button{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--p1);color:var(--ink);cursor:pointer;line-height:1}
 .hcount button:disabled{opacity:.4;cursor:default}
+/* Webcam only: the revealed cards are one compact row right above life points, never over the feed. More cards than fit scroll in the row. */
+.htray{flex:none;display:flex;flex-direction:column;gap:4px;min-width:0;height:58px}
+.htop{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;height:22px;flex:none}
+.htop .hlab{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.htop .hlab b{margin-left:4px;color:var(--ink2)}
+.htlist{display:flex;align-items:center;gap:4px;min-width:0;height:32px;flex:none;margin:0;padding:0;list-style:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior:contain}
+.htlist li{flex:none;min-width:0}
+.htlist .hnone{padding:0 2px;color:var(--ink2);font-size:11.5px;opacity:.7}
+.htlist[data-fade="end"][data-axis="x"]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
+.htlist[data-fade="start"][data-axis="x"]{-webkit-mask-image:linear-gradient(90deg,transparent,#000 26px);mask-image:linear-gradient(90deg,transparent,#000 26px)}
+.htlist[data-fade="both"][data-axis="x"]{-webkit-mask-image:linear-gradient(90deg,transparent,#000 26px,#000 calc(100% - 26px),transparent);mask-image:linear-gradient(90deg,transparent,#000 26px,#000 calc(100% - 26px),transparent)}
+.htlist[data-fade="end"][data-axis="y"]{-webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(180deg,#000 calc(100% - 12px),transparent)}
+.htlist[data-fade="start"][data-axis="y"]{-webkit-mask-image:linear-gradient(180deg,transparent,#000 12px);mask-image:linear-gradient(180deg,transparent,#000 12px)}
+.htlist[data-fade="both"][data-axis="y"]{-webkit-mask-image:linear-gradient(180deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(180deg,transparent,#000 12px,#000 calc(100% - 12px),transparent)}
+/* Wide seat: LP is a narrow column beside the camera. The label and count take two short lines, the cards stack and scroll in the space left above LP. */
+@container seat (min-aspect-ratio:1.55){
+  .htray{height:auto;flex:1 1 0;min-height:70px}
+  .htop{flex-direction:column-reverse;align-items:stretch;justify-content:flex-start;gap:2px;height:auto}
+  .htop .hcount{justify-content:space-between}
+  .htlist{flex:1 1 0;height:auto;min-height:32px;max-height:none;flex-direction:column;align-items:stretch;overflow-x:hidden;overflow-y:auto;scrollbar-width:none}
+  .htlist li,.htlist .hcard{width:100%;max-width:none}
+}
+/* A short seat puts the icon-only Scan button in the top-right corner of the side column: the hand count (first line) stays clear of it. */
+@container seat (min-aspect-ratio:1.55) and (max-height:330px){
+  .htop .hcount{padding-right:32px}
+  /* Little room: the caption shortens to "Revealed 3" and the region keeps its full label for screen readers. */
+  .htop .hmore{display:none}
+  .htray{min-height:66px;gap:2px}.htop{gap:0}
+  .seat[data-wc] .fside{gap:4px}.seat[data-wc] .lp{gap:4px}
+  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{font-size:28px}
+  .htop .hcount button{width:20px;height:20px}
+}
+/* Phone: the seat's life points lead, so the tray leads right above them. */
+@media (max-width:900px){.htray{order:-2}}
 .hover{position:absolute;left:6px;right:6px;bottom:6px;z-index:5;padding:6px;border-radius:10px;background:rgb(10 6 20/.78);backdrop-filter:blur(4px);pointer-events:none}
 .hover :is(button,a),.hover .hcards{pointer-events:auto}
 .toast button{margin-left:6px;border:1px solid var(--line2);background:var(--p1);color:var(--gold-ink);border-radius:6px;padding:2px 8px;cursor:pointer}
