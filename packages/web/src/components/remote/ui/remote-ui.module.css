@@ -537,6 +537,8 @@
 /* Over an open dialog a toast sits on its quiet bottom hint row, lets clicks through, and keeps only its own buttons clickable. */
 .toastsTop .toast{pointer-events:none}
 .toastsTop .toast :is(button,a){pointer-events:auto}
+/* While a card is dragged out of the pile, the toast must not cover the drop-to-hand target. */
+:root:has(.pileRoot[data-dragging=on]) .toastsTop{visibility:hidden}
 /* Notification stack: recognition prompts, notices and toasts live here. It floats over the seat, so it never moves the camera. A notice stays off the camera until it needs the room to show in full.
    Both views: one stack per seat panel, floating at its top right (draggable, minimizable). Webcam only: the same, at the bottom of that player's seat. */
 .seatDock{--dock-anchor:top;position:absolute;right:8px;top:42px;z-index:30;width:min(clamp(204px,30cqw,280px),calc(100% - 16px));max-height:min(62%,420px);display:flex;flex-direction:column;gap:4px;pointer-events:none;overscroll-behavior:contain}
