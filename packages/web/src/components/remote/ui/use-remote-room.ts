@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
-import { remoteApi } from "./api";
+import { remoteApi, tabId } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
@@ -13,7 +13,8 @@ import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQue
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
 /** Loads one table, keeps it fresh from the socket (poll as backup: 30 s while the socket is joined, else 5 s) and posts actions. */
-export function useRemoteRoom(slug: string) {
+export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } = {}) {
+  const watchAsAdmin = options.watchAsAdmin === true;
   const router = useRouter();
   const [realtime, setRealtime] = useState("Connecting…");
   // A person with no seat watches a public table. The spectate request also keeps the spectator slot, so this poll holds it.
@@ -23,11 +24,12 @@ export function useRemoteRoom(slug: string) {
   const roomRef = useRef<RemoteRoom | undefined>(undefined);
   const newest = useCallback((fetched: RemoteRoom) => { const held = roomRef.current; return held && held.slug === slug && held.lastSeq > fetched.lastSeq ? held : fetched; }, [slug]);
   const load = useCallback(async () => {
-    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, {}); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
-    if (spectating.current) return watch();
+    // The Watch button of the admin list asks for the admin view; the server grants it to the owner list only, and a private table stays closed to everyone else.
+    const watch = async () => { const view = await remoteApi<RemoteRoom>(`/${slug}/spectate`, watchAsAdmin ? { admin: true, tab: tabId } : { tab: tabId }); spectating.current = !!view.spectator; setWatching(spectating.current); return newest(view); };
+    if (spectating.current || watchAsAdmin) return watch();
     try { return newest(await remoteApi<RemoteRoom>(`/${slug}`)); }
     catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
-  }, [slug, newest]);
+  }, [slug, newest, watchAsAdmin]);
   const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000, /* A hidden tab still receives video, so it must keep its slot. */ refreshWhenHidden: watching });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +47,12 @@ export function useRemoteRoom(slug: string) {
     document.addEventListener("visibilitychange", shown);
     return () => document.removeEventListener("visibilitychange", shown);
   }, [repair]);
+  // A spectator who closes the tab frees the slot at once, so a watching admin's badge and the count end quickly. A GET poll would take up to 90 s.
+  useEffect(() => {
+    const leave = () => { if (spectating.current) void fetch(`/api/remote/${slug}/spectate?tab=${tabId}`, { method: "DELETE", keepalive: true }).catch(() => undefined); };
+    window.addEventListener("pagehide", leave);
+    return () => window.removeEventListener("pagehide", leave);
+  }, [slug]);
   const socketRef = useRef<Socket<RemoteServerEvents, RemoteClientEvents> | null>(null);
   const dataHandlers = useRef(new Set<(payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void>());
 
@@ -84,7 +92,7 @@ export function useRemoteRoom(slug: string) {
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       const held=roomRef.current;
       if(held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq)socketSeq.current=Math.max(socketSeq.current,snapshot.table.lastSeq);
-      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: current.spectatorCount });
+      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
       // The held room moves now, so a patch that follows at once builds on this snapshot.
       const built=held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq?fromSnapshot(held):undefined;
       if(built)roomRef.current=built;

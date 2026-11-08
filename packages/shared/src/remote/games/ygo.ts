@@ -1,7 +1,7 @@
 import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
-import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch } from "../match.js";
+import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -117,6 +117,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     remoteAssert(undo && undo.actionId === action.targetActionId && at - undo.at <= 5000, "Undo expired or action is no longer the latest reversible action", 409, "UNDO_UNAVAILABLE");
     return { ...structuredClone(undo.before), detection: structuredClone(state.detection ?? {}), updatedAt: at, undo: null };
   }
+  remoteAssert(!remoteOpeningPending(state.match) || action.type === "player.concede", "Waiting for the die-roll winner to choose who goes first", 409, "OPENING_PENDING");
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...cloneRemoteCurrent(state), updatedAt: at };

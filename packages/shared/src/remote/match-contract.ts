@@ -16,6 +16,20 @@ export type RemoteSiding = {
   firstChoiceDeadline?: number;
   ready: number[]; extendedFor: number[];
 };
+/** The opening die roll of game 1, written once when the table starts. Public: every seat and spectator sees the same dice. */
+export type RemoteOpening = {
+  /** Every die thrown, round by round, one entry per seat. A tie re-rolls only the tied seats; a seat that sat out holds null. */
+  rounds: (number | null)[][];
+  /** The seat with the single highest roll of the last round. It chooses who goes first. */
+  winnerSeat: number;
+  startedAt: number;
+  /** After this time the winner goes first. */
+  deadline: number;
+  /** Set once the first player is decided (chosen, defaulted at the deadline, or a bot winner). */
+  chosenSeat?: number;
+  /** A bot won the roll and went first at once: the screen shows the dice for a moment, with no choice. */
+  auto?: true;
+};
 export type RemoteMatch = {
   bestOf: RemoteBestOf;
   games: RemoteGameResult[];
@@ -27,11 +41,15 @@ export type RemoteMatch = {
     lpSeat?: number };
   firstChooser?: number | null;
   firstSeat?: number;
+  /** Game 1 of a table that rolled for the first player. Absent on tables started before the roll existed. */
+  opening?: RemoteOpening;
 };
 
 export const REMOTE_SIDE_MS = 180_000;
 export const REMOTE_SIDE_DECK_MS = 300_000;
 export const REMOTE_FIRST_CHOICE_MS = 20_000;
+/** How long one round of the opening dice stays on screen. The choice clock starts after the last round. */
+export const REMOTE_OPENING_ROUND_MS = 3_000;
 export const remoteBestOfSchema = z.union([z.literal(1), z.literal(3)]);
 const codes = z.array(z.number().int().positive().max(0xffffffff));
 export const remoteSideDeckChangesSchema = z.strictObject({

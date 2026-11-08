@@ -85,7 +85,7 @@ export const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? 
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, drag: dnd, rotated, twinCounts, deckListSizes, deckRegistered, boardSeats }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, onDeck, drag: dnd, rotated, twinCounts, deckListSizes, deckRegistered, boardSeats }: {
   /** Every seat's cards, so an Equip link can name a monster on another field. */
   boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[];
   deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
@@ -102,6 +102,8 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   /** Opens the Graveyard or Banished pile viewer. The opener gets focus back when the viewer closes. */
   onPile?: (zone: "graveyard" | "banished", opener: HTMLElement | null) => void;
+  /** My own Deck pile was clicked: opens the deck menu. */
+  onDeck?: (opener: HTMLElement) => void;
   drag?: FieldDrag;
 }) {
   const cells = cellsFor(twin, !!extraZones);
@@ -166,7 +168,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   const carried = carry ? twin.find(card => card.ref === carry) : undefined;
   /** A click or Enter on a cell. The Graveyard cell opens the pile viewer (it has no card of its own). */
   function activate(key: ZoneKey, card: TwinCard | undefined, opener: HTMLElement | null) {
-    if (key === "gy" && onPile) onPile("graveyard", opener); else onActivate(key, card);
+    if (key === "gy" && onPile) onPile("graveyard", opener); else if (key === "deck" && onDeck && opener) onDeck(opener); else onActivate(key, card);
   }
   function dropCarried(key: ZoneKey) {
     const card = carried; setCarry(null);

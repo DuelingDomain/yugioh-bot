@@ -164,6 +164,7 @@ a synthetic stream, not physical-camera recognition accuracy.
 
 After deploying this change, rebuild shared code and the vision worker, rebuild
 and restart web, and reload lab browser tabs. The worker is a separately prepared
-asset: `npm run build --workspace=@yugidraft/vision` (with the deployed
-`VISION_DATA_DIR`) regenerates it without downloading models. No database migration,
+asset in development: `npx tsx scripts/vision/prepare.ts --code-only` (with the
+`VISION_DATA_DIR` you use) regenerates it without downloading models. In production
+the web image carries it (`/app/vision-code`), so a deploy updates it. No database migration,
 duel-server restart, training run or index rebuild is needed.

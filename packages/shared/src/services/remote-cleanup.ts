@@ -37,6 +37,8 @@ export function deleteUserRemoteData(db: Database.Database, userId: number): num
     .all(userId, userId, userId) as {id: number; slug: string}[];
   const deleted = deleteRemoteRooms(db, rooms);
   db.prepare("delete from remote_spectators where user_id=?").run(userId);
+  db.prepare("delete from remote_spectator_tabs where user_id=?").run(userId);
+  db.prepare("delete from remote_admin_watch where user_id=?").run(userId);
   for (const name of ["remote_phone_pairs", "remote_phone_modes", "remote_vision_ai_limits"]) {
     if (hasTable(db, name)) db.prepare(`delete from ${name} where user_id=?`).run(userId);
   }

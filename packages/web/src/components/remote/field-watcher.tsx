@@ -21,8 +21,10 @@ import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {RecognitionBadge} from './ui/recognition-setting';
 import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
+import type {RescanReply} from '@/lib/remote/video-protocol';
 import {cardCode,sameObservedCard,deckIdsOf,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
+import {NOTIFY_OPEN_EVENT} from './ui/notify-dock';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
 import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib/remote/field-ghosts';
 import {FieldWatcherUI} from './field-watcher-ui';
@@ -113,6 +115,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   // Grid check: when the card type contradicts the camera row for 2+ cards in 2 minutes, the zones are
   // probably shifted by one row. One hint per table and seat.
+  // 'placed' events seen while auto-placement was off: held by the sync hold (placed when it ends), or dropped (debug line).
+  const syncHoldRef=useRef(false),heldPlaced=useRef({deferred:0,dropped:0});
+  /** Prompts waiting for a choice (set each render) and the time of the last automatic Scan field. */
+  const promptCount=useRef(0),autoScanAt=useRef(-Infinity);
   const rowFixes=useRef(new Map<string,number>()),[shiftHint,setShiftHint]=useState(false),shiftHinted=useRef(false);
   useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);},[room.slug,seat]);
   const noteRowFix=(ref:string)=>{
@@ -521,6 +527,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     heldTimers.current.set(event.id,timer);
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>) {
+    if(event.type==='placed'&&!live()){if(syncHoldRef.current)heldPlaced.current.deferred++;else heldPlaced.current.dropped++;}
     if(event.type!=='removed'){
       const timer=departureTimers.current.get(event.track.id);if(timer){clearTimeout(timer);departureTimers.current.delete(event.track.id);}
       pendingLeft.current.delete(event.track.id);
@@ -720,7 +727,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const holdKey=`dd-remote-sync-hold:${room.slug}:${seat}`;
   const [syncHold,setSyncHoldState]=useState(()=>{try{return sessionStorage.getItem(holdKey)==='1';}catch{return false;}});
   const setSyncHold=useCallback((on:boolean)=>{setSyncHoldState(on);try{if(on)sessionStorage.setItem(holdKey,'1');else sessionStorage.removeItem(holdKey);}catch{/* Memory-only fallback. */}},[holdKey]);
-  enabledRef.current=watch.enabled&&!watch.calibrationNeeded&&!syncHold;tracks.current=watch.snapshot.tracks;
+  enabledRef.current=watch.enabled&&!watch.calibrationNeeded&&!syncHold;syncHoldRef.current=syncHold;tracks.current=watch.snapshot.tracks;
+  // Grid check, from the camera: 2+ resting cards in a gap between cells or outside the grid, in several scans in a row.
+  const gridSuspect=!!watch.snapshot.gridShift?.suspect;
+  useEffect(()=>{if(gridSuspect&&!shiftHinted.current){shiftHinted.current=true;setShiftHint(true);}},[gridSuspect]);
   // Slow computer: one quiet offer of Tap to identify (a slow detector, or the browser video encoder reports it is CPU limited). Only the player changes the mode; the answer is remembered.
   const [tapOffer,setTapOffer]=useState(false),slowWatch=useRef(createSlowWatch());
   const setDetection=useCallback((on:boolean)=>{
@@ -1002,8 +1012,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },undefined,false,true).finally(()=>{faceBusy.current=false;});
   };
   useEffect(()=>{const timer=setInterval(()=>faceCheck.current(),200);return()=>clearInterval(timer);},[]);
-  function resync(manualScan=false) {
-    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan){setScanning(false);setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
+  /** `manualScan` = a Scan field pass (fresh sweep, no 2 s wait). `gentle` = it was not the player's own press (auto resync, a Rescan request): it
+   *  keeps Undo-kept cards, face holds and hand-moved cards, and says nothing when the board already matches. */
+  function resync(manualScan=false,gentle=false) {
+    const strict=manualScan&&!gentle;
+    if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);if(strict){setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
     resyncing.current=true;
     void queue(async act=>{
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
@@ -1014,7 +1027,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       };
       // Scan field: every board card with a track or a resting back of the other face in its zone turns over (never removed, never to the hand).
       // A back seen in both passes beats a track that still says up: such a card is never turned up first, and the face check leaves it until that track turns.
-      if(manualScan){
+      if(strict){
         const backs=snap.lastScanBacks??[];
         for(const fix of faceFixes(performance.now(),true)){
           if(!fix.track.faceDown&&backs.includes(fix.track.zone)){holdFace(fix.card.ref);continue;}
@@ -1076,9 +1089,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(!manualScan&&performance.now()-since<2000)continue;
         const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
         if(!card||!publicField(card.zone))continue;
-        if(undoKept.current.has(ref)){if(!manualScan)continue;undoKept.current.delete(ref);}
+        if(manual.current.has(ref)&&!strict)continue;
+        if(undoKept.current.has(ref)){if(!strict)continue;undoKept.current.delete(ref);}
         // An unnamed Set the camera placed and no longer sees is taken back, not added to the hand as an unknown card.
-        const unnamedSet=manualScan&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
+        const unnamedSet=strict&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
         const proposal=unnamedSet?{type:'twin.remove' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat);if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
         await write(key,proposal);
@@ -1086,14 +1100,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
       // The note is a log line only: the server keeps it out of the undo history, so Undo reverts the last fix.
       if(changes){try{await act({type:'log.note',actorSeat:seat,text});}catch(error){console.info('[remote field] re-sync note skipped',error);}setNotice(text);setUndoId(lastUndo);}
-      else if(manualScan)setNotice('Board matches the camera');
+      else if(strict)setNotice('Board matches the camera');
     },undefined,false,true).finally(()=>{resyncing.current=false;if(manualScan)setScanning(false);});
   }
   const resyncRef=useRef(resync);resyncRef.current=resync;
   // End of the hold: the placements dropped during it go on the board now. Moves and removals wait for the sweep, which is the proof they need.
   const placeHeldCards=useRef(()=>{});
   placeHeldCards.current=()=>{
-    enabledRef.current=watch.enabled&&!watch.calibrationNeeded;
+    enabledRef.current=watch.enabled&&!watch.calibrationNeeded;syncHoldRef.current=false;heldPlaced.current.deferred=0;
     const seen=watch.getTracks().filter(t=>t.state==='identified'&&t.visible&&!t.removed&&!piles.has(t.zone)&&(t.faceDown||t.cardId));
     if(seen.length)void queue(async act=>{
       for(const t of seen){
@@ -1105,30 +1119,69 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   };
   useEffect(()=>{
     const every=recognition.backend==='webgpu'?4000:8000;
-    const timer=setInterval(()=>{if(!document.hidden)resyncRef.current();},every);
+    const timer=setInterval(()=>{if(!document.hidden&&scanTimer.current===undefined)resyncRef.current();},every);
     return()=>clearInterval(timer);
   },[room.slug,seat,recognition.backend]);
   // "Scan field": force two fresh full detector passes and the watcher's sweep (5 s at most on a slow CPU), then re-sync once.
   const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined);
   useEffect(()=>()=>clearInterval(scanTimer.current),[]);
-  const scanField=useCallback(()=>{
-    if(scanTimer.current!==undefined||resyncing.current){setNotice('Board check already running');return;}
-    if(syncHold){setSyncHold(false);placeHeldCards.current();}
+  /** `manual` is the player's own press. `auto` and `remote` (a Rescan request) never end the sync hold and are silent unless they change the board. Returns false when it did not start. */
+  const scanField=useCallback((origin:'manual'|'auto'|'remote'='manual'):boolean=>{
+    const gentle=origin==='auto'||origin==='remote';
+    if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice('Board check already running');return false;}
+    if(gentle&&(syncHoldRef.current||promptCount.current>0||calibrationBusy.current))return false;
+    if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
     setScanning(true);const asked=performance.now();watch.scanNow?.();
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
-      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true);}
+      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true,gentle);}
     },100);
+    return true;
   },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
+  // Auto resync: when the board has been still for 3 s and the camera disagrees with it (a board card whose cell shows nothing, or a resting
+  // card inside a zone that no track follows), run a gentle Scan field once by itself, at most every 20 s. Never with a prompt or the sync hold
+  // waiting. Cards the player brought back with Undo or moved by hand do not count. The same mismatch with no motion in between is not scanned again.
+  const scanFieldRef=useRef(scanField);scanFieldRef.current=scanField;
+  const autoSeen=useRef('');
+  useEffect(()=>{autoSeen.current='';},[room.slug,seat]);
+  useEffect(()=>{
+    const timer=setInterval(()=>{
+      if(document.hidden||!live()||syncHoldRef.current||promptCount.current>0||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
+      const now=performance.now(),snap=watch.getSnapshot?.();
+      if(now-autoScanAt.current<20_000||!snap||snap.status!=='watching'||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
+      if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return;
+      const missing=(snap.missingTwins??[]).filter(ref=>!undoKept.current.has(ref)&&!manual.current.has(ref)),untracked=snap.untracked??0;
+      if(!missing.length&&!untracked)return;
+      const mismatch=`${missing.join(',')}|${untracked}|${snap.lastMotionAt??''}`;
+      if(mismatch===autoSeen.current)return;
+      autoSeen.current=mismatch;autoScanAt.current=now;scanFieldRef.current('auto');
+    },1000);
+    return()=>clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.slug,seat,watch.getSnapshot]);
+  // Rescan from another seat: run my own gentle Scan field on my full-resolution camera and the normal placement flow. It never ends my sync hold,
+  // and waits while a prompt or calibration is open. The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
+  const rescanRef=useRef<(from:number)=>RescanReply>(()=>'off');
+  rescanRef.current=from=>{
+    if(!current.current.active||!watch.enabled)return 'off';
+    if(tournament||document.hidden||!live()||syncHoldRef.current||promptCount.current>0||calibrationBusy.current)return 'paused';
+    if(scanTimer.current!==undefined||resyncing.current||!scanFieldRef.current('remote'))return 'busy';
+    const who=room.seats.find(item=>item.seat===from)?.displayName??`Seat ${from+1}`;
+    setNotice(`Rescan requested by ${who}`);
+    return 'started';
+  };
+  const {setRescanHandler}=hub;
+  useEffect(()=>{setRescanHandler(from=>rescanRef.current(from));return()=>setRescanHandler(null);},[setRescanHandler]);
   // Debug overlay (own feed): raw detector boxes, track states and the last decision per track.
-  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics,boardTwin=current.current.room.state.seats[seat].twin;publishFieldDebug({faces:Object.fromEntries(watch.snapshot.tracks.flatMap(t=>{const card=t.state==='identified'&&!t.removed?boardTwin.find(c=>c.ref===(bindings.current.get(t.id)??t.id)&&publicField(c.zone)):undefined;return card&&card.faceUp===t.faceDown?[[t.id,`board: ${card.faceUp?'up':'down'} · track: ${t.faceDown?'down':'up'}`]]:[];})),blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend()});},[watch.snapshot]);
+  useEffect(()=>{if(!fieldDebugEnabled())return;const m=watch.snapshot.metrics,boardTwin=current.current.room.state.seats[seat].twin;publishFieldDebug({faces:Object.fromEntries(watch.snapshot.tracks.flatMap(t=>{const card=t.state==='identified'&&!t.removed?boardTwin.find(c=>c.ref===(bindings.current.get(t.id)??t.id)&&publicField(c.zone)):undefined;return card&&card.faceUp===t.faceDown?[[t.id,`board: ${card.faceUp?'up':'down'} · track: ${t.faceDown?'down':'up'}`]]:[];})),blur:watch.snapshot.blur,shadow:watch.snapshot.shadow,debug:watch.snapshot.debug,tracks:watch.snapshot.tracks,status:watch.snapshot.status,detectorMs:m.detectorMs,dutyPercent:m.dutyPercent,intervalMs:m.intervalMs,writeError:lastWriteError.current,backend:debugBackend(),gate:{live:live(),enabled:watch.enabled,syncHold,calibrationNeeded:watch.calibrationNeeded,deferred:heldPlaced.current.deferred,dropped:heldPlaced.current.dropped},gridShift:watch.snapshot.gridShift});},[watch.snapshot,syncHold]);
   useEffect(()=>()=>publishFieldDebug(null),[]);
   useEffect(()=>{const timer=setInterval(()=>hub.publishFieldTracks(lastMessage.current),1000);return()=>clearInterval(timer);},[hub.publishFieldTracks]);
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0);});
+  promptCount.current=activePrompts.length;
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
@@ -1143,7 +1196,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  const label=!watch.enabled?'Tap to identify':watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  // What waits for the player must never be silent: the chip says it, and a click opens the Card notices dock (or resumes a sync hold).
+  const waiting=syncHold?0:promptViews.length,attention=watch.enabled&&(syncHold||waiting>0);
+  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
@@ -1154,7 +1209,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   })).join('');
   return <>
     <style>{readingStyles}</style>
-    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={syncHold?[]:promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);
@@ -1165,7 +1220,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }}
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={scanField}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+      notice={failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
-import { CircleHelp, Hand, Pencil, ScanLine } from "lucide-react";
+import { CircleHelp, Hand, Pencil, RefreshCw, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
@@ -10,7 +10,7 @@ import { cardCode, cardName, cellsFor, isPile, sg, MINUS, ZN, type TwinCard, typ
 import type { CardInfo } from "./catalog";
 import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
-import { HandCount, HandStrip, type HandProps } from "./hand-ui";
+import { HandStrip, type HandProps } from "./hand-ui";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import s from "./remote-ui.module.css";
 
@@ -45,6 +45,7 @@ export type SeatPanelProps = {
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   /** The table is live (not in a match break): only then is my own Deck and Extra shown as mine. */ live?: boolean;
   onPile?: (zone: "graveyard" | "banished" | "deck" | "extra", opener: HTMLElement | null) => void;
+  /** My own Deck pile on the virtual field was clicked. */ onDeck?: (opener: HTMLElement) => void;
   drag?: FieldDrag;
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
@@ -59,6 +60,7 @@ export type SeatPanelProps = {
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
   /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode | "unknown";
+  /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -78,6 +80,8 @@ export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
   const fieldView = fieldViewPref && !p.webcamOnly;
   const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat);
+  const [rescanNote, setRescanNote] = useState("");
+  useEffect(() => { if (!rescanNote) return; const timer = setTimeout(() => setRescanNote(""), 4000); return () => clearTimeout(timer); }, [rescanNote]);
   // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
   const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
@@ -107,7 +111,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const gy = p.twin.filter(card => card.zone === "graveyard").length; const banished = p.twin.filter(card => card.zone === "banished").length;
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
-  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
+  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
   return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={p.webcamOnly || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
@@ -161,18 +165,21 @@ export function SeatPanel(p: SeatPanelProps) {
           title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
           <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan || tapHere ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        {p.onRescan && !scan ? <button type="button" className={s.scanbtn} data-testid={`field-rescan-${p.seat}`} aria-label={`Rescan ${p.name}'s field`} title="Ask this player's Auto-detect to scan their field again"
+          onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
+          <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" /><span>Rescan</span><small role="status">{rescanNote}</small></button> : null}
+        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan || tapHere || p.onRescan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
             <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} extraZones={p.extraZones} facing={p.facing} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
-              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
+              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} onDeck={p.onDeck} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
           </div>
           <div className={s.projector} />
         </div>
         </div>
-        {p.hand ? (p.webcamOnly ? <HandCount seat={p.seat} hand={p.hand} /> : <HandStrip seat={p.seat} name={p.name} hand={p.hand} />) : null}
+        {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={p.webcamOnly ? { ...p.hand, tray: true } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>

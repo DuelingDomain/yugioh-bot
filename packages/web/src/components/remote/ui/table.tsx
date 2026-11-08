@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
-import { Rail, LpStrip, TopBar, type Player } from "./chrome";
+import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
@@ -27,6 +27,7 @@ import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type Guess } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
+import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
 import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
@@ -44,7 +45,9 @@ import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
+import { OpeningRollScreen } from "./opening-roll";
 import { matchOf } from "./match-model";
+import { DeckMenu, SurrenderConfirm } from "./surrender";
 import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import { PhonePairing } from "../phone/pairing";
@@ -88,8 +91,9 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, sttUrl, tournament = null }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null }) {
-  const ctl = useRemoteRoom(slug);
+export function RemoteTableScreen({ slug, sttUrl, tournament = null, watchAsAdmin = false }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
+  /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean }) {
+  const ctl = useRemoteRoom(slug, { watchAsAdmin });
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
   useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
@@ -116,6 +120,9 @@ function CameraControl({room}: {room:RemoteRoom}) {
 }
 
 /** One plain sentence on why a table ended. */
+/** What the Rescan button shows after the other seat answered. */
+const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent" : result === "off" ? "Their Auto-detect is off" : result === "busy" ? "Their scan is already running" : result === "paused" ? "Their Auto-detect is paused" : result === "limited" ? "Wait a few seconds" : "Could not reach them";
+
 function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
   if (room.endReason === "creator-left") return "The host left the lobby.";
@@ -193,20 +200,23 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     void hub.enableCamera();
   }, [live, hub, room.slug, mySeat]);
 
+  // Nobody has the turn until the opening die roll is decided: no turn glow, tag or banner before that.
+  const turnShown = match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined ? -1 : state.turnSeat;
   const seen = useRef<{ phase: string; turn: number; seat: number } | null>(null);
   const [turnIn, setTurnIn] = useState(false);
   useEffect(() => {
-    const before = seen.current; seen.current = { phase: state.phase, turn: state.turn, seat: state.turnSeat };
+    const before = seen.current; seen.current = { phase: state.phase, turn: state.turn, seat: turnShown };
     if (!before || !live) return;
-    if (before.turn !== state.turn || before.seat !== state.turnSeat) {
-      setBanner({ id: Date.now(), small: `Turn ${state.turn} · ${PHASE_LONG[state.phase] ?? state.phase}`, big: `${name(state.turnSeat)}'s turn` });
-      showPeek("PH", <>Turn passed to <b>{name(state.turnSeat)}</b></>);
+    if (turnShown >= 0 && (before.turn !== state.turn || before.seat !== turnShown)) {
+      const mineNow = !solo && mySeat === turnShown;
+      setBanner({ id: Date.now(), small: `Turn ${state.turn} · ${PHASE_LONG[state.phase] ?? state.phase}`, big: mineNow ? "Your turn" : `${name(turnShown)}'s turn` });
+      showPeek("PH", mineNow ? <>It is <b>your turn</b></> : <>Turn passed to <b>{name(turnShown)}</b></>);
       setTurnIn(true); const timer = setTimeout(() => setTurnIn(false), 1400); return () => clearTimeout(timer);
-    } else if (before.phase !== state.phase) {
+    } else if (turnShown >= 0 && before.phase !== state.phase) {
       setBanner({ id: Date.now(), small: `${name(state.turnSeat)} · Turn ${state.turn}`, big: PHASE_LONG[state.phase] ?? state.phase });
       showPeek("PH", <><b>{name(state.turnSeat)}</b> to <b>{PHASE_LONG[state.phase] ?? state.phase}</b></>);
     }
-  }, [state.phase, state.turn, state.turnSeat, live, name, showPeek]);
+  }, [state.phase, state.turn, turnShown, live, solo, mySeat, name, showPeek]);
 
   // ---- log ----
   const [voiceLog, setVoiceLog] = useState<LogEntry[]>([]);
@@ -275,8 +285,21 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     waiting: match.pendingResult ? (match.pendingResult.confirmed.includes(mySeat) ? "Waiting for the other players to agree." : null) : null,
     onDeclare: (winnerSeat: number | null) => matchStep({ type: "match.declare", actorSeat: mySeat, winnerSeat }),
   } : undefined;
+  // Surrender: a seated, living player in a live game. A solo test table has no other player, so the seat whose turn it is gives up.
+  // Not during the opening die roll and first-player choice. On a solo table the Deck menu gives up the seat whose Deck was clicked.
+  const openingPending = turnShown < 0;
+  const surrenderable = (seat: number) => live && !openingPending && !!state.seats[seat] && !state.seats[seat].eliminated;
+  const [deckAt, setDeckAt] = useState<{ seat: number; rect: Rect } | null>(null);
+  const [surrenderPick, setSurrenderPick] = useState<number | null>(null);
+  const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
+  const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
+  const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
+  // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
+  useEffect(() => { if (layers.layer !== "surrender") setSurrenderPick(null); }, [layers.layer]);
+  // The game ended, I am out, or the opening started: drop a surrender question that is no longer true.
+  useEffect(() => { if (!canSurrender && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, layers]);
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
-  const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
+  const nextSeat = (() => { if (turnShown < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
 
   // ---- undo ----
@@ -1312,16 +1335,22 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
+        onSurrender={canSurrender ? el => { setSurrenderPick(null); layers.toggle("surrender", el); } : undefined} surrenderOpen={layers.layer === "surrender"}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
+      <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
-        <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
+        </div> : null}
+        {!solo && seatCount > 2 && mySeat >= 0 && live && state.seats[mySeat]?.eliminated ? <div className={s.ended} role="status" data-testid="out-watching">
+          <b>You are out of this game.</b>
+          <span>You are watching. The others play on.</span>
         </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
@@ -1334,7 +1363,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
           const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
-          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
+          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && !isTournamentTable(room) && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === turnShown} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
@@ -1344,16 +1373,16 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
-            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
+            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
             cameraControl={seat === mySeat ? <><CameraControl room={room} />{tokens.trigger(seat)}</> : tokens.trigger(seat)}
-            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
+            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
+      <Rail players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown}
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
@@ -1367,8 +1396,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />
     <LogDrawer voiceFilter={voiceRecognition} open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
-      onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
-      seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
+      onConcede={canSurrender ? surrender : undefined} declare={declareResult}
+      seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === turnShown, lp: lpOf(p.seat), note: p.seat === turnShown ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
@@ -1377,6 +1406,10 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       onDismiss={flag => { void act({ type: "deck.flag.dismiss", actorSeat: flagActor, flagId: flag.id, reason: "Player marked this flag as wrong" }); layers.close("flag"); }}
       onMerge={(flag, keep, remove) => { void act({ type: "twin.merge", actorSeat: solo ? flag.seat : mySeat, seat: flag.seat, keepInstanceId: keep, removeInstanceId: remove, reason: "Same physical card; system split the instance" }); layers.close("flag"); }}
       onClose={() => layers.close("flag")} />
+    <DeckMenu open={layers.layer === "deck" && !!deckAt && surrenderable(deckAt.seat)} anchor={deckAt?.rect ?? null} deckCards={deckAt ? state.seats[deckAt.seat]?.twin.filter(card => card.zone === "deck").length ?? 0 : 0}
+      onView={() => { if (deckAt) openPile(deckAt.seat, "deck", null); }} onSurrender={() => { setSurrenderPick(deckAt?.seat ?? null); layers.open("surrender"); }} />
+    <SurrenderConfirm open={layers.layer === "surrender" && canSurrender} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} name={name(surrenderSeat)} busy={matchBusy}
+      onConfirm={() => { layers.close(); surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
@@ -1420,10 +1453,12 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels/remote")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+    {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
+      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
     <Peek peek={peek} />
     {tokens.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
-    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />
+    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
   </div></FeedCardsProvider>;
 }
