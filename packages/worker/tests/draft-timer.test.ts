@@ -26,7 +26,7 @@ function setup(bot = false) {
   lobby.setReady(draft.id, host.userId, true, now);
   if (!bot) lobby.setReady(draft.id, guest.userId, true, now);
   const effects: WorkerEffects = { discordEnabled: false, draft: vi.fn(async () => {}),
-    tournament: vi.fn(async () => {}), discord: vi.fn(async () => {}), duel: vi.fn(async () => {}) };
+    tournament: vi.fn(async () => {}), discord: vi.fn(async () => {}), duel: vi.fn(async () => {}), remote: vi.fn(async () => {}) };
   return { db, drafts, lobby, draft, host, guest, effects, startedAt: now };
 }
 it("ignores cancelled drafts in a stale active-list snapshot", async () => {

@@ -8,12 +8,17 @@ import type { RemoteRoom, RemoteFieldTracks, RemoteFieldCard } from "@yugidraft/
 import {markBackTiming} from '@/lib/remote/field-timing';
 import {FieldTrackCache,type FieldBack} from '@/lib/remote/field-track-cache';
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
+import type { RescanReply, RescanResult } from "@/lib/remote/video-protocol";
+import type { CameraTraffic } from "@/lib/remote/video-stats";
 import { cardInfo, loadCards } from "./catalog";
 import { FIELD_CAMERA_CONSTRAINTS, readSavedCamera, savedCameraIfPresent } from "./camera-choice";
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 import { optimizeRecognitionCapture, releaseCameraLock } from '@/lib/remote/camera-lock';
 import { useCameraLock } from '@/lib/remote/use-camera-lock';
-import { currentZoneGrid } from '@/lib/remote/zone-grid';
+import { currentZoneGrid, useCardDetection } from '@/lib/remote/zone-grid';
+import { recognitionBackendNow, subscribeRecognitionBackend } from './recognition-backend';
+import type { PeerVision } from '@/lib/remote/peer-vision';
+import { readVideoRate, saveVideoRate, type VideoRate } from '@/lib/remote/video-rate';
 import { loadFieldCalibrationRecord } from '@/lib/remote/use-field-watcher';
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
@@ -26,6 +31,10 @@ export type FeedSource = { attach: (el: HTMLVideoElement) => () => void; local: 
 type Hub = {
   cameraLock?: ReturnType<typeof useCameraLock>;
   solo: boolean;
+  /** Asks another seat's Auto-detect to Scan field again (a data message, not a game action). Needs a seat; 15 s apart per seat. */
+  requestRescan(seat: number): Promise<RescanResult>;
+  /** The Auto-detect of my seat answers Rescan requests here: `started` when it runs a Scan field, `off` when it is not watching. */
+  setRescanHandler(handler: ((from: number) => RescanReply) | null): void;
   /** False until the room's saved camera choice (phone, manual) has loaded. Do not start a camera before this is true. */
   rosterReady: boolean;
   phones: PhoneMember[];
@@ -37,6 +46,17 @@ type Hub = {
   answerPhoneScan(note: string): void;
   connection: ConnectionState | "local" | "off";
   cameraOn: boolean;
+  /** The browser encoder stayed CPU limited while sending the camera. Used only for the "Switch to 15 fps?" offer. */
+  cpuConstrained: boolean;
+  /** Frames per second sent for my webcam, and the change of it (saved per browser). `videoRateAvailable` is false without table video from this computer. */
+  videoRate: VideoRate;
+  videoRateAvailable: boolean;
+  setVideoRate(rate: VideoRate): void;
+  /** Opponents cannot see my webcam: the publish failed after the encoder check. `retryVideo` tries again. */
+  sendFailed: boolean;
+  retryVideo(): void;
+  /** Looks at the encoder now: true while the browser still says it is CPU limited. */
+  cpuStillLimited(): Promise<boolean>;
   starting: boolean;
   error: string;
   devices: MediaDeviceInfo[];
@@ -44,6 +64,11 @@ type Hub = {
   micPublished: boolean;
   sourceFor(seat: number): FeedSource | null;
   health(seat: number): Health;
+  /** WebRTC counters per camera sent or received (owner Debug panel). Empty without table video. */
+  trafficStats(): Promise<CameraTraffic[]>;
+  /** Another player's reader speed and video rate, for the chip on their feed. Undefined for my own seat and for a player who sent none. */
+  peerVision(seat: number): PeerVision | undefined;
+  subscribePeerVision(listener: () => void): () => void;
   setFrozen(seat: number, frozen: boolean): void;
   enableCamera(): Promise<void>;
   /** Leave manual or phone mode and start this device's webcam. */
@@ -72,15 +97,20 @@ type Hub = {
 };
 const emptyBacks:FieldBack[]=[];
 const noop = async () => undefined;
-const Ctx = createContext<Hub>({ rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
+const Ctx = createContext<Hub>({ requestRescan: async () => "unavailable", setRescanHandler: () => undefined, rosterReady: true, phones: [], phoneScan: null, clearPhoneScan: () => undefined, manual: () => false, refreshPhones: async () => undefined, receivePhone: noop, answerPhoneScan: () => undefined, solo: true, connection: "off", cameraOn: false, cpuConstrained: false, videoRate: 30, videoRateAvailable: false, setVideoRate: () => undefined, sendFailed: false, retryVideo: () => undefined, cpuStillLimited: async () => false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   trackedAt:()=>undefined,trackedCards:()=>[],trackedBacks:()=>emptyBacks,subscribeFieldBacks:()=>()=>undefined,publishFieldTracks:()=>undefined,tapMode:()=>false,
-  sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
+  sourceFor: () => null, trafficStats: async () => [], peerVision: () => undefined, subscribePeerVision: () => () => undefined, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, useWebcam: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
   read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
 export function useTapSeat(seat:number){
   const {tapMode,subscribeFieldBacks}=useVideoHub();
   return useSyncExternalStore(subscribeFieldBacks,()=>tapMode(seat),()=>false);
+}
+/** The reader speed chip data of another player's seat. */
+export function usePeerVision(seat:number){
+  const {peerVision,subscribePeerVision}=useVideoHub();
+  return useSyncExternalStore(subscribePeerVision,()=>peerVision(seat),()=>undefined);
 }
 /** Back markers never participate in the public identity/click cache. */
 export function useFieldBacks(seat:number){
@@ -91,7 +121,7 @@ export function useFieldBacks(seat:number){
   },[backs,seat]);return backs;
 }
 
-const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
+const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: 30 };
 
 export function VideoHubProvider({ room, children }: { room: RemoteRoom; children: ReactNode }) {
   const solo = room.solo;
@@ -107,6 +137,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const [phoneScan,setPhoneScan] = useState<PhoneScan|null>(null);
   const manual = useCallback((seat:number) => roster.data?.modes.some(m => m.seat===seat && m.mode==="manual") ?? false,[roster.data]);
   const roomRef = useRef(room); roomRef.current = room;
+  const rescanHandler = useRef<((from: number) => RescanReply) | null>(null);
+  const setRescanHandler = useCallback((handler: ((from: number) => RescanReply) | null) => { rescanHandler.current = handler; }, []);
   const [controller, setController] = useState<RemoteVideo | null>(null);
   const [snap, setSnap] = useState<VideoSnapshot>(emptySnapshot);
   const [frozen, setFrozenState] = useState<Record<number, boolean>>({});
@@ -149,7 +181,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     if (localOnly || room.status === "ended") return;
     const video = new RemoteVideo({
       slug: room.slug, guildId: room.guildId, seat: mySeat, members: JSON.parse(members),
-      onPhoneScan: setPhoneScan, onPhonePresence: () => { void roster.mutate(); },
+      onPhoneScan: setPhoneScan, onPhonePresence: () => { void roster.mutate(); }, onRescan: from => rescanHandler.current?.(from) ?? "off",
       readPhone: (canvas,point,signal) => readCard(null,point,recognitionPriorsFor(roomRef.current,mySeat),signal,undefined,[canvas]),
       recognize: makeRecognizeRawFeed(
         async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }, () => recognitionPriorsFor(roomRef.current,mySeat)),
@@ -161,6 +193,21 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.slug, room.guildId, mySeat, localOnly, room.status === "ended"]);
   useEffect(() => { controller?.setMembers(JSON.parse(members)); }, [controller, members]);
+  // Share a small summary of my card reader with the other players: where it runs, its speed, and whether Auto-detect is on.
+  const detection = useCardDetection();
+  const sharing = !!controller && snap.feeds.some(f => f.seat === mySeat && f.video) && !manual(mySeat);
+  const visionDetect = detection && !detection.autoDetect ? "tap" : "auto";
+  // The reader reports a new read time on every read. It is followed outside React, so the table does not render for each read.
+  useEffect(() => {
+    if (!controller) return;
+    const report = () => {
+      if (!sharing) return controller.setVision(null);
+      const { backend, ms } = recognitionBackendNow();
+      controller.setVision({ backend: backend === "webgpu" ? "gpu" : backend ? "cpu" : "pending", ms: ms ?? undefined, detect: visionDetect });
+    };
+    report();
+    return subscribeRecognitionBackend(report);
+  }, [controller, sharing, visionDetect]);
   const rosterKey = JSON.stringify(phones);
   useEffect(() => { controller?.phone.setRoster(JSON.parse(rosterKey),JSON.parse(members)); },[controller,rosterKey,members]);
   useEffect(() => {
@@ -224,6 +271,9 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   }), [guard, phones, solo, startLocal, localCamera, controller, roster.mutate]);
   const disableCamera = useCallback(() => guard(async () => { if (localOnly) await stopLocal(); else await controller?.stop(); }), [guard, localOnly, stopLocal, controller]);
   const selectCamera = useCallback((id: string) => guard(() => localOnly ? startLocal(id) : controller ? controller.selectCamera(id) : Promise.resolve()), [guard, localOnly, startLocal, controller]);
+  const setVideoRate = useCallback((rate: VideoRate) => { if (controller) void controller.setVideoRate(rate); else saveVideoRate(rate); }, [controller]);
+  const retryVideo = useCallback(() => { void controller?.retryVideo(); }, [controller]);
+  const cpuStillLimited = useCallback(() => controller?.cpuStillLimited() ?? Promise.resolve(false), [controller]);
   const setMic = useCallback((on: boolean) => { setMicOn(on); if (controller && connected) void controller.setMicrophone(on).catch(e => controller.fail(e)); }, [controller, connected]);
 
   // The same source object must come back while the stream is the same. A new object on every render would re-attach the <video> and reset it.
@@ -252,12 +302,13 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     if (feed?.phone) return {q:"good",label:feed.mode === "scan" ? "Scan mode" : "Phone camera · connected",detail:feed.mode === "scan" ? "Use the board twin and log" : "Live phone field camera"};
     if (!feed?.video) return { q: "bad", label: "No feed", detail: connected ? "Disconnected" : "Table video is off" };
     if (frozen[seat]) return { q: "bad", label: "Frozen", detail: "No frames for 3 s" };
+    if (seat === mySeat && snap.sendFailed) return { q: "bad", label: "Not sending", detail: "Opponents cannot see your camera" };
     if (feed.muted) return { q: "warn", label: "Camera muted", detail: "" };
     const q = String(feed.quality);
     if (/poor/i.test(q)) return { q: "warn", label: "Weak", detail: "Poor connection" };
     if (/lost/i.test(q)) return { q: "bad", label: "Lost", detail: "Connection lost" };
     return { q: "good", label: "Good", detail: q === "unknown" ? "Live" : q };
-  }, [room.seats, localOnly, local, snap.feeds, snap.connection, snap.signalLost, connected, frozen, manual]);
+  }, [room.seats, localOnly, local, snap.feeds, snap.connection, snap.signalLost, snap.sendFailed, mySeat, connected, frozen, manual]);
 
   const wait = useRef(new Map<string, (r: ReadResult) => void>());
   useEffect(() => {
@@ -301,14 +352,16 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const board = useCallback((seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal) => readBoard(frame, cards, priorsOf(seat), signal), [priorsOf]);
 
   const value = useMemo<Hub>(() => ({
-    solo, rosterReady, phones, phoneScan, manual, refreshPhones: roster.mutate, cameraLock,
+    solo, rosterReady, phones, phoneScan, manual, refreshPhones: roster.mutate, cameraLock, setRescanHandler,
+    requestRescan: seat => controller && !localOnly ? controller.requestRescan(seat) : Promise.resolve<RescanResult>("unavailable"),
     receivePhone: async () => { await stopLocal(); await controller?.connect("",false); },
     answerPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note);},
     clearPhoneScan: note => {if(phoneScan)controller?.phone.answer(phoneScan.id,note ?? "Scan cancelled. Try again when ready.");setPhoneScan(null);},
-    connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
+    connection: localOnly ? (local ? "local" : "off") : snap.connection, cameraOn: localOnly ? !!local : connected, cpuConstrained: !localOnly && !!snap.cpuConstrained, videoRate: snap.videoRate ?? readVideoRate(), videoRateAvailable: !localOnly && connected && !phones.some(p => p.seat === roomRef.current.mySeat), setVideoRate, sendFailed: !localOnly && !!snap.sendFailed, retryVideo, cpuStillLimited, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: localOnly ? localDevices : snap.devices, cameraId: localOnly ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
+    peerVision: seat => seat === mySeat ? undefined : controller?.vision.get(seat), subscribePeerVision: listener => controller?.vision.subscribe(listener) ?? (() => undefined),
+    sourceFor, health, trafficStats: () => controller?.trafficStats() ?? Promise.resolve([]), setFrozen, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, tapMode,
     enableCamera, useWebcam, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, tapMode, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, cameraLock]);
+  }), [mySeat, setRescanHandler, setVideoRate, retryVideo, cpuStillLimited, solo, rosterReady, localOnly, phones, phoneScan, manual, roster.mutate, stopLocal, controller, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, tapMode, health, enableCamera, useWebcam, disableCamera, selectCamera, setMic, setFrozen, read, peek, board, trackedAt, trackedCards, trackedBacks, subscribeFieldBacks, trackedCalibration, publishFieldTracks, cameraLock]);
   return <Ctx value={value}>{children}</Ctx>;
 }

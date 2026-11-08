@@ -191,6 +191,71 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("match-result")).toHaveCount(0);
   });
 
+  test("surrender: the top bar button and the Deck menu ask first, then the game ends for both players; LP 0 ends it too", async ({ browser, context }) => {
+    test.setTimeout(300_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }); const bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [who, userId] of [[alice, 101], [bob, 102]] as const) { await authenticatePlayer(who.request, { userId }, process.env.E2E_AUTH_SECRET!, url); await bothView(who); }
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(); const b = await bob.newPage();
+      // A cold dev server can time out the first table request, so each page loads again until the table shows.
+      for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
+      await shot(a, "surrender-1-button");
+      if (SHOTS) {
+        for (const [w, h] of [[1366, 768], [390, 844], [375, 812], [360, 740]]) {
+          await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
+          await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
+          // The flag sits fully inside the screen.
+          expect(await a.getByTestId("surrender-button").evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+          await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
+          await a.locator('[data-zone="deck"][data-seat="0"]').click(); await shot(a, `surrender-3-deck-menu-${w}`); await a.keyboard.press("Escape");
+        }
+        await a.setViewportSize({ width: 1920, height: 1080 });
+      }
+      // Cancel keeps the game.
+      await a.getByTestId("surrender-button").click();
+      await expect(a.getByTestId("surrender-game")).toHaveText("Game 1 of 3");
+      await shot(a, "surrender-2-confirm");
+      await a.getByTestId("surrender-no").click();
+      await expect(a.getByTestId("surrender-confirm")).toHaveCount(0);
+      await expect(a.getByTestId("match-result")).toHaveCount(0);
+      // My Deck on the virtual field opens a menu with the same question.
+      await a.locator('[data-zone="deck"][data-seat="0"]').click();
+      await expect(a.getByTestId("deck-menu")).toBeVisible();
+      await shot(a, "surrender-3-deck-menu");
+      await a.getByTestId("deck-menu-surrender").click();
+      await expect(a.getByTestId("surrender-confirm")).toBeVisible();
+      await a.getByTestId("surrender-yes").click();
+      // Both players see the end of the game; the loser sees it as a defeat.
+      await expect(a.getByTestId("match-result")).toContainText("Defeat", { timeout: 15_000 });
+      await expect(b.getByTestId("match-result")).toContainText("Victory", { timeout: 15_000 });
+      await expect(b.getByTestId("match-reason")).toContainText("conceded");
+      await shot(a, "surrender-4-end-loser"); await shot(b, "surrender-5-end-winner");
+      await expect(a.getByTestId("surrender-button")).toHaveCount(0);
+    } finally { await alice.close(); await bob.close(); }
+    // A solo test table: the same button ends the game. Setting a seat to 0 LP ends a game on a table that is not in a tournament.
+    const solo = await soloTable(context.request, 2);
+    const page = await context.newPage();
+    await page.goto(`/duels/remote/${solo}`);
+    await expect(page.getByTestId("rail")).toBeVisible({ timeout: 30_000 });
+    // The Deck menu of the other seat gives up that seat, and the question names it.
+    await page.locator('[data-zone="deck"][data-seat="1"]').click();
+    await page.getByTestId("deck-menu-surrender").click();
+    await expect(page.getByTestId("surrender-confirm")).toContainText("Test Bot 1");
+    await page.getByTestId("surrender-yes").click();
+    await expect(page.getByTestId("match-result")).toContainText("Game over", { timeout: 15_000 });
+    const soloRoom = await (await context.request.get(`/api/remote/${solo}`)).json();
+    expect(soloRoom.state.seats.map((seat: { eliminated?: boolean }) => !!seat.eliminated)).toEqual([false, true]);
+    const lpTable = await soloTable(context.request, 2);
+    const room = await (await context.request.get(`/api/remote/${lpTable}`)).json();
+    const lpDown = await context.request.post(`/api/remote/${lpTable}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "lp.change", actorSeat: 0, seat: 1, delta: -8000, reason: "test", idempotencyKey: crypto.randomUUID() } } });
+    expect(lpDown.ok(), await lpDown.text()).toBe(true);
+    await page.goto(`/duels/remote/${lpTable}`);
+    await expect(page.getByTestId("match-result")).toBeVisible({ timeout: 30_000 });
+    await shot(page, "surrender-6-lp-zero");
+  });
+
   // Camera / field swap: per viewer and per seat, animated, remembered, keyboard reachable, and cards keep their own click.
   for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
     test(`the field and the camera swap places, per seat, and the choice is remembered: ${mode}`, async ({ page, context }) => {
@@ -489,7 +554,8 @@ test.describe("remote lobby camera step", () => {
     await lock.getByRole('button', { name: 'Re-lock' }).click(); await expect(lock).toContainText('Locked:');
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
-    await expect(page.getByTestId("lobby-cam-mic")).toBeVisible();
+    // With talk off, only voice commands use a microphone here.
+    await expect(page.getByTestId("lobby-cam-mic")).toHaveCount(process.env.REMOTE_VOICE_RECOGNITION === "1" ? 1 : 0);
     await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
     // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
     await expect(page.getByTestId("lobby-cam-check")).not.toHaveAttribute("data-state", "starting", { timeout: 60_000 });
@@ -530,8 +596,9 @@ test.describe("remote lobby camera step", () => {
     await page.getByTestId("lobby-cam-calibrate").click();
     const dialog = page.getByRole("dialog", { name: "Calibrate field zones" });
     await dialog.getByTestId("camera-faces-me").click();
-    // The whole grid moves with the arrow keys; there are no per-zone or per-corner handles.
-    await expect(dialog.getByRole("button", { name: /grid corner/ })).toHaveCount(0);
+    // The whole grid moves with the arrow keys; it has eight resize handles and a turn knob, but no per-zone handles.
+    await expect(dialog.getByRole("button", { name: /Resize from the/ })).toHaveCount(8);
+    await expect(dialog.getByTestId("field-rotate-handle")).toHaveCount(1);
     await dialog.getByTestId("field-move").focus();
     for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
     for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `calibration-dialog-${w}`); }
@@ -541,11 +608,13 @@ test.describe("remote lobby camera step", () => {
     const view = page.getByTestId("lobby-zones-view");
     await expect(view).toBeVisible();
     await shot(page, "lobby-zones-view");
-    // The width slider changes the whole grid at once and saves it; the zones keep their shape (M3 and M4 stay the same size). Undo brings the width back.
+    // Dragging the right-hand edge handle narrows the whole grid and saves it; the zones keep their shape (M3 and M4 stay the same size). Undo brings the width back.
     const gridWidth = () => view.locator("polygon").evaluateAll(polygons => { const xs = polygons.flatMap(p => (p.getAttribute("points") ?? "").split(" ").map(pair => Number(pair.split(",")[0]))); return Math.max(...xs) - Math.min(...xs); });
     const cellWidth = async (zone: string) => { const xs = ((await view.locator(`polygon[data-zone="${zone}"]`).getAttribute("points")) ?? "").split(" ").map(pair => Number(pair.split(",")[0])); return Math.max(...xs) - Math.min(...xs); };
     const wide = await gridWidth(), m3Wide = await cellWidth("M3");
-    await view.getByTestId("field-width").fill("0.8");
+    const surfaceBox = (await view.getByTestId("field-move").boundingBox())!, edge = (await view.getByTestId("field-handle-e").boundingBox())!;
+    const edgeX = edge.x + edge.width / 2, edgeY = edge.y + edge.height / 2;
+    await page.mouse.move(edgeX, edgeY); await page.mouse.down(); await page.mouse.move(edgeX - surfaceBox.width * 0.15, edgeY, { steps: 6 }); await page.mouse.up();
     await expect.poll(gridWidth).toBeLessThan(wide - 50);
     expect(Math.abs((await cellWidth("M3")) - (await cellWidth("M4")))).toBeLessThan(2);
     await shot(page, "lobby-zones-edited");
@@ -697,6 +766,24 @@ test.describe("remote duels screen, moving cards by hand", () => {
         await targets.getByRole("button", { name: /Origin fixture 1/ }).click();
         await expect.poll(pendingTarget, { timeout: 12_000 }).toBe(`seat${other}`);
       }).toPass({ timeout: 100_000 });
+    } finally { await alice.close(); await bob.close(); }
+  });
+
+  test("Rescan sits on the opponent's seat only, and shows what the other side answered", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const page = await alice.newPage(); await page.goto(`/duels/remote/${slug}`);
+      const rescan = page.getByTestId("field-rescan-1");
+      await expect(rescan).toBeVisible(); await expect(page.getByTestId("field-rescan-0")).toHaveCount(0);
+      await rescan.click();
+      // Bob has no camera on, so he answers "off", or nothing arrives in time. Either way the button says so.
+      await expect(rescan.getByRole("status")).toHaveText(/Their Auto-detect is off|Could not reach them/);
+      if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `rescan-button-${w}`); }
     } finally { await alice.close(); await bob.close(); }
   });
 
@@ -864,7 +951,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(choice.getByRole("radio", { name: "Use phone as camera" })).toBeVisible();
     const manual = choice.getByRole("radio", { name: "No camera (manual)" });
     await expect(async () => { await manual.click(); await expect(manual).toHaveAttribute("aria-checked", "true", { timeout: 1500 }); }).toPass({ timeout: 30_000 });
-    await expect(page.getByText("No camera (manual). Use voice")).toBeVisible();
+    await expect(page.getByText(`No camera (manual). Use ${process.env.REMOTE_VOICE_RECOGNITION === "1" ? "voice, " : ""}typing`)).toBeVisible();
     await page.getByTestId("camera-on-feed").click();
     await expect(page.getByTestId("feed-0").locator("video")).toBeVisible();
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toHaveAttribute("aria-checked", "true");
@@ -878,6 +965,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
   });
 
   test("voice: zone words move the last card, a named card, set face down, and the field zone", async ({ page, context }) => {
+    // The stack has voice commands off, as production does. Run this test with REMOTE_VOICE_RECOGNITION=1.
+    test.skip(process.env.REMOTE_VOICE_RECOGNITION !== "1", "needs voice commands on");
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);
     await page.getByTestId("phase-main1").click();
@@ -898,11 +987,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
 
   test("Duels → New → Remote Duel → Create room lands on the table", async ({ page }) => {
     await page.goto("/duels");
-    await expect(page.getByTestId("remote-tables-panel")).toBeVisible();
+    await expect(page.getByTestId("new-remote-duel")).toBeVisible();
     for (const [w, h] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
       await page.setViewportSize({ width: w, height: h });
       await page.goto("/duels");
-      await expect(page.getByRole("heading", { name: "Remote Duels" })).toBeVisible();
       await expect(page.getByRole("link", { name: "New Remote Duel" })).toBeVisible();
       await shot(page, `duels-${w}x${h}`);
       await page.goto("/duels/new");
@@ -951,9 +1039,9 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     }
     // The new table is listed on the Duels page. It is yours and solo, so it is still being set up, not open to join.
     await page.goto("/duels");
-    const panel = page.getByTestId("remote-tables-panel");
-    await expect(panel.getByText("Your table")).toBeVisible();
-    await expect(panel.getByText("Setting up").first()).toBeVisible();
+    await expect(page.getByText("Your table").first()).toBeVisible();
+    await expect(page.getByText("Setting up").first()).toBeVisible();
+    await expect(page.getByText("Remote", { exact: true }).first()).toBeVisible();
     await shot(page, "duels-with-table-1920");
   });
 
@@ -983,7 +1071,7 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
 // Run with E2E_REMOTE_OFF=1: the stack then starts without REMOTE_DUELS.
 test.describe("Remote Duel with the flag off leaves no trace", () => {
   test.skip(process.env.E2E_REMOTE_OFF !== "1", "needs a stack with REMOTE_DUELS off (E2E_REMOTE_OFF=1)");
-  test("no Play mode, no Remote Duels panel, no remote or deck requests", async ({ page, context }) => {
+  test("no Play mode, no Remote Duel button, no remote or deck requests", async ({ page, context }) => {
     await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, BASE_URL);
     const seen: string[] = [];
     page.on("request", request => { const path = new URL(request.url()).pathname; if (path.startsWith("/api/remote") || path === "/api/decks") seen.push(path); });
@@ -993,7 +1081,7 @@ test.describe("Remote Duel with the flag off leaves no trace", () => {
     await expect(page.getByTestId("remote-setup")).toHaveCount(0);
     await page.goto("/duels");
     await expect(page.getByRole("heading", { name: "Duels", exact: true })).toBeVisible();
-    await expect(page.getByTestId("remote-tables-panel")).toHaveCount(0);
+    await expect(page.getByTestId("new-remote-duel")).toHaveCount(0);
     await page.waitForTimeout(6000);
     expect(seen).toEqual([]);
   });
@@ -1145,7 +1233,7 @@ test.describe("remote duels, spectators", () => {
     const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
     try {
       for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103], [dave, 104]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
-      const slug = await startTwoPlayerTable(alice!.request, bob!.request), path = `/api/remote/${slug}`;
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public"), path = `/api/remote/${slug}`;
       // Hidden facts of Alice: a Set card, a card known to be in hand. Public: a face-up monster.
       const act = async (action: Record<string, unknown>) => {
         const room = await (await alice!.request.get(path)).json();
@@ -1198,9 +1286,10 @@ test.describe("remote duels, spectators", () => {
       // Voice: a spectator gets no token for its room, and no seated token can put a microphone in the room a spectator enters.
       const noVoice = await carol!.request.post(`${path}/livekit?voice=1`);
       expect([noVoice.status(), (await noVoice.json()).code]).toEqual([403, "SPECTATOR_READ_ONLY"]);
-      const seatGrant = grantOf((await (await alice!.request.post(`${path}/livekit`)).json()).token), voiceGrant = grantOf((await (await alice!.request.post(`${path}/livekit?voice=1`)).json()).token);
+      const seatGrant = grantOf((await (await alice!.request.post(`${path}/livekit`)).json()).token);
+      const seatedVoice = await alice!.request.post(`${path}/livekit?voice=1`);
+      expect([seatedVoice.status(), (await seatedVoice.json()).code]).toEqual([404, "TABLE_TALK_OFF"]);
       expect(JSON.stringify(seatGrant.canPublishSources).toLowerCase()).not.toContain("microphone");
-      expect([voiceGrant.room, JSON.stringify(voiceGrant.canPublishSources).toLowerCase()]).toEqual([`remote-${slug}-voice`, '["microphone"]']);
 
       // The socket: its own projection, no player room event, and it cannot send.
       const credentials = await (await carol!.request.get(`${path}/connection`)).json();
@@ -1241,7 +1330,9 @@ test.describe("remote duels, spectators", () => {
       });
       for (const page of [a, b]) await page.addInitScript(() => {
         const asked = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        (window as unknown as { __audioAsked: number }).__audioAsked = 0;
         navigator.mediaDevices.getUserMedia = async constraints => {
+          if (constraints?.audio) (window as unknown as { __audioAsked: number }).__audioAsked++;
           if (constraints?.video) return asked(constraints);
           const sound = new AudioContext(), out = sound.createMediaStreamDestination(); sound.createOscillator().connect(out);
           return out.stream;
@@ -1259,20 +1350,27 @@ test.describe("remote duels, spectators", () => {
       for (const seat of [0, 1]) {
         const video = c.locator(`[data-testid="feed-${seat}"] video`);
         await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0), { timeout: 60_000 }).toBeGreaterThan(0);
-        expect(await video.evaluate((v: HTMLVideoElement) => v.videoHeight)).toBeLessThanOrEqual(720);
-        await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "medium");
+        await expect(c.getByTestId(`feed-${seat}`)).toHaveAttribute("data-layer-asked", "high");
       }
-      // Talk is in the voice room for both players, comes back after a lost connection, and no audio track exists in the room of the spectator.
-      // A table opens unmuted but publishes the microphone only after a toggle on a connected table (video-hub setMic).
-      for (const page of [a, b]) { await page.getByRole("button", { name: "Mute microphone" }).click(); await page.getByRole("button", { name: "Unmute microphone" }).click(); }
-      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
-      expect((await inRoom(voiceRoom)).map(p => p.identity)).not.toContain(watcher);
+      // Player talk is off: nobody joins the voice room, and no audio track exists in the room of the spectator.
       expect((await inRoom(tableRoom)).map(p => p.identity)).toContain(watcher);
+      expect((await inRoom(voiceRoom)).map(p => p.identity)).toEqual([]);
       expect(await audioIn(tableRoom)).toEqual([]);
-      await lk.removeParticipant(voiceRoom, "remote-user-101");
-      await expect.poll(() => audioIn(voiceRoom), { timeout: 5000, intervals: [100] }).toEqual(["remote-user-102"]);
-      await expect.poll(async () => (await audioIn(voiceRoom)).sort(), { timeout: 30_000 }).toEqual(["remote-user-101", "remote-user-102"]);
-      expect(await audioIn(tableRoom)).toEqual([]);
+      if (process.env.REMOTE_VOICE_RECOGNITION !== "1") {
+        // With voice commands off too: no mic section, no mute control, V does nothing, and the table never asks for a microphone.
+        await expect(a.getByTestId("mic")).toHaveCount(0);
+        await expect(a.getByRole("button", { name: /mute/i })).toHaveCount(0);
+        await expect(a.getByText("Talk to the table")).toHaveCount(0);
+        await a.keyboard.press("v");
+        await expect(a.getByTestId("mic")).toHaveCount(0);
+        await expect(a.getByTestId("voice-off")).toBeVisible();
+        expect(await a.evaluate(() => (window as unknown as { __audioAsked: number }).__audioAsked)).toBe(0);
+        for (const [name, width, height] of [["1080p", 1920, 1080], ["768p", 1366, 768], ["mobile", 390, 844]] as const) {
+          await a.setViewportSize({ width, height }); await a.waitForTimeout(300); await shot(a, `no-mic-${name}`);
+          expect(await a.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), name).toBeLessThanOrEqual(0);
+        }
+        await a.setViewportSize({ width: 1920, height: 1080 });
+      }
       // A Set card outline holds the id in its ref: the opponent receives it, the spectator's raw data does not.
       await a.evaluate(() => {
         const quad = [{ x: .2, y: .2 }, { x: .4, y: .2 }, { x: .4, y: .5 }, { x: .2, y: .5 }];
@@ -1398,10 +1496,11 @@ test.describe("remote duels, spectators", () => {
       await expect(privatePage.getByTestId("spectator-table")).toHaveCount(0);
       await privatePage.close();
 
-      // The creator has the same choice, default Public, and the solo test has no such choice.
+      // The creator has the same choice. Its default is REMOTE_DEFAULT_VISIBILITY, Private.
       const creator = await alice!.newPage();
       await creator.goto("/duels/new?type=remote");
-      await expect(creator.getByRole("radio", { name: "Public" })).toBeChecked();
+      await expect(creator.getByRole("radio", { name: "Private" })).toBeChecked();
+      await creator.locator("label", { hasText: "Public" }).click();
       await expect(creator.getByTestId("remote-visibility-hint")).toContainText("can watch");
       await shot(creator, "spectator-creator");
     } finally { db.close(); await Promise.all([alice, bob, carol, dave].map(context => context!.close())); }
@@ -1724,8 +1823,10 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     for(const page of [a,b])await page.getByTestId('camera-on-feed').click();
     const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
     const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
-    const shown=await boxes();await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
-    expect(await boxes()).toEqual(shown);
+    await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
+    // Tap to identify starts with the virtual field hidden, so the camera may move once. After that it stays put.
+    await expect(a.getByTestId('field-toggle-0')).toContainText('Show virtual field');
+    const settled=await boxes();await a.waitForTimeout(800);expect(await boxes()).toEqual(settled);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the Settings menu; the checkbox follows.
     await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
@@ -2038,4 +2139,117 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
     if(['hand','deck'].includes(action.zone))expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)!.cardId).toBeUndefined();
   }
   expect(projectRemoteState((await room()).state,new Set([1])).seats[0].twin.find((card:any)=>card.ref===manualCard.ref)).toMatchObject({ref:manualCard.ref,slot:3,cardId:44508094,faceUp:false,publicIdentity:true});
+});
+
+test.describe("remote tournament", () => {
+  test("a paired match runs on a Remote table: concede proposes the result, both confirm, the slot is final", async ({ browser }) => {
+    test.setTimeout(180_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }); const bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const created = await alice.request.post("/api/tournaments", { data: { name: "Remote cup", format: "round_robin", visibility: "open", duelType: "remote", bestOf: 1, duelRules: { mode: "normal", masterRule: 5 } } });
+      expect(created.status(), await created.text()).toBe(201);
+      const { webSlug } = await created.json() as { webSlug: string };
+      // The creator is already an entrant; Bob joins.
+      const joined = await bob.request.post(`/api/tournaments/${webSlug}/join`); expect(joined.ok(), await joined.text()).toBe(true);
+      const started = await alice.request.post(`/api/tournaments/${webSlug}`);
+      expect(started.status(), await started.text()).toBe(200);
+      const detail = await (await alice.request.get(`/api/tournaments/${webSlug}`)).json();
+      const slot = detail.matches[0] as { id: number };
+      const root = `/api/tournaments/${webSlug}/matches/${slot.id}`;
+      const remote = await alice.request.post(`${root}/remote`);
+      expect(remote.status(), await remote.text()).toBe(201);
+      const { table } = await remote.json() as { table: { slug: string } };
+      // Bob takes seat 1, both sit with the seeded deck and start; seat 0 concedes.
+      expect((await bob.request.post(`/api/remote/${table.slug}/seat`, { data: { seat: 1 } })).ok()).toBe(true);
+      for (const api of [alice.request, bob.request]) {
+        const decks = (await (await api.get("/api/decks")).json()).decks as { id: number }[];
+        expect((await api.post(`/api/remote/${table.slug}/deck`, { data: { savedDeckId: decks[0]!.id } })).ok()).toBe(true);
+        expect((await api.post(`/api/remote/${table.slug}/ready`, { data: { ready: true } })).ok()).toBe(true);
+      }
+      expect((await alice.request.post(`/api/remote/${table.slug}/start`, { data: {} })).ok()).toBe(true);
+      const room = await (await alice.request.get(`/api/remote/${table.slug}`)).json();
+      const conceded = await alice.request.post(`/api/remote/${table.slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+      expect(conceded.ok(), await conceded.text()).toBe(true);
+      const read = await (await bob.request.get(`${root}/remote-result`)).json();
+      expect(read.remoteResult).toMatchObject({ status: "proposed", source: "concede" });
+      expect(typeof read.now).toBe("number");
+      for (const api of [alice.request, bob.request]) {
+        const confirmed = await api.post(`${root}/remote-result/confirm`, { data: {} });
+        expect(confirmed.ok(), await confirmed.text()).toBe(true);
+      }
+      const final = await (await alice.request.get(`${root}/remote-result`)).json();
+      expect(final.remoteResult).toMatchObject({ status: "final", finalizationReason: "both_confirmed" });
+      // The bracket page shows the slot as completed with a winner.
+      const after = await (await alice.request.get(`/api/tournaments/${webSlug}`)).json();
+      const done = after.matches.find((m: { id: number }) => m.id === slot.id);
+      expect(done.status).toBe("completed");
+      // Alice created the table (seat 0) and conceded, so she is not the winner.
+      expect(done.winnerId).not.toBeNull();
+      expect(done.winnerId).not.toBe(detail.currentUserPlayerId);
+    } finally { await alice.close(); await bob.close(); }
+  });
+});
+
+test.describe("remote duels screen, tokens and the camera", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+
+  // A fake reader stands in for the camera model (NEXT_PUBLIC_E2E_FIELD_HOOK, set by the e2e stack only): the test hands the table a card "seen" in a cell that holds a token.
+  test("a card seen on a token's cell: Choose another zone places it in the zone picked and keeps the token; Remove token puts it there and one Undo restores the token", async ({ page, context }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>; w.__tracks = [];
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "running", tracks: w.__tracks, metrics: { detectorMs: 0, recognitionMs: 0, dutyPercent: 0, intervalMs: 333, samples: 0, skipped: 0, placements: 0, latencyMs: 0, errors: 0 } }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, scanNow() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+      };
+    });
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const act = async (action: Record<string, unknown>) => {
+      const room = await (await context.request.get(path)).json();
+      const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      expect(response.status(), await response.text()).toBe(200);
+    };
+    const mine = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { zone: string; slot?: number; token?: unknown }[]).map(c => `${c.zone}:${c.slot}:${c.token ? "token" : "card"}`);
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "tk", name: "Sheep Token", slot: 3, faceUp: true, position: "defense", token: { atk: 0, def: 0 } } });
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
+    await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
+    await page.waitForTimeout(1500);
+    const sees = (id: string, cardId: string) => page.evaluate(([trackId, code]) => {
+      const w = window as unknown as { __tracks: unknown[]; __e2eField: { entries: { current: Map<string, unknown> }; handle: (event: unknown) => void } };
+      const now = performance.now(), down = false, cardId = code;
+      const track = { id: trackId, zone: "M3", faceDown: down, cardId: down ? undefined : cardId, revision: 0, state: "identified", firstSeen: now - 3000, lastSeen: now, removed: false, visible: true, position: "attack",
+        card: { kind: down ? "face-down" : "face-up", confidence: 1, partial: false, quad: [{ x: .4, y: .4 }, { x: .5, y: .4 }, { x: .5, y: .5 }, { x: .4, y: .5 }] } };
+      w.__e2eField.entries.current.set(cardId, { cardId, passcode: Number(cardId), name: `Origin fixture ${cardId.slice(-1)}` });
+      w.__tracks = [track]; w.__e2eField.handle({ type: "placed", track });
+    }, [id, cardId] as const);
+
+    // Choose another zone: the picker offers the other free monster zones, never M3. The card goes where the player picks and the token stays.
+    const clash = page.getByTestId("token-clash");
+    await sees("cam1", "900000001");
+    await expect(clash).toBeVisible();
+    await page.getByTestId("token-clash-other").click();
+    await expect(page.getByTestId("token-clash-zones")).toBeVisible();
+    await expect(page.getByTestId("token-clash-zone-M3")).toHaveCount(0);
+    await page.getByTestId("token-clash-zone-M4").click();
+    await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
+
+    // The first card is lifted off and a new card lies on the same cell: it asks again (the choice was for the first card only). Remove token puts it in M3, and one Undo brings the token back and clears the card.
+    await sees("cam2", "900000002");
+    await expect(clash).toBeVisible();
+    await page.getByTestId("token-clash-remove").click();
+    const cell = async () => (await mine()).filter(c => c.startsWith("monster:3:"));
+    await expect.poll(cell).toEqual(["monster:3:card"]);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    // The whole board is back: the token in M3, the first card in M4, no card in M3.
+    await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
+  });
 });

@@ -1,13 +1,15 @@
 import { report } from "@yugidraft/shared/observability";
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
-import { createDuelSeriesService, DuelServiceError } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createRemoteDuelService, DuelServiceError, mergeHistory } from "@yugidraft/shared/services";
+import { RemoteDuelError } from "@yugidraft/shared/remote";
 import { env } from "@/lib/env";
 import { assertDuelInviteUrl, duelUrl, sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { playerIdentity } from "@/lib/player-lookup";
+import { remoteDuelsEnabledFor } from "@/lib/remote-duels";
 
 export const runtime = "nodejs";
 
@@ -45,10 +47,47 @@ export async function GET(request: NextRequest) {
     if (status !== undefined && status !== "any" && status !== "completed" && status !== "interrupted" && status !== "cancelled") {
       throw new DuelServiceError("Status must be any, completed, interrupted, or cancelled", 400);
     }
-    return NextResponse.json(actor.duels.listHistory(actor.guildId, actor.playerId, {
+    const type = param("type") ?? "all";
+    if (type !== "all" && type !== "online" && type !== "remote") {
+      throw new DuelServiceError("Type must be all, online, or remote", 400);
+    }
+    const options = {
       scope, from: param("from"), to: param("to"), format, status,
       q: param("q"), card: param("card"), cursor: param("cursor"), limit: limit === undefined ? undefined : Number(limit),
-    }), { headers: { "cache-control": "private, no-store" } });
+    } as const;
+    const headers = { "cache-control": "private, no-store" };
+    // Remote Duels are in the same list for people who may use them. Everyone else gets online duels only.
+    const remote = remoteDuelsEnabledFor(actor.userId) && type !== "online" ? createRemoteDuelService(getDb()) : null;
+    if (!remote) {
+      if (type === "remote") return NextResponse.json({ duels: [], nextCursor: null, canSeeAll: false }, { headers });
+      return NextResponse.json(actor.duels.listHistory(actor.guildId, actor.playerId, options), { headers });
+    }
+    // Admin-only filters that cover online duels alone (a card search in decks, a stored status) leave Remote out.
+    const remoteHistory = (cursor: string | undefined, hideUnfinished = false) => {
+      if (options.card || (status !== undefined && status !== "any" && status !== "completed")) {
+        return { items: [], nextCursor: null, canSeeAll: false };
+      }
+      try {
+        const page = remote.listHistory(actor.guildId, actor.userId, { scope, from: options.from, to: options.to, format,
+          q: options.q, cursor, limit: options.limit });
+        return hideUnfinished ? { ...page, items: page.items.filter(item => item.winnerSeat !== null) } : page;
+      } catch (error) {
+        // A bad Remote row must not hide the online list. A bad request still fails.
+        if (error instanceof RemoteDuelError && error.status === 400) throw new DuelServiceError(error.message, 400);
+        report(error, { tags: { operation: "[api/duels] remote history failed" } });
+        return { items: [], nextCursor: null, canSeeAll: false };
+      }
+    };
+    if (type === "remote") {
+      const page = remoteHistory(options.cursor ?? undefined, status === "completed");
+      return NextResponse.json({ duels: page.items, nextCursor: page.nextCursor, canSeeAll: page.canSeeAll }, { headers });
+    }
+    return NextResponse.json(mergeHistory({
+      cursor: options.cursor,
+      online: (cursor) => actor.duels.listHistory(actor.guildId, actor.playerId, { ...options, cursor }),
+      remote: cursor => remoteHistory(cursor),
+      remoteKeep: status === "completed" ? item => item.winnerSeat !== null : undefined,
+    }), { headers });
   } catch (error) {
     return duelErrorResponse(error);
   }

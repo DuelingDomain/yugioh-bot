@@ -3,10 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { DuelEvent, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, MAX_BATTLE_MS, STYLE_TIMING } from "@/components/duel/attack-styles";
 import { ATTACK_TIMING, LP_TIMING } from "@/components/duel/duel-timing";

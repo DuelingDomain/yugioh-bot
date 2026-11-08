@@ -63,6 +63,27 @@ and remain outside `public/` to retain the request-time gate. No service on
 port 3000 is needed. `prepare.ts --bundle-only` bundles code/runtime without
 downloading models; rerun it after worker changes.
 
+### Deploying: code in the web image, data in the volume
+
+Two kinds of files sit behind `/dev/vision-assets/`:
+
+| Kind | Files | Where in production | Changes with |
+| --- | --- | --- | --- |
+| Code | `worker.js`, `ort/` (ONNX Runtime WASM, version-locked to the bundle in `worker.js`), `NOTICE` | The `web` image, `/app/vision-code`, root-owned | Every deploy of a `packages/vision` change |
+| Data | `models/`, `yugioh-index.*`, `related-cards.json`, `yugioh-thresholds.json`, `yugioh-full-art.*` | The data volume, `data/vision` | A model or index change, copied by hand (`docs/deployment/vm-runbook.md`, Remote Duels step 5) |
+
+The Dockerfile `vision-code` stage runs `npx tsx scripts/vision/prepare.ts --code-only`. That mode needs no network,
+no models and no Python: it only bundles `worker.js` with esbuild and copies the runtime files and notices.
+It sets every mtime to the epoch, so an unchanged runtime keeps its layer digest between images and the
+~41 MB of WASM is not pulled again on each deploy.
+
+The route serves `worker.js`, `ort/*` and `NOTICE` from `VISION_CODE_DIR` (default `/app/vision-code` when that
+directory exists) and falls back to `VISION_DATA_DIR` when the image has no such file, which is the local
+development case. Every other path reads only from `VISION_DATA_DIR`. Code files carry
+`Cache-Control: private, no-cache` and a strong ETag from the file contents, so browsers revalidate on each load
+and get a 304 until the image changes. No `?v=` bump is needed. Data files keep `max-age=3600` with a size and
+mtime ETag. An image rollback rolls the worker and the WASM back with the web bundle.
+
 ## API
 
 ```ts
@@ -136,6 +157,41 @@ treated as a duplicate outline. With no depth evidence this conservatively
 caps both cards of a stack. Hands, missing detections and nearly coincident
 stacks are not reliably detected; this does not reconstruct hidden artwork or
 inherit upstream's private-footage calibration.
+
+### Remote Duels detector cost (2026-11-07)
+
+The scene worker refines only plausible retained boxes, reuses quads whose original
+box moved less than two native pixels, and reads native pixels only around cards.
+Both backends use scene-change pacing: 4-second still-card scans, 20% CPU / 25%
+GPU sustain. CPU bursts rest 1:1; split CPU workers use one detector thread and two
+read threads. GPU shadow rescue is limited to live plausible tracks, cropped to
+the missing area, and permitted every 3 seconds or with measured shadow share
+at least .03. Settled face evidence is reused until look, motion, or pending face
+state requires another 96×140 card crop.
+
+Synthetic 1920×1080, 12-card Chromium/WASM comparison (Node 22, Chromium 153,
+8 logical cores, 25 warm passes; other builds active on the shared host):
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Median wall time/pass | 351 ms | 237 ms |
+| Worker CPU time/pass | 666 ms | 354 ms |
+| Mean refinement/postprocessing | 86 ms | 0.4 ms |
+
+Full passes retain 960 pixels: 640 lost the smallest-card fixture (11/12 at 960,
+0/12 at 640). The optimized 960 path retains 11/12; normal-sized boards retain
+12/12. Motion crops remain 448. Hardware GPU timing is unavailable (SwiftShader
+fallback only), and the ≤200 ms CPU target is not certified by this shared-host
+run. Video encoding and transforms are unchanged.
+
+Reproduce the pass comparison with the same model/index/photo assets on both
+revisions (save the baseline bundles with `CPU_OUT` before changing code):
+
+```sh
+CPU_OUT=/tmp/vision-before CPU_LABEL=before CPU_SCENES=pass CPU_READS=0 CPU_PASSES=25 CPU_CONFIG='{"cardCount":12}' npx tsx scripts/vision/benchmark-cpu.ts
+CPU_OUT=/tmp/vision-after CPU_LABEL=after CPU_SCENES=pass CPU_READS=0 CPU_PASSES=25 CPU_CONFIG='{"cardCount":12}' npx tsx scripts/vision/benchmark-cpu.ts
+# Add "cardScale":0.35 to CPU_CONFIG for the smallest-card recall fixture.
+```
 
 Offline synthetic board measurements and validation are in the local measurement report (not in the repo).
 Reproduce using existing local models/index and the existing clean-photo corpus:
@@ -948,9 +1004,32 @@ and confidence thresholds are unchanged.
 
 ### WebGPU model assets
 
-The GPU path uses separate fp16 graphs with Float32 IO. Adapters without
-`shader-f16` use the pinned fp32 graphs on WebGPU. A rejected fp16 session or
-inference also tries fp32 before CPU. Software adapters can execute this path
+The embedder's GPU path uses a separate fp16 graph with Float32 IO. Adapters
+without `shader-f16` use the pinned fp32 graph on WebGPU. A rejected fp16
+session or inference also tries fp32 before CPU. The card detector uses only
+its fp32 graph on WebGPU: on an RTX 3070 (Chrome 157) the fp16 detector ran
+without an error and returned finite but wrong numbers (heat peak 0.099 against
+0.881 for fp32 and WASM on the same frame, 2026-11-07), and fp32 was as fast
+(80 ms against 84 ms at 1600 long side). Its `card-detector.fp16.onnx` export is
+no longer loaded.
+
+Because a half-precision graph can be wrong without failing, every new fp16
+session first runs one fixed 224 x 224 picture (`checkImage`, made in code,
+`src/gpu-check.ts`) and must give a vector with cosine >= 0.99 against the
+fp32 graph's vector for it (`src/gpu-check-reference.ts`, from the CPU).
+A mismatch, a non-finite value or a throwing check releases the fp16 session and
+opens the fp32 graph on the same GPU; the reason is in `gpuDiagnostics.attempts`.
+The check runs once per session open, not per request, and an fp32 graph is not
+checked. A model opts in with `gpuCheck` in its spec. After a new embedder export, make
+the reference again (the script also prints the fp16 graph's CPU cosine and how
+far other pictures are):
+
+```sh
+VISION_DATA_DIR=<dir with models/> npx tsx scripts/vision/gpu-check-reference.ts --write
+```
+
+Without `--write` it checks that the stored reference still matches the fp32
+graph. Software adapters can execute this path
 and are identified in diagnostics. CPU fallback uses the original q8 embedder
 and detector. Only selected models are fetched. All variants retain the existing
 index layout identity and have pinned checksums.

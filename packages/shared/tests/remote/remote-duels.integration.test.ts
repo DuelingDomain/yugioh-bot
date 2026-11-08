@@ -4,12 +4,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
-import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/account-deletion.js";
+import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
-import { seedUser } from "../helpers/identity.js";
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
+import { readRemoteState } from "../../src/remote/storage.js";
+import { applyRemoteOpening } from "../../src/remote/match.js";
+import { applyPatch } from "../../src/remote/delta.js";
+import { mergeHistory } from "../../src/services/history-merge.js";
+import type { RemoteHistoryItem } from "../../src/remote/history.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -93,9 +98,9 @@ writeFileSync(join(deckData, "strings.conf"), "");
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
-function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true) {
+function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true, serviceOptions: { openingRoll?: boolean } = {}) {
   const { db, users } = setup();
-  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"] });
+  const service = createRemoteDuelService(db, { dataDirectory: deckData, openFormats: ["normal", "domain", "genesys", "genesys-domain"], ...serviceOptions });
   let room = service.create({ guildId: "g", userId: users[0], displayName: "Sulman", gameId: "ygo", seatCount: 2, solo, format }, 2000);
   const decks = createSavedDeckService(db, new Map());
   const save = (main = Array.from({ length: format.includes("domain") ? 60 : 40 }, (_, i) => i + 1), extra: number[] = [], owner = users[0]) =>
@@ -109,6 +114,295 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,room.state.seats[0].twin.length+1),at:room.state.updatedAt},card: { ref, cardId, slot } });
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
+
+it('requires the seat owner to confirm tournament LP zero and keeps pending results undoable', () => {
+  for (const tournament of [undefined, false]) {
+    const initial = ygoModule.initialState({seatCount:2, bestOf:1, tournament});
+    const ended = ygoModule.reduce(initial, {type:'lp.change', actorSeat:0, seat:1, delta:-8000, reason:'damage', idempotencyKey:'casual-zero'});
+    expect(ended).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp', winnerSeat:0}]}});
+  }
+  let state = ygoModule.initialState({seatCount:2, bestOf:3, firstSeat:1, tournament:true}), serial = 0;
+  const step = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({
+    actorSeat:0, idempotencyKey:`tournament-lp-${++serial}`, at:serial, ...input,
+  }));
+  step({type:'twin.place', actorSeat:1, seat:1, zone:'monster', card:{ref:'private-card', cardId:1, name:'Secret', faceUp:false, slot:1}});
+  const zero = () => {
+    step({type:'lp.change', seat:1, delta:-8000, reason:'damage'});
+    expect(state).toMatchObject({tournament:true, ended:false, winnerSeat:null, match:{phase:'duel', games:[],
+      pendingResult:{id:state.undo!.actionId, winnerSeat:0, confirmed:[0]}}});
+    expect(state.seats[1]).toMatchObject({resources:{lp:0}, eliminated:false, twin:[{cardId:1}]});
+    expect(projectRemoteState(state,new Set([0])).seats[1].twin[0]).not.toHaveProperty('cardId');
+    return state.match.pendingResult!.id;
+  };
+  let declarationId = zero();
+  expect(() => step({type:'match.confirm', declarationId, accept:true})).toThrow(/confirm|owner/i);
+  step({type:'undo', targetActionId:declarationId});
+  expect(state.seats[1].resources.lp).toBe(8000);
+  expect(state.match.pendingResult).toBeUndefined();
+  expect(() => step({type:'match.confirm', actorSeat:1, declarationId, accept:true})).toThrow(/pending/i);
+
+  declarationId = zero();
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:false});
+  expect(state.ended).toBe(false); expect(state.match.pendingResult).toBeUndefined();
+  step({type:'undo', targetActionId:declarationId});
+  expect(state.seats[1].resources.lp).toBe(8000);
+
+  declarationId = zero();
+  step({type:'lp.change', actorSeat:1, seat:1, delta:500, reason:'correction'});
+  const correctionId = state.undo!.actionId;
+  expect(state.match.pendingResult).toBeUndefined();
+  expect(() => step({type:'match.confirm', actorSeat:1, declarationId, accept:true})).toThrow(/pending/i);
+  step({type:'undo', actorSeat:1, targetActionId:correctionId});
+  expect(state.match.pendingResult?.id).toBe(declarationId);
+  step({type:'phase.set', actorSeat:1, phase:'main1'});
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:true});
+  expect(state).toMatchObject({ended:true, match:{phase:'result', games:[{reason:'lp', winnerSeat:0}]}});
+  const confirmationId = state.undo!.actionId;
+  expect(() => step({type:'undo', targetActionId:declarationId})).toThrow(/confirmation/i);
+  step({type:'undo', actorSeat:1, targetActionId:confirmationId});
+  expect(state.match.pendingResult?.id).toBe(declarationId);
+  step({type:'undo', targetActionId:declarationId});
+  expect(state).toMatchObject({ended:false, phase:'main1', match:{phase:'duel', games:[]}});
+  expect(state.match.pendingResult).toBeUndefined(); expect(state.seats[1].resources.lp).toBe(8000);
+
+  declarationId = zero();
+  step({type:'match.confirm', actorSeat:1, declarationId, accept:true});
+  step({type:'match.continue'});
+  step({type:'match.first', actorSeat:1, seatGoesFirst:1});
+  step({type:'side.ready', seat:0}); step({type:'side.ready', actorSeat:1, seat:1});
+  expect(state).toMatchObject({tournament:true, ended:false, match:{phase:'duel'}});
+  step({type:'lp.change', actorSeat:1, seat:1, delta:-8000, reason:'own damage'});
+  expect(state).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp'}, {reason:'lp'}]}});
+  expect(state.match.pendingResult).toBeUndefined();
+  step({type:'undo', actorSeat:1, targetActionId:state.undo!.actionId});
+  step({type:'player.concede', actorSeat:1});
+  expect(state).toMatchObject({ended:true, match:{phase:'done', games:[{reason:'lp'}, {reason:'concede'}]}});
+  expect(state.match.pendingResult).toBeUndefined();
+
+  // A later correction or concession must not become a stale LP request when
+  // another seat undoes the elimination that originally cleared the request.
+  for (const concede of [false,true]) {
+    let ffa = ygoModule.initialState({seatCount:3,tournament:true});
+    const apply = (input:Record<string,unknown>) => ffa = ygoModule.reduce(ffa,remoteActionSchema.parse({
+      actorSeat:0,idempotencyKey:`ffa-lp-${++serial}`,at:serial,...input,
+    }));
+    apply({type:'lp.change',seat:1,delta:-8000,reason:'damage'});
+    apply({type:'player.concede',actorSeat:2});
+    const concessionId = ffa.undo!.actionId;
+    if (concede) apply({type:'player.concede',actorSeat:1});
+    else apply({type:'lp.change',actorSeat:1,seat:1,delta:500,reason:'correction'});
+    apply({type:'undo',actorSeat:2,targetActionId:concessionId});
+    expect(ffa.match.pendingResult).toBeUndefined();
+  }
+});
+
+it('preserves a tournament LP request when another FFA seat is eliminated and recomputes the winner on confirmation', () => {
+  for (const concede of [false, true]) {
+    let state = ygoModule.initialState({seatCount:3, tournament:true}), serial = 0;
+    const step = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({
+      actorSeat:0, idempotencyKey:`ffa-pending-lp-${++serial}`, at:serial, ...input,
+    }));
+    step({type:'lp.change', seat:1, delta:-8000, reason:'damage'});
+    const pending = structuredClone(state.match.pendingResult!);
+    expect(pending).toMatchObject({lpSeat:1, winnerSeat:null});
+
+    if (concede) step({type:'player.concede', actorSeat:2});
+    else step({type:'lp.change', actorSeat:2, seat:2, delta:-8000, reason:'own damage'});
+    expect(state.seats[2].eliminated).toBe(true);
+    expect(state.seats[1]).toMatchObject({resources:{lp:0}, eliminated:false});
+    expect(state.match.pendingResult).toEqual(pending);
+    expect(state.ended).toBe(false);
+
+    step({type:'match.confirm', actorSeat:1, declarationId:pending.id, accept:true});
+    expect(state.seats[1].eliminated).toBe(true);
+    expect(state.match.pendingResult).toBeUndefined();
+    expect(state).toMatchObject({ended:true, winnerSeat:0,
+      match:{phase:'done', winnerSeat:0, games:[{reason:'lp', winnerSeat:0}]}});
+  }
+});
+
+it('rolls a public opening die for game 1: the winner chooses who goes first, and a missed choice means the winner goes first', () => {
+  for (const choice of ['second', 'timeout'] as const) {
+    const s = deckSession('normal', false, { openingRoll: true });
+    s.select(s.save().id);
+    s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
+    s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
+    let room = s.room;
+    const opening = room.state.match.opening!;
+    const last = opening.rounds.at(-1)!;
+    expect(opening.rounds.every(round => round.every(roll => roll === null || (roll >= 1 && roll <= 6)))).toBe(true);
+    expect(last.filter(roll => roll === Math.max(...last.filter(r => r !== null) as number[]))).toHaveLength(1);
+    expect(last[opening.winnerSeat]).toBe(Math.max(...last.filter(r => r !== null) as number[]));
+    expect(opening).toMatchObject({ startedAt: 2003, deadline: 2003 + opening.rounds.length * 3000 + 20000 });
+    expect(opening.chosenSeat).toBeUndefined();
+    // Everyone, spectators included, sees the same roll in the public start event.
+    const startEvent = (room: { events: { action: { type: string } }[] }) => room.events.find(e => e.action.type === 'table.started')!.action;
+    expect(startEvent(s.service.get(s.room.slug, 'g', s.users[1]))).toMatchObject({ opening });
+    expect(startEvent(s.service.spectatorSnapshot(s.room.slug, 'g'))).toMatchObject({ opening });
+    const winner = opening.winnerSeat, loser = 1 - winner;
+    const actAs = (seat: number, input: Record<string, unknown>) => room = s.service.act(room.slug, 'g', s.users[seat],
+      { baseSeq: room.lastSeq, action: remoteActionSchema.parse({ actorSeat: seat, idempotencyKey: `open-${seat}-${input.type}-${room.lastSeq}`, ...input }) }, 2100 + room.lastSeq);
+    // Play waits for the choice, and only the winner may choose.
+    expect(() => actAs(winner, { type: 'log.note', text: 'too early' })).toThrow(/choose who goes first/);
+    expect(() => actAs(loser, { type: 'match.first', seatGoesFirst: loser })).toThrow(/die-roll winner/);
+    if (choice === 'second') {
+      actAs(winner, { type: 'match.first', seatGoesFirst: loser });
+      expect(room.state).toMatchObject({ turnSeat: loser, startedSeats: [loser], match: { opening: { chosenSeat: loser } } });
+      expect(() => actAs(winner, { type: 'match.first', seatGoesFirst: winner })).toThrow();
+      actAs(loser, { type: 'log.note', text: 'game on' });
+    } else {
+      expect(s.service.sweepIdle(opening.deadline - 1)).toEqual([]);
+      expect(s.service.sweepIdle(opening.deadline)).toHaveLength(1);
+      room = s.service.get(room.slug, 'g', s.users[0]);
+      expect(room.state).toMatchObject({ turnSeat: winner, startedSeats: [winner], match: { opening: { chosenSeat: winner } } });
+    }
+    expect(s.service.replay(room.slug, 'g', s.users[0])).toEqual(s.service.get(room.slug, 'g', s.users[0]).state);
+  }
+  // A winner who left the game hands the choice, and the default, to the next living seat by roll order.
+  let three = ygoModule.initialState({ seatCount: 3, bestOf: 1 });
+  applyRemoteOpening(three, { rounds: [[3, 6, 5]], winnerSeat: 1, startedAt: 1000, deadline: 24000 });
+  three = ygoModule.reduce(three, { type: 'player.concede', actorSeat: 1, idempotencyKey: 'out', at: 2000 });
+  const first = (actorSeat: number, seatGoesFirst: number) => ygoModule.reduce(three, { type: 'match.first', actorSeat, seatGoesFirst, idempotencyKey: `f-${actorSeat}-${seatGoesFirst}`, at: 3000 });
+  expect(() => first(1, 1)).toThrow(/die-roll winner/);
+  expect(() => first(0, 0)).toThrow(/die-roll winner/);
+  expect(() => first(2, 1)).toThrow(/out of the game/);
+  expect(first(2, 0)).toMatchObject({ turnSeat: 0, match: { opening: { chosenSeat: 0 } } });
+  expect(ygoModule.reduce(three, { type: 'side.timeout', actorSeat: 0, idempotencyKey: 'late', at: 24000 })).toMatchObject({ turnSeat: 2, match: { opening: { chosenSeat: 2 } } });
+});
+
+it('logs detection mode per seat as a public fact without changing the board or private information', () => {
+  const s = deckSession('normal',false);
+  s.select(s.save().id);
+  s.service.join(s.room.slug,'g',s.users[1],'Opponent',1,2001);
+  s.service.ready(s.room.slug,'g',s.users[1],true,2002); s.start();
+  s.act({type:'twin.place',seat:0,zone:'monster',card:{ref:'secret-card',cardId:1,name:'Secret',faceUp:false,slot:1}});
+  const before = s.service.snapshot(s.room.slug,'g').state;
+  const input = {baseSeq:s.room.lastSeq, action:remoteActionSchema.parse({
+    type:'detection.mode', actorSeat:0, mode:'tap', reason:'slow-offer', idempotencyKey:'detection-switch',
+  })};
+  const switched = s.service.act(s.room.slug,'g',s.users[0],input,2200);
+  expect(switched.lastSeq).toBe(input.baseSeq+1);
+  expect(s.service.act(s.room.slug,'g',s.users[0],input,2201).lastSeq).toBe(switched.lastSeq);
+  const raw = s.service.snapshot(s.room.slug,'g');
+  expect(raw.state.detection).toEqual({0:{mode:'tap',at:2200}});
+  expect({...raw.state,detection:before.detection,updatedAt:before.updatedAt}).toEqual(before);
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(switched.state);
+  const event = raw.events.at(-1)!;
+  expect(event).toMatchObject({actorSeat:0,userId:s.users[0],at:2200,action:{type:'detection.mode',mode:'tap',reason:'slow-offer'}});
+  expect(JSON.parse((s.db.prepare('select action_json from remote_events where idempotency_key=?').get(event.id) as {action_json:string}).action_json)).toEqual(event.action);
+  expect(s.service.get(s.room.slug,'g',s.users[1]).events.at(-1)?.action).toEqual(event.action);
+  const spectator = projectRemoteSpectator(raw);
+  expect(spectator.state.detection).toEqual(raw.state.detection);
+  expect(spectator.events.at(-1)?.action).toEqual(event.action);
+  expect(spectator.state.seats[0].twin[0]).not.toHaveProperty('cardId');
+  expect(spectator.state.deckChecks.registrations).toEqual({});
+  const opponent = s.service.get(s.room.slug,'g',s.users[1]);
+  expect(opponent.state.detection).toEqual(raw.state.detection);
+  expect(opponent.state.seats[0].twin[0]).not.toHaveProperty('cardId');
+  expect(opponent.state.deckChecks.registrations[0]).toBeUndefined();
+  for (const mode of ['auto','tap','manual']) for (const reason of ['player','slow-offer','start']) {
+    expect(remoteActionSchema.safeParse({...input.action,mode,reason}).success).toBe(true);
+  }
+  for (const extra of [{mode:'unknown'},{reason:'unknown'},{seat:1}]) {
+    expect(remoteActionSchema.safeParse({...input.action,...extra}).success).toBe(false);
+  }
+  expect(() => s.service.act(s.room.slug,'g',s.users[1],{
+    baseSeq:switched.lastSeq,action:{...input.action,idempotencyKey:'spoof-mode'},
+  },2202)).toThrow(/actor seat/i);
+  const own = s.service.act(s.room.slug,'g',s.users[1],{baseSeq:switched.lastSeq,
+    action:remoteActionSchema.parse({...input.action,actorSeat:1,mode:'auto',reason:'start',idempotencyKey:'other-mode'})},2203);
+  expect(own.events.at(-1)).toMatchObject({actorSeat:1,action:{type:'detection.mode',mode:'auto',reason:'start'}});
+  expect(own.state.detection).toEqual({0:{mode:'tap',at:2200},1:{mode:'auto',at:2203}});
+});
+
+it.each(['auto','tap','manual'] as const)('ignores repeated %s detection starts while retaining explicit reports and mode changes', mode => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  expect(s.room.state.detection).toEqual({});
+  s.act({type:'detection.mode',mode,reason:'start'});
+  const started = s.room;
+  s.act({type:'detection.mode',mode,reason:'start'});
+  expect(s.room.lastSeq).toBe(started.lastSeq);
+  expect(s.room.state).toEqual(started.state);
+  expect(s.room.lastEventAt).toBe(started.lastEventAt);
+  expect(s.room.events.filter(e=>e.action.type==='detection.mode')).toHaveLength(1);
+  for (const reason of ['player','slow-offer']) {
+    const seq = s.room.lastSeq;
+    s.act({type:'detection.mode',mode,reason});
+    expect(s.room.lastSeq).toBe(seq+1);
+    expect(s.room.state.detection).toEqual({0:{mode,at:s.room.state.updatedAt}});
+  }
+  const reported = s.room;
+  s.act({type:'detection.mode',mode,reason:'start'});
+  expect(s.room.lastSeq).toBe(reported.lastSeq);
+  expect(s.room.state).toEqual(reported.state);
+  const changedMode = mode==='auto' ? 'manual' : 'auto';
+  s.act({type:'detection.mode',mode:changedMode,reason:'start'});
+  expect(s.room.lastSeq).toBe(reported.lastSeq+1);
+  expect(s.room.state.detection).toEqual({0:{mode:changedMode,at:s.room.state.updatedAt}});
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+});
+
+it.each([false,true])('preserves intervening detection reports when undoing a coalesced camera placement (legacy replay: %s)', legacyReplay => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  s.act({type:'detection.mode',actorSeat:1,mode:'auto',reason:'start'});
+  s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{ref:'camera-card',cardId:1,slot:1}});
+  const targetActionId = s.room.state.undo!.actionId;
+  s.act({type:'detection.mode',actorSeat:1,mode:'manual',reason:'player'});
+  const detection = s.room.state.detection;
+  s.act({type:'card.identified',seat:0,cardRef:'camera-card',cardId:2,zone:'monster',slot:1,source:'auto'});
+  expect(s.room.state.undo!.actionId).toBe(targetActionId);
+  const stored = s.db.prepare('select state_json from remote_tables where slug=?').get(s.room.slug) as {state_json:string};
+  const undone = legacyReplay
+    ? ygoModule.reduce(readRemoteState(s.db,stored.state_json),{type:'undo',actorSeat:0,targetActionId,idempotencyKey:'legacy-camera-undo',at:2200},{replay:true})
+    : s.act({type:'undo',targetActionId}).state;
+  expect(undone.seats[0].twin).toEqual([]);
+  expect(undone.detection).toEqual(detection);
+  if (!legacyReplay) expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+});
+
+it('reloads detection modes from persisted state after their events leave the public event window', () => {
+  const s = deckSession('normal');
+  s.select(s.save().id); s.start();
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  s.act({type:'detection.mode',actorSeat:1,mode:'tap',reason:'start'});
+  const detection = s.room.state.detection;
+  for (let i=0;i<51;i++) s.act({type:'log.note',text:`Later event ${i}`});
+  const reloaded = createRemoteDuelService(s.db,{dataDirectory:deckData});
+  const room = reloaded.get(s.room.slug,'g',s.users[0]);
+  expect(room.events).toHaveLength(50);
+  expect(room.events.some(e=>e.action.type==='detection.mode')).toBe(false);
+  expect(room.state.detection).toEqual(detection);
+  const stored = s.db.prepare('select state_json from remote_tables where slug=?').get(room.slug) as {state_json:string};
+  expect(JSON.parse(stored.state_json).detection).toEqual(detection);
+  const views = reloaded.views(room.slug,'g',{userIds:[s.users[0]],spectator:true,publicView:true});
+  for (const state of [views.players.get(s.users[0])!.state,views.spectator!.state,views.publicView!.state,
+    reloaded.snapshot(room.slug,'g').state,reloaded.spectatorSnapshot(room.slug,'g').state,
+    reloaded.replay(room.slug,'g',s.users[0])]) expect(state.detection).toEqual(detection);
+});
+
+it('preserves detection modes through siding and the next game in live state and replay', () => {
+  const s = deckSession('normal');
+  s.select(s.save().id);
+  s.service.configure(s.room.slug,'g',s.users[0],{bestOf:3},2001); s.start();
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  s.act({type:'detection.mode',actorSeat:1,mode:'auto',reason:'start'});
+  const detection = s.room.state.detection;
+  s.act({type:'player.concede',actorSeat:1});
+  s.act({type:'match.continue'});
+  expect(s.room.state.detection).toEqual(detection);
+  s.act({type:'match.first',actorSeat:1,seatGoesFirst:1});
+  s.act({type:'side.ready',seat:0});
+  expect(s.room.state.match).toMatchObject({phase:'duel',games:[{winnerSeat:0}]});
+  expect(s.room.state.ended).toBe(false);
+  expect(s.room.state.detection).toEqual(detection);
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+  const seq = s.room.lastSeq;
+  s.act({type:'detection.mode',mode:'manual',reason:'start'});
+  expect(s.room.lastSeq).toBe(seq);
+});
+
 it('resolves the real Mark search clause including Spell/Traps that mention the named card', async () => {
   const {createRemoteDeckRules}=await import('../../src/services/remote-deck-rules.js');
   const {createInsightCatalog}=await import('../../src/services/card-insight-catalog.js');
@@ -391,8 +685,8 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin.map(c=>c.ref)).toEqual(["private-first","private-second"]);
     expect(s.service.snapshot(s.room.slug, "g").state.twinConfirmation).toBeUndefined();
     s.act({ type: "phase.set", phase: "main1" });
-    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo?.before.twinConfirmation).toBeUndefined();
-    expect(s.service.snapshot(s.room.slug, "g").state.undo?.before.twinConfirmation).toBeUndefined();
+    expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
+    expect(s.service.snapshot(s.room.slug, "g").state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
   });
   it("allows physical multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
     const live = deckSession("normal", false);
@@ -403,6 +697,16 @@ describe("remote deck registration and live checks", () => {
     expect(solo.room.seats[0].deck?.validation.issues.map(i => i.message)).toEqual(expect.arrayContaining(["Main Deck must have exactly 60 cards", "Duplicate card: filler 1"]));
     expect(() => solo.start()).toThrow(/60 cards|Duplicate card/);
     solo.select(null); solo.start(); expect(solo.room.status).toBe("active");
+  });
+  it("starts and plays a normal two-player table with no deck at all", () => {
+    const s = deckSession("normal", false);
+    s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+    s.service.ready(s.room.slug, "g", s.users[1], true, 2002);
+    s.start();
+    expect(s.room.status).toBe("active");
+    expect(s.room.seats.every(seat => !seat.deck)).toBe(true);
+    s.place("no-deck-card");
+    expect(s.room.state.seats[0].twin.some(c => c.ref === "no-deck-card")).toBe(true);
   });
   it("snapshots owned saved decks and resets ready on format changes", () => {
     const s = deckSession("normal"); const saved = s.save();
@@ -578,9 +882,9 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.lastSeq).toBe(before.lastSeq + 1);
     expect(s.room.events.slice(before.events.length)).toMatchObject([{ action: { type: "twin.place", source: "auto" } }]);
     expect(s.room.events.at(-1)?.effects).toBeUndefined();
-    const persisted = s.db.prepare("select effects_json from remote_events where idempotency_key=? and table_id=(select id from remote_tables where slug=?)")
-      .get("atomic-auto", s.room.slug) as { effects_json: string };
-    expect(JSON.parse(persisted.effects_json)).toMatchObject({ facts: { 14558127: { code: 14558127, name: "Ash Blossom" } } });
+    const persisted = s.db.prepare("select v.json as facts_json from remote_events e join remote_values v on v.hash=e.facts_hash where idempotency_key=? and table_id=(select id from remote_tables where slug=?)")
+      .get("atomic-auto", s.room.slug) as { facts_json: string };
+    expect(JSON.parse(persisted.facts_json)).toMatchObject({ 14558127: { code: 14558127, name: "Ash Blossom" } });
     expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "auto-card", cardId: 14558127, zone: "monster", slot: 2 }]);
     expect(s.room.state.deckChecks.instances).toMatchObject([{ code: 14558127, name: "Ash Blossom", refs: ["auto-card"], zone: "monster", slot: 2 }]);
     expect(s.room.state.identified).toBeNull();
@@ -681,7 +985,10 @@ describe("remote deck registration and live checks", () => {
   });
   it("preserves twin ownership and keeps saved-deck snapshots out of open listings", () => {
     const s = deckSession(); s.select(s.save().id);
-    expect(s.service.list("g",s.users[1],"open").flatMap(t => t.seats).every(seat => !seat.deck)).toBe(true);
+    s.db.prepare("update remote_tables set visibility='public'").run();
+    const listed = s.service.list("g",s.users[1],"open").flatMap(t => t.seats);
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed.every(seat => !seat.deck)).toBe(true);
     s.start(); s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "bot", slot: 1 } });
     expect(() => s.act({ type: "card.identified", seat: 1, cardRef: "bot", cardId: 14558127, source: "click" })).toThrow(/owner/);
   });
@@ -697,7 +1004,7 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.events.at(-1)?.messages).toContain("Sulman added Ash Blossom to their decklist");
     expect(JSON.stringify(s.db.prepare("select * from remote_events").all())).not.toContain("Sulman");
     deleteUserAccount(s.db,s.users[0]);
-    expect(s.service.get(s.room.slug,"g",s.users[0]).events.at(-1)?.messages).toContain(DELETED_PLAYER_NAME+" added Ash Blossom to their decklist");
+    expect(() => s.service.get(s.room.slug,"g",s.users[0])).toThrow(/not found/i);
   });
 });
 describe("B3 physical field slot guard", () => {
@@ -714,7 +1021,9 @@ describe("B3 physical field slot guard", () => {
     expect(replayed.seats[0].twin.filter(c=>c.zone===zone).map(c=>c.ref)).toEqual(['old-first','old-second']);
     expect(replayed.undo?.actionId).toBe('legacy-conflict');
     expect(()=>ygoModule.reduce(replayed,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone,card:{ref:'live-third',slot:1},idempotencyKey:'live-after-legacy',at:2201}))).toThrow(/occupied/i);
-    const restored=ygoModule.reduce(replayed,{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
+    // A client state has no undo position; give the reducer the one from before the replayed action.
+    const {updatedAt:_at,undo:_undo,undoHistory:_history,...beforeAction}=structuredClone(s.room.state);
+    const restored=ygoModule.reduce({...replayed,undo:{...replayed.undo!,before:beforeAction}},{type:'undo',actorSeat:0,targetActionId:'legacy-conflict',idempotencyKey:'undo-legacy',at:2201});
     expect(restored.seats[0].twin).toEqual(s.room.state.seats[0].twin);
   });
   const slots = [
@@ -836,6 +1145,89 @@ describe("solo remote tables", () => {
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
   });
 
+  it("lets an owner-list admin spectate a private table with a visible badge; others and actions stay closed", () => {
+    const { service, users, db } = setup();
+    vi.stubEnv("OWNER_USER_IDS", String(users[3]));
+    const t = Date.now();
+    try {
+      const slug = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 2 as SeatCount }, t + 0).slug;
+      expect(service.get(slug, "g", users[0]).visibility).toBe("private");
+      // A non-admin, and an admin who did not ask, get the public-only rule.
+      expect(() => service.spectate(slug, "g", users[2], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[3], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[2], t + 1, { admin: true })).toThrow("This table is private");
+      expect(() => service.list("g", users[2], "all")).toThrow();
+      const view = service.spectate(slug, "g", users[3], t + 2, { admin: true });
+      expect(view.spectator).toBe(true);
+      expect(view.spectatorCount).toBe(1);
+      // The players see the badge data; the log has one public line without camera data.
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([{ userId: users[3], name: expect.any(String) }]);
+      service.spectate(slug, "g", users[3], t + 3, { admin: true });
+      expect(service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching")).toHaveLength(1);
+      expect(service.list("g", users[3], "all").map(t => t.slug)).toContain(slug);
+      // The admin cannot act or take a seat.
+      expect(() => service.act(slug, "g", users[3], { baseSeq: 0, action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "x", type: "turn.end" }) }, t + 4)).toThrow();
+      expect(() => service.join(slug, "g", users[3], "Admin", 1, t + 4)).toThrow("cannot take a seat");
+      // Two tabs: one closing keeps the watch; the last one ends the slot at once.
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-one-aaaa" });
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-two-bbbb" });
+      service.stopSpectating(slug, "g", users[3], t + 5, "tab-one-aaaa");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toHaveLength(1);
+      service.stopSpectating(slug, "g", users[3], t + 6, "tab-two-bbbb");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([]);
+      // A reload within the grace adds no lines (not "stopped" then "started").
+      service.spectate(slug, "g", users[3], t + 7, { admin: true, tab: "tab-new-cccc" });
+      service.stopSpectating(slug, "g", users[3], t + 8, "tab-new-cccc");
+      service.spectate(slug, "g", users[3], t + 9, { admin: true, tab: "tab-new-dddd" });
+      const watchLines = () => service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching").map(e => (e.action as { watching: boolean }).watching);
+      expect(watchLines()).toEqual([true]);
+      // After the grace the stop line is written (by the next touch of the table, or the sweep).
+      service.stopSpectating(slug, "g", users[3], t + 10, "tab-new-dddd");
+      expect(watchLines()).toEqual([true]);
+      expect(service.sweepIdle(t + 10 + 15_000).map(x => x.slug)).toContain(slug);
+      expect(watchLines()).toEqual([true, false]);
+      expect(db.prepare("select count(*) as n from remote_spectators").get()).toEqual({ n: 0 });
+      // With no watch slot, the admin joins like any invited person (the private table's link is its invite).
+      expect(service.join(slug, "g", users[3], "Admin", 1, t + 20_000 + 10).seats.map(x => x.userId)).toContain(users[3]);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
+    const s = deckSession("normal", false);
+    vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
+    try {
+      s.select(s.save().id);
+      s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+      s.service.ready(s.room.slug, "g", s.users[1], true, 2002); s.start();
+      const t = 3000;
+      const read = s.service.get(s.room.slug, "g", s.users[0], t);
+      // The admin joins after the player read the table and before the player acts.
+      s.service.spectate(s.room.slug, "g", s.users[3], t + 1, { admin: true });
+      const acted = s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-joins", type: "detection.mode", mode: "tap", reason: "slow-offer" }) }, t + 2);
+      expect(acted.lastSeq).toBeGreaterThan(read.lastSeq + 1);
+      // A real game change in between still makes an old baseSeq stale.
+      expect(() => s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "really-stale", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 3)).toThrow("Stale sequence");
+      // Stopping adds a line too and still does not block the next move.
+      const read2 = s.service.get(s.room.slug, "g", s.users[0], t + 4);
+      s.service.stopSpectating(s.room.slug, "g", s.users[3], t + 5);
+      expect(s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read2.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-leaves", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 6).lastSeq).toBeGreaterThan(read2.lastSeq);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
+    const { service, users, db } = setup();
+    db.prepare("update remote_tables set status='ended'").run();
+    const base = { guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount: 2 as SeatCount, maxLiveRooms: 1 };
+    service.create({ ...base, solo: true }, 2000);
+    const first = service.create(base, 2000);
+    expect(first.visibility).toBe("private");
+    expect(() => service.create(base, 2001)).toThrow("Remote tables are full right now. Try again soon.");
+    service.create({ ...base, solo: true }, 2001);
+    expect(service.join(first.slug, "g", users[1], "Guest", 1, 2002).seats).toHaveLength(2);
+    expect(service.create(base, 2002 + 10 * 60_000).slug).not.toBe(first.slug);
+  });
+
   it.each([2, 3, 4] as SeatCount[])("fills a %i-seat solo table with userless, ready bots and runs the full action loop", seatCount => {
     const { service, users, db } = setup();
     let room = service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount, solo: true }, 2000);
@@ -904,7 +1296,7 @@ describe("solo remote tables", () => {
   it("migrates existing remote rows additively and reruns without changing data", () => {
     const { service, table, users, db } = setup();
     // Recreate the exact pre-solo state: no new column or bot storage.
-    db.exec("drop table remote_bot_seats; alter table remote_tables drop column solo");
+    db.exec("drop trigger remote_tables_collect; drop table remote_bot_seats; alter table remote_tables drop column solo");
     migrate(db); migrate(db);
     const existing = service.get(table.slug, "g", users[0]);
     expect(existing.solo).toBe(false);
@@ -1670,7 +2062,8 @@ describe("remote effect origins and hidden information", () => {
       extra.public=true; extra.anchored=true;
     }
     delete legacyState.showCardsSetFromDeck;
-    if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
+    // The room state has no undo position now: an old row kept one, without the rule that this test removes.
+    if(legacyState.undo) { const {updatedAt:_at,undo:_undo,undoHistory:_history,...position}=structuredClone(legacyState); legacyState.undo.before=position as never; }
     const oldId=(s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id;
     const id=s.db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,last_seq,created_at,last_event_at,solo,format_json) select 'legacy','g',game_id,seat_count,status,created_by,?,last_seq,created_at,last_event_at,solo,format_json from remote_tables where id=?")
       .run(JSON.stringify(legacyState),oldId).lastInsertRowid;
@@ -2184,6 +2577,22 @@ it('targeted pile undo restores a removed card before later pile arrivals',()=>{
  expect(state.seats[0].twin.map(card=>card.ref)).toEqual(['older','newer']);
 });
 
+it('sends no undo position and runs the restore check only for the newest undo entry, unless all are asked for',async()=>{
+  const {projectRemoteState}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2});let serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`reasons-${++serial}`,at:serial}),{facts:{}});
+  const place=(ref:string,slot:number)=>reduce({type:'twin.place',seat:0,zone:'monster',card:{ref,cardId:1000+slot,faceUp:true,slot}});
+  place('a',1);place('b',2);reduce({type:'twin.move',seat:0,cardRef:'a',zone:'graveyard'});place('c',1);
+  const reasons=(options?:{allUndoReasons?:boolean})=>projectRemoteState(state,new Set([0]),options).undoHistory!.map(entry=>entry.reason);
+  expect(projectRemoteState(state,new Set([0])).undo).toEqual({actionId:'reasons-4',at:4});
+  // Entry 3 (the move back into slot 1) now collides with card c: only the full check sees it.
+  expect(reasons()).toEqual([undefined,undefined,undefined,expect.stringMatching(/same card/)]);
+  expect(reasons({allUndoReasons:true})).toEqual([undefined,expect.stringMatching(/slot is occupied/),expect.stringMatching(/state needed/),expect.stringMatching(/same card/)]);
+  // A saved old-format entry has no positions: its stored reason stays.
+  const saved={...state,undoHistory:state.undoHistory!.map(({before:_b,after:_a,...entry})=>({...entry,reason:'Stored reason'}))};
+  expect(projectRemoteState(saved,new Set([0])).undoHistory!.map(entry=>entry.reason)).toEqual(Array(4).fill('Stored reason'));
+});
+
 it('reveals identity and position in one undoable action, then hides a public Set that returns to hand',async()=>{
   const {projectRemoteState}=await import('../../src/remote/privacy.js');
   const {remoteUndoLabel:sharedUndoLabel}=await import('../../src/remote/undo.js');
@@ -2241,7 +2650,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(projectRemoteState(state,viewer).seats[0].handCount).toBe(8);
   reduce({type:'undo',targetActionId:countId});expect(state.seats[0].handCount).toBeUndefined();
   state=counted;reduce({type:'hand.count',delta:-2});expect(state.seats[0].handCount).toBe(6);
-  expect(projectRemoteState(state,new Set([1])).undo?.before.seats[0].handCount).toBe(8);
+  expect(projectRemoteState(state,new Set([1])).undo).not.toHaveProperty('before');
   reduce({type:'hand.count',value:0});expect(state.seats[0].handCount).toBe(0);
   expect(()=>reduce({type:'hand.count',delta:-1})).toThrow(/hand count/i);
   reduce({type:'hand.count',value:999999});expect(()=>reduce({type:'hand.count',delta:1})).toThrow(/hand count/i);
@@ -2258,7 +2667,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const opponent=projectRemoteState(state,new Set([1]));
   expect(opponent.seats[0].knownHand).toEqual(state.seats[0].knownHand);
   expect(opponent.seats[0].handCount).toBe(6);
-  expect(opponent.undo?.before.seats[0].handCount).toBeUndefined();
+  expect(opponent.undo).not.toHaveProperty('before');
   reduce({type:'undo',targetActionId:addedId});expect(state.seats[0].knownHand??[]).toEqual([]);
   state=added;
   reduce({type:'hand.count',value:9});
@@ -2704,7 +3113,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const otherCount=countService.act(countRoom.slug,'g',countUsers[1],{baseSeq:publicCount.lastSeq,action:{type:'hand.count',actorSeat:1,value:3,idempotencyKey:'other-count'}},2203);
   expect(otherCount.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(otherCount.state.seats[0].deckCount).toBeUndefined();
-  expect(otherCount.state.undo?.before.seats[0].deckCount).toBeUndefined();
+  expect(otherCount.state.undo).not.toHaveProperty('before');
   const countBroadcast=countService.snapshot(countRoom.slug,'g');
   expect(countBroadcast.state.seats.map(s=>s.handCount)).toEqual([7,3]);
   expect(countBroadcast.state.seats.every(s=>s.deckCount===undefined)).toBe(true);
@@ -2736,6 +3145,7 @@ it('reveals identity and position in one undoable action, then hides a public Se
     expect(addSearch.room.state.seats[0].knownHand?.[0].by?.name).toBe('Terraforming');
     expect(publicAdd.state.seats[0].handCount).toBe(6);
     expect(publicAdd.state.seats[0].knownHand?.length).toBe(show?1:0);
+    expect(addSearch.service.spectatorSnapshot(addSearch.room.slug,'g').state.seats[0].knownHand?.length).toBe(show?1:0);
     expect(publicAdd.state.effectTracking?.origins[0].announcedCard?.cardId).toBe(show?47355498:undefined);
     if(!show) {
       expect(JSON.stringify(publicAdd)).not.toContain('Necrovalley');
@@ -2788,4 +3198,839 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(privatePick.room.state.seats[0].knownHand).toEqual([expect.objectContaining({cardId:47355498,source:'deck'})]);
   expect(privatePick.room.state.seats[0].handCount).toBe(6);
 
+});
+
+it('projects a state without copying its undo data, keeping key order and the original state',async()=>{
+  const {projectRemoteState,projectRemoteSpectator}=await import('../../src/remote/privacy.js');
+  let state=ygoModule.initialState({seatCount:2}),serial=0;
+  const reduce=(proposal:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,actorSeat:0,idempotencyKey:`lean-${++serial}`,at:serial}),{facts:{}});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'a',slot:1,faceUp:false,position:'defense',cardId:46986414,name:'Dark Magician'}});
+  reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'b',slot:2,faceUp:false,position:'defense',cardId:46986414,name:'Dark Magician'}});
+  const frozen=JSON.stringify(state),view=projectRemoteState(state,new Set([1]));
+  expect(JSON.stringify(state)).toBe(frozen);
+  expect(Object.keys(view)).toEqual(Object.keys(state));
+  expect(view.undo?.actionId).toBe(state.undo!.actionId);
+  expect(view.undo).toEqual({actionId:state.undo!.actionId,at:state.undo!.at});
+  expect(state.undo!.before.seats[0].twin.map(card=>card.cardId)).toEqual([46986414]);
+  expect(view.undoHistory).toEqual([]);
+  const spectator=projectRemoteSpectator({table:{seats:[]} as never,state,events:[]});
+  expect(spectator.state.undo).toBeNull();expect(spectator.state.undoHistory).toEqual([]);expect(JSON.stringify(state)).toBe(frozen);
+});
+
+it('stores undo positions once with atomic legacy upgrade and reference lifetime', async () => {
+  const session = deckSession('normal');
+  session.select(session.save().id); session.start();
+  session.act({type:'lp.change',seat:0,reason:'effect',delta:-100});
+  const {db, users} = session;
+  // An in-progress deployment still contains a complete legacy state row.
+  const stateRow = () => (db.prepare('select id,state_json from remote_tables where slug=?').get(session.room.slug) as {id:number;state_json:string});
+  expect(JSON.parse(stateRow().state_json).storageVersion).toBe(1);
+  const {readRemoteState, writeRemoteState, remoteValueCacheStats} = await import('../../src/remote/storage.js');
+  const legacy = readRemoteState(db, stateRow().state_json);
+  expect(Object.isFrozen(legacy.undoHistory![0].before!.seats)).toBe(true);
+  expect(() => legacy.undoHistory![0].before!.seats[0].resources.lp = 1).toThrow();
+  db.prepare('update remote_tables set state_json=? where id=?').run(JSON.stringify(legacy), stateRow().id);
+  const call = () => createRemoteDuelService(db, {dataDirectory:deckData});
+  const act = (id: string) => call().act(session.room.slug,'g',users[0],{baseSeq:call().get(session.room.slug,'g',users[0]).lastSeq,
+    action:remoteActionSchema.parse({type:'lp.change',seat:0,reason:'effect',actorSeat:0,delta:100,idempotencyKey:id})},3000);
+  const count = () => (db.prepare('select count(*) n from remote_values').get() as {n:number}).n;
+  // A rollback can leave a version-1 row with full positions. Roll-forward reads it.
+  db.prepare('update remote_tables set state_json=? where id=?').run(JSON.stringify({...legacy,storageVersion:1}),stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state).toEqual(session.room.state);
+  const fullVersioned=readRemoteState(db,stateRow().state_json);
+  expect(Object.isFrozen(fullVersioned.undo!.before.seats)).toBe(true);
+  expect(Object.isFrozen(fullVersioned.undoHistory![0].after!.seats)).toBe(true);
+  const oldCount=count(), oldJson=stateRow().state_json;
+  const eventsBefore=db.prepare('select count(*) n from remote_events').get();
+  db.exec("create trigger fail_state before update of state_json on remote_tables begin select raise(abort,'forced rollback'); end");
+  expect(()=>act('rollback')).toThrow('forced rollback');
+  expect(count()).toBe(oldCount); expect(stateRow().state_json).toBe(oldJson);
+  expect(db.prepare('select count(*) n from remote_events').get()).toEqual(eventsBefore);
+  db.exec('drop trigger fail_state'); act('upgrade');
+  expect(JSON.parse(stateRow().state_json).storageVersion).toBe(1);
+  for(let i=0;i<45;i++) act('trim-'+i);
+  const state=readRemoteState(db,stateRow().state_json);
+  expect(state.undoHistory).toHaveLength(20);
+  expect(db.prepare(`select count(*) n from remote_values v where
+    not exists(select 1 from remote_state_values r where r.value_hash=v.hash) and
+    not exists(select 1 from remote_events e where e.facts_hash=v.hash)`).get()).toEqual({n:0});
+  expect(()=>readRemoteState(db,JSON.stringify({...state,storageVersion:1,undoHistory:[],
+    undo:{...state.undo,before:{valueHash:'0'.repeat(64)}}}))).toThrow('Missing Remote Duel value');
+  const original=state.undo!.before.showCardsSetFromDeck;
+  db.prepare('update remote_tables set show_cards_set_from_deck=0 where id=?').run(stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state.undo).not.toHaveProperty('before');
+  expect(state.undo!.before.showCardsSetFromDeck).toBe(original);
+
+  const facts=db.prepare('select facts_hash from remote_events where table_id=? and facts_hash is not null').all(stateRow().id);
+  expect(facts.length).toBeGreaterThan(0);
+  const hits=remoteValueCacheStats().hits;
+  call().get(session.room.slug,'g',users[0]); call().get(session.room.slug,'g',users[0]);
+  expect(remoteValueCacheStats().hits).toBeGreaterThan(hits);
+  expect(remoteValueCacheStats().bytes).toBeLessThanOrEqual(remoteValueCacheStats().maxBytes);
+  // Replay facts shared by two rooms survive either owner's deletion.
+  let second=call().create({guildId:'g',userId:users[0],displayName:'A',gameId:'ygo',seatCount:2,solo:true},4000);
+  call().selectDeck(second.slug,'g',users[0],{savedDeckId:session.save().id},4001);
+  call().ready(second.slug,'g',users[0],true,4002);
+  second=call().start(second.slug,'g',users[0],4003);
+  second=call().act(second.slug,'g',users[0],{baseSeq:second.lastSeq,action:remoteActionSchema.parse({
+    type:'lp.change',seat:0,actorSeat:0,reason:'effect',delta:-100,idempotencyKey:'shared-facts'})},4004);
+  const sharedHash=(db.prepare("select facts_hash from remote_events where idempotency_key='shared-facts'").get() as {facts_hash:string}).facts_hash;
+  expect(facts).toContainEqual({facts_hash:sharedHash});
+  // A second connection can trim history between loading its row and hydrating
+  // values. The search must retain the same SQLite read snapshot throughout.
+  const concurrentDir=mkdtempSync(join(tmpdir(),'remote-value-snapshot-'));
+  const concurrentPath=join(concurrentDir,'test.sqlite');
+  writeFileSync(concurrentPath,db.serialize());
+  const reader=new Database(concurrentPath), writer=new Database(concurrentPath);
+  try {
+    for(const connection of [reader,writer]) { connection.pragma('foreign_keys=ON'); connection.pragma('journal_mode=WAL'); }
+    const prepare=reader.prepare.bind(reader);
+    let interleaved=false;
+    vi.spyOn(reader,'prepare').mockImplementation(((sql:string)=>{
+      const statement=prepare(sql);
+      if(sql.startsWith('select *,json_extract')) {
+        const get=statement.get.bind(statement);
+        vi.spyOn(statement,'get').mockImplementation((...args:unknown[])=>{
+          const row=get(...args);
+          if(!interleaved) {
+            interleaved=true;
+            const trimmed=readRemoteState(writer,stateRow().state_json);
+            trimmed.undo=null; delete trimmed.undoHistory;
+            writer.transaction(()=>writer.prepare('update remote_tables set state_json=? where slug=?')
+              .run(writeRemoteState(writer,stateRow().id,trimmed),session.room.slug)).immediate();
+          }
+          return row;
+        });
+      }
+      return statement;
+    }) as typeof reader.prepare);
+    expect(()=>createRemoteDuelService(reader,{dataDirectory:deckData}).searchCandidates(session.room.slug,'g',users[0],0,1)).not.toThrow();
+    expect(interleaved).toBe(true);
+    expect(JSON.parse((prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json).undo).toBeNull();
+    // A replay already reading the room keeps its facts even if retention
+    // removes the room in another process before it reads the event log.
+    writer.prepare("update remote_tables set status='ended',ended_at=2999 where slug=?").run(session.room.slug);
+    const replayService=createRemoteDuelService(reader,{dataDirectory:deckData});
+    const expectedReplay=replayService.replay(session.room.slug,'g',users[0]);
+    let purged=false;
+    vi.mocked(reader.prepare).mockImplementation(((sql:string)=>{
+      if(sql==='select * from remote_events where table_id=? order by seq' && !purged) {
+        purged=true;
+        expect(createRemoteDuelService(writer,{dataDirectory:deckData}).purgeEnded(3000)).toBe(1);
+      }
+      return prepare(sql);
+    }) as typeof reader.prepare);
+    expect(replayService.replay(session.room.slug,'g',users[0])).toEqual(expectedReplay);
+    expect(purged).toBe(true);
+    expect(()=>replayService.get(session.room.slug,'g',users[0])).toThrow('Remote table not found');
+
+  } finally { reader.close(); writer.close(); rmSync(concurrentDir,{recursive:true,force:true}); }
+  // A game end keeps Undo and replay available. Explicit retention owns deletion.
+  db.prepare("update remote_tables set status='ended',ended_at=3000 where id=?").run(stateRow().id);
+  expect(call().get(session.room.slug,'g',users[0]).state.undoHistory!.length).toBe(state.undoHistory!.filter(e=>!e.undone&&e.actorSeat===0).length);
+  expect(()=>db.prepare('delete from remote_events where table_id=?').run(stateRow().id)).toThrow(/append.only/);
+  const endedId=stateRow().id;
+  expect(call().purgeEnded(3001)).toBe(1);
+  expect(db.prepare('select count(*) n from remote_state_values where table_id=?').get(endedId)).toEqual({n:0});
+  expect(db.prepare('select hash from remote_values where hash=?').get(sharedHash)).toBeDefined();
+  db.prepare('delete from remote_tables where slug=?').run(second.slug);
+  expect(count()).toBe(0);
+});
+
+
+it('shares decoded values and counters across separate module graphs', async () => {
+  const session=deckSession('normal');session.select(session.save().id);session.start();
+  session.act({type:'lp.change',seat:0,reason:'effect',delta:-100});
+  const json=(session.db.prepare('select state_json from remote_tables where slug=?').get(session.room.slug) as {state_json:string}).state_json;
+  const first=await import('../../src/remote/storage.js');
+  const before=first.readRemoteState(session.db,json).undo!.before;
+  const stats=first.remoteValueCacheStats();
+  vi.resetModules();
+  const second=await import('../../src/remote/storage.js');
+  expect(second.remoteValueCacheStats()).toEqual(stats);
+  expect(second.readRemoteState(session.db,json).undo!.before).toBe(before);
+  expect(first.remoteValueCacheStats().hits).toBeGreaterThan(stats.hits);
+});
+
+it('upgrades the event deletion guard atomically and leaves current SQL untouched', () => {
+  const {db,service,table,users}=setup();
+  db.exec("drop trigger remote_events_no_delete; create trigger remote_events_no_delete before delete on remote_events begin select raise(abort, 'remote_events is append-only'); end");
+  const exec=db.exec.bind(db), replaced:boolean[]=[];
+  const spy=vi.spyOn(db,'exec').mockImplementation((sql:string)=>{
+    if(/drop trigger(?: if exists)? remote_events_no_delete/i.test(sql)) replaced.push(db.inTransaction);
+    return exec(sql);
+  });
+  try {
+    migrate(db);
+    expect(replaced).toEqual([true]);
+    const guard=db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get();
+    replaced.length=0;migrate(db);
+    expect(replaced).toEqual([]);
+    expect(db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get()).toEqual(guard);
+    expect(()=>db.prepare('delete from remote_events where table_id=(select id from remote_tables where slug=?)').run(table.slug)).toThrow(/append.only/);
+    expect(service.get(table.slug,'g',users[0]).lastSeq).toBe(table.lastSeq);
+  } finally {spy.mockRestore();}
+});
+
+it('uses the abandoned-lobby partial index after repeated migrations', () => {
+  const {db,service}=setup();
+  migrate(db); migrate(db);
+  const plans:string[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('select id,slug from remote_tables ')) {
+      plans.push(...(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(86_400_000,100) as {detail:string}[]).map(row=>row.detail));
+    }
+    return prepare(sql);
+  });
+  try { service.purgeEnded(86_400_000,100,2*86_400_000,true); }
+  finally { spy.mockRestore(); }
+  expect(plans).toEqual(['SEARCH remote_tables USING INDEX remote_tables_unstarted_retention (ended_at<?)']);
+});
+
+it('prunes sessions with indexed room lookups only after the Undo and phone cleanup grace', () => {
+  const {db,service,users}=setup();
+  const now=86_400_000, grace=15*60_000;
+  db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer,revoked integer,cleanup_pending integer);
+    create table remote_phone_modes(slug text,user_id integer);
+    create table remote_phone_attempts(bucket text primary key,slug text,started_at integer,count integer);`);
+  const sessions=['remote_phone_pairs','remote_phone_modes','remote_phone_attempts','remote_spectators','remote_spectator_tabs','remote_admin_watch'];
+  const rooms=[grace+1,grace,1].map(age=>{
+    const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now-age);
+    const {id}=db.prepare('select id from remote_tables where slug=?').get(room.slug) as {id:number};
+    db.prepare("update remote_tables set status='ended',ended_at=? where id=?").run(now-age,id);
+    db.prepare('insert into remote_phone_pairs values(?,?,?,1,1)').run(room.slug,room.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(room.slug,users[0]);
+    db.prepare('insert into remote_phone_attempts values(?,?,?,1)').run(room.slug,room.slug,now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(id,users[1],now);
+    db.prepare('insert into remote_spectator_tabs values(?,?,?,?)').run(id,users[1],'tab',now);
+    db.prepare('insert into remote_admin_watch values(?,?,null)').run(id,users[1]);
+    return {...room,id};
+  });
+  const plans:{sql:string;details:string[]}[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('delete from') && sql.includes('remote_tables')) {
+      plans.push({sql,details:(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(sql.includes('?')?[now-grace]:[])) as {detail:string}[]).map(row=>row.detail)});
+    }
+    return prepare(sql);
+  });
+  try { service.pruneSessions(now); }
+  finally { spy.mockRestore(); }
+  for(const name of sessions) {
+    const key=name.startsWith('remote_phone')?'slug':'table_id';
+    const remaining=db.prepare(`select ${key} as room from ${name}`).all();
+    expect(remaining,name).toEqual(rooms.slice(1).map(room=>({room:key==='slug'?room.slug:room.id})));
+  }
+  expect(plans).toHaveLength(6);
+  for(const {sql,details} of plans) {
+    expect(details.join('; '),sql).toContain('CORRELATED SCALAR SUBQUERY');
+    expect(details.join('; '),sql).not.toMatch(/LIST SUBQUERY|SCAN (?:t|remote_tables)\b/);
+    expect(details.join('; '),sql).toMatch(/SEARCH t USING (?:INDEX sqlite_autoindex_remote_tables_1 \(slug=\?\)|INTEGER PRIMARY KEY \(rowid=\?\))/);
+  }
+  // Undo can reopen a recently ended room; its sessions survive subsequent pruning.
+  db.prepare("update remote_tables set status='active',ended_at=null where id=?").run(rooms[2].id);
+  service.pruneSessions(now+1);
+  for(const name of sessions) expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:1});
+});
+
+it('keeps history and replay indefinitely, prunes transient data, and supports an optional retention cap', async () => {
+  const {pruneRemoteDuels} = await import('../../src/services/remote-retention.js');
+  const s=deckSession('domain',false);
+  s.service.join(s.room.slug,'g',s.users[1],'Guest',1,2001);
+  s.service.ready(s.room.slug,'g',s.users[1],true,2002);
+  s.start();s.place('retention-card');
+  const {db,service,users,room:table}=s;
+  const day=86_400_000, now=3*day;
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
+  try {
+    // Web-owned optional tables have no foreign keys into the room schema.
+    db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer);
+      create table remote_phone_modes(slug text,user_id integer);
+      create table remote_phone_attempts(bucket text primary key,started_at integer,count integer);
+      create table remote_vision_ai_limits(user_id integer primary key,window_started_at integer,attempts integer);`);
+    db.prepare('insert into remote_phone_attempts values(?,?,1)').run('legacy-hash',now-day);
+    migrate(db); // Existing pairing buckets predate the room association.
+    const roomId=(slug:string)=>(db.prepare('select id from remote_tables where slug=?').get(slug) as {id:number}).id;
+    const attach=(slug:string)=>{
+      db.prepare('insert into remote_phone_pairs values(?,?,?)').run(slug,slug,users[0]);
+      db.prepare('insert into remote_phone_modes values(?,?)').run(slug,users[0]);
+      db.prepare('insert into remote_phone_attempts(bucket,started_at,count,slug) values(?,?,1,?)').run(slug,now,slug);
+      db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(slug),users[1],now);
+      db.prepare('insert into remote_spectator_tabs values(?,?,?,?)').run(roomId(slug),users[1],'tab',now);
+      db.prepare('insert into remote_admin_watch values(?,?,null)').run(roomId(slug),users[1]);
+    };
+    for(let i=0;i<101;i++) {
+      const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2,solo:true},1000);
+      attach(room.slug);
+      db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day-1,room.slug);
+    }
+    // These are board/Undo positions and replay facts, not camera or vision blobs.
+    expect(db.prepare('select count(*) n from remote_state_values').get()).not.toEqual({n:0});
+    expect(db.prepare('select count(*) n from remote_events where facts_hash is not null').get()).not.toEqual({n:0});
+    attach(table.slug);
+    db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day,table.slug);
+    const idle=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},1000);
+    expect(service.sweepIdle(now).find(t=>t.slug===idle.slug)?.endReason).toBe('idle');
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now-day);
+    const stored=()=>['remote_tables','remote_seats','remote_bot_seats','remote_events','remote_state_values','remote_values']
+      .map(name=>db.prepare(`select * from ${name} order by 1,2`).all());
+    const history=service.listHistory('g',users[0]);
+    expect(history.items.map(item=>item.slug)).toContain(table.slug);
+    const expectedReplay=createRemoteDuelService(db).replayFrames(table.slug,'g',users[0]);
+    const expectedState=service.get(table.slug,'g',users[0]).state;
+    expect(pruneRemoteDuels(db,now)).toBe(101); // Only abandoned, never-started lobbies.
+    const retained=stored();
+    for(const name of ['remote_spectators','remote_spectator_tabs','remote_admin_watch','remote_phone_pairs','remote_phone_modes','remote_phone_attempts','remote_vision_ai_limits']) {
+      expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});
+    }
+    delete process.env.REMOTE_DUELS_RETENTION_DAYS;
+    expect(pruneRemoteDuels(db,now+day+1)).toBe(2); // Idle lobby and deckSession's initial lobby.
+    const forever=stored();
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','0');
+    expect(pruneRemoteDuels(db,now+365*day)).toBe(0);
+    expect(stored()).toEqual(forever);
+    expect(service.listHistory('g',users[0])).toEqual(history);
+    expect(service.get(table.slug,'g',users[0]).state).toEqual(expectedState);
+    expect(service.replay(table.slug,'g',users[0])).toEqual(expectedState);
+    expect(createRemoteDuelService(db).replayFrames(table.slug,'g',users[0])).toEqual(expectedReplay);
+    expect(retained[5]).toEqual(forever[5]); // Content-addressed replay/Undo values survive.
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','1');
+    expect(pruneRemoteDuels(db,now)).toBe(0); // Strict boundary: exactly one day remains.
+    expect(pruneRemoteDuels(db,now+1)).toBe(1);
+    expect(()=>service.replayFrames(table.slug,'g',users[0])).toThrow(/not found/i);
+    const names=()=> (db.prepare("select name from sqlite_master where type='table' and name glob 'remote_*'").all() as {name:string}[]).map(r=>r.name);
+    const empty=()=>{for(const name of names())expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});};
+    empty();
+    const owned=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now);
+    attach(owned.slug);
+    const other=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    service.join(other.slug,'g',users[0],'Owner',undefined,now);
+    service.leave(other.slug,'g',users[0],now); // Past actors must not retain a room after account deletion.
+    const unrelated=service.create({guildId:'g',userId:users[1],displayName:'Other',gameId:'ygo',seatCount:2},now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(unrelated.slug),users[0],now);
+    db.prepare('insert into remote_phone_pairs values(?,?,?)').run('stale-pair',unrelated.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(unrelated.slug,users[0]);
+    db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now);
+    deleteUserAccount(db,users[0]);
+    expect(service.get(unrelated.slug,'g',users[1])).toBeDefined();
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:1});
+    for(const name of ['remote_spectators','remote_phone_pairs','remote_phone_modes','remote_vision_ai_limits']) {
+      expect(db.prepare(`select count(*) n from ${name} where user_id=?`).get(users[0]),name).toEqual({n:0});
+    }
+    deleteUserAccount(db,users[1]);
+    empty();
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {vi.unstubAllEnvs();}
+});
+
+
+// B3 result lifecycle, using the real reducer, slot advancement and scoring service.
+async function tournamentResultSession(format: "single_elim" | "round_robin" = "single_elim") {
+  const { createTournamentService } = await import("../../src/services/tournaments.js");
+  const { createTournamentRemoteService } = await import("../../src/services/tournament-remote.js");
+  const { createTournamentRemoteResultService } = await import("../../src/services/tournament-remote-results.js");
+  const db = new Database(":memory:"); databases.push(db); db.pragma("foreign_keys=ON"); migrate(db);
+  const actors = Array.from({length:4}, (_, i) => seedIdentity(db, {name:`Remote ${i}`}));
+  vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("REMOTE_DUELS_USERS", "*");
+  const tournaments = createTournamentService(db);
+  const tournament = tournaments.create("g", "Result cup", format, actors[0].userId, {duelType:"remote", bestOf:1});
+  for (const actor of actors) tournaments.join(tournament.id, actor.playerId);
+  tournaments.start(tournament.id);
+  const slot = tournaments.matches(tournament.id).find(m => m.playerTwoId !== null)!;
+  const one = actors.find(a => a.playerId === slot.playerOneId)!;
+  const two = actors.find(a => a.playerId === slot.playerTwoId)!;
+  const remote = createRemoteDuelService(db, {dataDirectory:deckData});
+  const tables = createTournamentRemoteService(db);
+  const results = createTournamentRemoteResultService(db);
+  const start = () => {
+    const {table} = tables.startMatch({guildId:"g", tournamentId:tournament.id, tournamentMatchId:slot.id, actorUserId:two.userId});
+    remote.join(table.slug,"g",one.userId,"One");
+    remote.ready(table.slug,"g",one.userId,true); remote.ready(table.slug,"g",two.userId,true);
+    return remote.start(table.slug,"g",two.userId);
+  };
+  let room = start();
+  const act = (seat:number, action:Record<string, unknown>) => {
+    room = remote.act(room.slug,"g",seat === 0 ? two.userId : one.userId,{baseSeq:room.lastSeq,
+      action:remoteActionSchema.parse({...action,actorSeat:seat,idempotencyKey:`result-${room.slug}-${room.lastSeq}`})});
+  };
+  const input = {tournamentMatchId:slot.id,actorUserId:one.userId};
+  const refresh = () => room = remote.get(room.slug,"g",two.userId);
+  return {db,tournaments,tournament,slot,one,two,actors,remote,tables,results,start,act,refresh,input,get room(){return room;}};
+}
+
+it("rebuilds tournament rules from table.created before an opponent changes LP to zero", async () => {
+  const s = await tournamentResultSession();
+  try {
+    const created = s.db.prepare("select action_json from remote_events where table_id=(select id from remote_tables where slug=?) and seq=1")
+      .get(s.room.slug) as {action_json:string};
+    expect(JSON.parse(created.action_json)).toMatchObject({type:"table.created",tournament:true});
+    // Rebuild from the log without relying on the table's tournament metadata or cached state.
+    s.db.transaction(() => {
+      s.db.prepare("update remote_tables set tournament_match_id=null where slug=?").run(s.room.slug);
+      const rebuilt = s.remote.replay(s.room.slug,"g",s.two.userId);
+      expect(rebuilt.tournament).toBe(true);
+      s.db.prepare("update remote_tables set tournament_match_id=?,state_json=? where slug=?")
+        .run(s.slot.id,JSON.stringify(rebuilt),s.room.slug);
+    })();
+    s.act(1,{type:"lp.change",seat:0,delta:-8000,reason:"damage"});
+    expect(s.room.state).toMatchObject({tournament:true,ended:false,match:{phase:"duel",
+      pendingResult:{winnerSeat:1,confirmed:[1]}}});
+    expect(s.room.state.seats[0]).toMatchObject({eliminated:false,resources:{lp:0}});
+    const declarationId = s.room.state.match.pendingResult!.id;
+    expect(s.remote.replay(s.room.slug,"g",s.two.userId).match.pendingResult?.id).toBe(declarationId);
+    s.act(0,{type:"match.confirm",declarationId,accept:true});
+    expect(s.results.get(s.input)).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"lp"});
+    s.results.confirm(s.input);
+    expect(s.results.confirm({...s.input,actorUserId:s.two.userId}).status).toBe("final");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it.each(["active", "proposed", "disputed"] as const)("blocks both manual report services for a Remote %s match", async status => {
+  const s = await tournamentResultSession();
+  try {
+    if (status !== "active") s.act(0,{type:"player.concede"});
+    if (status === "disputed") s.results.dispute(s.input);
+    for (const report of [
+      () => s.tournaments.report(s.tournament.id,s.one.playerId,s.two.playerId,s.one.playerId),
+      () => s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId),
+    ]) expect(report).toThrow(expect.objectContaining({status:409,code:"REMOTE_MATCH_OPEN",
+      message:expect.stringMatching(/open Remote table or result/)}));
+    expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+    expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("open");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it.each(["pair", "slot"])("allows the %s manual report fallback after a Remote table ends without a result", async path => {
+  const s = await tournamentResultSession();
+  try {
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",tableOpen:true});
+    s.remote.sweepIdle(s.room.lastEventAt + 10*60*1000 + 1);
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",tableOpen:false});
+    const match = path === "pair"
+      ? s.tournaments.report(s.tournament.id,s.one.playerId,s.two.playerId,s.one.playerId)
+      : s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId);
+    expect(match.status).toBe("pending");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("never finalizes a stale Remote proposal over a completed slot", async () => {
+  const s = await tournamentResultSession("round_robin");
+  const {createMatchService} = await import("../../src/services/matches.js");
+  try {
+    s.act(0,{type:"player.concede"});
+    const deadline=s.results.get(s.input)!.confirmDeadlineAt!;
+    s.results.confirm(s.input);
+    const match=createMatchService(s.db).recordConfirmedResult({guildId:"g",playerOneId:s.one.playerId,
+      playerTwoId:s.two.playerId,winnerId:s.two.playerId,source:"tournament",tournamentMatchId:s.slot.id});
+    expect(()=>s.results.confirm({...s.input,actorUserId:s.two.userId}))
+      .toThrow(expect.objectContaining({code:"TOURNAMENT_MATCH_UNAVAILABLE"}));
+    expect(s.results.finalizeDue(deadline+1)).toEqual([]);
+    expect(s.db.prepare("select id,winner_id from matches where tournament_id=?").all(s.tournament.id))
+      .toEqual([{id:match.id,winner_id:s.two.playerId}]);
+    expect(s.results.get(s.input)).toMatchObject({status:"proposed",reports:[{choice:"confirm"},{choice:null}]});
+    // A late terminal reducer action cannot even propose over the completed slot.
+    s.db.prepare("update tournament_remote_matches set status='playing',winner_player_id=null where tournament_match_id=?").run(s.slot.id);
+    s.results.propose((s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id,s.room.state);
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",winnerPlayerId:null});
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("proposes a Remote table winner, confirms both players once and advances single elimination", async () => {
+  const s = await tournamentResultSession();
+  try {
+    expect(s.room.state.tournament).toBe(true);
+    expect(s.remote.replay(s.room.slug,"g",s.two.userId).tournament).toBe(true);
+    expect(() => s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId))
+      .toThrow(expect.objectContaining({code:"REMOTE_MATCH_OPEN"}));
+    s.act(0,{type:"detection.mode",mode:"tap",reason:"player"});
+    expect(s.room.state.detection?.[0]).toEqual({mode:"tap",at:expect.any(Number)});
+    s.act(1,{type:"player.concede"});
+    const evidence = () => s.db.prepare("select * from tournament_remote_evidence where tournament_match_id=?")
+      .get(s.slot.id) as {result_events_json:string;detection_summary_json:string} | undefined;
+    expect(evidence()).toBeDefined();
+    expect(JSON.parse(evidence()!.result_events_json)).toContainEqual(expect.objectContaining({seat:0,
+      action:{type:"detection.mode",mode:"tap",reason:"player"}}));
+    expect(JSON.parse(evidence()!.detection_summary_json)[0]).toMatchObject({seat:0,tapSeconds:expect.any(Number)});
+    s.results.confirm(s.input);
+    s.act(1,{type:"undo",targetActionId:s.room.state.undo!.actionId});
+    expect(evidence()).toBeUndefined();
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",winnerPlayerId:null,score:null,
+      proposedAt:null,confirmDeadlineAt:null,reports:[{choice:null},{choice:null}]});
+    s.act(0,{type:"player.concede"}); // Creator is player two, independent of slot order.
+    const proposal = s.results.get(s.input);
+    expect(proposal).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,
+      score:{playerOne:1,playerTwo:0},source:"concede"});
+    expect(proposal!.confirmDeadlineAt! - proposal!.proposedAt!).toBe(2*60*60*1000);
+    expect(() => s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId))
+      .toThrow(expect.objectContaining({code:"REMOTE_MATCH_OPEN"}));
+    expect(() => s.results.confirm({...s.input,actorUserId:s.actors.find(a=>![s.one.userId,s.two.userId].includes(a.userId))!.userId}))
+      .toThrow(expect.objectContaining({code:"REMOTE_RESULT_PLAYER_REQUIRED"}));
+    expect(s.results.confirm(s.input).status).toBe("proposed");
+    expect(s.results.confirm(s.input).status).toBe("proposed");
+    s.db.exec("create temp trigger fail_remote_scoring before insert on point_awards begin select raise(abort,'forced Remote scoring failure'); end");
+    expect(()=>s.results.confirm({...s.input,actorUserId:s.two.userId})).toThrow("forced Remote scoring failure");
+    expect(s.results.get(s.input)).toMatchObject({status:"proposed",reports:[{choice:"confirm"},{choice:null}]});
+    expect(s.db.prepare("select count(*) n from matches").get()).toEqual({n:0});
+    s.db.exec("drop trigger fail_remote_scoring");
+    expect(s.results.confirm({...s.input,actorUserId:s.two.userId})).toMatchObject({status:"final",finalizationReason:"both_confirmed"});
+    expect(s.results.confirm(s.input).status).toBe("final");
+    s.refresh(); // Lifecycle closure may append table.ended and advance the sequence.
+    expect(s.room.status).toBe("ended");
+    const finalizedSeq=s.room.lastSeq;
+    expect(()=>s.act(0,{type:"undo",targetActionId:s.room.state.undo!.actionId}))
+      .toThrow(expect.objectContaining({status:409}));
+    expect(s.refresh().lastSeq).toBe(finalizedSeq);
+    expect(s.results.get(s.input)?.status).toBe("final");
+    expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("completed");
+    expect(s.db.prepare("select * from matches where tournament_id=?").all(s.tournament.id)).toHaveLength(1);
+    expect(s.db.prepare("select winner_id,source,status from matches where tournament_id=?").get(s.tournament.id))
+      .toEqual({winner_id:s.one.playerId,source:"tournament",status:"approved"});
+    const other=s.tournaments.matches(s.tournament.id).find(m=>m.roundNumber===1 && m.id !== s.slot.id)!;
+    const {createTournamentDuelService}=await import("../../src/services/tournament-duels.js");
+    createTournamentDuelService(s.db).setResultByOrganizer({tournamentMatchId:other.id,organizerUserId:s.actors[0].userId,winnerPlayerId:other.playerOneId});
+    expect(s.tournaments.matches(s.tournament.id).some(m=>m.roundNumber===2 && [m.playerOneId,m.playerTwoId].includes(s.one.playerId))).toBe(true);
+    expect(() => s.results.void({...s.input,actorUserId:s.actors[0].userId})).toThrow(expect.objectContaining({code:"REMOTE_REPLAY_UNAVAILABLE"}));
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("a dispute blocks the timer until an organizer records a decision or voids for replay", async () => {
+  const s = await tournamentResultSession("round_robin");
+  const {createTournamentDuelService} = await import("../../src/services/tournament-duels.js");
+  try {
+    s.act(0,{type:"player.concede"});
+    const deadline=s.results.get(s.input)!.confirmDeadlineAt!;
+    expect(s.results.dispute({...s.input,note:"Wrong LP"}).status).toBe("disputed");
+    expect(s.results.dispute({...s.input,actorUserId:s.two.userId,note:"Please review"})).toMatchObject({status:"disputed",
+      reports:[{choice:"dispute",note:"Wrong LP"},{choice:"dispute",note:"Please review"}]});
+    expect(s.results.finalizeDue(deadline+1)).toEqual([]);
+    expect(()=>s.results.confirm({...s.input,actorUserId:s.two.userId})).toThrow(expect.objectContaining({code:"REMOTE_RESULT_DISPUTED"}));
+    expect(()=>s.tournaments.reportTournamentMatch(s.slot.id,s.one.playerId,s.one.playerId)).toThrow(expect.objectContaining({code:"REMOTE_MATCH_OPEN"}));
+    createTournamentDuelService(s.db).setResultByOrganizer({tournamentMatchId:s.slot.id,organizerUserId:s.actors[0].userId,winnerPlayerId:s.two.playerId});
+    expect(s.results.get(s.input)).toMatchObject({status:"final",winnerPlayerId:s.two.playerId,finalizationReason:"organizer",
+      organizerDecision:{userId:s.actors[0].userId,winnerPlayerId:s.two.playerId,void:false,note:null}});
+    expect(s.db.prepare("select winner_id from matches where tournament_id=?").get(s.tournament.id)).toEqual({winner_id:s.two.playerId});
+    expect(s.results.void({...s.input,actorUserId:s.actors[0].userId,note:"Replay"})).toMatchObject({status:"void",winnerPlayerId:null,finalizationReason:null,
+      organizerDecision:{winnerPlayerId:null,void:true,note:"Replay"}});
+    expect(s.tournaments.matches(s.tournament.id).find(m=>m.id===s.slot.id)?.status).toBe("open");
+    s.refresh();
+    expect(s.room.status).toBe("ended");
+    const voidedSeq=s.room.lastSeq;
+    expect(()=>s.act(0,{type:"undo",targetActionId:s.room.state.undo!.actionId}))
+      .toThrow(expect.objectContaining({status:409}));
+    expect(s.refresh().lastSeq).toBe(voidedSeq);
+    expect(s.results.get(s.input)?.status).toBe("void");
+    expect(s.start().state.tournament).toBe(true);
+  } finally {vi.unstubAllEnvs();}
+
+});
+it.each(['tap','manual'] as const)('keeps only tournament result evidence through room purge and deletes it on the D5 schedule in %s mode', async mode => {
+  const { captureRemoteTournamentEvidence } = await import('../../src/services/tournament-remote-evidence.js');
+  const { pruneRemoteDuels } = await import('../../src/services/remote-retention.js');
+  const { deleteUserRemoteData } = await import('../../src/services/remote-cleanup.js');
+  const { db, service } = setup(), day = 86_400_000, hour = 3_600_000;
+  const actors = [seedIdentity(db), seedIdentity(db)];
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(25_000);
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS', '1');
+  let fixture = 0;
+  const make = () => {
+    const tournamentId = Number(db.prepare(`insert into tournaments(guild_id,name,format,status,created_by_user_id,duel_type)
+      values('g',?,'round_robin','active',?,'remote')`).run(`Evidence ${++fixture}`,actors[0].userId).lastInsertRowid);
+    const matchId = Number(db.prepare(`insert into tournament_matches(tournament_id,player_one_id,player_two_id,round_number,status)
+      values(?,?,?,1,'open')`).run(tournamentId, actors[1].playerId, actors[0].playerId).lastInsertRowid);
+    let room = service.create({guildId:'g', userId:actors[0].userId, displayName:'A', gameId:'ygo', seatCount:2, bestOf:3}, 1000);
+    service.join(room.slug, 'g', actors[1].userId, 'B', 1, 1001);
+    service.ready(room.slug, 'g', actors[0].userId, true, 1002);
+    service.ready(room.slug, 'g', actors[1].userId, true, 1002);
+    room = service.start(room.slug, 'g', actors[0].userId, 1003);
+    const tableId = (db.prepare('select id from remote_tables where slug=?').get(room.slug) as {id:number}).id;
+    db.prepare('update remote_tables set tournament_match_id=? where id=?').run(matchId, tableId);
+    db.prepare(`insert into tournament_remote_matches(tournament_match_id,table_id,table_slug,player_one_id,player_two_id,created_at,updated_at)
+      values(?,?,?,?,?,1000,1000)`).run(matchId, tableId, room.slug, actors[1].playerId, actors[0].playerId);
+    let serial = 0;
+    const act = (input: Record<string, unknown>, actorSeat = 0) => {
+      const idempotencyKey = `evidence-${++serial}`;
+      // A game end and siding reset may share one millisecond; retain the end LP.
+      const at = serial >= 6 && serial <= 10 ? 8000 : 2000 + serial * 1000;
+      room = service.act(room.slug, 'g', actors[actorSeat].userId, {baseSeq:room.lastSeq,
+        action:remoteActionSchema.parse({...input, actorSeat, idempotencyKey})}, at);
+      return idempotencyKey;
+    };
+    act({type:'detection.mode', mode, reason:'player'});
+    act({type:'lp.change', seat:0, delta:-500, reason:'cost'});
+    const undone = act({type:'lp.change', seat:0, delta:-1000, reason:'mistake'});
+    act({type:'undo', targetActionId:undone});
+    act({type:'match.declare', winnerSeat:0});
+    act({type:'match.confirm', declarationId:'evidence-5', accept:true}, 1);
+    act({type:'match.continue'});
+    act({type:'match.first', seatGoesFirst:0}, 1);
+    act({type:'side.ready', seat:0});
+    act({type:'side.ready', seat:1}, 1);
+    act({type:'twin.place', seat:0, zone:'monster', card:{ref:'public', cardId:1, slot:1}});
+    act({type:'twin.place', seat:0, zone:'monster', card:{ref:'unknown', slot:2}});
+    act({type:'twin.place', seat:0, zone:'spell-trap', card:{ref:'secret-set', cardId:2, slot:1, faceUp:false}});
+    act({type:'hand.add', cardId:3, source:'unknown'});
+    act({type:'card.identified', seat:0, cardRef:'public', cardId:1, source:'click'});
+    act({type:'lp.change', seat:0, delta:-200, reason:'cost'});
+    act({type:'twin.place', seat:1, zone:'monster', card:{ref:'loser-public', cardId:4, slot:1}}, 1);
+    act({type:'twin.place', seat:1, zone:'monster', card:{ref:'loser-unknown', slot:2}}, 1);
+    act({type:'player.concede'}, 1);
+    const endedAt = room.endedAt!;
+    db.prepare("update tournament_remote_matches set status='proposed',proposed_at=?,confirm_deadline_at=? where tournament_match_id=?")
+      .run(endedAt, endedAt + 2*hour, matchId);
+    return {tableId, matchId, tournamentId, endedAt};
+  };
+  type Evidence = {table_id:number|null; players_json:string; games_json:string; result_events_json:string; final_lp_json:string;
+    public_board_json:string; reports_json:string; detection_summary_json:string; hard_delete_at:number; purge_after_at:number|null};
+  const evidence = (id:number) => db.prepare('select * from tournament_remote_evidence where tournament_match_id=?').get(id) as Evidence | undefined;
+  try {
+    const timeout = make();
+    captureRemoteTournamentEvidence(db, timeout.tableId);
+    const copy = evidence(timeout.matchId)!;
+    expect(JSON.parse(copy.players_json)).toEqual([{userId:actors[0].userId,seat:0},{userId:actors[1].userId,seat:1}]);
+    expect(JSON.parse(copy.games_json)).toMatchObject([{n:1,winnerSeat:0,reason:'declared'},{n:2,winnerSeat:0,reason:'concede'}]);
+    expect(JSON.parse(copy.final_lp_json)).toEqual([{n:1,seats:[{seat:0,lp:7500},{seat:1,lp:8000}]},{n:2,seats:[{seat:0,lp:7800},{seat:1,lp:8000}]}]);
+    expect(JSON.parse(copy.public_board_json)).toEqual([{seat:0,cards:[{zone:'monster',slot:1,cardId:1,name:'Filler 1',position:'attack'},{zone:'monster',slot:2,position:'attack'}]},
+      {seat:1,cards:[{zone:'monster',slot:1,cardId:4,position:'attack'},{zone:'monster',slot:2,position:'attack'}]}]);
+    const excerpt = JSON.parse(copy.result_events_json);
+    expect(excerpt.map((e:{action:{type:string}})=>e.action.type)).toEqual(['detection.mode','lp.change','lp.change','undo','match.declare','match.confirm','lp.change','player.concede']);
+    expect(excerpt[1]).toMatchObject({userId:actors[0].userId,seat:0,action:{type:'lp.change',seat:0,delta:-500,reason:'cost'}});
+    expect(JSON.stringify(copy)).not.toMatch(/secret-set|hand.add|deckChecks|factsHash|idempotencyKey|departedFrom/);
+    expect(JSON.parse(copy.detection_summary_json)[0]).toMatchObject({seat:0,autoSeconds:0,unknownSeconds:1.997,tapSeconds:mode === 'tap' ? 18 : 0,manualSeconds:mode === 'manual' ? 18 : 0,identifiedByClick:1,identifiedByTyped:0,manualCorrections:3,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
+    expect(JSON.parse(copy.detection_summary_json)[1]).toMatchObject({seat:1,manualCorrections:2,unknownAtGameEnd:[{n:1,count:0},{n:2,count:1}]});
+    captureRemoteTournamentEvidence(db, timeout.tableId);
+    expect(evidence(timeout.matchId)).toEqual(copy);
+    const finalAt = timeout.endedAt + 2*hour;
+    db.prepare("update tournament_remote_matches set status='final',finalized_at=?,finalization_reason='timeout' where tournament_match_id=?").run(finalAt,timeout.matchId);
+    pruneRemoteDuels(db,timeout.endedAt+day+1);
+    expect(evidence(timeout.matchId)?.table_id).toBeNull();
+    expect(evidence(timeout.matchId)?.result_events_json).toBe(copy.result_events_json);
+    pruneRemoteDuels(db,finalAt+2*day-1); expect(evidence(timeout.matchId)).toBeDefined();
+    pruneRemoteDuels(db,finalAt+2*day); expect(evidence(timeout.matchId)).toBeUndefined();
+
+    const confirmed = make(); captureRemoteTournamentEvidence(db,confirmed.tableId);
+    db.prepare(`update tournament_remote_matches set status='final',finalization_reason='both_confirmed',finalized_at=?,
+      player_one_choice='confirm',player_one_responded_at=?,player_two_choice='confirm',player_two_responded_at=? where tournament_match_id=?`)
+      .run(confirmed.endedAt,confirmed.endedAt,confirmed.endedAt,confirmed.matchId);
+    expect(JSON.parse(evidence(confirmed.matchId)!.reports_json)).toEqual(actors.slice().reverse().map(a=>({userId:a.userId,choice:'confirm',note:null,at:confirmed.endedAt})));
+    pruneRemoteDuels(db,confirmed.endedAt+hour);
+    expect(evidence(confirmed.matchId)).toBeUndefined();
+    pruneRemoteDuels(db,confirmed.endedAt+day+1); // Safety net must never resurrect expired evidence.
+    expect(evidence(confirmed.matchId)).toBeUndefined();
+
+    for (const decisionDay of [0,1,13]) {
+      const dispute=make(); captureRemoteTournamentEvidence(db,dispute.tableId);
+      db.prepare("update tournament_remote_matches set status='disputed',player_one_choice='dispute',player_one_note='Wrong LP',player_one_responded_at=? where tournament_match_id=?").run(dispute.endedAt,dispute.matchId);
+      expect(JSON.parse(evidence(dispute.matchId)!.reports_json)[0]).toMatchObject({choice:'dispute',note:'Wrong LP'});
+      let due=dispute.endedAt+14*day;
+      if(decisionDay) {
+        const decisionAt=dispute.endedAt+decisionDay*day;
+        db.prepare("update tournament_remote_matches set status='void',organizer_decided_at=? where tournament_match_id=?").run(decisionAt,dispute.matchId);
+        due=Math.min(due,decisionAt+2*day);
+        // B1 resets the result row when starting a replay. Keep the earlier copy's deadline.
+        db.prepare('delete from tournament_remote_matches where tournament_match_id=?').run(dispute.matchId);
+        db.prepare(`insert into tournament_remote_matches(tournament_match_id,table_slug,player_one_id,player_two_id,created_at,updated_at)
+          values(?,'replay-room',?,?,?,?)`).run(dispute.matchId,actors[1].playerId,actors[0].playerId,decisionAt,decisionAt);
+        expect(evidence(dispute.matchId)?.purge_after_at).toBe(due);
+      }
+      pruneRemoteDuels(db,due-1); expect(evidence(dispute.matchId)).toBeDefined();
+      pruneRemoteDuels(db,due); expect(evidence(dispute.matchId)).toBeUndefined();
+    }
+    const fallback=make(); // A missing capture is recovered before the table is purged.
+    db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(fallback.matchId);
+    pruneRemoteDuels(db,fallback.endedAt+day+1);
+    expect(evidence(fallback.matchId)?.table_id).toBeNull();
+    db.prepare("update tournament_remote_matches set status='disputed',player_two_choice='dispute',player_two_note='After room purge',player_two_responded_at=? where tournament_match_id=?")
+      .run(fallback.endedAt+day+1,fallback.matchId);
+    expect(JSON.parse(evidence(fallback.matchId)!.reports_json)[1]).toMatchObject({choice:'dispute',note:'After room purge'});
+    db.prepare("update tournaments set status='cancelled' where id=?").run(fallback.tournamentId);
+    expect(evidence(fallback.matchId)).toBeUndefined();
+    const cancelled=make(); captureRemoteTournamentEvidence(db,cancelled.tableId);
+    db.prepare("update tournaments set status='cancelled' where id=?").run(cancelled.tournamentId);
+    expect(evidence(cancelled.matchId)).toBeUndefined();
+    pruneRemoteDuels(db,cancelled.endedAt+day+1); expect(evidence(cancelled.matchId)).toBeUndefined();
+    const account=make(); captureRemoteTournamentEvidence(db,account.tableId);
+    pruneRemoteDuels(db,account.endedAt+day+1);
+    db.transaction(()=>deleteUserRemoteData(db,actors[1].userId)).immediate();
+    expect(evidence(account.matchId)).toBeUndefined();
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  } finally {clock.mockRestore();vi.unstubAllEnvs();}
+});
+
+
+it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 48 hours without resurrecting a replay copy", async reason => {
+  const s = await tournamentResultSession();
+  const {pruneRemoteDuels} = await import("../../src/services/remote-retention.js");
+  const day = 86_400_000;
+  vi.stubEnv("REMOTE_DUELS_RETENTION_DAYS", "1");
+  try {
+    let room: Pick<typeof s.room,"slug"|"lastEventAt"> = s.room;
+    if (reason === "creator-left") {
+      // Creator departure applies to a lobby. Void the active table first, then start its replacement.
+      s.results.void({...s.input,actorUserId:s.actors[0].userId});
+      room = s.tables.startMatch({guildId:"g",tournamentId:s.tournament.id,tournamentMatchId:s.slot.id,
+        actorUserId:s.two.userId}).table;
+      s.remote.leave(room.slug,"g",s.two.userId,room.lastEventAt+1);
+    } else s.remote.sweepIdle(room.lastEventAt + 10*60*1000 + 1);
+    const ended = s.remote.get(room.slug,"g",s.two.userId);
+    const evidence = () => s.db.prepare("select table_id,table_slug,purge_after_at from tournament_remote_evidence where tournament_match_id=?")
+      .get(s.slot.id) as {table_id:number|null;table_slug:string;purge_after_at:number} | undefined;
+    expect(s.results.get(s.input)).toMatchObject({status:"playing",proposedAt:null});
+    expect(evidence()).toMatchObject({table_slug:room.slug,purge_after_at:ended.endedAt! + 2*day});
+    // Replay resets the playing row; the previous copy keeps its original deadline.
+    s.tables.startMatch({guildId:"g",tournamentId:s.tournament.id,tournamentMatchId:s.slot.id,actorUserId:s.two.userId});
+    pruneRemoteDuels(s.db,ended.endedAt!+day+1);
+    expect(evidence()).toMatchObject({table_id:null,purge_after_at:ended.endedAt!+2*day});
+    pruneRemoteDuels(s.db,ended.endedAt!+2*day-1);
+    expect(evidence()).toBeDefined();
+    pruneRemoteDuels(s.db,ended.endedAt!+2*day);
+    expect(evidence()).toBeUndefined();
+    expect(s.db.pragma("foreign_key_check")).toEqual([]);
+  } finally {vi.unstubAllEnvs();}
+});
+
+it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {
+  const s = deckSession('normal', false);
+  s.select(s.save().id);
+  s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
+  s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
+  const token = { ref: 'token-1', name: 'Sheep Token', slot: 2, faceUp: true, position: 'defense', token: { atk: 0, def: 0 } };
+  const mine = () => s.room.state.seats[0].twin.find(c => c.ref === 'token-1');
+
+  // Create: public at once, with its stats, for the opponent and for a spectator.
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: token });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2, position: 'defense', faceUp: true, name: 'Sheep Token', token: { atk: 0, def: 0 } });
+  const seenBy = (twin: { ref: string }[]) => twin.find(c => c.ref === 'token-1');
+  expect(seenBy(s.service.get(s.room.slug, 'g', s.users[1]).state.seats[0].twin)).toMatchObject({ name: 'Sheep Token', token: { def: 0 } });
+  const spectator = projectRemoteSpectator(s.service.snapshot(s.room.slug, 'g'));
+  expect(seenBy(spectator.state.seats[0].twin)).toMatchObject({ name: 'Sheep Token', zone: 'monster', slot: 2, position: 'defense', token: { atk: 0, def: 0 } });
+  expect(spectator.events.at(-1)?.action).toMatchObject({ type: 'twin.place', card: { ref: 'token-1', name: 'Sheep Token', token: { atk: 0 } } });
+
+  // Rules: not by the camera, not twice in one cell, not face-down, not outside the Monster Zones.
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: { ...token, ref: 'token-auto', slot: 3 } })).toThrow();
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-2' } })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'spell-trap', card: { ...token, ref: 'token-2', slot: 3 } })).toThrow();
+
+  // A card on the token's cell is refused, by the camera or by hand: the token stays until its owner removes it. Never an Extra Monster Zone.
+  const real = { ref: 'real-1', name: 'Tribute Monster', slot: 2, faceUp: true, position: 'attack' };
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'extra-monster', card: { ...token, ref: 'token-emz', slot: 1 } })).toThrow();
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-6', slot: 6 } })).toThrow();
+  expect(() => s.act({ type: 'twin.move', seat: 0, zone: 'extra-monster', cardRef: 'token-1', slot: 1 })).toThrow();
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+
+  // The camera never moves or removes it: an Auto-detect departure changes nothing.
+  s.act({ type: 'twin.move', seat: 0, zone: 'hand', cardRef: 'token-1', source: 'auto' });
+  s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: false, source: 'auto' });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2, faceUp: true });
+
+  // Move and change position by hand.
+  s.act({ type: 'twin.move', seat: 0, zone: 'monster', cardRef: 'token-1', slot: 4, position: 'attack' });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 4, position: 'attack' });
+  s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: true, position: 'defense' });
+  expect(mine()).toMatchObject({ slot: 4, position: 'defense' });
+  expect(() => s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: false })).toThrow();
+
+  // Remove, and leaving the field: both make it disappear. Undo brings it back.
+  s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
+  expect(mine()).toBeUndefined();
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(mine()).toMatchObject({ slot: 4 });
+  s.act({ type: 'twin.move', seat: 0, zone: 'graveyard', cardRef: 'token-1' });
+  expect(mine()).toBeUndefined();
+  expect(s.room.state.seats[0].twin.some(c => c.zone === 'graveyard')).toBe(false);
+  expect(seenBy(projectRemoteSpectator(s.service.snapshot(s.room.slug, 'g')).state.seats[0].twin)).toBeUndefined();
+
+  // The player's own Remove frees the cell, and the card lands there.
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, slot: 2 } });
+  s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real });
+  expect(s.room.state.seats[0].twin.find(c => c.ref === 'real-1')).toMatchObject({ zone: 'monster', slot: 2 });
+  // Two actions, so the placement's Undo comes first and the removal's second: both undone restore the token.
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+});
+
+describe("remote match history and replay", () => {
+  function endedTable() {
+    const s = deckSession("normal", false);
+    const [a, b, outsider] = s.users, slug = s.room.slug;
+    s.select(s.save().id);
+    s.service.configure(slug, "g", a, { bestOf: 1 }, 2001);
+    s.service.join(slug, "g", b, "Bea", undefined, 2001);
+    s.service.selectDeck(slug, "g", b, { savedDeckId: s.save(undefined, [], b).id }, 2001);
+    s.service.ready(slug, "g", b, true, 2002); s.service.ready(slug, "g", a, true, 2002);
+    s.service.start(slug, "g", a, 2003);
+    const send = (user: number, action: Record<string, unknown>, at: number) => s.service.act(slug, "g", user, { baseSeq: s.service.get(slug, "g", user).lastSeq,
+      action: remoteActionSchema.parse({ idempotencyKey: "hist-" + at, ...action }) }, at);
+    send(a, { type: "log.note", actorSeat: 0, text: "Good luck" }, 2100);
+    send(b, { type: "player.concede", actorSeat: 1 }, 2200);
+    return { ...s, a, b, outsider, slug };
+  }
+
+  it("lists an ended table in the history of its players and rebuilds its final board", () => {
+    const s = endedTable();
+    const mine = s.service.listHistory("g", s.a);
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]).toMatchObject({ remote: true, slug: s.slug, tableType: "1v1", mySeat: 0, winnerSeat: 0,
+      seats: [{ displayName: "Sulman", result: "win" }, { displayName: "Bea", result: "loss" }] });
+    expect(s.service.listHistory("g", s.b).items[0]).toMatchObject({ mySeat: 1 });
+    // Another guild sees nothing, and a private table is not in a member's All list.
+    expect(s.service.listHistory("h", s.a).items).toHaveLength(0);
+    expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items).toHaveLength(0);
+    expect(s.service.listHistory("g", s.a, { format: "ffa3" }).items).toHaveLength(0);
+
+    for (const user of [s.a, s.b]) {
+      const replay = s.service.replayFrames(s.slug, "g", user);
+      expect(replay.viewer).toBe("player");
+      const last = replay.steps.reduce((view, step) => applyPatch(view, step.ops), replay.initial);
+      const live = s.service.get(s.slug, "g", user).state;
+      expect(last).toEqual({ ...live, undo: null, undoHistory: [] });
+      expect(last.ended).toBe(true);
+      expect(replay.steps.map(step => step.seq)).toEqual(replay.steps.map((_, i) => i + 1));
+    }
+    expect(() => s.service.replayFrames(s.slug, "g", s.outsider)).toThrow(/not found/);
+    expect(() => s.service.replayFrames(s.slug, "h", s.a)).toThrow(/not found/);
+    // A public table shows to other members as a spectator replay.
+    s.db.prepare("update remote_tables set visibility='public' where slug=?").run(s.slug);
+    expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items.map(item => item.slug)).toEqual([s.slug]);
+    expect(s.service.replayFrames(s.slug, "g", s.outsider).viewer).toBe("spectator");
+  });
+
+  it("keeps reading Remote rows on later pages when they are all older than the online page", () => {
+    const s = endedTable();
+    const remote = s.service.listHistory("g", s.a).items[0]!;
+    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt }) as never;
+    // Page 1 holds online rows newer than the Remote table and online has more; page 2 is the last online page.
+    const first = { duels: [online(1, "2999-01-02T00:00:00.000Z"), online(2, "2999-01-01T00:00:00.000Z")], nextCursor: "o2", canSeeAll: false };
+    const last = { duels: [online(3, "1999-01-01T00:00:00.000Z")], nextCursor: null, canSeeAll: false };
+    const page1 = mergeHistory({ cursor: undefined, online: () => first, remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
+    expect(page1.duels).toHaveLength(2);
+    expect(page1.nextCursor).not.toBeNull();
+    const page2 = mergeHistory({ cursor: page1.nextCursor, online: cursor => (expect(cursor).toBe("o2"), last), remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
+    expect(page2.duels.map(item => ("remote" in item ? item.slug : item.id))).toEqual([3, remote.slug]);
+    expect(page2.nextCursor).toBeNull();
+  });
+
+  it("ends the list when a status filter hides every Remote row", () => {
+    // 120 Remote rows without a winner, read 50 at a time, and no online rows.
+    const rows = Array.from({ length: 120 }, (_, i) => ({ slug: `r${i}`, winnerSeat: null, endedAt: new Date(Date.UTC(2999, 0, 1) - i * 1000).toISOString(), cursor: String(i) }) as never as RemoteHistoryItem);
+    const remote = (cursor: string | undefined) => {
+      const start = cursor === undefined ? 0 : Number(cursor) + 1;
+      const items = rows.slice(start, start + 50);
+      return { items, nextCursor: start + 50 < rows.length ? items[items.length - 1]!.cursor : null, canSeeAll: true };
+    };
+    let cursor: string | null = null, pages = 0;
+    do {
+      const page = mergeHistory({ cursor, online: () => ({ duels: [], nextCursor: null, canSeeAll: true }), remote, remoteKeep: item => item.winnerSeat !== null });
+      expect(page.duels).toHaveLength(0);
+      cursor = page.nextCursor;
+    } while (cursor && ++pages < 10);
+    expect(cursor).toBeNull();
+    expect(pages).toBe(2);
+  });
 });

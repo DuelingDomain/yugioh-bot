@@ -1,3 +1,4 @@
+import { assertRemoteTournamentUser } from "./tournament-remote-access.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { TournamentVisibility } from "../types/index.js";
@@ -21,11 +22,11 @@ function inviteCodeMatches(stored: string, provided: string): boolean {
   return timingSafeEqual(expected, actual);
 }
 
-type Row = { id: number; status: string; visibility: TournamentVisibility; created_by_user_id: number; invite_code: string | null };
+type Row = { duel_type: string; id: number; status: string; visibility: TournamentVisibility; created_by_user_id: number; invite_code: string | null };
 
 export function createTournamentVisibilityService(db: Database.Database) {
   const load = (slug: string, guildId: string): Row => {
-    const row = db.prepare("select id,status,visibility,created_by_user_id,invite_code from tournaments where web_slug=? and guild_id=?")
+    const row = db.prepare("select id,status,visibility,created_by_user_id,invite_code,duel_type from tournaments where web_slug=? and guild_id=?")
       .get(slug, guildId) as Row | undefined;
     if (!row) throw new TournamentVisibilityServiceError("Tournament not found", 404);
     return row;
@@ -55,6 +56,7 @@ export function createTournamentVisibilityService(db: Database.Database) {
       if (!row.invite_code || typeof code !== "string" || !inviteCodeMatches(row.invite_code, code)) {
         throw new TournamentVisibilityServiceError("Tournament not found", 404);
       }
+      if (row.duel_type === "remote") assertRemoteTournamentUser(userId);
       db.prepare("insert or ignore into tournament_invite_grants(tournament_id,user_id) values(?,?)").run(row.id, userId);
     }).immediate,
     setVisibility: db.transaction((slug: string, guildId: string, userId: number, visibility: unknown): TournamentVisibility => {

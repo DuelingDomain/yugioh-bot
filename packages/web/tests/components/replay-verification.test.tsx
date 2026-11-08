@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { replayV2 } from "./replay-fixtures";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
@@ -160,6 +156,21 @@ describe("Open unchecked replay", () => {
       : json(unverifiedBody({ canOpenUnchecked: true }), 409));
     render(<DuelReplayView slug="game-1" canInspectSource />);
     fireEvent.click(await screen.findByRole("button", { name: "Open unchecked replay" }));
+    const group = await screen.findByRole("group", { name: "Replay controls" });
+    await waitFor(() => expect(document.activeElement).toBe(group));
+  });
+
+  it("keeps the focus handover when unchecked is opened before the failure effects flush", async () => {
+    server((url) => url.searchParams.get("unchecked") === "1"
+      ? json({ ...replayV2(), verification: "unverified" })
+      : json(unverifiedBody({ canOpenUnchecked: true }), 409));
+    let clicked = false;
+    // The commit callback clicks as soon as the button exists, before passive
+    // effects from the checked failure run. A fast user can hit this ordering.
+    render(<React.Profiler id="fast-unchecked" onRender={() => {
+      const button = document.querySelector<HTMLButtonElement>("[data-replay-open-unchecked]");
+      if (!clicked && button) { clicked = true; button.click(); }
+    }}><DuelReplayView slug="game-1" canInspectSource /></React.Profiler>);
     const group = await screen.findByRole("group", { name: "Replay controls" });
     await waitFor(() => expect(document.activeElement).toBe(group));
   });

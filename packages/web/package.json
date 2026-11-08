@@ -22,7 +22,7 @@
     "livekit-client": "^2.23.0",
     "livekit-server-sdk": "^2.19.2",
     "lucide-react": "^1.14.0",
-    "next": "16.4.1",
+    "next": "16.4.5",
     "posthog-js": "^1.438.9",
     "qrcode": "^1.5.4",
     "react": "19.2.5",

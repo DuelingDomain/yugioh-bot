@@ -101,17 +101,20 @@ export function cardFacts(info: CardInfo | undefined): { facts: string; combat: 
   return { facts, combat: link ? (info.level ? `${atk} / LINK-${info.level}` : atk) : `${atk} / DEF ${info.def ?? "?"}` };
 }
 
-/** Name, facts, combat line and the full card text. `children` sit between the facts and the text. */
-export function CardText({ id, info: given, name, fallbackName, children }: { id?: number; info?: CardInfo | undefined; name?: string; fallbackName: string; children?: ReactNode }) {
+/** Name, facts, combat line and the full card text. `children` sit between the facts and the text. `art` puts a card image beside the name and facts, with the text full width under both. */
+export function CardText({ id, info: given, name, fallbackName, art, children }: { id?: number; info?: CardInfo | undefined; name?: string; fallbackName: string; art?: ReactNode; children?: ReactNode }) {
   const status = useCardStatus(id); const info = given ?? status.info;
   const { facts, combat } = cardFacts(info);
-  return <>
+  const head = <>
     <h2 className={s.bname} data-testid="popover-name">{info?.name ?? name ?? fallbackName}</h2>
     {children}
     {facts || combat ? <div className={s.bfacts}>{facts ? <p className={s.bdetails}>{facts}</p> : null}{combat ? <p className={s.bcombat}>{combat}</p> : null}</div>
       : status.failed ? <div className={s.bfacts} role="alert" data-testid="card-load-error"><p className={s.bdetails}>Could not load this card.</p>
         <button type="button" className={`${s.btn} ${s.sm}`} onClick={status.retry} data-testid="card-load-retry">Try again</button></div>
       : <div className={s.bfacts}><p className={s.bdetails}>Loading card…</p></div>}
+  </>;
+  return <>
+    {art ? <div className={s.bhead}>{art}<div className={s.bheadText}>{head}</div></div> : head}
     {info?.effectText ? <p className={s.btext} tabIndex={0} aria-label="Card text">{info.effectText}</p> : null}
   </>;
 }

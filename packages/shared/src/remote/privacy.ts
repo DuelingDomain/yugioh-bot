@@ -33,10 +33,19 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
   }
   return next;
 }
-export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>):RemoteState {
-  const next=projectPosition(state,seats);
-  if(next.undo) next.undo.before=projectPosition(next.undo.before,seats);
-  if(state.undoHistory) next.undoHistory=[...seats].flatMap(seat=>remoteUndoHistory(state,seat)).sort((a,b)=>b.order-a.order);
+/** Clone a state without its undo data: that data is about 90% of the size and every caller replaces or drops it. The placeholders keep the key order. */
+function withoutUndo<T extends RemoteState>(state:T):T {
+  const shell:Record<string,unknown>={...state};
+  if("undo" in shell)shell.undo=null;
+  if("undoHistory" in shell)shell.undoHistory=null;
+  return shell as T;
+}
+/** `allUndoReasons` runs the slow restore check for every history entry, not only the newest of each seat. */
+export function projectRemoteState(state:RemoteState,seats:ReadonlySet<number>,options:{allUndoReasons?:boolean}={}):RemoteState {
+  const next=projectPosition(withoutUndo(state),seats);
+  // Clients use only the id and time of the last action; the position before it stays on the server (the cast hides the missing `before`).
+  if("undo" in state)next.undo=state.undo ? {actionId:state.undo.actionId,at:state.undo.at} as RemoteState["undo"] : state.undo;
+  if("undoHistory" in state)next.undoHistory=state.undoHistory ? [...seats].flatMap(seat=>remoteUndoHistory(state,seat,options.allUndoReasons?"all":"newest")).sort((a,b)=>b.order-a.order) : state.undoHistory;
   return next;
 }
 export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=new Set()):RemoteTable {
@@ -44,21 +53,21 @@ export function projectRemoteTable(table:RemoteTable,seats:ReadonlySet<number>=n
 }
 /** Event replay facts are server-only. Historic private payloads stay private even after a reveal. */
 function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
-  const {effects:_effects,...next}=structuredClone(event);
+  const {effects,...rest}=event, next=structuredClone(rest);
   const a=next.action;
   const actor=event.actorSeat ?? -1;
-  if(a.type==='hand.add'&&a.by)a.by.name=event.effects?.facts?.[a.by.cardId]?.name??'Card '+a.by.cardId;
-  if(a.type==="effect.activated" && event.effects?.effect) a.source=structuredClone(event.effects.effect.source);
+  if(a.type==='hand.add'&&a.by)a.by.name=effects?.facts?.[a.by.cardId]?.name??'Card '+a.by.cardId;
+  if(a.type==="effect.activated" && effects?.effect) a.source=structuredClone(effects.effect.source);
   if(a.type==="seat.deck" && !seats.has(a.seat)) a.registration=null;
   if(a.type==="table.configured") a.registrations=Object.fromEntries(Object.entries(a.registrations).filter(([seat])=>seats.has(Number(seat))));
   if(!seats.has(actor)) {
-    if(event.effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
+    if(effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
-    if(a.type==="effect.choose" && !event.effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
+    if(a.type==="effect.choose" && !effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
-      const privateSight=event.effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
+      const privateSight=effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
       if(privateSight) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}; delete next.messages; }
     }
   }
@@ -66,11 +75,12 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
 }
 /**
  * What a spectator may know. A player sees some cards because the table told that player (a searched card, a reveal, a
- * card once public and now Set). A spectator gets none of that: no hand contents, no face-down names, no notes, no undo or deck data.
+ * card once public and now Set). A spectator gets none of that, except the revealed / returned-to-hand cards (public table
+ * knowledge, filtered like a player's view): no other hand contents, no face-down names, no notes, no undo or deck data.
  * Allow list for events: a new action type shows as a private line until it is added here.
  */
-const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","seat.joined","seat.left","seat.ready","seat.deck",
-  "phase.set","phase.advance","turn.end","lp.change","attack.declare","attack.resolve","player.concede","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
+const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
+  "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
   "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","pile.lift","pile.order","effect.activated"]);
 const PUBLIC_ZONE=(card:{zone:string;faceUp?:boolean})=>card.faceUp!==false && !["hand","deck","extra"].includes(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
@@ -97,11 +107,13 @@ function renameRefs(value:unknown,hide:(ref:string)=>string):void {
 }
 const CARD_IDENTITY=["cardId","passcode","name","race","bestMatch","publicIdentity","setBy","zoneRule"] as const;
 function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs):T {
-  const next=structuredClone(state);
+  const next=structuredClone(withoutUndo(state as unknown as RemoteState)) as unknown as T;
   delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
   next.deckChecks.registrations={}; next.deckChecks.flags=[]; next.deckChecks.instances=[];
   for(const seat of next.seats) {
-    delete seat.knownHand; delete seat.deckCount;
+    delete seat.deckCount;
+    // Revealed and returned-to-hand cards are public table knowledge: same filter as for players.
+    if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
     seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
     for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
       delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.publicIdentity; delete card.setBy;

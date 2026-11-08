@@ -114,12 +114,15 @@ export async function optimizeRecognitionCapture(track: MediaStreamTrack): Promi
     if (!caps.width || !caps.height || !track.applyConstraints) return;
     const portrait = !!current.width && !!current.height && current.height > current.width;
     const sizes = portrait ? [[1080, 1920], [720, 1280]] : [[1920, 1080], [1280, 720]];
-    for (const strictRate of [true, false]) for (const [width, height] of sizes) {
+    // Frame rate asks, strictest first: exactly 30, then 24 to 30 (a camera that cannot hold 30 in dim light is not forced below 24), then any rate up to 30.
+    const rates = [{ exact: 30 }, { ideal: 30, min: 24, max: 30 }, { ideal: 30, max: 30 }];
+    for (const [rateIndex, frameRate] of rates.entries()) for (const [width, height] of sizes) {
+      const strictRate = rateIndex === 0;
       if (width > (caps.width.max ?? 0) || width < (caps.width.min ?? 0) || height > (caps.height.max ?? 0) || height < (caps.height.min ?? 0)) continue;
       let write: Promise<void> | undefined;
       try {
         write = track.applyConstraints({ ...track.getConstraints(), width: { exact: width }, height: { exact: height },
-          aspectRatio: { ideal: width / height }, frameRate: strictRate ? { exact: 30 } : { ideal: 30, max: 30 } });
+          aspectRatio: { ideal: width / height }, frameRate });
         await bounded(write, 3000);
         assertLive(track);
         if (strictRate && (settings(track).frameRate ?? 30) < 29.5) continue;

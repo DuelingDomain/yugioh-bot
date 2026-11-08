@@ -25,7 +25,7 @@ test('only successful main push ancestors can become the baseline', () => {
 test('an absent baseline fails closed to all engine layers', () => {
   const layers = changedLayers(null, 'push');
   for (const flag of ['engine', 'golden', 'web', 'shared', 'ci_scripts']) assert.equal(layers[flag], true, flag);
-  for (const [flag, value] of Object.entries(layers)) assert.equal(value, !['docs_only', 'data_only', 'tests_only'].includes(flag), flag);
+  for (const [flag, value] of Object.entries(layers)) assert.equal(value, !['docs_only', 'data_only', 'tests_only', 'engine_app'].includes(flag), flag);
 });
 
 for (const [name, engineChanged, metadataBytes] of [

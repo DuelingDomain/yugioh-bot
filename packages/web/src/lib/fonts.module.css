@@ -1,0 +1,7 @@
+.russoOne {
+  --font-russo-one: "App Display Ext", var(--font-russo-one-base);
+}
+
+.chakraPetch {
+  --font-chakra-petch: "App Body Ext", var(--font-chakra-petch-base);
+}

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { recognizeLocalCard } from "../src/components/remote/recognize-card";
+import { applyRoomPatch, classifyPatch, createRepairScheduler, remoteChangeNeedsFetch } from "../src/lib/remote/room-mutations";
 
 const ocr = { text: "Dark Magician\n46986414", terminate: vi.fn(), post: vi.fn(), fail: false };
 const canvas = { toBlob: (callback: (blob: Blob) => void) => callback(new Blob(["local frame"])) } as HTMLCanvasElement;
@@ -149,6 +150,24 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   expect(recognizers[1]).toHaveBeenCalledOnce();
   for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }], tier: "sure", faceDown: false, covered: false }, 1);
   channels.forEach(channel => channel.close());
+});
+
+it("sends a Rescan request to one seat, answers off or started, and keeps one request per 15 s per requester", async () => {
+  const { RescanChannel } = await import("../src/lib/remote/video-protocol");
+  let now = 1000; const started: number[] = []; let answer: "started" | "off" | "paused" | "busy" = "started";
+  const channels: InstanceType<typeof RescanChannel>[] = [];
+  for (let seat = 0; seat < 3; seat++) channels.push(new RescanChannel(seat, async (message, destination) => { void channels[destination].receive(seat, message); },
+    from => { if (answer === "started") started.push(from); return answer; }, () => now, 200));
+  expect(await channels[0].request(1)).toBe("started"); expect(started).toEqual([0]);
+  expect(await channels[0].request(1)).toBe("limited");          // requester side: 15 s per seat
+  expect(await channels[0].request(0)).toBe("unavailable");      // not yourself
+  now += 15_000; answer = "off";
+  expect(await channels[0].request(1)).toBe("off"); expect(started).toEqual([0]);
+  now += 15_000; answer = "paused";                              // the other client waits on a prompt, the sync hold or calibration
+  expect(await channels[0].request(1)).toBe("paused");
+  const lonely = new RescanChannel(0, async () => undefined, () => "started", () => now, 50);
+  expect(await lonely.request(2)).toBe("unavailable");           // no answer in time
+  [...channels, lonely].forEach(channel => channel.close());
 });
 
 it("parses activation with a named source and activation after identifying a card", async()=>{
@@ -546,13 +565,22 @@ it('failed compensating Undo exposes a recoverable stale-placement error with th
 });
 
 it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Check zone',async()=>{
- const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
+ const {projectFieldZone,hardFieldZone,freeFieldZones}=await import('../src/lib/remote/field-legality');
  // Owner, Infinite Impermanence in a Monster Zone: a Trap without Trap Monster facts goes to the same column's S/T zone.
  const result=projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal',race:'Normal'},twins:[]});
  expect(result).toEqual({zone:'S4',label:'Spell/Trap Zone 4',moved:'Trap → S4'});
  expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card',race:'Quick-Play'},twins:[{ref:'busy',zone:'spell-trap',slot:3}]}).zone).toBe('S2');
  expect(hardFieldZone({type:'Trap Card'},'M3',[],'self')).toBe('S3');
  expect(projectFieldZone({zone:'EMZ1',facts:{type:'Trap Card'},twins:[]}).zone).toBe('S2');
+ // A token holds its cell: a camera card in that cell stays there (the player is asked), any other target treats the cell as taken.
+ const monster={type:'Normal Monster',frameType:'normal',race:'Warrior'},token={ref:'token',zone:'monster',slot:2,token:{atk:0,def:0}};
+ expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
+ // "Choose another zone" for a face-down card: the player picks from the free cells, and the token's cell is not one.
+ expect(freeFieldZones([token],undefined,true).slice(0,4)).toEqual(['M1','M3','M4','M5']);
+ // A known card sees only its own row.
+ expect(freeFieldZones([token],monster)).toEqual(['M1','M3','M4','M5']);
+ expect(freeFieldZones([token],{type:'Normal Trap Card'})).toEqual(['S1','S2','S3','S4','S5']);
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
@@ -576,8 +604,10 @@ it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and
   const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
   expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
  }
- expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBe('M2');
- expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBe('M2');
+ expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Normal Spell Card'},'M2',[],'self')).toBe('S2');
+ expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});
  expect(hardFieldZone({type:'Union Effect Monster'},'S2',[],'self')).toBeUndefined();
 });
 it('field legality: Main Deck monsters in the extra row go to the same column\'s Main Monster Zone; Pendulums are plausible',async()=>{
@@ -600,14 +630,14 @@ it('field legality: unavailable extra zones fall back to a free aligned main mon
  for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
 });
-it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle goes to M2',async()=>{
+it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle stays with Check zone',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const belle=projectFieldZone({zone:'S2',facts:{type:'Effect Monster',effectText:'(Quick Effect): You can discard this card; negate the activation.'},twins:[]});
- expect(belle).toEqual({zone:'M2',label:'Main Monster Zone 2',moved:'Monster → M2'});
+ expect(belle).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});expect(belle.moved).toBeUndefined();
  expect(projectFieldZone({zone:'S3',facts:{type:'Effect Monster',effectText:'You can Set this card from your hand to your Spell & Trap Zone as a Spell.'},twins:[]})).toEqual({zone:'S3',label:'Spell/Trap Zone 3'});
  expect(projectFieldZone({zone:'S2',facts:{type:'Union Effect Monster'},twins:[]}).check).toBeUndefined();
  expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipSource:true}).check).toBeUndefined();
- expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('S2');
 });
 it('field legality: Pendulum monsters keep outer spell/trap columns as scales; inner columns are marked',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
@@ -810,6 +840,25 @@ it('camera writes retry with the same action key and expose a final failure',asy
  post.mockClear();expect(await retryFieldMutation(post,proposal,'stale-key',()=>false,failed)).toBeNull();expect(post).not.toHaveBeenCalled();
 });
 
+it('quick setup: rows placed the wrong way round read as a mirrored mat, and Swap rows / Shift one row fix the grid',async()=>{
+ const {createFieldCalibration,createTwoCardCalibration,fieldMatPoint,mapFieldZone,shiftFieldCalibrationRows,swapFieldCalibrationRows}=await import('@yugidraft/vision');
+ const tilt=({x,y}:{x:number;y:number})=>{const w=1+.12*x+.28*y;/* Half-size mat in the middle of the picture, so a grid shifted by a row stays inside it. */return {x:.25+.5*(.12+.78*x+.06*y)/w,y:.25+.5*(.08+.06*x+.85*y)/w};},aspect=86/59,pitch=1.25,halfW=.136/(2*pitch),halfH=(1/3)*aspect/(2*(aspect+pitch-1));
+ const truth=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(tilt),{playerSide:'bottom',mirrored:false});
+ const card=(x:number,y:number)=>({kind:'face-up' as const,confidence:.99,partial:false,quad:[{x:x-halfW,y:y-halfH},{x:x+halfW,y:y-halfH},{x:x+halfW,y:y+halfH},{x:x-halfW,y:y+halfH}].map(tilt)});
+ const zoneOf=(grid:ReturnType<typeof createFieldCalibration>,c:ReturnType<typeof card>)=>mapFieldZone(c,grid).zone;
+ // Right placement: monster in M1 (middle row), spell/trap in S5 (row nearest the player).
+ const right=createTwoCardCalibration([card(.228,.5),card(.772,5/6)],0);
+ expect(right.orientation?.mirrored).toBe(false);expect(zoneOf(right,card(.228,.5))).toBe('M1');
+ // Swapped rows ("front-left" monster in the row nearest the player): the fit is mirrored, which is the signal to ask.
+ const monster=card(.228,5/6),spell=card(.772,.5),swapped=createTwoCardCalibration([monster,spell],0);
+ expect(swapped.orientation?.mirrored).toBe(true);
+ const fixed=swapFieldCalibrationRows(swapped);
+ expect(fixed.orientation?.mirrored).toBe(false);expect(zoneOf(fixed,monster)).toBe('S1');expect(zoneOf(fixed,spell)).toBe('M5');
+ for(const point of [{x:.3,y:.4},{x:.6,y:.8}]){const a=fieldMatPoint(point,fixed),b=fieldMatPoint(point,truth);expect(a.x).toBeCloseTo(b.x,6);expect(a.y).toBeCloseTo(b.y,6);}
+ // One row away from the player (the same card now sits nearer to the player), and back toward the player.
+ const down=shiftFieldCalibrationRows(right,-1);expect(zoneOf(down,card(.228,.5))).toBe('S1');expect(zoneOf(down,card(.228,1/6))).toBe('M1');
+ expect(zoneOf(shiftFieldCalibrationRows(down,1),card(.228,.5))).toBe('M1');
+});
 it('zoneSpacing widens cells and shares centre assignment through persistence, orientation and transport',async()=>{
  const {fieldGridCells,straddledZones}=await import('../src/lib/remote/zone-grid');
  const {createFieldCalibration,fieldMatPoint,fieldZoneAt,mapFieldZone,onMat,zoneCellAt,FIELD_ZONE_PITCH,rotateFieldCalibration,mirrorFieldCalibration}=await import('@yugidraft/vision');
@@ -1219,4 +1268,46 @@ for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] 
     expect(r.watcher.getSnapshot().tracks.find(t=>t.id==='bottom')).toMatchObject({zone,cardId:'300',removed:false});
     await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(2);
   }finally{r.dispose();}
+});
+
+it('fetches the room after remote:changed only when the announced sequence is newer than the one held', () => {
+  expect(remoteChangeNeedsFetch(7, 7)).toBe(false); // the private snapshot or our own reply already gave it
+  expect(remoteChangeNeedsFetch(8, 7)).toBe(false); // a late notice
+  expect(remoteChangeNeedsFetch(6, 7)).toBe(true); // the private snapshot was lost: recover with a GET
+  expect(remoteChangeNeedsFetch(0, 1)).toBe(true); // nothing held yet
+});
+
+it('applies an in-order patch without touching the old room, and repairs a gap with one jittered GET', async () => {
+  const room = { slug: 't', lastSeq: 5, events: [{ id: 1 }], state: { lp: [8000, 8000], log: ['a'] } } as never as import('@yugidraft/shared/remote').RemoteRoom;
+  const patch = { base: 5, seq: 6, ops: [{ p: ['state', 'lp', 1], v: 7000 }, { p: ['state', 'log', 1], v: 'b' }] };
+  expect([classifyPatch(5, patch), classifyPatch(6, patch), classifyPatch(4, patch)]).toEqual(['apply', 'stale', 'repair']);
+  const next = applyRoomPatch(room, patch);
+  const board = (r: { state: unknown }) => r.state as { lp: number[]; log: string[] };
+  expect([next.lastSeq, board(next).lp, board(next).log, room.lastSeq, board(room).lp]).toEqual([6, [8000, 7000], ['a', 'b'], 5, [8000, 8000]]);
+  expect(next.events).toBe(room.events); // untouched parts keep their identity
+  expect(() => applyRoomPatch(room, { base: 5, seq: 6, ops: [{ p: ['nope', 'x'], v: 1 }] })).toThrow();
+  let held = 5; const waits: number[] = []; const timers: (() => void)[] = []; const run = vi.fn(async () => undefined);
+  const repair = createRepairScheduler(run, () => held, { random: () => 0.5, timers: { set: (fn, ms) => { waits.push(ms); timers.push(fn); return timers.length; }, clear: () => undefined } });
+  repair.ask(7, 300); repair.ask(8, 300); repair.ask(0, 1000); // three reasons, one timer
+  expect(waits).toEqual([150]); timers[0](); expect(run).toHaveBeenCalledTimes(1);
+  repair.ask(9, 300); held = 9; timers[1]?.(); expect(run).toHaveBeenCalledTimes(1); // the wanted sequence arrived first: no GET
+
+  // An ask(0) while a GET runs (join ack, tab shown) must start one more GET afterwards.
+  let finish: () => void = () => undefined; const slow = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const timers2: (() => void)[] = [];
+  const again = createRepairScheduler(slow, () => 9, { random: () => 0.5, timers: { set: fn => { timers2.push(fn); return timers2.length; }, clear: () => undefined } });
+  again.ask(0, 300); timers2[0](); expect(slow).toHaveBeenCalledTimes(1);
+  again.ask(0, 300); finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  expect(timers2).toHaveLength(2); timers2[1](); expect(slow).toHaveBeenCalledTimes(2);
+});
+
+it('the virtual field starts hidden in Tap to identify and shown with Auto-detect; a choice wins only in the mode it was made in',async()=>{
+  const {resolveWebcamOnly}=await import('../src/lib/remote/zone-grid');
+  const none={hidden:null,mode:null};
+  expect([resolveWebcamOnly(none,'tap'),resolveWebcamOnly(none,'auto'),resolveWebcamOnly(none,null)]).toEqual([true,false,true]);
+  expect(resolveWebcamOnly({hidden:false,mode:'tap'},'tap')).toBe(false);
+  expect(resolveWebcamOnly({hidden:false,mode:'tap'},'auto')).toBe(false);
+  expect(resolveWebcamOnly({hidden:true,mode:'auto'},'tap')).toBe(true);
+  expect(resolveWebcamOnly({hidden:true,mode:'auto'},'auto')).toBe(true);
+  expect(resolveWebcamOnly({hidden:true,mode:'tap'},'auto')).toBe(false);
 });

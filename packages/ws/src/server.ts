@@ -61,6 +61,10 @@ const remoteAccess = process.env.REMOTE_DUELS === "1" ? createRemoteAccessReader
 const remoteEvents = remoteAccess ? registerRemoteEventHandlers(io, {
   secret: WS_INTERNAL_SECRET, canRead: remoteAccess.canRead,
   readPrivateSnapshot: claims => remoteAccess.snapshot(claims.slug,claims.guildId,claims.userId),
+  readViews: (slug, guildId, want) => {
+    try { return remoteAccess.views(slug, guildId, want); }
+    catch (error) { if (error instanceof Error && "status" in error && error.status === 404) return null; throw error; }
+  },
   readSpectatorSnapshot: (slug, guildId) => {
     try { return remoteAccess.spectatorSnapshot(slug, guildId); } catch { return null; }
   },
@@ -88,6 +92,7 @@ if (WS_INTERNAL_SECRET) {
   listenInternalHttp({
     io, secret: WS_INTERNAL_SECRET, port: WS_INTERNAL_PORT,
     readRemoteBroadcast: remoteEvents?.snapshot,
+    publishRemote: remoteEvents?.publish,
     beforeDraftBroadcast: slug => { adminEvents.prune("draft", slug); draftEvents.pruneDraftRoom(slug); },
     beforeTournamentBroadcast: draftEvents.pruneTournamentRoom,
     beforeDuelBroadcast: (slug, guildId) => {

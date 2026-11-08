@@ -108,6 +108,8 @@ type BroadcastOptions = {
   beforeTournamentBroadcast?: (slug: string) => void;
   /** Check the stored target and prune unauthorized subscriptions before duel events. */
   readRemoteBroadcast?: (slug: string, guildId: string) => RemoteSnapshot | null;
+  /** Sends each viewer its own message (a patch for patch sockets, the old messages for the rest). False when the table does not exist. Preferred over `readRemoteBroadcast`. */
+  publishRemote?: (slug: string, guildId: string) => boolean;
   beforeDuelBroadcast?: (slug: string, guildId: string) => boolean;
 };
 
@@ -224,9 +226,10 @@ export function createInternalHttpHandler(opts: BroadcastOptions) {
       case "/internal/remote/changed": {
         const data = parseDuelChanged(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        if (!opts.readRemoteBroadcast) return new Response("Remote access unavailable", { status: 503 });
+        if (!opts.publishRemote && !opts.readRemoteBroadcast) return new Response("Remote access unavailable", { status: 503 });
         try {
-          const snapshot = opts.readRemoteBroadcast(data.slug, data.guildId);
+          if (opts.publishRemote) return opts.publishRemote(data.slug, data.guildId) ? new Response(null, { status: 204 }) : new Response("Not found", { status: 404 });
+          const snapshot = opts.readRemoteBroadcast!(data.slug, data.guildId);
           if (!snapshot) return new Response("Not found", { status: 404 });
           opts.io.to(remoteSocketRoom(data.guildId, data.slug)).emit("remote:changed", snapshot);
           return new Response(null, { status: 204 });

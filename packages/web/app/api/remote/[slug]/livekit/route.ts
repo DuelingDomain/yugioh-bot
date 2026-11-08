@@ -1,4 +1,4 @@
-import { remoteError, remoteJson, requireRemoteActor, type RemoteRouteContext } from "@/lib/remote-duels";
+import { REMOTE_TABLE_TALK, remoteError, remoteJson, requireRemoteActor, type RemoteRouteContext } from "@/lib/remote-duels";
 import { remoteAssert } from "@yugidraft/shared/remote";
 import { AccessToken, TrackSource } from "livekit-server-sdk";
 import { admitSpectator, makeRoomForPlayer, remoteVoiceRoom } from "@/lib/remote/spectator-server";
@@ -18,6 +18,7 @@ export async function POST(_request: Request, context: RemoteRouteContext) {
     if (new URL(_request.url).searchParams.get("voice") === "1") {
       // Voice has its own room, and only this seated branch mints a token for it. A LiveKit grant cannot limit a subscriber by track source.
       remoteAssert(room.seat !== null, "Spectators have no voice", 403, "SPECTATOR_READ_ONLY");
+      remoteAssert(REMOTE_TABLE_TALK, "Table talk is off", 404, "TABLE_TALK_OFF");
       const talk = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
         identity: `remote-user-${actor.userId}`, ttl: 300, name: room.displayName,
         metadata: JSON.stringify({ guildId: actor.guildId, tableId: room.slug, seat: room.seat, userId: actor.userId }),

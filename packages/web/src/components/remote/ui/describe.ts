@@ -42,7 +42,15 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
-    case "table.started": return { kind: "PH", text: "The duel started", undoable: false };
+    case "admin.watching": return { kind: "PH", text: a.watching ? `Admin ${a.name} started watching` : `Admin ${a.name} stopped watching`, undoable: false };
+    case "table.started": {
+      const opening = a.opening;
+      if (!opening) return { kind: "PH", text: "The duel started", undoable: false };
+      const last = opening.rounds[opening.rounds.length - 1] ?? [];
+      const rolls = last.map((roll, seat) => `${name(seat)} ${roll}`).join(", ");
+      return { kind: "PH", text: `Die roll${opening.rounds.length > 1 ? ` (${opening.rounds.length} rounds)` : ""}: ${rolls} · ${name(opening.winnerSeat)} chooses who goes first`, undoable: false };
+    }
+    case "match.first": return { kind: "PH", text: a.seatGoesFirst === a.actorSeat ? `${who} chose to go first` : `${who} chose that ${name(a.seatGoesFirst)} goes first`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
     default: return null;
   }

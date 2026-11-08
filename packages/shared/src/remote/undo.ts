@@ -1,3 +1,4 @@
+import { copyRemoteHistory, freezeRemoteValue } from "./position.js";
 import { availableEffectCandidates } from "./effect-tracking.js";
 import { ygoBattleAllowed } from "./phases.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
@@ -8,7 +9,7 @@ export const REMOTE_UNDO_LIMIT = 20;
 export function remotePosition(state: RemoteState): RemotePosition {
   const { updatedAt: _at, undo: _undo, undoHistory: _history, ...position } = state;
   // Match the persisted JSON representation, including absent optional fields.
-  return JSON.parse(JSON.stringify(position));
+  return freezeRemoteValue(JSON.parse(JSON.stringify(position)));
 }
 const equal = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -96,7 +97,7 @@ function prune(history: RemoteUndoEntry[], turn: number): RemoteUndoEntry[] {
 export function rememberRemoteAction(before: RemoteState, next: RemoteState, action: RemoteAction): void {
   const previous = remotePosition(before), after = remotePosition(next);
   const cards = touchedCards(action, previous, after);
-  const history = structuredClone(before.undoHistory ?? []);
+  const history = copyRemoteHistory(before.undoHistory ?? []);
   // A camera correction of a card it just placed (the first read named it early)
   // joins that placement: one Undo still removes the card in one step.
   if (action.type === "card.identified" && action.source === "auto") {
@@ -126,14 +127,23 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   // the same result twice. Declarations still follow normal inverse semantics.
   const withoutDerivedState = (position: RemotePosition) => {
     const copy = structuredClone(position);
+    // Device reports belong to the table; even a coalesced camera action must not undo them.
+    copy.detection = structuredClone(state.detection ?? {});
     for (const origin of copy.effectTracking?.origins ?? []) if (origin.pool) delete origin.candidates;
     copy.ended = state.ended; copy.winnerSeat = state.winnerSeat;
     copy.match = structuredClone(state.match);
-    if (position.match?.pendingResult) copy.match.pendingResult = structuredClone(position.match.pendingResult);
+    // Rejecting or correcting an LP declaration resolves the request separately
+    // from the original LP edit. Undoing that edit must not revive the request.
+    const resolvedLp = entry.action.type === "lp.change" && after.match.pendingResult?.lpSeat !== undefined &&
+      after.match.pendingResult.id === entry.actionId && state.match.pendingResult?.id !== entry.actionId;
+    const pending = resolvedLp ? state.match.pendingResult : position.match?.pendingResult;
+    if (pending) copy.match.pendingResult = structuredClone(pending);
     else delete copy.match.pendingResult;
     return copy;
   };
   const restored = restore(withoutDerivedState(before), withoutDerivedState(after), withoutDerivedState(remotePosition(state))) as RemotePosition;
+  const lpSeat = restored.match.pendingResult?.lpSeat;
+  if (lpSeat !== undefined && (restored.seats[lpSeat].resources.lp !== 0 || restored.seats[lpSeat].eliminated)) delete restored.match.pendingResult;
   // Returning a card to an ordered pile restores its old place. Other cards
   // that entered that pile later keep their newer positions, including reentries.
   const later = (state.undoHistory ?? []).filter(item => !item.undone && item.order > entry.order && item.before && item.after);
@@ -190,23 +200,29 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
   return restored;
 }
 
-export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number): string | undefined {
+/** `restore` false skips the last check (a dry run of the restore, the slow part); Undo itself always runs it. */
+export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number, restore = true): string | undefined {
   const gameNumber = (position: RemotePosition) => position.match.games.length + (position.ended ? 0 : 1);
   if (state.match?.phase === "siding" || (entry.before?.match && gameNumber(entry.before) !== gameNumber(state))) return "Undo cannot cross games";
   if (entry.actorSeat !== actorSeat) return "You can only undo your own actions";
   if (entry.undone) return "This action has already been undone";
   if (entry.turn < state.turn - 1 || entry.turn > state.turn) return "Undo is limited to the current and previous turn";
-  if (entry.blocked || entry.blockedBy?.length) return "A later action touched the same card; undo that action first";
+  if (entry.blocked || entry.blockedBy?.length) return entry.action.type === "lp.change" && entry.after?.match.pendingResult?.lpSeat !== undefined
+    ? "Undo the seat owner's LP confirmation first" : "A later action touched the same card; undo that action first";
   const newest = [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).find(e => e.actorSeat === actorSeat && !e.undone);
   if (newest?.actionId !== entry.actionId && entry.cards.length !== 1) return "Undo your newer actions first; only single-card actions can be targeted out of order";
-  try { restoredPosition(state, entry); } catch (error) { return (error as Error).message; }
+  if (restore) try { restoredPosition(state, entry); } catch (error) { return (error as Error).message; }
 }
 
-/** Newest first, with complete action params even when the room's event page has rolled over. */
-export function remoteUndoHistory(state: RemoteState, actorSeat: number): RemoteUndoEntry[] {
-  return [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).filter(e => e.actorSeat === actorSeat && !e.undone).map(entry => {
+/**
+ * Newest first, with complete action params even when the room's event page has rolled over.
+ * `reasons: "newest"` runs the restore check only for the newest entry (the Undo button); older entries get the quick
+ * checks, and a restore conflict there shows when Undo is pressed. A saved old-format entry keeps its stored reason.
+ */
+export function remoteUndoHistory(state: RemoteState, actorSeat: number, reasons: "all" | "newest" = "all"): RemoteUndoEntry[] {
+  return [...(state.undoHistory ?? [])].sort((a,b)=>b.order-a.order).filter(e => e.actorSeat === actorSeat && !e.undone).map((entry, index) => {
     const { before: _before, after: _after, blockedBy: _blockedBy, blocked: _blocked, ...summary } = entry;
-    return { ...summary, reason: entry.before && entry.after ? remoteUndoReason(state, entry, actorSeat) : entry.reason };
+    return { ...summary, reason: entry.before && entry.after ? remoteUndoReason(state, entry, actorSeat, reasons === "all" || index === 0) : entry.reason };
   });
 }
 
@@ -216,7 +232,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   const reason = remoteUndoReason(state, entry, action.actorSeat);
   remoteAssert(!reason, reason ?? "Undo unavailable", 409, "UNDO_CONFLICT");
   const restored = restoredPosition(state, entry);
-  const history = structuredClone(state.undoHistory!);
+  const history = copyRemoteHistory(state.undoHistory!);
   for (const item of history) {
     item.blockedBy = item.blockedBy?.filter(id => id !== entry.actionId);
     if (item.turn > restored.turn) item.turn = restored.turn;
@@ -224,7 +240,7 @@ export function undoRemoteAction(state: RemoteState, action: Extract<RemoteActio
   }
   const next: RemoteState = { ...restored, updatedAt: action.at ?? state.updatedAt, undo: null, undoHistory: prune(history, restored.turn) };
   const latest = [...next.undoHistory!].reverse().find(e => !e.undone && !remoteUndoReason(next, e, e.actorSeat));
-  if (latest?.before) next.undo = { actionId: latest.actionId, at: latest.at, before: restoredPosition(next, latest) };
+  if (latest?.before) next.undo = { actionId: latest.actionId, at: latest.at, before: freezeRemoteValue(restoredPosition(next, latest)) };
   return next;
 }
 

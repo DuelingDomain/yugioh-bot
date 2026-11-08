@@ -7,10 +7,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { TournamentDetail } from "@/components/tournament/types";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
 let routeSlug = "night-cup";
 vi.mock("next/navigation", () => ({

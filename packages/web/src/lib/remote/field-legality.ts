@@ -6,7 +6,7 @@ import { fieldZoneLocation, hasExtraMonsterZones, type FieldFormat, type FieldZo
  */
 export type FieldZoneFacts = { type:string; frameType?:string; race?:string|null; effectText?:string|null; level?:number|null };
 /** `trapZone`: a Trap Monster keeps this Spell & Trap Zone occupied while it is a monster. */
-type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number };
+type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number; token?:unknown };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
 /** `moved`: the camera row was not legal for this card; it went to the nearest legal zone ("Trap → S3"). */
 type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string; moved?:string };
@@ -78,7 +78,8 @@ type Verdict = { legal:'ok'|'unusual'|'illegal'; reason?:string };
  * (Field Spell → FIELD), Monster → M (Extra Deck / Pendulum also EMZ). Only cards whose facts allow the
  * other row are exceptions: Trap Monsters in M, monsters that are Set as Spells or equip (Artifact,
  * Union, "equip this card", an equip effect on the field), Pendulum scales in S1/S5. An exception card in
- * an odd spot is "unusual" (kept, "Check zone?"); any other wrong row is "illegal" (moved).
+ * an odd spot is "unusual" (kept, "Check zone?"); a face-up monster in S/T is also "unusual" (equipped monsters look like
+ * this, so the camera's zone wins). Any other wrong row is "illegal" (moved).
  */
 function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|undefined,context:ZoneContext):Verdict {
   const {zone:destination,slot:targetSlot}=twinLocation(zone,slot);
@@ -95,7 +96,8 @@ function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|unde
   if(kind.spellTrapText)return {legal:'ok'};
   if(kind.equip||context.equipSource)return context.faceDown?{legal:'unusual',reason:'A face-down monster in a Spell/Trap Zone needs a Set effect.'}:{legal:'ok'};
   if(kind.pendulum)return targetSlot===1||targetSlot===5?{legal:'ok'}:{legal:'unusual',reason:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales.'};
-  return illegal('Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.');
+  // The camera wins: a face-up monster seen in S/T is usually equipped or a mat mismatch, so keep it and ask.
+  return {legal:'unusual',reason:'Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.'};
 }
 
 /** "Check zone?": only for an exception card in an unusual zone. Never a reason to move the card. */
@@ -119,13 +121,8 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   const accept=(target:FieldZone,check?:string,moved?:string):Projection=>({zone:target,label:fieldZoneLabel(target),...(check?{check}:{}),...(moved?{moved}:{})});
   const abstain=(reason:string):Projection=>({label:fieldZoneLabel(zone),reason});
   if(piles.has(zone))return accept(zone);
-  const occupied=(target:FieldZone)=>{
-    const location=fieldZoneLocation(target);
-    return twins.some(twin=>twin.ref!==ref&&(twin.zone===target||
-      (twin.zone===location.zone&&(location.slot===undefined||twin.slot===location.slot))||
-      (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
-      (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));
-  };
+  // A token has no physical card, so it never pushes a camera card out of the cell the card is in (the player chooses, see tokenInCell). It still holds its cell against every other target.
+  const occupied=(target:FieldZone)=>zoneTaken(twins,target,ref,target===zone);
   const row=(prefix:'M'|'S',check?:(target:FieldZone)=>string|undefined,moved?:(target:FieldZone)=>string):Projection=>{
     const col=columnOf(zone);
     const free=[1,2,3,4,5].sort((a,b)=>Math.abs(a-col)-Math.abs(b-col)||a-b)
@@ -150,6 +147,34 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(!occupied(zone))return accept(zone,verdict.legal==='unusual'?verdict.reason:undefined);
   if(zone==='FIELD')return abstain('Field Spell Zone is occupied. Choose a zone manually.');
   return row(zone.startsWith('S')?'S':'M',check);
+}
+
+/** True when a twin holds this zone: its cell, a Trap Monster's Spell & Trap Zone or a Pendulum Zone. `skipToken` leaves out a token (the camera card's own cell). */
+function zoneTaken(twins:readonly FieldTwin[],target:FieldZone,ref?:string,skipToken=false):boolean {
+  const location=fieldZoneLocation(target);
+  return twins.some(twin=>twin.ref!==ref&&(!twin.token||!skipToken)&&(twin.zone===target||
+    (twin.zone===location.zone&&(location.slot===undefined||twin.slot===location.slot))||
+    (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
+    (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));
+}
+/**
+ * The free zones a player can pick for a card on a token's cell. A face-down or unknown card: every free Monster and Spell & Trap Zone.
+ * A known card: its row only (Monster Zones, Spell & Trap Zones, or the Field Zone for a Field Spell). A token holds its cell.
+ */
+export function freeFieldZones(twins:readonly FieldTwin[],facts?:FieldZoneFacts,faceDown=false):FieldZone[] {
+  const row=(prefix:'M'|'S')=>([1,2,3,4,5] as const).map(slot=>`${prefix}${slot}` as FieldZone).filter(zone=>!zoneTaken(twins,zone));
+  const kind=cardKind(facts);
+  if(faceDown||!kind.known)return [...row('M'),...row('S')];
+  if(kind.field)return zoneTaken(twins,'FIELD')?[]:['FIELD'];
+  if(kind.trapMonster)return [...row('M'),...row('S')];
+  return kind.monster?row('M'):row('S');
+}
+
+/** The token that holds this Main Monster Zone cell, if any. A camera card standing there asks the player; it is never moved away or placed over the token. */
+export function tokenInCell<T extends FieldTwin>(twins:readonly T[],zone:FieldZone|undefined):T|undefined {
+  if(!zone||!/^M[1-5]$/.test(zone))return;
+  const location=fieldZoneLocation(zone);
+  return twins.find(twin=>twin.token&&twin.zone===location.zone&&twin.slot===location.slot);
 }
 
 /** A rule target that differs from the card's zone: a card in a row its type does not allow (Trap in M, Field Spell in S/T). */

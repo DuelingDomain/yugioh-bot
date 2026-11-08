@@ -6,6 +6,7 @@ import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
 import { deleteCreatorGrantsForUser } from "./creator-access.js";
+import { deleteUserRemoteData } from "./remote-cleanup.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -42,7 +43,7 @@ type PlayerRow = { id: number; display_name: string };
 export function previewUserDeletion(db: Database.Database, userId: number): AccountDeletionPreview {
   const user = db.prepare<[number], UserRow>("select id, clerk_user_id, email from users where id = ?").get(userId);
   if (!user) return { userId, exists: false, mode: "removed", hasClerkUser: false };
-  const shared = Object.keys(userHistory(db, userId)).filter(key => key !== SAVED_DECK_OWNER);
+  const shared = Object.keys(userHistory(db, userId)).filter(key => key !== SAVED_DECK_OWNER && !key.startsWith("remote_"));
   return { userId, exists: true, mode: shared.length === 0 ? "removed" : "anonymised", hasClerkUser: user.clerk_user_id !== null };
 }
 
@@ -66,7 +67,7 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  * lose their name, email, Discord and Clerk identity.
  *
  * Copied personal data that is scrubbed in the anonymised case: `players.display_name`,
- * `players.discord_user_id`, `remote_seats.display_name`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
+ * `players.discord_user_id`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
  * `setup_json.replayFork.origin.sourceSeats[].displayName`, and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
@@ -75,6 +76,8 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
+    // Remote Duels have no permanent history: remove rooms the user created, sat in or acted in.
+    note("remote_tables", deleteUserRemoteData(db, userId));
     note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
     db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
     suppressDeletedAccountEmail(db, user.email, user.clerk_user_id);
@@ -168,9 +171,6 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       `update bug_reports set submitter_json = null where player_id in ${owned} and submitter_json is not null`,
     ).run(userId).changes);
 
-    note("remote_seats", db.prepare(
-      "update remote_seats set display_name = ? where user_id = ? and display_name <> ?",
-    ).run(DELETED_PLAYER_NAME, userId, DELETED_PLAYER_NAME).changes);
     note("players", db.prepare(
       "update players set display_name = ?, discord_user_id = null where user_id = ? and (display_name <> ? or discord_user_id is not null)",
     ).run(DELETED_PLAYER_NAME, userId, DELETED_PLAYER_NAME).changes);

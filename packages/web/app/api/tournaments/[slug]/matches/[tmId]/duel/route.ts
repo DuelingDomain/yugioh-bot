@@ -1,3 +1,5 @@
+import { TournamentRemoteError } from "@yugidraft/shared/services";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { requireWebAccess } from "@/lib/web-access";
 import { NextResponse } from "next/server";
 import { createDuelSeriesService, findTournamentReadAccess } from "@yugidraft/shared/services";
@@ -30,11 +32,12 @@ export async function POST(
     const actor = await requireDuelActor();
     if (!actor.ok) return actor.response;
     const tournament = db
-      .prepare("select id, name, status, created_by_user_id from tournaments where web_slug = ? and guild_id = ?")
+      .prepare("select id, name, status, created_by_user_id, duel_type from tournaments where web_slug = ? and guild_id = ?")
       .get(slug, actor.guildId) as
-      | { id: number; name: string; status: string; created_by_user_id: number }
+      | { id: number; name: string; status: string; created_by_user_id: number; duel_type: string }
       | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
+    if (tournament.duel_type === "remote") return apiErrorResponse(new TournamentRemoteError("This tournament uses Remote Duels", 409, "WRONG_DUEL_TYPE"), "tournament-duel");
     const slot = Number.isInteger(tournamentMatchId)
       ? (db
           .prepare("select tournament_id, player_one_id, player_two_id from tournament_matches where id = ?")
@@ -118,6 +121,7 @@ export async function POST(
 
     return NextResponse.json({ series, duel, created, shareUrl: duelUrl(duel.slug, request) }, { status: created ? 201 : 200 });
   } catch (error) {
+    if (error instanceof TournamentRemoteError) return apiErrorResponse(error, "tournament-duel");
     return duelErrorResponse(error);
   }
 }

@@ -7,19 +7,37 @@ import { decidedPlayers, matchProjection, matchScore, matchView, opponent, repor
 import { MatchControls, MatchError } from "./match-controls";
 import { MatchHostControls, MatchReopenPanel } from "./match-host-actions";
 import { MatchState } from "./match-state";
+import { RemoteResultPanel } from "./remote-result-panel";
 import { ReportPanel } from "./report-panel";
 import { SetResultDialog } from "./set-result-dialog";
 import { useMatchActions } from "./use-match-actions";
+import { useRemoteResult } from "./use-remote-result";
+import { remoteBlocksReport, remoteSlotLine, remoteWins, type RemotePair } from "../remote-result";
+import { useRemoteSlot } from "./remote-slots";
 
 export type MatchRowProps = MatchQueueProps & { match: Match };
 
 export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerId, isHost, ratings, onChanged }: MatchRowProps) {
   const actions = useMatchActions(match, tournamentSlug, onChanged);
   const view = matchView(match, currentUserPlayerId, isHost, tournament, actions);
+  // The Remote result of the viewer's own slot; the organizer's view of other slots is a later step.
+  const remoteState = useRemoteResult({
+    tournamentSlug, tournamentMatchId: match.id, onChanged,
+    enabled: view.remote && view.player && match.playerTwoId !== null && match.status === "open" && tournament.status === "active",
+    refreshKey: `${match.status}:${match.resolvedAt ?? ""}`,
+  });
+  const remoteResult = remoteState.result;
+  const pair: RemotePair | null = match.playerTwoId === null ? null
+    : { playerOneId: match.playerOneId, playerOneName: match.playerOneName, playerTwoId: match.playerTwoId, playerTwoName: match.playerTwoName ?? "Opponent" };
   const decided = match.status === "completed" && view.state !== "bye" && match.winnerId !== null;
   const players = decided ? decidedPlayers(match) : { winner: { id: match.playerOneId, name: match.playerOneName }, loser: { id: match.playerTwoId, name: match.playerTwoName } };
-  const score = decided ? winnerScore(match) : matchScore(match);
-  const reporting = view.canReport && actions.reporting;
+  // Someone else's slot (the organizer's view) is read through the page feed: a proposed or disputed result is its real state and score.
+  const feedResult = useRemoteSlot(match.id);
+  const slotResult = remoteResult ?? feedResult;
+  const slotWins = decided ? null : remoteWins(slotResult);
+  const score = decided ? winnerScore(match) : matchScore(match) ?? (slotWins ? slotWins.join("–") : null);
+  const slotLine = pair && !decided ? remoteSlotLine(slotResult, pair) : null;
+  const reporting = view.canReport && actions.reporting && remoteState.loaded && !remoteBlocksReport(remoteResult);
   const reopening = view.canReopen && actions.reopening;
   // Someone else's open match: the organizer's actions sit inline, with no "Organizer" strip.
   const hostInline = view.state === "open" && !view.player;
@@ -27,7 +45,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
     ? (() => { const p = matchProjection(match, currentUserPlayerId, ratings); return { win: p.winRating, lose: p.loseRating }; })()
     : null;
   const live = view.lamp === "live";
-  const showState = !reporting && !reopening && (!hostInline || tournament.format === "single_elim");
+  const showState = !reporting && !reopening && (!hostInline || tournament.format === "single_elim" || slotLine !== null);
   return (
     <div
       id={matchAnchorId(match.id)}
@@ -49,10 +67,10 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
             </>
           )}
         </div>
-        {showState && <MatchState match={match} state={view.state} format={tournament.format} hours={tournament.reportConfirmWindowHours ?? 24} stakes={stakes} />}
+        {showState && <MatchState match={match} state={view.state} format={tournament.format} hours={tournament.reportConfirmWindowHours ?? 24} stakes={stakes} remote={slotResult} />}
       </div>
       <div className="m-act">
-        <MatchControls match={match} view={view} actions={actions} waitingOn={reportNames(match).other} />
+        <MatchControls match={match} view={view} actions={actions} waitingOn={reportNames(match).other} remoteResult={remoteResult} remoteLoading={!remoteState.loaded} />
         {hostInline && <MatchHostControls view={view} actions={actions} inline />}
       </div>
       {!hostInline && <MatchHostControls view={view} actions={actions} />}
@@ -65,6 +83,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
           onReport={actions.report}
         />
       )}
+      {view.remote && pair && remoteResult && <RemoteResultPanel state={remoteState} pair={pair} viewerId={currentUserPlayerId} />}
       <MatchReopenPanel view={view} actions={actions} />
       <MatchError error={actions.error} />
       {actions.resultOpen && view.canSetResult && <SetResultDialog match={match} ratings={ratings} bestOf={tournament.bestOf ?? 3} actions={actions} />}

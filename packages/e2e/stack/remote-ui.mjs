@@ -45,13 +45,13 @@ appDb.close();
 const secret = process.env.E2E_AUTH_SECRET;
 if (!secret || secret.length < 32) throw new Error("Use playwright.remote-ui.config.ts for throwaway auth");
 const env = {
-  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: process.env.E2E_REMOTE_OFF === "1" ? "" : "1",
+  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: process.env.E2E_REMOTE_OFF === "1" ? "" : "1", REMOTE_OPENING_ROLL: process.env.REMOTE_OPENING_ROLL ?? "0",
   DUEL_DATA_DIR: engineDirectory,
   DISCORD_GUILD_ID: "900000000000000001", DOTENV_CONFIG_PATH: resolve(directory, "none.env"),
   WS_INTERNAL_SECRET: secret, WS_PORT: String(wsPort), WS_INTERNAL_PORT: String(internalPort),
   WS_INTERNAL_URL: `http://127.0.0.1:${internalPort}`, WEB_URL: `http://localhost:${webPort}`, NEXT_PUBLIC_WS_URL: `http://localhost:${wsPort}`,
-  E2E_AUTH: "1", CLERK_SECRET_KEY: "", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
-  VISION_DATA_DIR: process.env.VISION_DATA_DIR ?? "", REMOTE_VOICE_RECOGNITION: process.env.REMOTE_VOICE_RECOGNITION ?? "1", NEXT_PUBLIC_REMOTE_STT_URL: process.env.NEXT_PUBLIC_REMOTE_STT_URL ?? "ws://localhost:4020/ws",
+  E2E_AUTH: "1", NEXT_PUBLIC_E2E_FIELD_HOOK: "1", CLERK_SECRET_KEY: "", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
+  VISION_DATA_DIR: process.env.VISION_DATA_DIR ?? "", REMOTE_VOICE_RECOGNITION: process.env.REMOTE_VOICE_RECOGNITION ?? "0", NEXT_PUBLIC_REMOTE_STT_URL: process.env.NEXT_PUBLIC_REMOTE_STT_URL ?? "ws://localhost:4020/ws",
   LIVEKIT_URL: process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880",
   LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? "devkey", LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? "secret",
 };

@@ -95,6 +95,8 @@ export * from "./admin-spectate.js";
 export * from "./creator-access.js";
 
 export * from "./remote-duels.js";
+export { mergeHistory } from "./history-merge.js";
+export type { HistoryType, MergedHistoryPage } from "./history-merge.js";
 
 export * from "./remote-access.js";
 
@@ -103,3 +105,12 @@ export type { VisionFeedbackInput, VisionSample, VisionLearning } from './vision
 export * from "./archetype-bridges.js";
 
 export * from "./releases.js";
+
+export { pruneRemoteDuels } from "./remote-retention.js";
+
+export * from "./tournament-remote-access.js";
+export * from "./tournament-remote.js";
+
+export { createTournamentRemoteResultService, assertNoOpenRemoteMatch, REMOTE_RESULT_CONFIRM_MS, type TournamentRemoteResult } from "./tournament-remote-results.js";
+
+export * from "./tournament-remote-evidence.js";

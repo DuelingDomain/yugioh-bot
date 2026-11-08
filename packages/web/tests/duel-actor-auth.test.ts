@@ -38,6 +38,8 @@ beforeEach(() => {
   userId = createUserService(state.db).ensureDiscord({ discordUserId, displayName: "Yugi" }).id;
   state.auth.mockResolvedValue({ user: { id: String(userId), discordUserId, name: "Yugi" } });
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
+  // These tests are about who may act as which seat. The opening die roll (its choice blocks play) is tested in the shared integration test.
+  vi.stubEnv("REMOTE_OPENING_ROLL", "0");
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected Discord I/O"); }));
 });
 afterEach(() => {
@@ -289,7 +291,7 @@ describe("remote duel API foundation", () => {
     expect((await act(request(`/${room.slug}/actions`, { ...command, action: { ...command.action, actorSeat: 1, idempotencyKey: "spoof" } }), context)).status).toBe(403);
     expect((await GET(request("?scope=mine"))).status).toBe(200);
     expect(playerCount()).toEqual({ c: 0 });
-  });
+  }, 20_000); // Cold dynamic route imports after vi.resetModules: 4-5 s idle, 10 s on a loaded runner.
   it("authorizes format/deck setup, rejects foreign decks and blocks invalid ready-up", async () => {
     vi.stubEnv("REMOTE_DUELS","1");
     const { POST } = await import("../app/api/remote/route");
@@ -317,7 +319,7 @@ describe("remote duel API foundation", () => {
     expect((await ready(request("/ready",{ready:true}),context)).status).toBe(200);
     state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
     expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
-  });
+  }, 20_000); // Cold dynamic route imports after vi.resetModules: 2-4 s idle, 10 s on a loaded runner.
   it("applies the REMOTE_DUELS_USERS rollout list to rooms, sockets and phones", async () => {
     vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
     vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880"); vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");
@@ -398,7 +400,41 @@ describe("remote LiveKit credentials", () => {
     vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
     state.db!.prepare("update remote_tables set last_event_at=? where slug=?").run(Date.now() - 600_001, room.slug);
     expect((await POST(request(), context)).status).toBe(409);
-    state.db!.prepare("update remote_tables set status='ended',last_event_at=? where slug=?").run(Date.now(), room.slug);
+    state.db!.prepare("update remote_tables set status='ended',last_event_at=?,ended_at=? where slug=?").run(Date.now(), Date.now()-16*60_000, room.slug);
     expect((await POST(request(), context)).status).toBe(409);
+
+    // Retained ended tables and account deletion must both retire their SFU rooms.
+    const { Room, RoomServiceClient } = await import('livekit-server-sdk');
+    const { deleteUserAccount } = await import('@yugidraft/shared/services');
+    const keep=remote.create({guildId:'guild-1',userId:guest,displayName:'Guest',gameId:'ygo',seatCount:2});
+    const media=new Set([`remote-${room.slug}`,`remote-${room.slug}-voice`,`remote-${keep.slug}`,'unrelated-room','remote-not-a-duel']);
+    const list=vi.spyOn(RoomServiceClient.prototype,'listRooms').mockImplementation(async()=>[...media].map(name=>new Room({name})));
+    const participants=vi.spyOn(RoomServiceClient.prototype,'listParticipants').mockResolvedValue([]);
+    let fail=true;
+    const drop=vi.spyOn(RoomServiceClient.prototype,'deleteRoom').mockImplementation(async name=>{
+      if(fail){fail=false;throw new Error('temporary SFU failure');}media.delete(name);
+    });
+    const root=globalThis as typeof globalThis & {__remoteSpectatorJanitor?:ReturnType<typeof setInterval>};
+    vi.useFakeTimers();
+    try {
+      const {startSpectatorCleanup}=await import('../src/lib/remote/spectator-server');
+      startSpectatorCleanup();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(drop.mock.calls.map(([name])=>name)).toEqual([`remote-${room.slug}`,`remote-${room.slug}-voice`]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(media.has(`remote-${room.slug}`)).toBe(false);
+      expect(media.has(`remote-${room.slug}-voice`)).toBe(false);
+      expect(media.has(`remote-${keep.slug}`)).toBe(true);
+      expect(drop).toHaveBeenCalledTimes(3);
+      expect(state.db!.prepare('select 1 from remote_tables where slug=?').get(room.slug)).toBeDefined();
+      deleteUserAccount(state.db!,userId);
+      media.add(`remote-${room.slug}`); // A stale token must not recreate an abandoned room permanently.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(media.has(`remote-${room.slug}`)).toBe(false);
+      expect(drop).toHaveBeenCalledTimes(4);
+    } finally {
+      clearInterval(root.__remoteSpectatorJanitor);delete root.__remoteSpectatorJanitor;
+      vi.useRealTimers();list.mockRestore();participants.mockRestore();drop.mockRestore();
+    }
   });
 });

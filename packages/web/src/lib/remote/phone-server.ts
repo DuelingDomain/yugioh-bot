@@ -20,7 +20,8 @@ function database() {
     CREATE UNIQUE INDEX IF NOT EXISTS remote_phone_active_owner ON remote_phone_pairs(slug,user_id) WHERE revoked=0;
     CREATE INDEX IF NOT EXISTS remote_phone_owner ON remote_phone_pairs(slug,user_id);
     CREATE TABLE IF NOT EXISTS remote_phone_modes (slug TEXT NOT NULL,user_id INTEGER NOT NULL,seat INTEGER NOT NULL,mode TEXT NOT NULL,PRIMARY KEY(slug,user_id));
-    CREATE TABLE IF NOT EXISTS remote_phone_attempts (bucket TEXT PRIMARY KEY, started_at INTEGER NOT NULL, count INTEGER NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS remote_phone_attempts (bucket TEXT PRIMARY KEY, started_at INTEGER NOT NULL, count INTEGER NOT NULL, slug TEXT);
+    CREATE INDEX IF NOT EXISTS remote_phone_attempts_room ON remote_phone_attempts(slug);`);
   db.exec(`CREATE TRIGGER IF NOT EXISTS remote_phone_seat_left AFTER DELETE ON remote_seats BEGIN
     UPDATE remote_phone_pairs SET revoked=1,cleanup_pending=CASE WHEN used_at IS NULL THEN 0 ELSE 1 END
     WHERE slug=(SELECT slug FROM remote_tables WHERE id=OLD.table_id) AND user_id=OLD.user_id AND revoked=0;
@@ -95,7 +96,7 @@ export function limitPhoneAttempts(request: Request, slug: string) {
   // Deployments must strip/splice forwarding headers at their trusted reverse proxy.
   const bucket = hash(`${slug}:${request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "direct"}`);
   db.prepare("DELETE FROM remote_phone_attempts WHERE started_at<?").run(now-REMOTE_PHONE_PAIR_TTL_MS);
-  db.prepare("INSERT INTO remote_phone_attempts VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET count=count+1").run(bucket,now);
+  db.prepare("INSERT INTO remote_phone_attempts(bucket,started_at,count,slug) VALUES(?,?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1").run(bucket,now,slug);
   const row = db.prepare("SELECT count FROM remote_phone_attempts WHERE bucket=?").get(bucket) as { count:number };
   remoteAssert(row.count <= 30, "Wait before trying another pairing code", 429, "PHONE_RATE_LIMIT");
 }

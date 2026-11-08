@@ -6,6 +6,8 @@ import { Mono, TierName, YouPill, ringColour } from "@/components/sheet";
 import { isSeriesOpen } from "../duel-rules";
 import { BetweenGames } from "../matches/match-state";
 import { opponent, winnerScore } from "../matches/match-model";
+import { pairOf, useRemoteSlot } from "../matches/remote-slots";
+import { remoteSlotLine, remoteWins } from "../remote-result";
 import type { PlayerRatings } from "../sheet-contracts";
 import type { Match, TournamentDetail } from "../types";
 import { NearBox } from "./near-box";
@@ -64,6 +66,7 @@ function deckIn(tournament: TournamentDetail, playerId: number | null): boolean 
 }
 
 function MatchCentre({ tournament, match, viewerId }: { tournament: TournamentDetail; match: Match; viewerId: number }) {
+  const remote = useRemoteSlot(match.id);
   const wins = scoreOf(match);
   const reported = match.status === "pending_approval" && match.reporterId !== null;
   const between = match.series?.status === "between_games";
@@ -81,9 +84,13 @@ function MatchCentre({ tournament, match, viewerId }: { tournament: TournamentDe
       </div>
     );
   }
-  const mineWins = wins ? (match.playerOneId === viewerId ? wins[0] : wins[1]) : 0;
-  const theirWins = wins ? (match.playerOneId === viewerId ? wins[1] : wins[0]) : 0;
-  const caption = between ? <BetweenGames match={match} /> : live ? tableStatus(tournament, match, viewerId) : `${roundName(tournament, match.roundNumber)}. Not started.`;
+  // A proposed or disputed Remote result is the real state and score of the slot; there is no online series behind it.
+  const pair = pairOf(match);
+  const remoteLine = pair ? remoteSlotLine(remote, pair) : null;
+  const shown = remoteWins(remote) ?? wins;
+  const mineWins = shown ? (match.playerOneId === viewerId ? shown[0] : shown[1]) : 0;
+  const theirWins = shown ? (match.playerOneId === viewerId ? shown[1] : shown[0]) : 0;
+  const caption = between ? <BetweenGames match={match} /> : live ? tableStatus(tournament, match, viewerId) : remoteLine ?? `${roundName(tournament, match.roundNumber)}. Not started.`;
   return (
     <div className={styles.centre} data-fly-source="centre">
       <span className={styles.score} aria-label={`Games ${mineWins} to ${theirWins}`}>
@@ -117,7 +124,7 @@ function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHo
       <div className={styles.stage}>
         <div className={styles.field}>
           <div className={styles.half} data-side="far" data-kind="lit" style={hc(ringColour(oppId))}>
-            <DeckZone registered={deckIn(tournament, oppId)} label={deckIn(tournament, oppId) ? "Deck" : "No deck yet"} />
+            {tournament.duelType !== "remote" && <DeckZone registered={deckIn(tournament, oppId)} label={deckIn(tournament, oppId) ? "Deck" : "No deck yet"} />}
             <ZoneRow tournament={tournament} playerId={oppId} viewerId={viewerId} heroId={match.id} total={total} current={match.roundNumber} name={opp.name} />
           </div>
           <div className={styles.mid} data-reported={match.status === "pending_approval" ? "true" : undefined}>
@@ -125,7 +132,7 @@ function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHo
           </div>
           <div className={styles.half} data-side="near" data-kind="lit" style={hc(YOU_HC)}>
             <ZoneRow tournament={tournament} playerId={viewerId} viewerId={viewerId} heroId={match.id} total={total} current={match.roundNumber} name={me} onPick={onPick} />
-            <DeckZone registered={deckIn(tournament, viewerId)} label={deckIn(tournament, viewerId) ? "Deck" : "No deck yet"} />
+            {tournament.duelType !== "remote" && <DeckZone registered={deckIn(tournament, viewerId)} label={deckIn(tournament, viewerId) ? "Deck" : "No deck yet"} />}
           </div>
         </div>
       </div>
@@ -187,7 +194,7 @@ function IdleField({ tournament, hero, viewerId, ratings, narrow }: {
           </div>
           <div className={styles.half} data-side="near" data-kind={eliminated ? "unlit" : "lit"} style={hc(YOU_HC)}>
             <ZoneRow tournament={tournament} playerId={viewerId} viewerId={viewerId} heroId={null} total={total} current={round} name={me} />
-            <DeckZone registered={deckIn(tournament, viewerId)} label={deckIn(tournament, viewerId) ? "Deck" : "No deck yet"} />
+            {tournament.duelType !== "remote" && <DeckZone registered={deckIn(tournament, viewerId)} label={deckIn(tournament, viewerId) ? "Deck" : "No deck yet"} />}
           </div>
         </div>
       </div>

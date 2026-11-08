@@ -44,7 +44,7 @@ The application styles live in `packages/web/src/components/auth/sign-in-shell.m
 
 | Mock block | Application destination or disposition |
 | --- | --- |
-| `base.css` font faces | `auth/fonts.ts` uses `next/font/local`; all five WOFF2 files and both OFL texts are in `auth/fonts/`. Variables are applied only to the shell. |
+| `base.css` font faces | `auth/fonts.ts` uses `next/font/local`; all five Latin WOFF2 files and both OFL texts are in `packages/web/src/lib/fonts/`. Sign-in variables are applied only to the shell. |
 | `base.css` tokens, document defaults, focus, hidden, skip | Start of `sign-in-shell.module.css`, scoped to `.a-page`; native link underlines are restored after the application's global reset. |
 | `base.css` `.form`, buttons, `.fine` | Same named module rules, used by the sign-in forms and panel actions. Button transitions retain only `transform`, following the motion limit; hover border/shadow values are unchanged. |
 | `base.css` `.banner` | Same module rules for bad notices. The added `[data-tone="info"]` variant uses neutral surface, border and text tokens. `.code` retains the diagnostic label and small text line. |

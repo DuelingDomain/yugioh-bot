@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, UserX, Users, X } from "lucide-react";
+import { ArrowRight, Camera, Check, ChevronDown, Copy, Eye, Lock, Plus, UserX, Users, X } from "lucide-react";
 import { isCustomDomain, type DuelFormat, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -26,8 +25,10 @@ import { cx, SheetButton, sheetButtonClass, SheetSegmented, SheetSelect, sheetRo
 import ui from "./sheet-ui.module.css";
 import styles from "./lobby.module.css";
 
-/** Loaded only when REMOTE_DUELS is on, so the plain Duels page does not carry it. */
-const RemoteTablesPanel = dynamic(() => import("@/components/remote/ui/tables-panel").then((module) => module.RemoteTablesPanel));
+import type { RemoteHistoryItem } from "@yugidraft/shared/remote";
+import { RemoteHistoryRow, RemoteLiveRow, useRemoteLive } from "@/components/remote/ui/history-rows";
+
+const isRemoteItem = (item: DuelListItem | RemoteHistoryItem): item is RemoteHistoryItem => "remote" in item;
 
 export type DuelListView = "live" | "history";
 
@@ -373,11 +374,19 @@ const PRESETS: readonly { value: HistoryPreset; label: string }[] = [
   { value: "week", label: "Last 7 days" },
 ];
 
-function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError, hideClear, onFilters, onQ, onCard, onClear }: {
+const TYPE_CHOICES = [
+  { value: "", label: "All" },
+  { value: "online", label: "Online" },
+  { value: "remote", label: "Remote" },
+] as const;
+
+function HistoryFilterBar({ canSeeAll, showStatus, remoteDuels, filters, q, card, rangeError, hideClear, onFilters, onQ, onCard, onClear }: {
   /** The card filter works only for admins; the server ignores it for members. */
   canSeeAll: boolean;
   /** The status filter works only for an admin on All; the server ignores it elsewhere. */
   showStatus: boolean;
+  /** Remote Duels are on: offer the Online / Remote type filter. */
+  remoteDuels: boolean;
   filters: HistoryFilters;
   q: string;
   card: string;
@@ -446,13 +455,17 @@ function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError,
             </button>
           );
         })}
+        {remoteDuels ? (
+          <SheetSegmented label="Duel type" hideLabel value={filters.type} choices={TYPE_CHOICES}
+            onChange={(type) => onFilters({ type })} />
+        ) : null}
         {active && !hideClear ? <SheetButton kind="quiet" size="sm" onClick={onClear}>Clear filters</SheetButton> : null}
       </div>
     </form>
   );
 }
 
-type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
+type MorePages = { key: string; items: (DuelListItem | RemoteHistoryItem)[]; cursor: string | null; loading: boolean; error: string | null };
 
 /** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
 export function DuelLobby({ initialView, initialScope, initialFilters, viewerId, remoteDuels = false }: {
@@ -462,7 +475,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
   initialView?: DuelListView;
   initialScope?: DuelHistoryScope;
   initialFilters?: HistoryFilters;
-  /** REMOTE_DUELS is on: show the Remote Duels section next to the live tables. */
+  /** REMOTE_DUELS is on: Remote tables show in the live list and in Match history, and New Remote Duel is offered. */
   remoteDuels?: boolean;
 }) {
   const searchParams = useSearchParams();
@@ -545,12 +558,14 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
   const pages = history && more?.key === listKey ? more : null;
   const cursor = pages ? pages.cursor : data?.nextCursor ?? null;
   const seen = new Set<string>();
+  const remoteLive = useRemoteLive(remoteDuels && !history);
   const duels = [...(data?.duels ?? []), ...(pages?.items ?? [])].filter((duel) => {
     if (seen.has(duel.slug)) return false;
     seen.add(duel.slug);
     return true;
   });
   // One polite live region serves the whole list: a copy result first, else the row count.
+  const liveCount = duels.length + (history ? 0 : remoteLive.tables.length);
   const live = {
     text: copyNote || (duels.length > 0
       ? `Showing ${duels.length} ${duels.length === 1 ? "duel" : "duels"}${cursor ? ", more available" : ""}`
@@ -623,6 +638,11 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
           <p className={ui.lede}>Automated 1v1 tables.</p>
         </div>
         <div className={styles.headActions}>
+          {remoteDuels ? (
+            <Link href="/duels/new?type=remote" className={sheetButtonClass("secondary", "lg")} data-testid="new-remote-duel">
+              <Camera size={17} strokeWidth={1.7} aria-hidden />New Remote Duel
+            </Link>
+          ) : null}
           <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>
             <Plus size={17} strokeWidth={1.7} aria-hidden />Create game
           </Link>
@@ -667,7 +687,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
             : "Open tables and duels in progress. Join takes an open seat; Watch enters as a spectator. Finished duels move to Match history."}
         </p>
         {history ? (
-          <HistoryFilterBar canSeeAll={canSeeAll} showStatus={showStatus} filters={filters} q={qText} card={cardText}
+          <HistoryFilterBar canSeeAll={canSeeAll} showStatus={showStatus} remoteDuels={remoteDuels} filters={filters} q={qText} card={cardText}
             rangeError={rangeError} hideClear={emptyFiltered}
             onFilters={(patch) => setFilters((current) => ({ ...current, ...patch }))}
             onQ={setQText} onCard={setCardText} onClear={clearFilters} />
@@ -682,7 +702,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
         {error && data ? (
           <p className={styles.reconnect}>Connection dropped. Reconnecting…</p>
         ) : null}
-        {!isLoading && data && duels.length === 0 ? (
+        {!isLoading && data && liveCount === 0 ? (
           emptyFiltered ? (
             <div className={styles.empty}>
               <p>No duels match these filters.</p>
@@ -693,11 +713,14 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
               {history ? "No finished duels yet." : "No live duels right now."}
             </p>
           )
-        ) : duels.length > 0 ? (
+        ) : liveCount > 0 ? (
           <ul className={styles.list}>
-            {duels.map((duel) => history
-              ? <HistoryRow key={duel.slug} duel={duel} onAnnounce={announce} />
-              : <LiveRow key={duel.slug} duel={duel} onClose={(item) => { setCloseError(null); setClosing(item); }} />)}
+            {duels.map((duel) => isRemoteItem(duel)
+              ? <RemoteHistoryRow key={`remote:${duel.slug}`} duel={duel} />
+              : history
+                ? <HistoryRow key={duel.slug} duel={duel} onAnnounce={announce} />
+                : <LiveRow key={duel.slug} duel={duel} onClose={(item) => { setCloseError(null); setClosing(item); }} />)}
+            {history ? null : remoteLive.tables.map((table) => <RemoteLiveRow key={`remote:${table.slug}`} table={table} yours={remoteLive.own.has(table.slug)} adminView={remoteLive.adminOnly.has(table.slug)} />)}
           </ul>
         ) : null}
         {history && pages?.error ? <p className={ui.alert}>{pages.error}</p> : null}
@@ -717,8 +740,6 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
           <p role="status" className={ui.srOnly}>{live.text}</p>
         ) : null}
       </section>
-
-      {remoteDuels && !history ? <RemoteTablesPanel /> : null}
 
       <Modal open={closing != null} onClose={dismiss} title={copy?.title}>
         <p className="text-sm text-text-secondary">{copy?.body}</p>

@@ -21,12 +21,15 @@ export function DuelRulesFields({
   value,
   onChange,
   draft = false,
+  draftNote = "Draft rules: no banlist, pool decks only",
   disabled = false,
 }: {
   idPrefix: string;
   value: DuelRulesValue;
   onChange: (next: DuelRulesValue) => void;
   draft?: boolean;
+  /** The line shown instead of the other rules when `draft` is set. */
+  draftNote?: string;
   disabled?: boolean;
 }) {
   const lengthId = `${idPrefix}-length`;
@@ -58,7 +61,7 @@ export function DuelRulesFields({
       </div>
 
       {draft ? (
-        <p className={`wide ${styles.note}`}>Draft rules: no banlist, pool decks only</p>
+        <p className={`wide ${styles.note}`}>{draftNote}</p>
       ) : (
         <>
           <div>

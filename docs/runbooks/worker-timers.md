@@ -12,14 +12,19 @@ Runs the short loops that keep drafts, tournaments, presence and analytics curre
 |---|---|---|---|
 | Draft timer | 1 s | Expires late picks, sweeps lobbies, retries Discord completion posts (each 60 s) | `draft-timer.ts` |
 | Worker heartbeat | 30 s | Writes row `worker_heartbeat`. Admin console warns if older than 3 min | `index.ts` |
-| Tournament timer | 60 s | Auto-approves late confirmations, closes late tournaments, announces results | `tournament-timer.ts` |
+| Tournament timer | 60 s | Finalizes eligible Remote proposals after 2 h, auto-approves late manual confirmations, closes late tournaments, announces results | `tournament-timer.ts` |
 | VPS health sample | 60 s | Records host load and memory | `vps-health.ts` |
 | Product-event drain | 10 s | Sends queued analytics to PostHog. Retries with back-off, 10 tries max | `analytics-drain.ts` |
 | Presence cleanup | 10 min | Drops presence rows older than 24 h | `index.ts` |
 | Disk usage snapshot | 1 h | Stores disk use. Keeps 7 days | `disk-usage.ts` |
 | Health file | each draft tick | Writes `WORKER_HEALTH_PATH` (`/tmp/yugidraft-worker-health.json`). Docker health check fails after 120 s | `healthcheck.ts` |
 
-Overlapping ticks are merged (`loop.ts`).
+Overlapping ticks are merged (`loop.ts`). The tournament tick also runs at startup.
+Remote result deadlines live in `tournament_remote_matches`, independently of room
+retention. A confirmation or final concede/declared admission permits timeout;
+unconfirmed LP-only proposals and disputes stay open for player/organizer action.
+A scoring failure rolls back that proposal and retries next tick. See the
+[Remote tournament API](../remote-duels/tournaments-api.md).
 
 ## What it changes
 

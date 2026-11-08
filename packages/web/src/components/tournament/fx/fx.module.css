@@ -17,6 +17,12 @@
   .where small { font-size: 12.5px; }
   .barButton { width: 38px; padding: 0; justify-content: center; }
   .barLabel { display: none; }
+  /* The sub wraps to two lines on a phone: the format line, then the visibility chip or the Remote tag, whole. */
+  :global(.ms) .bar :global(.sv-bar-sub) { white-space: normal; overflow: visible; }
+  :global(.ms) .bar :global(.sv-bar-sub) [class*="barSub"] { flex-wrap: wrap; gap: 2px 10px; }
+  :global(.ms) .bar :global(.sv-bar-sub) [class*="barName"] { white-space: normal; overflow: visible; }
+  .remoteSub { flex-wrap: wrap; gap: 2px 10px; }
+  .remoteSub > :not(:last-child) { white-space: normal; overflow: visible; }
 }
 
 .pop {
@@ -26,3 +32,9 @@
 }
 .popTitle { margin: 0 0 10px; font: 600 17px var(--f-display); color: var(--ink); }
 .popNote { margin: 10px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+
+/* The bar sub of a Remote tournament: the usual sub, then the Remote tag. */
+.remoteSub { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
+/* On a phone the usual sub shortens with an ellipsis; the Remote tag always stays whole. */
+.remoteSub > :not(:last-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remoteSub > :last-child { flex: none; }

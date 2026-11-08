@@ -1,6 +1,7 @@
+import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
-import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch } from "../match.js";
+import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -60,6 +61,8 @@ function clearZoneLinks(state: RemoteState, at: number) {
   // Xyz materials stay only under a face-up Xyz Monster on the field; else they go to the GY (bottom first).
   // A camera lift to the hand (the default for a card out of view) holds them for 30 s: the Xyz may come back.
   for (const seat of state.seats) {
+    // A token that left the Monster Zones (sent anywhere, or taken as a material) disappears.
+    if (seat.twin.some(card => card.token && !MONSTER_ZONES.has(card.zone))) seat.twin = seat.twin.filter(card => !card.token || MONSTER_ZONES.has(card.zone));
     for (const card of seat.twin) if (card.zone !== "material") delete card.materialOf;
     for (const card of [...seat.twin]) if (card.materials) {
       const lifted = card.zone === "hand" && !!card.departedFrom?.auto && MONSTER_ZONES.has(card.departedFrom.zone) && card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
@@ -84,23 +87,40 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
   let deckAction = action;
+  /** A token action changes table state only: it skips deck, effect and hand tracking. */
+  let tokenAction = false;
   const at = action.at ?? state.updatedAt;
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
-  if (!state.match) state = ensureRemoteMatch(structuredClone(state));
+  if (!state.match) state = ensureRemoteMatch(cloneRemoteCurrent(state));
+  if (action.type === "detection.mode") {
+    if (action.reason === "start" && state.detection?.[action.actorSeat]?.mode === action.mode) return state;
+    return { ...cloneRemoteCurrent(state), detection: { ...state.detection, [action.actorSeat]: { mode: action.mode, at } }, updatedAt: at };
+  }
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
-  if (matchResult) return matchResult;
+  if (matchResult) {
+    if (action.type === "match.confirm" && action.accept && state.match.pendingResult?.lpSeat !== undefined) {
+      clearZoneLinks(matchResult, at);
+      rememberRemoteAction(state, matchResult, action);
+      // Admission is undoable by the owner. Its LP declaration cannot be undone
+      // underneath it; undoing the admission first restores the pending request.
+      const declaration = matchResult.undoHistory?.find(entry => entry.actionId === state.match.pendingResult!.id);
+      if (declaration) (declaration.blockedBy ??= []).push(action.idempotencyKey);
+    }
+    return matchResult;
+  }
   if (action.type === "undo") {
     remoteAssert(state.match.phase !== "siding", "Undo is unavailable during siding", 409, "UNDO_UNAVAILABLE");
     if (!context?.replay || context.undoVersion === 1) return undoRemoteAction(state, action);
     // Preserve the semantics of already accepted legacy events, including cross-seat undo.
     const undo = state.undo;
     remoteAssert(undo && undo.actionId === action.targetActionId && at - undo.at <= 5000, "Undo expired or action is no longer the latest reversible action", 409, "UNDO_UNAVAILABLE");
-    return { ...structuredClone(undo.before), updatedAt: at, undo: null };
+    return { ...structuredClone(undo.before), detection: structuredClone(state.detection ?? {}), updatedAt: at, undo: null };
   }
+  remoteAssert(!remoteOpeningPending(state.match) || action.type === "player.concede", "Waiting for the die-roll winner to choose who goes first", 409, "OPENING_PENDING");
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
-  let next: RemoteState = { ...structuredClone(state), updatedAt: at };
+  let next: RemoteState = { ...cloneRemoteCurrent(state), updatedAt: at };
   next.deckChecks ??= initialDeckChecks();
   if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
   else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
@@ -163,7 +183,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = seat(action.seat);
       remoteAssert(s.resources.lp + action.delta <= 999999, "LP exceeds supported maximum");
       s.resources.lp = Math.max(0, s.resources.lp + action.delta);
-      s.eliminated = s.resources.lp === 0;
+      if (next.match.pendingResult?.lpSeat === s.seat && s.resources.lp > 0) delete next.match.pendingResult;
+      if (next.tournament && action.actorSeat !== s.seat && s.resources.lp === 0) {
+        remoteAssert(!next.match.pendingResult, "A result declaration is already pending", 409);
+        const others = next.seats.filter(other => other.seat !== s.seat && !other.eliminated);
+        next.match.pendingResult = { id: action.idempotencyKey, winnerSeat: others.length === 1 ? others[0].seat : null,
+          confirmed: [action.actorSeat], lpSeat: s.seat };
+      } else s.eliminated = s.resources.lp === 0;
       break;
     }
     case "player.concede": next.seats[action.actorSeat].eliminated = true; break;
@@ -186,7 +212,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const card of sightings) {
         remoteAssert(card.cardId || card.passcode, "A cardId or passcode is required");
         if (card.zone) validZone(card.zone);
-        if (card.cardRef) remoteAssert(ownField(action.seat).twin.some(c => c.ref === card.cardRef), "Unknown twin card", 409);
+        if (card.cardRef) {
+          const target = ownField(action.seat).twin.find(c => c.ref === card.cardRef);
+          remoteAssert(target, "Unknown twin card", 409);
+          remoteAssert(!target.token, "A token has no physical card to identify", 409);
+        }
       }
       break;
     }
@@ -196,6 +226,15 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
+      if (action.card.token) {
+        const token = action.card;
+        remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.slot >= 1 && token.slot <= 5 && token.faceUp && !token.cardId && !token.passcode,
+          "A token goes face-up into a Main Monster Zone", 409);
+        remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === token.ref), "Duplicate card ref or field is full", 409);
+        freeSlot(s, "monster", token.slot);
+        s.twin.push({ ...token, zone: "monster" });
+        tokenAction = true; break;
+      }
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
       if (reuse && "noop" in reuse) return next;
       if (reuse && "pending" in reuse) return next;
@@ -217,6 +256,29 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      if (card.token) {
+        // The camera never touches a token: nothing physical backs it.
+        if ("source" in action && action.source === "auto") return state;
+        tokenAction = true;
+        const gone = () => { s.twin = s.twin.filter(c => c !== card); };
+        if (action.type === "twin.remove") { gone(); break; }
+        if (action.type === "twin.flip") {
+          remoteAssert(action.faceUp, "A token stays face-up", 409);
+          if (action.position !== undefined) card.position = action.position;
+          break;
+        }
+        validZone(action.zone);
+        // Leaving the Main Monster Zones means the token disappears; it never goes to an Extra Monster Zone.
+        if (action.zone === "extra-monster") remoteAssert(false, "A token stays in the Main Monster Zones", 409);
+        if (action.zone !== "monster") { gone(); break; }
+        remoteAssert(action.faceUp !== false, "A token stays face-up", 409);
+        const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
+        remoteAssert(slot !== undefined, "A token needs a Monster Zone slot", 409);
+        freeSlot(s, action.zone, slot, card.ref);
+        card.zone = action.zone; card.slot = slot;
+        if (action.position !== undefined) card.position = action.position;
+        break;
+      }
       const fieldFaceState=!context?.replay||context.fieldFaceState===1;
       // A player who turns over the same field card by hand does not erase its publicly shown identity.
       // The camera seeing a card turned face-down makes it a plain Set for the opponent. Earlier face-down flips carry no source, so replays stay the same.
@@ -253,7 +315,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "twin.equip": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
-      remoteAssert(card && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
+      remoteAssert(card && !card.token && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
       if (!action.target) { delete card.equippedTo; break; }
       const target = next.seats[action.target.seat]?.twin.find(c => c.ref === action.target!.ref);
       remoteAssert(target && target !== card && MONSTER_ZONES.has(target.zone), "Equip target must be a monster on the field", 409);
@@ -262,7 +324,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "twin.attach": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
-      remoteAssert(card && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
+      remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
       applySummon(s, card, action.kind, action.materialRefs, at, true);
       break;
     }
@@ -297,16 +359,21 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
-  applyRemoteEffectTracking(next, state, deckAction, context);
-  next = applyLiveDeckChecks(next, deckAction, context);
-  applyRemoteHand(next, state, action, context);
+  if (!tokenAction) {
+    applyRemoteEffectTracking(next, state, deckAction, context);
+    next = applyLiveDeckChecks(next, deckAction, context);
+    applyRemoteHand(next, state, action, context);
+  }
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
-  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) delete next.match.pendingResult;
+  else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) {
+    const eliminatedSeat = action.type === "player.concede" ? action.actorSeat : action.seat;
+    if (next.match.pendingResult?.lpSeat === undefined || next.match.pendingResult.lpSeat === eliminatedSeat) delete next.match.pendingResult;
+  }
   // After merges and eliminations, so no hold or link points to a card that is gone.
   clearZoneLinks(next, at);
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.
@@ -318,9 +385,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
 export const ygoModule: GameModule = {
   id: "ygo", name: "Yu-Gi-Oh!", phases, seatsAllowed: [2, 3, 4],
   resources: [{ id: "lp", name: "LP", start: 8000, min: 0, loseAtZero: true }], zones,
-  initialState({ seatCount, firstSeat = 0, bestOf }) {
+  initialState({ seatCount, firstSeat = 0, bestOf, tournament }) {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
-    return { gameId: "ygo", seatCount, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
+    return { gameId: "ygo", seatCount, ...(tournament ? { tournament: true } : {}), detection: {}, match: initialRemoteMatch(seatCount, bestOf), phase: "draw", turn: 1, turnSeat: firstSeat, battleEntered: false, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [], knownHand: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), showCardsSetFromDeck: true, revealedHand: "until-played", updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,

@@ -1,11 +1,12 @@
 "use client";
 
+import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
-import { Rail, LpStrip, TopBar, type Player } from "./chrome";
+import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
@@ -26,6 +27,7 @@ import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
 import { isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type Guess } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
+import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
 import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
@@ -37,27 +39,37 @@ import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
+import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
 import { SpectatorScreen } from "./spectator-table";
 import { CameraSettingsMore } from './camera-lock-control';
 import { duelFontClasses } from "@/components/duel/fonts";
 import type { FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
+import { OpeningRollScreen } from "./opening-roll";
 import { matchOf } from "./match-model";
+import { DeckMenu, SurrenderConfirm } from "./surrender";
+import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
+import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import { PhonePairing } from "../phone/pairing";
 import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
 import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
+/** The detection mode a stored Webcam only choice was made in. */
+const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
-import {manualFieldZoneWarning,projectFieldZone,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
+import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
+import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
+import { FeedCardsProvider } from "./feed-cards";
+import { useTokens } from "./token-ui";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -80,18 +92,20 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, sttUrl }: { slug: string; sttUrl: string | null }) {
-  const ctl = useRemoteRoom(slug);
+export function RemoteTableScreen({ slug, sttUrl, tournament = null, watchAsAdmin = false }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
+  /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean }) {
+  const ctl = useRemoteRoom(slug, { watchAsAdmin });
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
   useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
   if (!room) return <div className={`${duelFontClasses} ${s.app}`} data-mode="1v1"><div className={s.shell} style={{ display: "grid", placeItems: "center", alignContent: "center", gap: 12 }}>
     <p role="status" data-testid="remote-load-note" style={{ color: "var(--ink2)", maxWidth: 520, padding: "0 16px", textAlign: "center" }}>{ctl.loadError ? `${ctl.loadError.message.replace(/\.$/, "")}. Join an open seat to enter.` : "Loading table…"}</p>
+    {ctl.loadError ? <p style={{ color: "var(--ink2)", fontSize: 13, lineHeight: 1.55, maxWidth: 520, padding: "0 16px", textAlign: "center" }}>{REMOTE_RETENTION_NOTICE}</p> : null}
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
   // No VideoHubProvider for a spectator: it holds the camera and the card reader.
   if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} tournament={tournament} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -101,19 +115,23 @@ function CameraControl({room}: {room:RemoteRoom}) {
   return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
     {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
+    {hub.sendFailed ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} data-testid="retry-video" onClick={() => hub.retryVideo()}>Retry video</button> : null}
     <CameraSettingsMore lock={hub.cameraLock} />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
 }
 
 /** One plain sentence on why a table ended. */
+/** What the Rescan button shows after the other seat answered. */
+const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent" : result === "off" ? "Their Auto-detect is off" : result === "busy" ? "Their scan is already running" : result === "paused" ? "Their Auto-detect is paused" : result === "limited" ? "Wait a few seconds" : "Could not reach them";
+
 function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
   if (room.endReason === "creator-left") return "The host left the lobby.";
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null }) {
+function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null; tournament: RemoteTournamentLink | null }) {
   const voiceRecognition = sttUrl !== null;
   const sayItsName = voiceRecognition ? " or say its name" : "";
   const hub = useVideoHub();
@@ -135,7 +153,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const R = useRef({ room, state, layer: layers.layer, feedbackAdmin: false }); R.current = { room, state, layer: layers.layer, feedbackAdmin: !!feedbackPref?.isAdmin };
 
   // ---- card facts ----
-  const twinCodes = state.seats.flatMap(item => item.twin.map(cardCode));
+  const twinCodes = state.seats.flatMap(item => item.twin.map(card => cardCode(card) ?? card.token?.artId));
   const deckCodes = seatIds.flatMap(seat => deckIdsOf(room, seat));
   const [subject, setSubject] = useState<Subject | null>(null);
   const [flagSeat, setFlagSeat] = useState(0);
@@ -184,20 +202,23 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     void hub.enableCamera();
   }, [live, hub, room.slug, mySeat]);
 
+  // Nobody has the turn until the opening die roll is decided: no turn glow, tag or banner before that.
+  const turnShown = match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined ? -1 : state.turnSeat;
   const seen = useRef<{ phase: string; turn: number; seat: number } | null>(null);
   const [turnIn, setTurnIn] = useState(false);
   useEffect(() => {
-    const before = seen.current; seen.current = { phase: state.phase, turn: state.turn, seat: state.turnSeat };
+    const before = seen.current; seen.current = { phase: state.phase, turn: state.turn, seat: turnShown };
     if (!before || !live) return;
-    if (before.turn !== state.turn || before.seat !== state.turnSeat) {
-      setBanner({ id: Date.now(), small: `Turn ${state.turn} · ${PHASE_LONG[state.phase] ?? state.phase}`, big: `${name(state.turnSeat)}'s turn` });
-      showPeek("PH", <>Turn passed to <b>{name(state.turnSeat)}</b></>);
+    if (turnShown >= 0 && (before.turn !== state.turn || before.seat !== turnShown)) {
+      const mineNow = !solo && mySeat === turnShown;
+      setBanner({ id: Date.now(), small: `Turn ${state.turn} · ${PHASE_LONG[state.phase] ?? state.phase}`, big: mineNow ? "Your turn" : `${name(turnShown)}'s turn` });
+      showPeek("PH", mineNow ? <>It is <b>your turn</b></> : <>Turn passed to <b>{name(turnShown)}</b></>);
       setTurnIn(true); const timer = setTimeout(() => setTurnIn(false), 1400); return () => clearTimeout(timer);
-    } else if (before.phase !== state.phase) {
+    } else if (turnShown >= 0 && before.phase !== state.phase) {
       setBanner({ id: Date.now(), small: `${name(state.turnSeat)} · Turn ${state.turn}`, big: PHASE_LONG[state.phase] ?? state.phase });
       showPeek("PH", <><b>{name(state.turnSeat)}</b> to <b>{PHASE_LONG[state.phase] ?? state.phase}</b></>);
     }
-  }, [state.phase, state.turn, state.turnSeat, live, name, showPeek]);
+  }, [state.phase, state.turn, turnShown, live, solo, mySeat, name, showPeek]);
 
   // ---- log ----
   const [voiceLog, setVoiceLog] = useState<LogEntry[]>([]);
@@ -239,6 +260,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     if(updated&&warning)toast(warning,5000);
     return updated;
   },[ctl.action,toast]);
+  const tokens = useTokens({ act, room, live, extraZones, layers, info });
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
@@ -265,8 +287,21 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     waiting: match.pendingResult ? (match.pendingResult.confirmed.includes(mySeat) ? "Waiting for the other players to agree." : null) : null,
     onDeclare: (winnerSeat: number | null) => matchStep({ type: "match.declare", actorSeat: mySeat, winnerSeat }),
   } : undefined;
+  // Surrender: a seated, living player in a live game. A solo test table has no other player, so the seat whose turn it is gives up.
+  // Not during the opening die roll and first-player choice. On a solo table the Deck menu gives up the seat whose Deck was clicked.
+  const openingPending = turnShown < 0;
+  const surrenderable = (seat: number) => live && !openingPending && !!state.seats[seat] && !state.seats[seat].eliminated;
+  const [deckAt, setDeckAt] = useState<{ seat: number; rect: Rect } | null>(null);
+  const [surrenderPick, setSurrenderPick] = useState<number | null>(null);
+  const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
+  const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
+  const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
+  // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
+  useEffect(() => { if (layers.layer !== "surrender") setSurrenderPick(null); }, [layers.layer]);
+  // The game ended, I am out, or the opening started: drop a surrender question that is no longer true.
+  useEffect(() => { if (!canSurrender && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, layers]);
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
-  const nextSeat = (() => { for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
+  const nextSeat = (() => { if (turnShown < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
 
   // ---- undo ----
@@ -322,13 +357,33 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
-  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. This is the default. A choice in either direction is remembered in this browser.
-  const [webcamOnly, setWebcamOnlyState] = useState(true);
-  useLayoutEffect(() => { try { setWebcamOnlyState(localStorage.getItem(WEBCAM_ONLY_KEY) !== "0"); } catch { /* storage blocked: the default */ } }, []);
+  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. The default follows my detection mode: hidden in Tap to identify (the board does not follow the camera), shown with Auto-detect.
+  // A choice in either direction is remembered in this browser with the mode it was made in. It wins while the mode stays the same; a mode change applies the new default once.
+  const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
+  const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
+  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
+  // The last known mode bridges a camera change, when the watcher reloads its settings and the mode is unknown for a moment.
+  const [knownMode, setKnownMode] = useState<DetectionMode | null>(null);
+  useEffect(() => {
+    if (!detectMode) return;
+    setKnownMode(detectMode);
+    // A choice made in the other mode is dropped; the new mode's default applies. A change of nothing leaves the keys alone.
+    if (choice.hidden === null || choice.mode === detectMode) return;
+    // An old choice with no stored mode belongs to the mode we are in now.
+    if (choice.mode === null) {
+      setChoice({ hidden: choice.hidden, mode: detectMode });
+      try { localStorage.setItem(WEBCAM_ONLY_MODE_KEY, detectMode); } catch { /* storage blocked */ }
+      return;
+    }
+    setChoice({ hidden: null, mode: null });
+    try { localStorage.removeItem(WEBCAM_ONLY_KEY); localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked */ }
+  }, [detectMode, choice]);
+  const shownMode = detectMode ?? knownMode;
+  const webcamOnly = resolveWebcamOnly(choice, shownMode);
   const setWebcamOnly = useCallback((next: boolean) => {
-    setWebcamOnlyState(next);
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
-  }, []);
+    setChoice({ hidden: next, mode: shownMode });
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (shownMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, shownMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
+  }, [shownMode]);
   /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
   // Another player in Tap to identify: the camera names no zones, so attacks need the board. Not my own seat: my camera stays where it is.
   const tapSeats = useSyncExternalStore(hub.subscribeFieldBacks, () => room.seats.filter(item => item.seat !== room.mySeat && hub.tapMode(item.seat)).map(item => item.seat).join(","), () => "");
@@ -415,6 +470,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       const reading=owns&&!same&&physical?fieldReadingPlaceholder(current.state.seats[seat].twin,physical):undefined;
       same??=reading;
       const projected=physical?projectFieldZone({zone:physical,facts:found,twins:current.state.seats[seat].twin,ref:same?.ref,format:current.state.deckChecks.format.id}):undefined;
+      // A token holds that cell: no card is placed over it or moved aside. The player removes the token or picks another zone.
+      if(owns&&!same&&projected?.zone&&tokenInCell(current.state.seats[seat].twin,projected.zone)){toast(`A token is in ${projected.zone}. Remove the token first, or choose another zone.`,5000);return {updated:null,owns,ref:undefined,row:undefined,slot:undefined};}
       const mapped=projected?.zone?fieldZoneLocation(projected.zone):undefined;
       // A read below "sure" adds a card only to the zone where it was seen. Any other zone may be a phantom, so the person chooses.
       if(owns&&at.bestMatch&&!same&&physical&&(projected?.zone!==physical||projected.moved))return {updated:null,owns,ref:undefined,row:undefined,slot:undefined,askFirst:true};
@@ -652,12 +709,14 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     const planned=[...current.seats[seat].twin];
     const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number} }[] = [];
     if (tap) for (const card of sure) placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone: "" });
+    const tokenCells: string[] = [];
     for (const card of tap ? [] : fresh) {
       const observed=locationOf(card);
       const existing=observed?current.seats[seat].twin.find(c=>c.zone===observed.zone&&c.slot===observed.slot&&sameObservedCard(c,card)):undefined;
       const physical=calibration?.orientation?mapFieldZone({quad:card.quad,kind:'face-up',confidence:1,partial:false},calibration,[],current.deckChecks.format.id).zone:'M1';
       const projected=projectFieldZone({zone:physical,facts:cardInfo(card.cardId),twins:planned,ref:existing?.ref,format:now.format?.id??current.deckChecks.format.id});
       if(!projected.zone)continue;
+      if(owns&&!existing&&tokenInCell(planned,projected.zone)){tokenCells.push(projected.zone);continue;}
       const {zone,slot}=fieldZoneLocation(projected.zone),ref=existing?.ref??`b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`;
       const witnesses=sure.filter(other=>{
         if(other===card||!sameObservedCard(other,card)||!distinctFieldQuads(other.quad,card.quad))return false;
@@ -668,6 +727,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       if(!existing)planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
       placed.push({ref,card,zone,slot,copyProof});
     }
+    if (tokenCells.length) toast(`A token is in ${tokenCells.join(", ")}. Remove the token first, or move the card to another zone.`, 5000);
     const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
@@ -694,7 +754,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     if (hidden) bits.push(`${hidden} face-down`);
     bits.push(`${(reading.ms / 1000).toFixed(1)} s`);
     return bits.join(" · ");
-  }, [act, name, hub]);
+  }, [act, name, hub, toast]);
 
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
@@ -815,8 +875,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const landOf = (card: TwinCard, key: ZoneKey | "hand"): Landing => key === "hand" ? { zone: "hand" } : landingForCell(key, cardInfo(cardCode(card)), extraZones);
   const fieldDrag = (seat: number): FieldDrag | undefined => !live || !(solo || seat === mySeat) ? undefined : {
     can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum", "graveyard", "banished"].includes(card.zone),
-    judge: (card, key) => judgeFor(seat, card, landOf(card, key)),
-    drop: (card, key) => { tryMove(seat, card, landOf(card, key)); },
+    judge: (card, key) => card.token ? tokens.judge(seat, card, key) : judgeFor(seat, card, landOf(card, key)),
+    drop: (card, key) => { if (card.token) tokens.drop(seat, card, key); else tryMove(seat, card, landOf(card, key)); },
   };
   /** The card this seat placed or moved last, if it is still on the field. */
   const recentCard = (seat: number): TwinCard | undefined => {
@@ -861,7 +921,9 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   const micState: MicState = muted ? "muted" : !voiceRecognition ? "off" : myTurn || wakeOpen ? "listen" : "idle";
   useEffect(() => { if (!wake) return; const timer = setTimeout(() => setWakeTick(n => n + 1), Math.max(0, wake - Date.now()) + 50); return () => clearTimeout(timer); }, [wake]);
   const setMic = hub.setMic; const micPublished = hub.micPublished;
-  useEffect(() => { if (!solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
+  useEffect(() => { if (REMOTE_TABLE_TALK && !solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
+  // With no talk and no voice commands there is no mic, so no control for one. PTT stays off, so the V key does nothing.
+  const micSection = voiceRecognition || (REMOTE_TABLE_TALK && !solo);
   const hotwords = useMemo(() => voiceCardNames(room, cardInfo), [room, info]);
 
   const propose = (title: string, sub: string, confirmLabel: string, run: () => void, requestId?: string) => setProposal({ id: ++proposalId.current, title, sub, confirmLabel, run, requestId });
@@ -1106,7 +1168,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       const placedRef=subject.ref&&read?.placedRef===subject.ref?subject.ref:undefined;
       ctx.current={from:subject.from,seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(read?.token!==undefined?{token:read.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{}),...(subject.from==="camera"&&same?.spot?{spot:same.spot}:{}),...(subject.remembered?{hidden:true}:{}),...(subject.remembered&&same?.setClick?{setClick:true}:{})};
       layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(read?.token!==undefined?{aiToken:read.token}:{}), ...(placedRef?{placedRef}:{}) }); layers.open("tray"); },
-    onActivate: subject && subject.cardId && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
+    onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
@@ -1154,6 +1216,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   }
   const openSubject = (card: TwinCard, from: Exclude<CardSource, "hand"> = "board", anchor?: Rect) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    if (card.token) { tokens.open(seat, card); return; }
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card);
@@ -1172,6 +1235,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   };
   // The viewer stays while its card popup is open. Any other layer, Esc or a press outside closes it.
   useEffect(() => { if (pile && layers.layer !== "pile" && layers.layer !== "card") setPile(null); }, [pile, layers.layer]);
+  // In a match break my Deck and Extra are not mine to read: close a viewer open on them.
+  useEffect(() => { if (pile && !live && (pile.zone === "deck" || pile.zone === "extra")) { setPile(null); layers.close(); } }, [pile, live, layers]);
 
   // ---- health ----
   const healthRows = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], health: hub.health(seat) }));
@@ -1228,6 +1293,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
     if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
+    if (card?.token) { cancelRead(); tokens.open(seat, card); return true; }
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {
       cancelRead(); openSubject(card, "camera", at.anchor);
@@ -1253,6 +1319,7 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
   /** Right click or long press on a card: its actions in the card drawer (move, flip, position, Graveyard, Wrong card?, Undo). True when something opened. */
   const openCardActions = (card: TwinCard): boolean => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    if (card.token) { tokens.open(seat, card); return true; }
     if (!cardCode(card) && !card.faceUp && !(solo || seat === mySeat)) { toast("Set card"); return true; }
     openSubject(card, "board"); return true;
   };
@@ -1269,22 +1336,28 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     const key = cell.dataset.zone as ZoneKey; const seat = Number(cell.dataset.seat);
     if (key === "gy") { openPile(seat, "graveyard", cell); return true; }
     if (isPile(key)) return false;
-    const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
+    const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
-    <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true} />
+  return <FeedCardsProvider seats={state.seats} info={info}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+    <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
+        onSurrender={canSurrender ? el => { setSurrenderPick(null); layers.toggle("surrender", el); } : undefined} surrenderOpen={layers.layer === "surrender"}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
+      <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
-        <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
-          <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/remote" data-testid="new-table">New table</a>
+          <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/new?type=remote" data-testid="new-table">New table</a>
+        </div> : null}
+        {!solo && seatCount > 2 && mySeat >= 0 && live && state.seats[mySeat]?.eliminated ? <div className={s.ended} role="status" data-testid="out-watching">
+          <b>You are out of this game.</b>
+          <span>You are watching. The others play on.</span>
         </div> : null}
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
@@ -1297,30 +1370,30 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
           const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
-          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
+          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && !isTournamentTable(room) && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === turnShown} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); }}
-            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
+            onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
-            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
-            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
+            cameraControl={seat === mySeat ? <><CameraControl room={room} />{tokens.trigger(seat)}</> : tokens.trigger(seat)}
+            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <Rail players={players} turnSeat={state.turnSeat} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === state.turnSeat}
+      <Rail players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown}
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
-      <footer ref={dockRef} className={s.dock} aria-label="Voice and undo">
-        <MicSection recognition={voiceRecognition} chat={solo ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
-          onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
+      <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
+        {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
+          onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={!voiceRecognition ? [] : shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
           onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
         <UndoSection recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
@@ -1330,8 +1403,8 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />
     <LogDrawer voiceFilter={voiceRecognition} open={layers.layer === "log"} entries={entries} onClose={() => layers.close("log")} rules={[`Format: ${formatLabel}`, `Starting LP: ${startingLp}`, "Undo: your last 20 actions, this turn and the one before"]}
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
-      onConcede={!solo && mySeat >= 0 && live ? () => void act({ type: "player.concede", actorSeat: mySeat }) : undefined} declare={declareResult}
-      seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === state.turnSeat, lp: lpOf(p.seat), note: p.seat === state.turnSeat ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
+      onConcede={canSurrender ? surrender : undefined} declare={declareResult}
+      seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === turnShown, lp: lpOf(p.seat), note: p.seat === turnShown ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
@@ -1340,12 +1413,16 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
       onDismiss={flag => { void act({ type: "deck.flag.dismiss", actorSeat: flagActor, flagId: flag.id, reason: "Player marked this flag as wrong" }); layers.close("flag"); }}
       onMerge={(flag, keep, remove) => { void act({ type: "twin.merge", actorSeat: solo ? flag.seat : mySeat, seat: flag.seat, keepInstanceId: keep, removeInstanceId: remove, reason: "Same physical card; system split the instance" }); layers.close("flag"); }}
       onClose={() => layers.close("flag")} />
+    <DeckMenu open={layers.layer === "deck" && !!deckAt && surrenderable(deckAt.seat)} anchor={deckAt?.rect ?? null} deckCards={deckAt ? state.seats[deckAt.seat]?.twin.filter(card => card.zone === "deck").length ?? 0 : 0}
+      onView={() => { if (deckAt) openPile(deckAt.seat, "deck", null); }} onSurrender={() => { setSurrenderPick(deckAt?.seat ?? null); layers.open("surrender"); }} />
+    <SurrenderConfirm open={layers.layer === "surrender" && canSurrender} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} name={name(surrenderSeat)} busy={matchBusy}
+      onConfirm={() => { layers.close(); surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
-        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),
+        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone: zone as "graveyard" | "banished", cardRefs }),
         onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
       } : {})} /> : null}
@@ -1378,13 +1455,17 @@ function Table({ ctl, room, sttUrl }: { ctl: RoomController; room: RemoteRoom; s
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
     {match.phase === "result" || (match.phase === "done" && !boardView)
       ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+        tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
-        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push("/duels/remote")} onClose={() => setBoardView(true)} />
+        onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+    {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
+      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
     <Peek peek={peek} />
+    {tokens.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
-    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />
+    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
-  </div>;
+  </div></FeedCardsProvider>;
 }

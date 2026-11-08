@@ -29,3 +29,5 @@ export { REMOTE_TWIN_MOVE_WINDOW_MS, recentFieldDeparture } from "./twin-placeme
 
 export * from "./hand.js";
 export * from "./search-candidates.js";
+export * from "./delta.js";
+export * from "./history.js";

@@ -6,7 +6,7 @@ const media = vi.hoisted(() => ({
 vi.mock("livekit-client", () => ({
   ConnectionState: { Disconnected: "disconnected", Connecting: "connecting", Connected: "connected" },
   Track: { Source: { Camera: "camera", Microphone: "microphone" }, Kind: { Video: "video", Audio: "audio" } },
-  VideoPresets: { h360: {}, h720: {} }, RoomEvent: new Proxy({}, {get: (_,key) => String(key)}), TrackEvent: { Restarted: 'restarted' },
+  VideoPreset: class { constructor(public width: number, public height: number, public bitrate: number, public fps: number) {} }, VideoQuality: { LOW: 0, MEDIUM: 1, HIGH: 2 }, RoomEvent: new Proxy({}, {get: (_,key) => String(key)}), TrackEvent: { Restarted: 'restarted' },
   Room: class {
     static async getLocalDevices() { return []; }
     state = "disconnected"; remoteParticipants = new Map();

@@ -8,6 +8,7 @@ import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 import { migrateReleases } from "./releases.js";
+import { migrateTournamentRemoteEvidence } from "./tournament-remote-evidence.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -1429,6 +1430,9 @@ export function migrate(db: Database.Database) {
   migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
 
+  // After the legacy identity rebuild so existing and fresh rows default to online.
+  addColumnIfMissing(db, "tournaments", "duel_type", "text not null default 'online' check (duel_type in ('online','remote'))");
+
   // After identity migration, which rebuilds legacy saved_decks with its original columns.
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
   // Saved usage has its own revision; duel traffic must not invalidate the aggregate.
@@ -1792,6 +1796,11 @@ function migrateCreatorAccess(db: Database.Database) {
 }
 
 function migrateRemoteDuels(db: Database.Database) {
+  // Pairing tables are web-owned. Associate new buckets with rooms so retention can remove them.
+  if (db.prepare("select 1 from sqlite_master where type='table' and name='remote_phone_attempts'").get()) {
+    addColumnIfMissing(db, "remote_phone_attempts", "slug", "text");
+    db.exec("create index if not exists remote_phone_attempts_room on remote_phone_attempts(slug)");
+  }
   // Independent from engine duels: remote calls never count as deploy-blocking activity.
   db.exec(`
     create table if not exists remote_tables (
@@ -1845,6 +1854,73 @@ function migrateRemoteDuels(db: Database.Database) {
     create trigger if not exists remote_events_no_delete before delete on remote_events
       begin select raise(abort, 'remote_events is append-only'); end;
   `);
+  addColumnIfMissing(db, "remote_tables", "tournament_match_id", "integer references tournament_matches(id)");
+  // Ended tables may be replaced, but two live rooms can never own the same pairing.
+  db.exec(`
+    create unique index if not exists remote_tables_tournament_live_idx
+      on remote_tables(tournament_match_id) where tournament_match_id is not null and status != 'ended';
+    create index if not exists remote_tables_tournament_idx on remote_tables(tournament_match_id);
+    -- Durable result state belongs to the pairing, independent of the 24-hour room purge.
+    create table if not exists tournament_remote_matches (
+      tournament_match_id integer primary key references tournament_matches(id) on delete cascade,
+      table_id integer references remote_tables(id) on delete set null,
+      table_slug text not null,
+      player_one_id integer not null references players(id),
+      player_two_id integer not null references players(id),
+      status text not null default 'playing' check (status in ('playing','proposed','disputed','final','void')),
+      winner_player_id integer references players(id),
+      player_one_wins integer check (player_one_wins >= 0),
+      player_two_wins integer check (player_two_wins >= 0),
+      result_source text check (result_source in ('concede','declared','lp')),
+      proposed_at integer,
+      confirm_deadline_at integer,
+      player_one_choice text check (player_one_choice in ('confirm','dispute')),
+      player_one_note text check (length(player_one_note) <= 280),
+      player_one_responded_at integer,
+      player_two_choice text check (player_two_choice in ('confirm','dispute')),
+      player_two_note text check (length(player_two_note) <= 280),
+      player_two_responded_at integer,
+      finalized_at integer,
+      finalization_reason text check (finalization_reason in ('both_confirmed','timeout','organizer')),
+      recorded_match_id integer references matches(id) on delete set null,
+      organizer_user_id integer references users(id) on delete set null,
+      organizer_decided_at integer,
+      organizer_note text check (length(organizer_note) <= 280),
+      created_at integer not null,
+      updated_at integer not null,
+      check (player_one_id != player_two_id),
+      check (winner_player_id is null or winner_player_id in (player_one_id,player_two_id))
+    );
+    create index if not exists tournament_remote_matches_due_idx
+      on tournament_remote_matches(confirm_deadline_at) where status='proposed';
+    -- B4 writes only sanitized result facts to these columns, never full room snapshots.
+    -- Neither evidence nor result rows cascade from remote_tables: the usual purge stays intact.
+    create table if not exists tournament_remote_evidence (
+      tournament_match_id integer primary key references tournament_matches(id) on delete cascade,
+      table_id integer references remote_tables(id) on delete set null,
+      table_slug text not null,
+      player_one_user_id integer not null references users(id),
+      player_two_user_id integer not null references users(id),
+      players_json text not null check (json_valid(players_json)),
+      table_started_at integer,
+      table_ended_at integer not null,
+      end_reason text not null,
+      games_json text not null check (json_valid(games_json)),
+      result_events_json text not null check (json_valid(result_events_json)),
+      final_lp_json text not null check (json_valid(final_lp_json)),
+      public_board_json text not null check (json_valid(public_board_json)),
+      reports_json text not null check (json_valid(reports_json)),
+      detection_summary_json text not null check (json_valid(detection_summary_json)),
+      captured_at integer not null,
+      purge_after_at integer,
+      hard_delete_at integer not null
+    );
+    create index if not exists tournament_remote_evidence_purge_idx on tournament_remote_evidence(purge_after_at);
+    create index if not exists tournament_remote_evidence_cap_idx on tournament_remote_evidence(hard_delete_at);
+    create index if not exists tournament_remote_evidence_player_one_idx on tournament_remote_evidence(player_one_user_id);
+    create index if not exists tournament_remote_evidence_player_two_idx on tournament_remote_evidence(player_two_user_id);
+  `);
+  migrateTournamentRemoteEvidence(db);
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");
   addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");
@@ -1857,10 +1933,74 @@ function migrateRemoteDuels(db: Database.Database) {
     last_seen_at integer not null,
     primary key (table_id,user_id)
   ) without rowid`);
+  // One row per open browser tab of a spectator, so one tab that closes does not end the slot of the others. Rows live for seconds.
+  db.exec(`create table if not exists remote_spectator_tabs (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    tab_id text not null,
+    last_seen_at integer not null,
+    primary key (table_id,user_id,tab_id)
+  ) without rowid`);
+  // An admin watch whose "started" log line is written and whose "stopped" line is not. ending_at is set when the last tab leaves; the stop line
+  // is written after a short grace, so a reload adds no lines.
+  db.exec(`create table if not exists remote_admin_watch (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    ending_at integer,
+    primary key (table_id,user_id)
+  ) without rowid`);
   for (const table of ["remote_seats", "remote_bot_seats"]) {
     addColumnIfMissing(db, table, "saved_deck_id", "integer");
     addColumnIfMissing(db, table, "deck_json", "text");
   }
   addColumnIfMissing(db, "remote_events", "effects_json", "text");
   addColumnIfMissing(db, "remote_events", "messages_json", "text");
+  // Immutable JSON addressed by content, shared by undo positions and event facts.
+  db.exec(`
+    create table if not exists remote_values (
+      hash text primary key check(length(hash)=64), json text not null
+    ) without rowid;
+    create trigger if not exists remote_values_no_update before update on remote_values
+      begin select raise(abort, 'remote_values is immutable'); end;
+    create table if not exists remote_state_values (
+      table_id integer not null references remote_tables(id) on delete cascade,
+      value_hash text not null references remote_values(hash),
+      primary key(table_id,value_hash)
+    ) without rowid;
+    create index if not exists remote_state_values_hash on remote_state_values(value_hash);
+  `);
+  addColumnIfMissing(db, "remote_events", "facts_hash", "text references remote_values(hash)");
+  db.exec(`
+    create index if not exists remote_events_facts_hash on remote_events(facts_hash) where facts_hash is not null;
+    create index if not exists remote_tables_retention on remote_tables(ended_at) where status='ended';
+    create index if not exists remote_tables_unstarted_retention on remote_tables(ended_at) where status='ended' and started_at is null;
+    create trigger if not exists remote_state_values_collect after delete on remote_state_values begin
+      delete from remote_values where hash=old.value_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.value_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.value_hash);
+    end;
+    create trigger if not exists remote_events_collect after delete on remote_events begin
+      delete from remote_values where hash=old.facts_hash
+        and not exists(select 1 from remote_state_values where value_hash=old.facts_hash)
+        and not exists(select 1 from remote_events where facts_hash=old.facts_hash);
+    end;
+    create trigger if not exists remote_tables_collect after delete on remote_tables begin
+      delete from remote_events where table_id=old.id;
+      delete from remote_seats where table_id=old.id;
+      delete from remote_bot_seats where table_id=old.id;
+      delete from remote_state_values where table_id=old.id;
+    end;
+  `);
+  // Serialize the definition check and replacement across processes. Current
+  // databases keep their guard without a schema write on every open.
+  db.transaction(() => {
+    const sql = `CREATE TRIGGER remote_events_no_delete before delete on remote_events
+      when exists(select 1 from remote_tables where id=old.table_id)
+      begin select raise(abort, 'remote_events is append-only'); end`;
+    const existing = db.prepare("select sql from sqlite_master where type='trigger' and name='remote_events_no_delete'").get() as {sql:string} | undefined;
+    if (existing?.sql !== sql) {
+      db.exec('drop trigger if exists remote_events_no_delete');
+      db.exec(sql);
+    }
+  }).immediate();
 }

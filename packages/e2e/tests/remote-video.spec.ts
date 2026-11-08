@@ -108,10 +108,68 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     await a.close();
     await expect(video(b, 0)).toHaveCount(0, { timeout: 2_000 });
     console.info(`Remote camera leave observed in ${Date.now() - leaving} ms`);
-    await b.getByRole("button", { name: "Mute microphone" }).click();
     // The camera control is always in the row under the feed.
     await b.getByRole("button", { name: "Camera off" }).click();
     await expect(video(b, 1)).toHaveCount(0);
     expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);
   } finally { await Promise.allSettled([alice.close(), bob.close()]); }
+});
+
+// Stands in for a loaded card reader: Alice's real controller still sends (rate limit, fps, size), and only the reader fields are rewritten on the wire.
+test("a peer and a spectator see each player's vision speed on that player's feed", async ({ browser }) => {
+  test.setTimeout(240_000);
+  const alice = await browser.newContext(), bob = await browser.newContext(), watcher = await browser.newContext();
+  try {
+    await alice.addInitScript(() => {
+      const dec = new TextDecoder(), enc = new TextEncoder();
+      const varint = (b: Uint8Array, at: number): [number, number] => { let v = 0, s = 0, c: number, i = at; do { c = b[i++]!; v += (c & 127) * 2 ** s; s += 7; } while (c & 128); return [v, i]; };
+      const lenBytes = (n: number) => { const o: number[] = []; while (n > 127) { o.push((n & 127) | 128); n = Math.floor(n / 128); } o.push(n); return o; };
+      const walk = (b: Uint8Array): Uint8Array | null => {
+        const out: Uint8Array[] = []; let i = 0, changed = false;
+        while (i < b.length) {
+          const start = i; let tag: number; [tag, i] = varint(b, i); const wire = tag & 7;
+          if (wire === 0) { [, i] = varint(b, i); out.push(b.subarray(start, i)); }
+          else if (wire === 1 || wire === 5) { i += wire === 1 ? 8 : 4; out.push(b.subarray(start, i)); }
+          else if (wire === 2) {
+            let n: number; [n, i] = varint(b, i); if (i + n > b.length) return null; const body = b.subarray(i, i + n); i += n;
+            let next: Uint8Array = body;
+            if (body[0] === 0x7b && body[body.length - 1] === 0x7d) {
+              try { const report = JSON.parse(dec.decode(body)); if (typeof report.b === "string" && "d" in report) next = enc.encode(JSON.stringify({ ...report, b: "g", m: 82 })); } catch { /* not a vision report */ }
+            } else next = walk(body) ?? body;
+            if (next !== body) { changed = true; out.push(Uint8Array.from([...lenBytes(tag), ...lenBytes(next.length)]), next); } else out.push(b.subarray(start, i));
+          } else return null;
+        }
+        if (!changed) return b;
+        const joined = new Uint8Array(out.reduce((sum, part) => sum + part.length, 0)); let at = 0; for (const part of out) { joined.set(part, at); at += part.length; } return joined;
+      };
+      const proto = RTCDataChannel.prototype as unknown as { send(this: RTCDataChannel, data: unknown): void };
+      const send = proto.send;
+      proto.send = function (this: RTCDataChannel, data: unknown) {
+        const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+        const next = bytes && walk(bytes);
+        return send.call(this, next && next !== bytes ? next : data);
+      };
+    });
+    for (const [context, userId] of [[alice, 101], [bob, 102], [watcher, 105]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+    const slug = await startTwoPlayerTable(alice.request, bob.request, "public");
+    expect((await watcher.request.post(`/api/remote/${slug}/spectate`, { data: {} })).ok()).toBe(true);
+    const a = await alice.newPage(), b = await bob.newPage(), w = await watcher.newPage();
+    await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`), w.goto(`/duels/remote/${slug}`)]);
+    for (const [page, seat] of [[a, 0], [b, 1]] as const) {
+      await expect(page.getByTestId("remote-table")).toBeVisible();
+      // The first click can land before the table video controller is ready, so click again until the own camera shows.
+      await expect(async () => {
+        const on = page.getByTestId("camera-on-feed");
+        if (await on.count()) await on.click();
+        await expect(page.locator(`[data-testid="feed-${seat}"] video`)).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: 90_000, intervals: [2_000] });
+    }
+    const chip = (page: Page) => page.locator('[data-testid="feed-col-0"] [data-testid="peer-vision"]').first();
+    await expect(chip(b)).toContainText("GPU · 82 ms", { timeout: 90_000 });
+    await expect(chip(w)).toContainText("GPU · 82 ms", { timeout: 90_000 });
+    await expect(chip(w)).toHaveAttribute("title", /Alice's computer.*Last read: about 82 ms/);
+    // Your own feed carries no chip, and a seat without video shows none.
+    await expect(a.locator('[data-testid="feed-col-0"] [data-testid="peer-vision"]')).toHaveCount(0);
+    await expect(b.locator('[data-testid="feed-col-1"] [data-testid="peer-vision"]')).toHaveCount(0);
+  } finally { await Promise.allSettled([alice.close(), bob.close(), watcher.close()]); }
 });

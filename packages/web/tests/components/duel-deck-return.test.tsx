@@ -4,10 +4,6 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 import { MoveFx } from "@/components/duel/move-fx";
 import { findMoveZoneElement, findZoneElement } from "@/components/duel/event-queue";

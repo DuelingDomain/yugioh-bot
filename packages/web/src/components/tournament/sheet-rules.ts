@@ -11,7 +11,7 @@ export interface RulesSummary {
   line: string;
 }
 
-type RulesSource = Pick<TournamentDetail, "bestOf" | "duelRules" | "draftId">;
+type RulesSource = Pick<TournamentDetail, "bestOf" | "duelRules" | "draftId" | "duelType">;
 
 export function formatLabel(format: string): string {
   if (format === "round_robin") return "Round robin";
@@ -39,6 +39,14 @@ export function rulesSummary(tournament: RulesSource): RulesSummary | null {
   if (tournament.bestOf == null && !tournament.duelRules) return null;
   const rules = rulesValueFromTournament(tournament);
   const bestOf = `Best of ${rules.bestOf}`;
+  // Remote: Advanced format with the players' own cards on camera. No site banlist check, no turn clock.
+  if (tournament.duelType === "remote") {
+    return {
+      bestOf: rules.bestOf,
+      rows: [{ label: "Duel type", value: "Remote Duel" }, { label: "Rules", value: "Advanced, own cards on camera" }],
+      line: `${bestOf}, Remote Duel, Advanced format, own cards`,
+    };
+  }
   if (isDraftTournament(tournament)) {
     return { bestOf: rules.bestOf, rows: [{ label: "Rules", value: "Draft pool, no banlist" }], line: `${bestOf}, Draft pool, no banlist` };
   }

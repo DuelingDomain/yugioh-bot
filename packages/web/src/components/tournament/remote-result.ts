@@ -1,0 +1,150 @@
+/** The Remote result of one tournament match, as `GET .../remote-result` sends it (docs/remote-duels/tournaments-api.md). */
+
+export type RemoteResultStatus = "playing" | "proposed" | "disputed" | "final" | "void";
+export type RemoteResultSource = "concede" | "declared" | "lp";
+export type RemoteReportChoice = "confirm" | "dispute";
+
+export interface RemoteReport {
+  playerId: number;
+  choice: RemoteReportChoice | null;
+  note: string | null;
+  at: number | null;
+}
+
+export interface RemoteResult {
+  tournamentMatchId: number;
+  tableSlug: string | null;
+  status: RemoteResultStatus;
+  winnerPlayerId: number | null;
+  score: { playerOne: number; playerTwo: number } | null;
+  source: RemoteResultSource | null;
+  proposedAt: number | null;
+  confirmDeadlineAt: number | null;
+  reports: RemoteReport[];
+  finalizedAt: number | null;
+  finalizationReason: "both_confirmed" | "timeout" | "organizer" | null;
+  /** Sent by the GET only. False when the linked table has ended or is gone (idle close, creator left): no live table, so the slot can start a new one. */
+  tableOpen?: boolean;
+  organizerDecision: { userId: number; winnerPlayerId: number | null; void?: boolean; note: string | null; at: number } | null;
+}
+
+/** The two paired players of a slot, in the order the tournament holds them (player one first). */
+export interface RemotePair {
+  playerOneId: number;
+  playerOneName: string;
+  playerTwoId: number;
+  playerTwoName: string;
+}
+
+export const DISPUTE_NOTE_MAX = 280;
+
+/** A table or an answer is still open: the manual report is blocked and the slot waits on the Remote flow. */
+export function remoteBlocksReport(result: RemoteResult | null): boolean {
+  return result !== null && (result.status === "playing" || result.status === "proposed" || result.status === "disputed");
+}
+
+export function nameOf(pair: RemotePair, playerId: number | null): string {
+  if (playerId === pair.playerOneId) return pair.playerOneName;
+  if (playerId === pair.playerTwoId) return pair.playerTwoName;
+  return "Someone";
+}
+
+/** The score with the winner first: "2–1". Null when the result has no score or winner yet. */
+export function winnerScoreText(result: RemoteResult, pair: RemotePair): string | null {
+  if (!result.score || result.winnerPlayerId === null) return null;
+  const { playerOne, playerTwo } = result.score;
+  return result.winnerPlayerId === pair.playerOneId ? `${playerOne}–${playerTwo}` : `${playerTwo}–${playerOne}`;
+}
+
+/** The winner that counts: the organizer's ruling when there is one, else the proposed winner. */
+export function effectiveWinnerId(result: RemoteResult): number | null {
+  const decision = result.organizerDecision;
+  return decision && decision.winnerPlayerId !== null ? decision.winnerPlayerId : result.winnerPlayerId;
+}
+
+/** The headline: "Alice won 2–1". The score shows only while it belongs to the winner that counts. */
+export function proposalLine(result: RemoteResult, pair: RemotePair): string {
+  const winnerId = effectiveWinnerId(result);
+  if (winnerId === null) return "No winner was recorded.";
+  const score = winnerId === result.winnerPlayerId ? winnerScoreText(result, pair) : null;
+  return `${nameOf(pair, winnerId)} won${score ? ` ${score}` : ""}.`;
+}
+
+/** The organizer's ruling in one line, when it changed the proposed winner or has a note. Null otherwise. */
+export function rulingText(result: RemoteResult, pair: RemotePair): string | null {
+  const decision = result.organizerDecision;
+  if (!decision) return null;
+  const parts: string[] = [];
+  if (decision.winnerPlayerId === null) parts.push("The organizer voided the result.");
+  else if (decision.winnerPlayerId !== result.winnerPlayerId) parts.push(`The organizer ruled that ${nameOf(pair, decision.winnerPlayerId)} won (proposed: ${result.winnerPlayerId === null ? "no winner" : nameOf(pair, result.winnerPlayerId)}).`);
+  else parts.push("The organizer confirmed the result.");
+  if (decision.note) parts.push(`Note: ${decision.note}`);
+  return parts.join(" ");
+}
+
+/** Why a final result is final, in a few words. */
+export function finalReasonText(reason: RemoteResult["finalizationReason"]): string | null {
+  if (reason === "both_confirmed") return "Both players confirmed.";
+  if (reason === "timeout") return "Nobody disputed before the time ended.";
+  if (reason === "organizer") return "The organizer decided it.";
+  return null;
+}
+
+export function reportOf(result: RemoteResult, playerId: number): RemoteReport | null {
+  return result.reports.find((report) => report.playerId === playerId) ?? null;
+}
+
+/** "1 h 12 min", "35 min", "under 1 min". Null once the time is up. */
+export function timeLeftText(deadlineAt: number, now: number): string | null {
+  const ms = deadlineAt - now;
+  if (ms <= 0) return null;
+  const minutes = Math.ceil(ms / 60_000);
+  if (ms < 60_000) return "under 1 min";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+/** How the last game ended, in a few words. */
+export function sourceText(result: RemoteResult, pair: RemotePair): string | null {
+  const { source, winnerPlayerId } = result;
+  if (source === "concede") {
+    // The player who conceded is the one who did not win.
+    const loser = winnerPlayerId === pair.playerOneId ? pair.playerTwoId : winnerPlayerId === pair.playerTwoId ? pair.playerOneId : null;
+    return loser === null ? "A player conceded." : `${nameOf(pair, loser)} conceded.`;
+  }
+  if (source === "declared") return "Both players agreed on the winner at the table.";
+  if (source === "lp") return "Life Points were entered by hand.";
+  return null;
+}
+
+/** The slot's Remote state as one short line for strips and rows: "Bob won 1–0. Waiting for answers." Null when the slot has no open Remote result. */
+export function remoteSlotLine(result: RemoteResult | null, pair: RemotePair): string | null {
+  if (!result) return null;
+  if (result.status === "playing") return "Playing on a Remote table.";
+  if (result.status === "proposed") return `${proposalLine(result, pair)} Waiting for answers.`;
+  if (result.status === "disputed") return `${proposalLine(result, pair)} Disputed. The organizer decides.`;
+  return null;
+}
+
+/** The games won as [player one, player two] for a proposed or disputed result, else null. */
+export function remoteWins(result: RemoteResult | null): [number, number] | null {
+  if (!result || (result.status !== "proposed" && result.status !== "disputed") || !result.score) return null;
+  return [result.score.playerOne, result.score.playerTwo];
+}
+
+/** API rule: both confirms finalize now; one confirm, or a concede or declared admission, finalizes at the deadline; LP alone never does. */
+export function finalizesAtDeadline(result: RemoteResult): boolean {
+  const confirmed = result.reports.filter((report) => report.choice === "confirm").length;
+  return confirmed >= 1 || result.source === "concede" || result.source === "declared";
+}
+
+/** What the answers so far mean for the clock, as one plain line. */
+export function clockNote(result: RemoteResult): string | null {
+  if (result.status !== "proposed") return null;
+  if (result.reports.filter((report) => report.choice === "confirm").length >= 2) return null;
+  return finalizesAtDeadline(result)
+    ? "If nobody disputes, it becomes final when the time ends."
+    : "Without a confirm it does not finalize on its own. Dispute it to send it to the organizer.";
+}

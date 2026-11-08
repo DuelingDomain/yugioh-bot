@@ -11,10 +11,6 @@ const { state, mutate, sendDuelAction, setChainResponseMode, startBeats } = vi.h
   mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(), setChainResponseMode: vi.fn(), startBeats: vi.fn(),
 }));
 vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: state.error, isLoading: false, mutate }) }));
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ syncing: state.syncing, recovering: state.recovering, connected: true, presence: null, resync: vi.fn() }) }));

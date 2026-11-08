@@ -1,18 +1,32 @@
 import { NextResponse } from "next/server";
-import { createRemoteDuelService } from "@yugidraft/shared/services";
+import { createRemoteDuelService, TournamentRemoteError } from "@yugidraft/shared/services";
 import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
 import { requireWebAccess } from "./web-access";
 import { getDb } from "./db";
+import { broadcaster } from "./notify";
 import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
-/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Voice chat is separate. Production never falls back to localhost. */
+export { REMOTE_TABLE_TALK } from "./remote/table-talk";
+/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Player talk is separate (REMOTE_TABLE_TALK). Production never falls back to localhost. */
 export const remoteSttUrl = () => {
   if (process.env.REMOTE_VOICE_RECOGNITION !== "1") return null;
   return process.env.NEXT_PUBLIC_REMOTE_STT_URL?.trim() || (process.env.NODE_ENV === "production" ? null : "ws://localhost:4020/ws");
+};
+let warnedInvalidMaxLiveRooms = false;
+/** REMOTE_MAX_LIVE_ROOMS: how many multi-seat rooms may be live, for the slow rollout. Unset, empty, 0 or invalid = no cap; an invalid value logs one warning. */
+export const remoteMaxLiveRooms = () => {
+  const value = process.env.REMOTE_MAX_LIVE_ROOMS?.trim();
+  if (!value) return undefined;
+  if (!/^\d+$/.test(value)) {
+    if (!warnedInvalidMaxLiveRooms) log("warn", "REMOTE_MAX_LIVE_ROOMS is not a whole number, so remote rooms have no cap", { value });
+    warnedInvalidMaxLiveRooms = true;
+    return undefined;
+  }
+  return Number(value) || undefined;
 };
 export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
@@ -31,9 +45,11 @@ export async function requireRemoteActor() {
   if (!isRemoteDuelUser(access.userId)) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
   const guildId = process.env.DISCORD_GUILD_ID;
   if (!guildId) return { ok: false as const, response: remoteJson({ error: "Guild is not configured" }, 500) };
-  return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };
+  return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb(), { openingRoll: process.env.REMOTE_OPENING_ROLL !== "0" }) };
 }
 export function remoteError(error: unknown) {
+  if (error instanceof TournamentRemoteError) return remoteJson({ error: error.message, code: error.code,
+    ...(error.entrants ? { entrants: error.entrants } : {}) }, error.status);
   if (error instanceof RemoteDuelError) return remoteJson({ error: error.message, code: error.code }, error.status);
   const { body, status } = errorResponseBody(error, { tags: { operation: "remote-api" } });
   return remoteJson(body, status);
@@ -90,6 +106,11 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
         timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;
       }
+    }
+    if (operation === "actions" && result.tournamentMatchId && (result.status === "ended" || (body.action as {type?:string})?.type === "undo")) {
+      const linked=getDb().prepare(`select t.web_slug from tournaments t join tournament_matches tm on tm.tournament_id=t.id
+        where tm.id=? and t.guild_id=?`).get(result.tournamentMatchId,actor.guildId) as {web_slug:string|null}|undefined;
+      if (linked?.web_slug) void broadcaster.tournament({kind:"match-updated",slug:linked.web_slug});
     }
     // SQLite phone triggers revoke capabilities in the same transaction as leave/end.
     // Retry durable SFU cleanup here; failures do not roll back an accepted game action.

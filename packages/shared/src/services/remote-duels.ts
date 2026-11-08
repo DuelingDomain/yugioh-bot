@@ -1,17 +1,25 @@
+import { createTournamentRemoteResultService } from "./tournament-remote-results.js";
+import { assertRemoteTournamentEntrants, assertRemoteTournamentUser } from "./tournament-remote-access.js";
+import { readRemoteState, writeRemoteState, readRemoteEffects, writeRemoteEffects } from "../remote/storage.js";
+import { freezeRemoteValue } from "../remote/position.js";
 import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteSpectator, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
+import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
+import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
+import { diffView } from "../remote/delta.js";
+import type { RemoteHistoryItem, RemoteHistoryOptions, RemoteHistoryPage, RemoteReplay, RemoteReplayStep } from "../remote/history.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
 import { generateWebSlug } from "../util/web-slug.js";
-import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
+import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemotePosition, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
-import { ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, validateRemoteSideChange } from "../remote/match.js";
+import { applyRemoteOpening, ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, rollRemoteOpening, validateRemoteSideChange } from "../remote/match.js";
 import type { RemoteBestOf, RemoteMatch } from "../remote/match-contract.js";
 
 export const REMOTE_IDLE_WARNING_MS = 8 * 60_000;
@@ -20,22 +28,31 @@ export const REMOTE_IDLE_CLOSE_MS = 10 * 60_000;
 export const REMOTE_SPECTATOR_CAP = 10;
 /** A slot is free this long after the viewer's last room poll (30 s while connected), for a browser that left without saying so. */
 export const REMOTE_SPECTATOR_SLOT_MS = 90_000;
-type TableRow = { id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
+/** After an admin's last tab leaves, the "stopped watching" line waits this long. A reload returns within it and adds no lines. */
+export const REMOTE_ADMIN_WATCH_GRACE_MS = 15_000;
+type TableRow = { tournament_match_id: number | null; id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
   created_by: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
   last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number; visibility: RemoteVisibility; revealed_hand?: RemoteRevealedHand | null };
 type Row = TableRow & { state_json: string };
 // Lists and idle notifications need metadata, never board/undo snapshots or event replay.
-const tableColumns = "id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
+const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
   .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of,json_extract(t.state_json,'$.revealedHand') as revealed_hand";
-type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number; effects_json: string | null; messages_json: string | null };
+const REPLAY_CACHE_SIZE = 6;
+/** One small cache per database: the web makes a new service for each request. */
+const replayCaches = new WeakMap<Database.Database, Map<string, RemoteReplay>>();
+type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number; effects_json: string | null; messages_json: string | null; facts_hash: string | null };
 type EventMessage = { seat: number; text: string };
-const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempotency_key, seq: e.seq, actorSeat: e.actor_seat, userId: e.user_id, at: e.created_at, action: JSON.parse(e.action_json),
-  ...(e.effects_json ? { effects: JSON.parse(e.effects_json) } : {}),
-  ...(e.messages_json ? { messages: (JSON.parse(e.messages_json) as EventMessage[]).map(message =>
-    (seats.find(s => s.seat === message.seat)?.displayName ?? "Seat " + (message.seat + 1)) + message.text) } : {}) });
 
 /** All writes serialize through BEGIN IMMEDIATE; a successful return is already committed. */
-export function createRemoteDuelService(db: Database.Database, options: { dataDirectory?: string; openFormats?: readonly string[] } = {}) {
+export function createRemoteDuelService(db: Database.Database, options: {
+  dataDirectory?: string; openFormats?: readonly string[];
+  /** Roll a die at start to decide who chooses the first player of game 1. Off unless the caller asks; the web app turns it on. */
+  openingRoll?: boolean;
+} = {}) {
+  const event = (e: EventRow, seats: RemoteSeat[]): RemoteEvent => ({ id: e.idempotency_key, seq: e.seq, actorSeat: e.actor_seat, userId: e.user_id, at: e.created_at, action: JSON.parse(e.action_json),
+  ...((e.effects_json || e.facts_hash) ? { effects: readRemoteEffects(db,e.effects_json,e.facts_hash) } : {}),
+  ...(e.messages_json ? { messages: (JSON.parse(e.messages_json) as EventMessage[]).map(message =>
+    (seats.find(s => s.seat === message.seat)?.displayName ?? "Seat " + (message.seat + 1)) + message.text) } : {}) });
   const deckRules = createRemoteDeckRules(db, options.dataDirectory);
   const openFormats = options.openFormats ?? REMOTE_OPEN_FORMATS;
   /** A room can stay on the format it already has. Only a change to a format that is not open is refused. */
@@ -65,44 +82,82 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     (db.prepare("select count(*) as n from remote_spectators where table_id=? and last_seen_at>?").get(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { n: number }).n;
   /** The last events, the same window as the socket snapshot, and always the spectator projection. */
   function spectatorView(row: Row) {
-    const metadata = table(row);
+    const metadata = liveTable(row);
     return projectRemoteSpectator({ table: metadata, state: readState(row),
       events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) });
   }
-  function assertWatchable(row: Pick<TableRow, "visibility" | "solo">) {
+  /** An admin (the owner list) who asked to watch may open a private table. Everyone else keeps the public rule. */
+  function assertWatchable(row: Pick<TableRow, "visibility" | "solo">, admin = false) {
     remoteAssert(!row.solo, "Remote table not found", 404, "REMOTE_NOT_FOUND");
-    remoteAssert(row.visibility === "public", "This table is private. No spectators.", 403, "TABLE_PRIVATE");
+    remoteAssert(row.visibility === "public" || admin, "This table is private. No spectators.", 403, "TABLE_PRIVATE");
+  }
+  /** Admins with a live spectator slot, for the "Admin watching" badge. A slot on a private table can only come from an admin. */
+  function adminWatchers(row: Pick<TableRow, "id">, now = Date.now()): { userId: number; name: string }[] {
+    return (db.prepare(`select v.user_id as userId,u.display_name as name from remote_spectators v join users u on u.id=v.user_id
+      where v.table_id=? and v.last_seen_at>? order by v.last_seen_at,v.user_id`).all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { userId: number; name: string }[])
+      .filter(watcher => isOwnerUser(watcher.userId));
+  }
+  const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now), spectatorCount: spectatorCount(row, now) });
+  /**
+   * Writes the "stopped watching" line of every admin watch that is over: the last tab left more than the grace ago, or the slot ran out.
+   * Returns how many lines it wrote, so the caller reloads its row (each line moves last_seq).
+   */
+  function settleAdminWatch(row: TableRow, now: number): number {
+    const due = db.prepare(`select w.user_id as userId from remote_admin_watch w where w.table_id=? and ((w.ending_at is not null and w.ending_at<=?)
+      or (w.ending_at is null and not exists(select 1 from remote_spectators v where v.table_id=w.table_id and v.user_id=w.user_id and v.last_seen_at>?)))`)
+      .all(row.id, now - REMOTE_ADMIN_WATCH_GRACE_MS, now - REMOTE_SPECTATOR_SLOT_MS) as { userId: number }[];
+    let written = 0;
+    for (const { userId } of due) {
+      db.prepare("delete from remote_admin_watch where table_id=? and user_id=?").run(row.id, userId);
+      if (row.status !== "ended") { append({ ...row, last_seq: row.last_seq + written }, adminWatchAction(userId, false), now, userId, null, false); written += 1; }
+    }
+    return written;
+  }
+  /** A spectator leaves: the slot and the tabs go at once (the badge ends); an admin's stop line follows after the grace. */
+  function releaseSpectator(row: TableRow, userId: number, now: number) {
+    const held = db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS);
+    db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
+    db.prepare("delete from remote_spectator_tabs where table_id=? and user_id=?").run(row.id, userId);
+    if (held) db.prepare("update remote_admin_watch set ending_at=? where table_id=? and user_id=?").run(now, row.id, userId);
+  }
+  function adminWatchAction(userId: number, watching: boolean): RemoteSystemAction {
+    const user = db.prepare("select display_name from users where id=?").get(userId) as { display_name: string } | undefined;
+    return { type: "admin.watching", userId, name: user?.display_name ?? "Admin", watching };
   }
   function table(row: TableRow): RemoteTable {
-    return { bestOf: row.best_of ?? 1, slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
+    return { ...(row.tournament_match_id ? { tournamentMatchId: row.tournament_match_id, detectionDefault: "auto" as const } : {}), bestOf: row.best_of ?? 1, slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
       createdAt: row.created_at, startedAt: row.started_at, endedAt: row.ended_at, lastEventAt: row.last_event_at,
       lastSeq: row.last_seq, endReason: row.end_reason, idleWarningAt: row.idle_warning_at, seats: seats(row), format: format(row), showCardsSetFromDeck: !!row.show_cards_set_from_deck, revealedHand: row.revealed_hand ?? "until-played", visibility: row.visibility };
   }
   const format = (row: TableRow): RemoteFormat => row.format_json ? JSON.parse(row.format_json) : normalizeRemoteFormat();
   function applyTableRule(state:RemoteState,row:Row):RemoteState {
+    if (row.tournament_match_id != null) state.tournament = true;
     state.showCardsSetFromDeck=!!row.show_cards_set_from_deck;
-    if(state.undo) state.undo.before.showCardsSetFromDeck=state.showCardsSetFromDeck;
-    for (const entry of state.undoHistory ?? []) {
-      if (entry.before) entry.before.showCardsSetFromDeck=state.showCardsSetFromDeck;
-      if (entry.after) entry.after.showCardsSetFromDeck=state.showCardsSetFromDeck;
-    }
+    const overlay = (position: RemotePosition) => position.showCardsSetFromDeck === state.showCardsSetFromDeck
+      ? position : freezeRemoteValue({...position,showCardsSetFromDeck:state.showCardsSetFromDeck});
+    if(state.undo) state.undo = {...state.undo,before:overlay(state.undo.before)};
+    state.undoHistory = state.undoHistory?.map(entry=>({...entry,
+      ...(entry.before ? {before:overlay(entry.before)} : {}), ...(entry.after ? {after:overlay(entry.after)} : {})}));
     return state;
   }
   function readState(row: Row): RemoteState {
-    const state = ensureRemoteMatch(JSON.parse(row.state_json) as RemoteState);
+    const state = ensureRemoteMatch(readRemoteState(db,row.state_json));
     state.deckChecks ??= initialDeckChecks(format(row));
     return state.undo && (!state.undoHistory || state.undoHistory.some(e=>!e.undone && !e.before)) ? replayState(row) : applyTableRule(state,row);
   }
-  function replayState(row: Row): RemoteState {
-    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count, bestOf: 1 });
+  /** `visit` sees the board after each event (read only). The history replay uses it; the live read does not. */
+  function replayState(row: Row, visit?: (e: EventRow, state: RemoteState) => void, onInitial?: (state: RemoteState) => void): RemoteState {
+    const game = getRemoteGame(row.game_id); let state = game.initialState({ seatCount: row.seat_count, bestOf: 1, tournament: row.tournament_match_id != null });
+    onInitial?.(state);
     for (const e of db.prepare("select * from remote_events where table_id=? order by seq").all(row.id) as EventRow[]) {
       const action: RemoteEvent["action"] = JSON.parse(e.action_json);
       if (remoteActionSchema.safeParse(action).success) {
-        const effects:RemoteReductionContext|undefined=e.effects_json ? JSON.parse(e.effects_json) : undefined;
+        const effects:RemoteReductionContext|undefined=readRemoteEffects(db,e.effects_json,e.facts_hash);
         if(effects?.showCardsSetFromDeck!==undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
         state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
       }
       else if (action.type === "table.created") {
+        if (action.tournament ?? (row.tournament_match_id != null)) state.tournament = true;
         state.match = initialRemoteMatch(row.seat_count, action.bestOf ?? 1);
         if(action.format) state = applyRemoteFormat(state, action.format);
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? false;
@@ -114,9 +169,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state.showCardsSetFromDeck = action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
         state.revealedHand = action.revealedHand ?? state.revealedHand ?? "until-played";
       }
-      else if (action.type === "table.started" && action.handCounts===1) initializeRemoteHandCounts(state);
+      else if (action.type === "table.started" && action.handCounts===1) { initializeRemoteHandCounts(state); if (action.opening) applyRemoteOpening(state, action.opening); }
       else if (action.type === "seat.deck") { state.deckChecks.registrations[action.seat] = action.registration; state.undo = null; delete state.undoHistory; }
       else if (action.type === "seat.left") delete state.deckChecks.registrations[action.seat];
+      visit?.(e, state);
     }
     return applyTableRule(state,row);
   }
@@ -138,7 +194,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     remoteAssert(afterSeq === undefined || (Number.isSafeInteger(afterSeq) && afterSeq >= 0), "Invalid event cursor");
     const events = db.prepare(`select * from remote_events where table_id=? and seq>? order by seq limit 200`)
       .all(row.id, afterSeq ?? Math.max(0, row.last_seq - 50)) as EventRow[];
-    const metadata = table(row);
+    const metadata = liveTable(row);
     const projected=projectRemoteSnapshot({table:metadata,state:knownState ?? readState(row),events:events.map(e=>event(e,metadata.seats))}, privateSeats(row,userId));
     return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events,isDeveloper:isOwnerUser(userId),spectatorCount:spectatorCount(row)};
   }
@@ -147,10 +203,29 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   function append(row: TableRow, action: RemoteAction | RemoteSystemAction, at: number, userId: number | null = null, actorSeat: number | null = null, activity = true, effects?: RemoteReductionContext, messages?: EventMessage[]) {
     const id = "idempotencyKey" in action ? action.idempotencyKey : `sys:${randomUUID()}`;
-    db.prepare("insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,created_at,effects_json,messages_json) values(?,?,?,?,?,?,?,?,?)")
-      .run(row.id, row.last_seq + 1, id, actorSeat, userId, JSON.stringify(action), at, effects ? JSON.stringify(effects) : null, messages?.length ? JSON.stringify(messages) : null);
+    const storedEffects=writeRemoteEffects(db,effects);
+    db.prepare("insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,created_at,effects_json,messages_json,facts_hash) values(?,?,?,?,?,?,?,?,?,?)")
+      .run(row.id, row.last_seq + 1, id, actorSeat, userId, JSON.stringify(action), at, storedEffects.json, messages?.length ? JSON.stringify(messages) : null, storedEffects.factsHash);
     db.prepare(`update remote_tables set last_seq=last_seq+1${activity ? ",last_event_at=?,idle_warning_at=null" : ""} where id=?`)
       .run(...(activity ? [at, row.id] : [row.id]));
+  }
+  function assertTournamentSeat(row: TableRow, userId: number, requestedSeat?: number): void {
+    if (!row.tournament_match_id) return;
+    const slot = db.prepare(`select tm.tournament_id,tm.player_one_id,tm.player_two_id,t.status,
+      tm.status as match_status,trm.status as remote_status,trm.table_id,
+      p1.user_id as user_one_id,p2.user_id as user_two_id from tournament_matches tm
+      join tournaments t on t.id=tm.tournament_id join players p1 on p1.id=tm.player_one_id
+      left join tournament_remote_matches trm on trm.tournament_match_id=tm.id
+      join players p2 on p2.id=tm.player_two_id where tm.id=? and t.guild_id=?`)
+      .get(row.tournament_match_id, row.guild_id) as { tournament_id: number; player_one_id: number; player_two_id: number; status: string;
+        match_status: string; remote_status: string | null; table_id: number | null; user_one_id: number; user_two_id: number } | undefined;
+    remoteAssert(slot && (userId === slot.user_one_id || userId === slot.user_two_id), "Only the paired players can take a seat", 403, "REMOTE_MATCH_PLAYER_REQUIRED");
+    assertRemoteTournamentUser(userId);
+    assertRemoteTournamentEntrants(db, slot.tournament_id, [slot.player_one_id, slot.player_two_id]);
+    remoteAssert(slot.status === "active", "Tournament is not active", 409, "TOURNAMENT_NOT_ACTIVE");
+    remoteAssert(slot.match_status === "open" && slot.remote_status === "playing" && slot.table_id === row.id,
+      "Tournament match is unavailable", 409, "TOURNAMENT_MATCH_UNAVAILABLE");
+    remoteAssert(requestedSeat === undefined || requestedSeat === (userId === row.created_by ? 0 : 1), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
   }
   function assertOpen(row: Row, now: number) {
     remoteAssert(row.status !== "ended", "Remote table has ended", 409, "TABLE_ENDED");
@@ -158,10 +233,27 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
+    /** Explicit retention cap, or only abandoned lobbies: at most `limit` rooms per transaction.
+     * Started tables and their replay/Undo facts are kept by default by the hourly caller. */
+    purgeEnded(before: number, limit = 100, now = Date.now(), unstartedOnly = false): number {
+      remoteAssert(Number.isSafeInteger(before) && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, "Invalid retention boundary");
+      return transaction(() => {
+        const rooms = db.prepare(`select id,slug from remote_tables${unstartedOnly ? " indexed by remote_tables_unstarted_retention" : ""} where status='ended' and ended_at<?${unstartedOnly ? " and started_at is null" : ""} order by ended_at limit ?`)
+          .all(before,limit) as {id: number; slug: string}[];
+        for (const room of rooms) captureRemoteTournamentEvidence(db, room.id, now);
+        return deleteRemoteRooms(db, rooms);
+      });
+    },
+    pruneSessions(now = Date.now()): void { transaction(() => pruneRemoteSessions(db, now)); },
+    create(input: { tournamentMatchId?: number; guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(input.visibility === undefined || input.visibility === "public" || input.visibility === "private", "Invalid visibility");
+        // In this transaction, so two creates at the same moment cannot both take the last place. A room past the idle close waits only for the sweep, so it does not count.
+        if (!input.solo && input.maxLiveRooms !== undefined) {
+          const live = db.prepare("select count(*) as n from remote_tables where solo=0 and status!='ended' and last_event_at>?").get(now - REMOTE_IDLE_CLOSE_MS) as { n: number };
+          remoteAssert(live.n < input.maxLiveRooms, "Remote tables are full right now. Try again soon.", 409, "REMOTE_TABLES_FULL");
+        }
         remoteAssert(game.seatsAllowed.includes(input.seatCount) && input.guildId, "Invalid table settings");
         remoteAssert(input.solo === undefined || typeof input.solo === "boolean", "Invalid solo setting");
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
@@ -171,15 +263,15 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const slug = generateWebSlug();
         assertFormatOpen(input.format);
         const chosenFormat = normalizeRemoteFormat(input.format, input.rules,input.seatCount);
-        const initial = applyRemoteFormat(game.initialState({ seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
+        const initial = applyRemoteFormat(game.initialState({ tournament: input.tournamentMatchId != null, seatCount: input.seatCount, bestOf: input.bestOf ?? (input.solo ? 1 : input.seatCount === 2 ? 3 : 1) }), chosenFormat);
         initial.showCardsSetFromDeck = input.showCardsSetFromDeck ?? true;
         initial.revealedHand = input.revealedHand ?? "until-played";
-        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility) values(?,?,?,?,'lobby',?,?,?,?,?,?,?,?)")
-          // Same default as normal duels: public. A solo test table is always private, as a test duel is.
-          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY);
+        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility,tournament_match_id) values(?,?,?,?,'lobby',?,?,?,?,?,?,?,?,?)")
+          // The default is private (REMOTE_DEFAULT_VISIBILITY). A solo test table is always private, as a test duel is.
+          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false), JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), input.solo ? "private" : input.visibility ?? REMOTE_DEFAULT_VISIBILITY, input.tournamentMatchId ?? null);
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
-        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
+        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, tournament: input.tournamentMatchId != null, bestOf: initial.match.bestOf, solo: input.solo ?? false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand }, now, input.userId, 0);
         append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
         if (input.solo) for (let seat = 1; seat < input.seatCount; seat++) {
           db.prepare("insert into remote_bot_seats(table_id,seat,display_name) values(?,?,?)").run(row.id, seat, `Test Bot ${seat}`);
@@ -191,6 +283,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     configure(slug: string, guildId: string, userId: number, input: { format?: unknown; bestOf?: RemoteBestOf; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); const viewer = member(row, userId); assertOpen(row, now);
+        remoteAssert(!row.tournament_match_id, "Tournament table rules are locked", 409, "TOURNAMENT_RULES_LOCKED");
         remoteAssert(row.created_by === userId, "Only the host can choose rules", 403);
         remoteAssert(row.status === "lobby", "Rules can only change in the lobby", 409);
         remoteAssert(input.revealedHand === undefined || input.revealedHand === 'until-played' || input.revealedHand === 'one-turn', 'Invalid revealed hand setting');
@@ -203,7 +296,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         state.revealedHand = input.revealedHand ?? state.revealedHand ?? "until-played";
         for (const registration of Object.values(state.deckChecks.registrations))
           if (registration) registration.validation = deckRules.inspect(chosenFormat, registration.deck);
-        db.prepare("update remote_tables set format_json=?,state_json=?,show_cards_set_from_deck=? where id=?").run(JSON.stringify(chosenFormat), JSON.stringify(state), Number(state.showCardsSetFromDeck), row.id);
+        db.prepare("update remote_tables set format_json=?,state_json=?,show_cards_set_from_deck=? where id=?").run(JSON.stringify(chosenFormat), writeRemoteState(db,row.id,state), Number(state.showCardsSetFromDeck), row.id);
         db.prepare("update remote_seats set ready=0 where table_id=?").run(row.id);
         syncDecks(row, state);
         append(row, { type: "table.configured", format: chosenFormat, bestOf: state.match.bestOf, registrations: state.deckChecks.registrations, showCardsSetFromDeck: state.showCardsSetFromDeck, revealedHand: state.revealedHand }, now, userId, viewer.seat);
@@ -224,57 +317,91 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           registration = { savedDeckId: saved.id, name: saved.name, deck: structuredClone(saved.deck), validation: deckRules.inspect(format(row), saved.deck) };
         }
         const state = readState(row); state.deckChecks.registrations[target.seat] = registration; state.undo = null; delete state.undoHistory;
-        db.prepare("update remote_tables set state_json=? where id=?").run(JSON.stringify(state), row.id);
+        db.prepare("update remote_tables set state_json=? where id=?").run(writeRemoteState(db,row.id,state), row.id);
         if (!target.bot) db.prepare("update remote_seats set ready=0 where table_id=? and seat=?").run(row.id, target.seat);
         syncDecks(row, state);
         append(row, { type: "seat.deck", seat: target.seat, registration }, now, userId, viewer.seat);
         return room(load(slug, guildId), userId);
       });
     },
+    tournamentTable(slug: string, guildId: string, userId: number): RemoteTable {
+      return db.transaction(() => {
+        const row = loadTable(slug, guildId);
+        assertTournamentSeat(row, userId);
+        remoteAssert(row.tournament_match_id, "Not a tournament table", 404, "REMOTE_NOT_FOUND");
+        return projectRemoteTable(table(row));
+      })();
+    },
     get(slug: string, guildId: string, userId: number, afterSeq?: number): RemoteRoom {
       return db.transaction(() => room(load(slug, guildId), userId, afterSeq))();
     },
     searchCandidates(slug: string, guildId: string, userId: number, seat: number, recentCardId: number) {
-      const row = load(slug, guildId); member(row, userId);
-      remoteAssert(privateSeats(row, userId).has(seat), 'Only the seat owner can query its deck', 403);
-      remoteAssert(Number.isSafeInteger(recentCardId) && recentCardId > 0 && recentCardId <= 0xffffffff, 'Invalid source card');
-      return deckRules.search(readState(row), seat, recentCardId);
+      // Keep the row and its referenced values in one SQLite read snapshot while
+      // another process may trim history or apply the retention boundary.
+      return db.transaction(() => {
+        const row = load(slug, guildId); member(row, userId);
+        remoteAssert(privateSeats(row, userId).has(seat), 'Only the seat owner can query its deck', 403);
+        remoteAssert(Number.isSafeInteger(recentCardId) && recentCardId > 0 && recentCardId <= 0xffffffff, 'Invalid source card');
+        return deckRules.search(readState(row), seat, recentCardId);
+      })();
     },
     /**
      * Opens the table for a person with no seat, and keeps their slot while they poll. A seated person gets their normal room.
      * It writes only remote_spectators: no event, no seat change, no idle clock, so a spectator never holds a table open.
      */
-    spectate(slug: string, guildId: string, userId: number, now = Date.now()): RemoteRoom {
+    spectate(slug: string, guildId: string, userId: number, now = Date.now(), options: { admin?: boolean; tab?: string } = {}): RemoteRoom {
       return transaction(() => {
-        const row = load(slug, guildId);
+        let row = load(slug, guildId);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
-        assertWatchable(row);
+        // The override needs both the caller's request and the owner list; the route checks the list too.
+        assertWatchable(row, options.admin === true && isOwnerUser(userId));
         if (row.status !== "ended" && now - row.last_event_at < REMOTE_IDLE_CLOSE_MS) {
           db.prepare("delete from remote_spectators where table_id=? and last_seen_at<=?").run(row.id, now - REMOTE_SPECTATOR_SLOT_MS);
+          db.prepare("delete from remote_spectator_tabs where table_id=? and last_seen_at<=?").run(row.id, now - REMOTE_SPECTATOR_SLOT_MS);
+          if (settleAdminWatch(row, now)) row = load(slug, guildId);
           const holding = db.prepare("select 1 from remote_spectators where table_id=? and user_id=?").get(row.id, userId);
           remoteAssert(holding || spectatorCount(row, now) < REMOTE_SPECTATOR_CAP, `This table has reached its limit of ${REMOTE_SPECTATOR_CAP} spectators. Try again soon.`, 409, "SPECTATORS_FULL");
           db.prepare("insert into remote_spectators(table_id,user_id,last_seen_at) values(?,?,?) on conflict(table_id,user_id) do update set last_seen_at=excluded.last_seen_at").run(row.id, userId, now);
+          if (options.tab) db.prepare("insert into remote_spectator_tabs(table_id,user_id,tab_id,last_seen_at) values(?,?,?,?) on conflict(table_id,user_id,tab_id) do update set last_seen_at=excluded.last_seen_at").run(row.id, userId, options.tab, now);
+          if (isOwnerUser(userId)) {
+            // One public line per admin watch (not per poll, not per reload within the grace). It keeps the idle clock, so an admin never holds a table open.
+            const open = db.prepare("update remote_admin_watch set ending_at=null where table_id=? and user_id=?").run(row.id, userId).changes;
+            if (!open) { db.prepare("insert into remote_admin_watch(table_id,user_id,ending_at) values(?,?,null)").run(row.id, userId); append(row, adminWatchAction(userId, true), now, userId, null, false); row = load(slug, guildId); }
+          }
         }
         const view = spectatorView(row);
         return { ...view.table, state: view.state, events: view.events, mySeat: -1, spectator: true, isDeveloper: false, spectatorCount: spectatorCount(row, now) };
       });
     },
-    stopSpectating(slug: string, guildId: string, userId: number): void {
+    /** With `tab`, only that tab leaves; the slot ends when the person has no other open tab here. Without it, all their tabs leave. */
+    stopSpectating(slug: string, guildId: string, userId: number, now = Date.now(), tab?: string): void {
+      transaction(() => {
+        const row = loadTable(slug, guildId);
+        if (tab) {
+          db.prepare("delete from remote_spectator_tabs where table_id=? and user_id=? and tab_id=?").run(row.id, userId, tab);
+          if (db.prepare("select 1 from remote_spectator_tabs where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS)) return;
+        }
+        releaseSpectator(row, userId, now);
+        settleAdminWatch(row, now);
+      });
+    },
+    /** Whether this person holds a live spectator slot now (the route uses it to tell the players that a watch started). */
+    isSpectating(slug: string, guildId: string, userId: number, now = Date.now()): boolean {
       const row = loadTable(slug, guildId);
-      db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
+      return !!db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS);
     },
     /** For the video and socket routes: the seat, null for a spectator with a live slot, a refusal for anyone else. */
     connectionAccess(slug: string, guildId: string, userId: number, now = Date.now()) {
       const row = loadTable(slug, guildId);
       const seat = seats(row).find(s => s.userId === userId);
       if (!seat) {
-        remoteAssert(row.visibility === "public" && !row.solo && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS), "Remote table not found", 404, "REMOTE_NOT_FOUND");
+        remoteAssert((row.visibility === "public" || isOwnerUser(userId)) && !row.solo && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS), "Remote table not found", 404, "REMOTE_NOT_FOUND");
       }
       return { slug: row.slug, status: row.status, solo: !!row.solo, lastEventAt: row.last_event_at, seat: seat?.seat ?? null, displayName: seat?.displayName ?? "Spectator" };
     },
     /**
      * Who may hold LiveKit media now, for non-solo tables that are live or ended in the last 15 minutes: the seated users and the live spectator slots.
-     * A private table has no slots, but a player who leaves its lobby must still lose the rooms.
+     * A private table has slots only for admins, but a player who leaves its lobby must still lose the rooms.
      */
     mediaRosters(now = Date.now(), slug?: string): { slug: string; seated: number[]; slots: number[] }[] {
       const rows = db.prepare(`select id,slug,status,visibility from remote_tables where solo=0 and (status!='ended' or ended_at>?)${slug ? " and slug=?" : ""}`)
@@ -282,29 +409,40 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       return rows.map(row => ({
         slug: row.slug,
         seated: (db.prepare("select user_id from remote_seats where table_id=?").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
-        slots: row.status === "ended" || row.visibility !== "public" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id),
+        slots: row.status === "ended" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id)
+          // A private table has slots only for admins.
+          .filter(user => row.visibility === "public" || isOwnerUser(user)),
       }));
     },
-    list(guildId: string, userId: number, scope: "mine" | "open" | "live" = "mine"): RemoteTable[] {
+    list(guildId: string, userId: number, scope: "mine" | "open" | "live" | "all" = "mine"): RemoteTable[] {
       // "open": what a person can join or watch, as in the normal duel list. A private table is reached only by its invite.
+      // "all": every live table of the guild, private ones too, for an admin who watches. The owner list is checked here as well as in the route.
+      if (scope === "all") remoteAssert(isOwnerUser(userId), "Remote table not found", 404, "REMOTE_NOT_FOUND");
       const rows = db.prepare(`select ${tableColumns} from remote_tables t where t.guild_id=? and ${scope === "open"
         ? "t.solo=0 and t.visibility='public' and t.status!='ended'"
+        : scope === "all" ? "t.solo=0 and t.status!='ended'"
         : `exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)${scope === "live" ? " and t.status!='ended'" : ""}`} order by t.created_at desc,t.id desc limit 100`)
-        .all(...(scope === "open" ? [guildId] : [guildId, userId])) as TableRow[];
+        .all(...(scope === "open" || scope === "all" ? [guildId] : [guildId, userId])) as TableRow[];
       return rows.map(row => projectRemoteTable(table(row)));
     },
     join(slug: string, guildId: string, userId: number, displayName: string, requestedSeat?: number, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); assertOpen(row, now);
+        assertTournamentSeat(row, userId, requestedSeat);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
         remoteAssert(!row.solo, "Solo tables only accept their owner", 403, "SOLO_OWNER_ONLY");
+        // A private table has no invite secret: its link is the invite. So the only live slot on it is an admin's watch, and that admin takes no seat
+        // while watching (stop watching first). A paired tournament player always may: assertTournamentSeat above already let only them through.
+        remoteAssert(!(row.visibility === "private" && !row.tournament_match_id
+          && db.prepare("select 1 from remote_spectators where table_id=? and user_id=? and last_seen_at>?").get(row.id, userId, now - REMOTE_SPECTATOR_SLOT_MS)),
+          "An admin who is watching a private table cannot take a seat. Stop watching first.", 403, "ADMIN_SPECTATOR_NO_SEAT");
         remoteAssert(row.status === "lobby", "Table is no longer in its lobby", 409);
         const occupied = seats(row).map(s => s.seat);
         const seat = requestedSeat ?? Array.from({ length: row.seat_count }, (_, n) => n).find(n => !occupied.includes(n));
         remoteAssert(seat !== undefined && Number.isInteger(seat) && seat >= 0 && seat < row.seat_count && !occupied.includes(seat), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
         const display = name(displayName);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,?,?,?)").run(row.id, seat, userId, display);
-        db.prepare("delete from remote_spectators where table_id=? and user_id=?").run(row.id, userId);
+        releaseSpectator(row, userId, now);
         append(row, { type: "seat.joined", seat, userId }, now, userId, seat);
         return room(load(slug, guildId), userId);
       });
@@ -316,10 +454,11 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         if (row.created_by === userId) {
           append(row, { type: "table.ended", reason: "creator-left" }, now, userId, s.seat);
           db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='creator-left' where id=?").run(now, row.id);
+          captureRemoteTournamentEvidence(db, row.id, now);
         } else {
           db.prepare("delete from remote_seats where table_id=? and user_id=?").run(row.id, userId);
           const state = readState(row); delete state.deckChecks.registrations[s.seat];
-          db.prepare("update remote_tables set state_json=? where id=?").run(JSON.stringify(state), row.id);
+          db.prepare("update remote_tables set state_json=? where id=?").run(writeRemoteState(db,row.id,state), row.id);
           append(row, { type: "seat.left", seat: s.seat, userId }, now, userId, s.seat);
         }
         return projectRemoteTable(table(loadTable(slug, guildId)));
@@ -339,19 +478,26 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     start(slug: string, guildId: string, userId: number, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const row = load(slug, guildId); member(row, userId); assertOpen(row, now);
+        assertTournamentSeat(row, userId);
         remoteAssert(row.created_by === userId, "Only the creator can start", 403);
         if (row.status === "active") return room(row, userId);
         const all = seats(row);
         remoteAssert(all.length === row.seat_count && all.every(s => s.ready), "All seats must be filled and ready", 409);
         for (const seat of all) assertDeckReady(row, seat);
         const state=readState(row);initializeRemoteHandCounts(state);
-        db.prepare("update remote_tables set status='active',started_at=?,state_json=? where id=?").run(now, JSON.stringify(state), row.id);
-        append(row, { type: "table.started", handCounts:1 }, now, userId, member(row, userId).seat);
+        // The server rolls with crypto randomness and writes the dice into the public start event, so a replay or undo never re-rolls.
+        const opening = options.openingRoll ? rollRemoteOpening(row.seat_count, now, () => randomInt(1, 7)) : undefined;
+        // A bot cannot choose: its roll decides the first player at once.
+        if (opening && all.find(s => s.seat === opening.winnerSeat)?.bot) { opening.chosenSeat = opening.winnerSeat; opening.auto = true; }
+        if (opening) applyRemoteOpening(state, opening);
+        db.prepare("update remote_tables set status='active',started_at=?,state_json=? where id=?").run(now, writeRemoteState(db,row.id,state), row.id);
+        append(row, { type: "table.started", handCounts:1, ...(opening ? { opening } : {}) }, now, userId, member(row, userId).seat);
         return room(load(slug, guildId), userId);
       });
     },
     act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
+        const first = loadTable(slug, guildId); if (first.status === "active") settleAdminWatch(first, now);
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
         const command = parsed.data;
@@ -370,7 +516,8 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const timeoutState = command.type === "side.timeout" ? readState(row) : undefined;
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
-        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq, "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        // An admin who starts or stops watching adds a log line. That is not a game change, so it never makes a player's move stale.
+        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
@@ -429,6 +576,9 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
         input.onTiming?.('reducer',performance.now()-reduceAt);
         if(state===before)return room(row,userId,undefined,before);
+        if (row.tournament_match_id && before.match.phase === "done" && before.match.winnerSeat != null && state.match.phase !== "done") {
+          createTournamentRemoteResultService(db).retractProposal(row.id,now);
+        }
         const messages = state.deckChecks.flags.filter(f => !f.private&&!before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
         if(command.type==="effect.choose" && effects.publicEffectChoice) {
@@ -456,7 +606,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         syncDecks(row, state);
         const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
-          .run(JSON.stringify(state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
+          .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
+        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now);
+        else if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
+        else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);
         return room(load(slug, guildId), userId, undefined, state);
       });
     },
@@ -464,15 +617,134 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
     snapshot(slug: string, guildId: string, userId?: number) {
       return db.transaction(() => {
         const row = load(slug, guildId);
-        const metadata = table(row);
+        const metadata = liveTable(row);
         if(userId!==undefined) member(row,userId);
         return projectRemoteSnapshot({ table: metadata, state: readState(row),
           events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) },userId===undefined ? new Set() : privateSeats(row,userId));
       })();
     },
+    /**
+     * Trusted server transport only: the views a socket publish needs, from one read of the table.
+     * Each seated user gets that user's own projection (null when the user has no seat now), the spectators get theirs,
+     * and `publicView` is the no-seat projection that old tabs expect. Every view is projected from the same raw snapshot.
+     */
+    views(slug: string, guildId: string, want: { userIds: readonly number[]; spectator: boolean; publicView: boolean }) {
+      return db.transaction(() => {
+        const row = load(slug, guildId), metadata = liveTable(row);
+        const raw = { table: metadata, state: readState(row),
+          events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(e => event(e, metadata.seats)) };
+        const players = new Map<number, ReturnType<typeof projectRemoteSnapshot> | null>();
+        for (const userId of want.userIds) {
+          const mine = metadata.seats.filter(s => s.userId === userId || (!!row.solo && row.created_by === userId && s.bot)).map(s => s.seat);
+          players.set(userId, metadata.seats.some(s => s.userId === userId) ? projectRemoteSnapshot(raw, new Set(mine)) : null);
+        }
+        return { players, spectator: want.spectator ? projectRemoteSpectator(raw) : undefined, publicView: want.publicView ? projectRemoteSnapshot(raw) : undefined };
+      })();
+    },
     /** Trusted server transport only: what the socket pushes to the spectators of a table. */
     spectatorSnapshot(slug: string, guildId: string) {
       return db.transaction(() => spectatorView(load(slug, guildId)))();
+    },
+
+    /**
+     * Ended Remote tables for Match history, newest first. Mine = tables the viewer played. All = an admin sees every
+     * table, a member sees public tables (not tournament ones) and their own. Solo tests and tables that never started are not history.
+     * The cursor holds the end time and table id of the last row.
+     */
+    listHistory(guildId: string, userId: number, options: RemoteHistoryOptions = {}): RemoteHistoryPage {
+      const scope = options.scope ?? "mine";
+      remoteAssert(scope === "mine" || scope === "all", "Scope must be mine or all");
+      const canSeeAll = isOwnerUser(userId);
+      const limit = Math.min(options.limit ?? 50, 100);
+      remoteAssert(Number.isSafeInteger(limit) && limit > 0, "Limit must be a positive integer");
+      const params: Record<string, string | number> = { guild: guildId, viewer: userId, limit: limit + 1 };
+      const seated = "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=@viewer)";
+      const when = "coalesce(t.ended_at,t.created_at)";
+      const where = ["t.guild_id=@guild", "t.status='ended'", "t.started_at is not null", "t.solo=0"];
+      if (scope === "mine") where.push(seated);
+      else if (!canSeeAll) where.push(`(${seated} or (t.visibility='public' and t.tournament_match_id is null))`);
+      const instant = (value: string, field: string) => {
+        const time = Date.parse(value);
+        remoteAssert(typeof value === "string" && Number.isFinite(time), `Invalid ${field} date-time`); return time;
+      };
+      if (options.from !== undefined) { params.from = instant(options.from, "from"); where.push(`${when}>=@from`); }
+      if (options.to !== undefined) { params.to = instant(options.to, "to"); where.push(`${when}<=@to`); }
+      const seatCount = ({ "1v1": 2, ffa3: 3, ffa4: 4 } as Record<string, number>)[options.format ?? ""];
+      if (options.format !== undefined) { if (seatCount === undefined) where.push("0"); else { params.seats = seatCount; where.push("t.seat_count=@seats"); } }
+      const q = options.q?.trim();
+      if (q) {
+        params.q = `%${q.slice(0, 100).replace(/[\\%_]/g, "\\$&")}%`;
+        where.push(`(exists(select 1 from remote_seats s where s.table_id=t.id and s.display_name like @q escape '\\') or 'remote duel' like lower(@q) escape '\\')`);
+      }
+      if (options.cursor) {
+        let cursor: { t?: unknown; id?: unknown } = {};
+        try { cursor = JSON.parse(Buffer.from(options.cursor, "base64url").toString()); } catch { /* handled below */ }
+        remoteAssert(Number.isSafeInteger(cursor.t) && Number.isSafeInteger(cursor.id), "Invalid cursor");
+        params.cursorTime = cursor.t as number; params.cursorId = cursor.id as number;
+        where.push(`(${when}<@cursorTime or (${when}=@cursorTime and t.id<@cursorId))`);
+      }
+      type HistoryRow = TableRow & { outcome: string | null; history_time: number; tournament_slug: string | null; tournament_name: string | null };
+      const rows = db.prepare(`select ${tableColumns},${when} as history_time,
+        json_extract(t.state_json,'$.match.winnerSeat','$.winnerSeat','$.turn','$.match.games') as outcome,
+        tr.web_slug as tournament_slug,tr.name as tournament_name
+        from remote_tables t left join tournament_matches tm on tm.id=t.tournament_match_id
+        left join tournaments tr on tr.id=tm.tournament_id and tr.guild_id=t.guild_id where ${where.join(" and ")} order by ${when} desc,t.id desc limit @limit`).all(params) as HistoryRow[];
+      const page = rows.slice(0, limit);
+      const iso = (ms: number | null) => ms == null ? null : new Date(ms).toISOString();
+      const items = page.map((row): RemoteHistoryItem => {
+        const [matchWinner, stateWinner, turn, games] = row.outcome ? JSON.parse(row.outcome) as [number | null, number | null, number | null, { winnerSeat: number | null }[] | null] : [null, null, null, null];
+        const winnerSeat = typeof matchWinner === "number" ? matchWinner : typeof stateWinner === "number" ? stateWinner : null;
+        const wins = Array.from({ length: row.seat_count }, (_, seat) => (games ?? []).filter(game => game.winnerSeat === seat).length);
+        const metadata = table(row);
+        return { remote: true, slug: row.slug, cursor: Buffer.from(JSON.stringify({ t: row.history_time, id: row.id })).toString("base64url"), name: "Remote Duel", seatCount: row.seat_count, tableType: row.seat_count === 2 ? "1v1" : row.seat_count === 3 ? "ffa3" : "ffa4",
+          formatId: metadata.format?.id ?? "normal", bestOf: (row.best_of ?? 1) as 1 | 3, visibility: row.visibility, status: "ended",
+          tournament: row.tournament_match_id != null ? { slug: row.tournament_slug, name: row.tournament_name } : null,
+          createdAt: iso(row.created_at), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
+          durationMs: row.started_at != null && row.ended_at != null ? Math.max(0, row.ended_at - row.started_at) : null,
+          turnCount: typeof turn === "number" ? turn : null, endReason: row.end_reason,
+          mySeat: metadata.seats.find(s => s.userId === userId)?.seat ?? null, winnerSeat, wins,
+          seats: metadata.seats.map(s => ({ seat: s.seat, displayName: s.displayName, bot: s.bot,
+            result: winnerSeat === null ? null : s.seat === winnerSeat ? "win" : "loss" })) };
+      });
+      return { items, canSeeAll, nextCursor: rows.length > limit && items.length ? items[items.length - 1]!.cursor : null };
+    },
+    /**
+     * An ended table as steps: the board before the first event, then each event with the patch it caused.
+     * A player sees their own seats' private cards; an admin or any other viewer gets the spectator projection.
+     * Same guild scope and privacy as the live views: a private table is only for its players and admins.
+     */
+    replayFrames(slug: string, guildId: string, userId: number): RemoteReplay {
+      return db.transaction(() => {
+        const row = load(slug, guildId), metadata = table(row);
+        const seated = metadata.seats.some(s => s.userId === userId), admin = isOwnerUser(userId);
+        remoteAssert(seated || admin || (!row.solo && row.visibility === "public" && row.tournament_match_id == null), "Remote table not found", 404, "REMOTE_NOT_FOUND");
+        remoteAssert(row.status === "ended" && row.started_at != null, "The replay opens when the duel has ended", 409, "REPLAY_NOT_READY");
+        const mine = privateSeats(row, userId), spectator = !seated;
+        // The same projection as the live views, with the undo data left out: the board is what a replay shows.
+        // The undo data is cut off before the projection copies the board: it holds a board snapshot per action, so copying it
+        // for every step would cost more and more as the duel gets longer.
+        const project = (state: RemoteState, events: RemoteEvent[]) => {
+          const board = { ...state, undo: null, undoHistory: [] } as RemoteState;
+          const view = spectator ? projectRemoteSpectator({ table: metadata, state: board, events }) : projectRemoteSnapshot({ table: metadata, state: board, events }, mine);
+          return { state: view.state, events: view.events };
+        };
+        // An ended table never changes, so a viewer who steps through the same replay again reuses the rebuilt frames.
+        const replayCache = replayCaches.get(db) ?? replayCaches.set(db, new Map()).get(db)!;
+        const cacheKey = `${row.id}:${row.last_seq}:${spectator ? "spectator" : [...mine].join(",")}`;
+        const cached = replayCache.get(cacheKey);
+        if (cached) { replayCache.delete(cacheKey); replayCache.set(cacheKey, cached); return cached; }
+        let initial: RemoteState | undefined, previous: RemoteState | undefined;
+        const steps: RemoteReplayStep[] = [];
+        replayState(row, (e, state) => {
+          const view = project(state, [event(e, metadata.seats)]);
+          steps.push({ seq: e.seq, at: e.created_at, turn: view.state.turn, event: view.events[0]!, ops: diffView(previous, view.state) });
+          previous = view.state;
+        }, state => { initial = previous = project(state, []).state; });
+        const replay: RemoteReplay = { table: projectRemoteTable(metadata, mine), viewer: spectator ? "spectator" : "player", mySeat: seated ? metadata.seats.find(s => s.userId === userId)!.seat : null, initial: initial!, steps };
+        replayCache.set(cacheKey, replay);
+        if (replayCache.size > REPLAY_CACHE_SIZE) replayCache.delete(replayCache.keys().next().value!);
+        return replay;
+      })();
     },
     replay(slug: string, guildId: string, userId: number): RemoteState {
       return db.transaction(() => {
@@ -496,8 +768,16 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
       return transaction(() => {
         const changed: RemoteTable[] = [];
         db.prepare("delete from remote_spectators where last_seen_at<=?").run(now - REMOTE_SPECTATOR_SLOT_MS);
+        db.prepare("delete from remote_spectator_tabs where last_seen_at<=?").run(now - REMOTE_SPECTATOR_SLOT_MS);
+        // Admin watches that ended write their "stopped" line here when no one else touched the table.
+        const watched = db.prepare("select distinct w.table_id as id from remote_admin_watch w").all() as { id: number }[];
+        for (const { id } of watched) {
+          const found = db.prepare(`select ${tableColumns} from remote_tables t where t.id=?`).get(id) as TableRow | undefined;
+          if (found && settleAdminWatch(found, now)) changed.push(table(loadTable(found.slug, found.guild_id)));
+        }
         // The existing WS sweep publishes every changed table, including timer transitions.
-        const sidingRows = db.prepare("select slug,guild_id,seat_count,json_extract(state_json,'$.match') as match_json from remote_tables where status='active' and json_extract(state_json,'$.match.phase')='siding'")
+        const sidingRows = db.prepare(`select slug,guild_id,seat_count,json_extract(state_json,'$.match') as match_json from remote_tables where status='active'
+          and (json_extract(state_json,'$.match.phase')='siding' or json_extract(state_json,'$.match.opening.deadline') is not null and json_extract(state_json,'$.match.opening.chosenSeat') is null)`)
           .all() as { slug: string; guild_id: string; seat_count: SeatCount; match_json: string }[];
         for (const candidate of sidingRows) {
           if (!remoteSideTimeoutDue({ match: JSON.parse(candidate.match_json) as RemoteMatch, seatCount: candidate.seat_count }, now)) continue;
@@ -507,7 +787,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           const effects: RemoteReductionContext = { matchFlowVersion: 1 };
           const state = getRemoteGame(row.game_id).reduce(before, action, effects);
           append(row, action, now, null, null, true, effects);
-          db.prepare("update remote_tables set state_json=? where id=?").run(JSON.stringify(state), row.id);
+          db.prepare("update remote_tables set state_json=? where id=?").run(writeRemoteState(db,row.id,state), row.id);
           changed.push(table(loadTable(row.slug, row.guild_id)));
         }
         const due = db.prepare(`select ${tableColumns} from remote_tables t where t.status!='ended' and t.last_event_at<=?`).all(now - REMOTE_IDLE_WARNING_MS) as TableRow[];
@@ -517,6 +797,7 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
           if (now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS && !startedRecently) {
             append(row, { type: "table.ended", reason: "idle" }, now, null, null, false);
             db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where id=?").run(now, row.id);
+            captureRemoteTournamentEvidence(db, row.id, now);
           } else if (row.idle_warning_at === null) {
             append(row, { type: "idle.warning", closesAt: row.last_event_at + REMOTE_IDLE_CLOSE_MS }, now, null, null, false);
             db.prepare("update remote_tables set idle_warning_at=? where id=?").run(now, row.id);

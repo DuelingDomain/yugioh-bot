@@ -102,6 +102,7 @@
 /* The deck panel host takes focus when it opens; the panel itself is the cue, so no ring on the box. */
 .deckhost:focus { outline: none; }
 .spacer { height: 122px; }
+.spacerTall { height: 260px; }
 
 /* ---------- the tables: every match in the round, as small flat fields ---------- */
 .tables { padding: 12px 40px 16px; background: var(--floor); border-bottom: 1px solid var(--rule-lo); }
@@ -228,6 +229,7 @@ a.tc:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 
 /* The fixed bar lives in a portal (no container), so it is styled by the JS phone switch, not a query. */
 .actionBar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; margin: 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--rule); }
+.answerBar { max-height: 62vh; overflow-y: auto; }
 .actionBar .abtns { gap: 10px; }
 .actionBar .abtns > * { flex: 1; }
 .actionBar .offsite { margin-top: 8px; font-size: 13.5px; text-align: center; }

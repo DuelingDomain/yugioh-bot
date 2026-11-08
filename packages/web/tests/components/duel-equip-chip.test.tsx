@@ -4,10 +4,6 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelEngineView, DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 import { DuelField } from "@/components/duel/field";
 import { CardInspector } from "@/components/duel/inspector";

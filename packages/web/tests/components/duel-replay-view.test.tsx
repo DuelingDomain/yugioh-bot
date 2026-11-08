@@ -6,10 +6,6 @@ import type { DuelEngineView, DuelFormat, DuelReplayV2 } from "@yugidraft/shared
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV1, replayV2 } from "./replay-fixtures";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 interface FieldProps {
   engine: DuelEngineView;

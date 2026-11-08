@@ -7,7 +7,8 @@ export interface ConfidenceThresholds {
   second?: { score: number; margin: number }; cardBackMargin?: number;
 }
 export type RecognitionTier = 'sure' | 'not sure' | 'low match';
-export interface ModelVariant { url: string; sha256: string; fp32?: { url: string; sha256: string } }
+/** A WebGPU graph. `url` is half precision (needs shader-f16) unless `precision` is 'fp32'; `fp32` is the float32 graph for adapters without shader-f16 or a half-precision graph that fails. */
+export interface ModelVariant { url: string; sha256: string; precision?: 'fp16' | 'fp32'; fp32?: { url: string; sha256: string } }
 export interface WebGpuDiagnostics {
   navigatorGpu: boolean; secureContext: boolean; worker: boolean;
   adapter?: Record<string, string | boolean>; features?: string[];
@@ -22,6 +23,8 @@ export interface PrepareOptions { priors?: RecognitionPriors; sessionGallery?: {
 export interface EmbeddingModelSpec {
   /** Parity-checked alternate weights; does not change index identity. */
   webgpu?: ModelVariant;
+  /** Output check for the half-precision WebGPU graph: the float32 graph's L2-normalised vector for the fixed check input (gpu-check.ts), and the lowest cosine a WebGPU run may have with it. */
+  gpuCheck?: { reference: readonly number[]; minCosine: number };
   thresholds: ConfidenceThresholds; maxBatch?: number;
   id: string; url: string; sha256: string; inputSize: number; dim: number;
   inputName: string; outputName: string; pooling: 'none' | 'cls';
@@ -56,7 +59,7 @@ export interface RecognitionPriors {
 }
 export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean; covered?: boolean; /** Kept only to hold an existing card (low-score hysteresis or the shadow-lifted pass); never starts a new card. */ kept?: boolean; /** Kept only because it sits in a calibrated Deck/Extra cell (pile floor); may score below the pile floor (debug probe). */ pile?: boolean; /** A face-down outline below minConfidence kept because it sits in a calibrated field zone cell (light sleeves score low); the watcher also needs a sleeve colour unlike the mat. */ cell?: boolean }
 /** Detector call options for the field watcher. `keep`: outlines of cards already on the field (their low-score outlines stay). `piles`: calibrated Deck/Extra cells (a stack there keeps a lower-score outline). `cells`: calibrated field zone cells (a face-down card there keeps a lower-score outline). */
-export interface DetectOptions { /** false: skip the second, shadow-lifted pass for lost known cards (the watcher saw no shadow; CPU mode). */ shadowPass?: boolean; region?: FractionalBox; keep?: Point[][]; piles?: Point[][]; cells?: Point[][] }
+export interface DetectOptions { /** Live plausible tracks eligible for shadow rescue; defaults to keep. */ shadowKeep?: Point[][]; /** false: skip the second, shadow-lifted pass for lost known cards (the watcher saw no shadow and its retry timer is not due). */ shadowPass?: boolean; region?: FractionalBox; keep?: Point[][]; piles?: Point[][]; cells?: Point[][] }
 export type BoardSide = 'near' | 'far';
 export interface PeekOptions { card: DetectedQuad; cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface PeekResult {

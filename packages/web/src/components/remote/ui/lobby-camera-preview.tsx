@@ -1,5 +1,6 @@
 "use client";
 
+import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Check, Keyboard, LoaderCircle, Maximize2, Mic, RefreshCw, ScanLine, Smartphone, TriangleAlert } from "lucide-react";
 import type { RemoteRoom } from "@yugidraft/shared/remote";
@@ -7,7 +8,7 @@ import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { loadFieldCalibration, loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
+import { loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
 import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
 import { LobbyZonesView } from "./lobby-zones-view";
@@ -23,6 +24,7 @@ import { RecognitionSetting } from "./recognition-setting";
 import { CameraLockControl } from './camera-lock-control';
 import { optimizeRecognitionCapture, releaseCameraLock } from '@/lib/remote/camera-lock';
 import { useCameraLock } from '@/lib/remote/use-camera-lock';
+import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import s from "./lobby-camera-preview.module.css";
 
 export type CameraMode = "webcam" | "phone" | "manual";
@@ -85,10 +87,11 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null);
   const [calibration,setCalibration]=useState<FieldCalibration>();
+  const [phonePlaced,setPhonePlaced]=useState(false);
   const [calibrating,setCalibrating]=useState(false);
   const seatKey=room?seatKeyOf(room):undefined;
-  useEffect(()=>{setCalibration(seatKey?loadFieldCalibration(seatKey,cameraKey):undefined);},[seatKey,cameraKey]);
-  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed,captureSize:video.current?.videoWidth?{width:video.current.videoWidth,height:video.current.videoHeight}:undefined});setCalibration(grid);}};
+  useEffect(()=>{const record=seatKey?loadFieldCalibrationRecord(seatKey,cameraKey):undefined;setCalibration(record?.calibration);setPhonePlaced(record?.placed??false);},[seatKey,cameraKey]);
+  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed,captureSize:video.current?.videoWidth?{width:video.current.videoWidth,height:video.current.videoHeight}:undefined});setCalibration(grid);if(placed!==undefined)setPhonePlaced(placed);}};
   const inFlight = useRef(false);
   const [note, setNote] = useState("");
   const [reading, setReading] = useState(false);
@@ -121,7 +124,7 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
     </div>
     {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={grid=>saveCalibration(grid)}/>
       <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
-      {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
+      {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor("phone")} video={video.current} format={formatOf(room)} initialCalibration={calibration} placed={phonePlaced} detectCalibrationCards={calibrationCards}
         onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
     <p className={ui.hint}>Click a face-up card to test the reader.</p>
     <p className={cx(ui.hint, s.readNote)} role="status" data-testid={`lobby-phone-read-${seat}`}>{note}</p>
@@ -129,9 +132,9 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
 }
 
 /** Webcam: own preview stream, mic meter and a card check. Everything is released when this unmounts. */
-function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecognition: boolean }) {
-  // A solo table has no voice chat, so without voice commands nothing here needs a mic.
-  const micTest = !room.solo || voiceRecognition;
+function WebcamPanel({ room, voiceRecognition, onCheck }: { room: RemoteRoom; voiceRecognition: boolean; onCheck?: (check: { camera: boolean; zones: boolean }) => void }) {
+  // With no player talk and no voice commands nothing here needs a mic: no test row and no permission check, so the browser never asks.
+  const micTest = voiceRecognition || (REMOTE_TABLE_TALK && !room.solo);
   const video = useRef<HTMLVideoElement>(null);
   const meter = useRef<HTMLSpanElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -161,6 +164,7 @@ function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecogn
   const [aspectChanged,setAspectChanged]=useState(false);
   const debugAllowed=useFieldDeveloper(),debugEnabled=useFieldDebugEnabled();
   const calibrated=live&&placed;
+  useEffect(()=>{onCheck?.({camera:live,zones:calibrated});},[onCheck,live,calibrated]);
   const cameraLock = useCameraLock(live ? stream.current?.getVideoTracks()[0] : undefined,
     `${room.guildId}:${room.seats.find(seat => seat.seat === room.mySeat)?.userId ?? 'local'}`,
     { video: () => video.current, corners: () => calibrated ? calibration?.corners : undefined });
@@ -241,7 +245,7 @@ function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecogn
     if (live && element && stream.current) { element.srcObject = stream.current; void element.play().catch(() => undefined); }
   }, [live]);
 
-  // The mic only feeds a level bar here. Voice chat and (when enabled) voice commands open their own mic at the table.
+  // The mic only feeds a level bar here. Voice commands (and player talk, when on) open their own mic at the table.
   useEffect(() => {
     if (!micWanted) return;
     let off = false; let media: MediaStream | undefined; let context: AudioContext | undefined; let timer = 0; let heard = false;
@@ -353,7 +357,7 @@ function WebcamPanel({ room, voiceRecognition }: { room: RemoteRoom; voiceRecogn
       {aspectChanged?<p className={ui.hint} role="status">Camera shape changed. Check the zones.</p>:null}
       {debugAllowed&&debugEnabled&&cameraLock.debug?<p className={ui.hint} data-testid="lobby-camera-debug">{cameraLock.debug}</p>:null}
     </div>
-    {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
+    {calibrating ? <FieldCalibrationControl defaultSide={defaultSideFor("webcam")} large video={video.current} format={formatOf(room)} placed={placed} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
       onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
     {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }}
       restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)}
@@ -470,12 +474,28 @@ function OtherSeats({ room }: { room: RemoteRoom }) {
  * The server side of each choice (webcam, phone, manual) is made here; `mode` follows the room.
  * Mount it only after the room's saved choice has loaded (`hub.rosterReady`), so no camera starts by mistake.
  */
+/** Two things a tournament match needs for Auto-detect: the camera is on and the zones sit on the mat. */
+export function TournamentCheck({ camera, zones, detection = "auto" }: { camera: boolean; zones: boolean; /** "manual": no camera feed reads the board, so the opponent sees Manual. */ detection?: "auto" | "manual" }) {
+  const items = detection === "manual" ? [] : [{ key: "camera", ok: camera, on: "Camera on", off: "Camera off" }, { key: "zones", ok: zones, on: "Zones calibrated", off: "Zones not calibrated" }];
+  const note = detection === "manual"
+    ? "Auto-detect is off with this camera setup. Your opponent sees Manual."
+    : "Auto-detect starts with the match if the camera is on. This check is advice only; it does not stop Ready. Your opponent sees your mode.";
+  return <ul className={s.tcheck} aria-label="Before the match" data-testid="tournament-precheck" data-ready={detection === "auto" && camera && zones ? "true" : "false"}>
+    {items.map(item => <li key={item.key} data-ok={item.ok ? "true" : "false"} data-testid={`precheck-${item.key}`}>
+      {item.ok ? <Check size={14} strokeWidth={2.2} aria-hidden /> : <TriangleAlert size={14} strokeWidth={1.8} aria-hidden />}{item.ok ? item.on : item.off}</li>)}
+    <li className={s.tcheckNote} data-testid="precheck-note">{note}</li>
+  </ul>;
+}
+
 export default function LobbyCameraPreview({ room, mode, onModeChange, voiceRecognition = false }: { voiceRecognition?: boolean; room: RemoteRoom; mode: CameraMode; onModeChange: (mode: CameraMode) => void }) {
   const hub = useVideoHub();
   const seat = room.mySeat;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ended = room.status === "ended";
+  // Tournament table: a short check before the match. It tells the player; Ready stays their choice.
+  const tournament = isTournamentTable(room);
+  const [webcamCheck, setWebcamCheck] = useState({ camera: false, zones: false });
 
   // The room can change this from elsewhere (a paired phone, a revoked phone, a reload): follow it.
   const serverMode: CameraMode = hub.manual(seat) ? "manual" : hub.phones.some(item => item.seat === seat) ? "phone" : "webcam";
@@ -510,13 +530,20 @@ export default function LobbyCameraPreview({ room, mode, onModeChange, voiceReco
     finally { setBusy(false); }
   }
 
+  // Phone zones are saved under the phone's own key, not the webcam key. A phone in scan mode does not feed the watcher.
+  const pairedPhone = hub.phones.find(item => item.seat === seat && item.paired);
+  const precheck = mode === "webcam" ? { ...webcamCheck, detection: "auto" as const }
+    : mode === "phone" && pairedPhone && pairedPhone.mode !== "scan" ? { camera: true, zones: loadFieldCalibrationRecord(seatKeyOf(room), `phone:${pairedPhone.id}`).placed, detection: "auto" as const }
+    : { camera: false, zones: false, detection: "manual" as const };
+
   return <div className={cx(sheetRoot, s.root)} data-testid="lobby-camera-preview" data-mode={mode}>
     <SheetSegmented label="Camera source" hideLabel value={mode} disabled={busy || ended} full
       choices={MODES.map(item => ({ value: item.value, label: item.label, icon: item.icon }))} onChange={value => void choose(value)} />
     {error ? <p className={s.err} role="alert">{error}</p> : null}
-    {mode === "webcam" ? <WebcamPanel room={room} voiceRecognition={voiceRecognition} />
+    {mode === "webcam" ? <WebcamPanel room={room} voiceRecognition={voiceRecognition} onCheck={tournament ? setWebcamCheck : undefined} />
       : mode === "phone" ? <PhonePanel room={room} onUnpaired={() => { last.current = "webcam"; onModeChange("webcam"); }} />
       : <p className={s.manual} data-testid="lobby-manual-note"><Keyboard size={18} strokeWidth={1.5} aria-hidden /> No camera. You play by typing and on the virtual field. Cards move when you type them or drag them.</p>}
+    {tournament ? <TournamentCheck {...precheck} /> : null}
     <OtherSeats room={room} />
   </div>;
 }

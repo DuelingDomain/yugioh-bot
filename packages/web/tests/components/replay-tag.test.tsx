@@ -6,10 +6,6 @@ import type { DuelCard, DuelReplayV2, ReplayFrameV2, ReplayVisibility } from "@y
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { frame, replayV2 } from "./replay-fixtures";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ variable: "font-var", className: "font-class" });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
 
 // The replay view holds the Jump in request, so it asks for the router even when no fork control shows.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));

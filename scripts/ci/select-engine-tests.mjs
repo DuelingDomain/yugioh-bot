@@ -3,6 +3,9 @@ import { readFileSync, appendFileSync } from "node:fs";
 import { posix } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { engineSources, selectApplicationTests } from "./changed-layers.mjs";
+
+export { selectApplicationTests } from "./changed-layers.mjs";
 
 const prefix = "packages/duel-server/tests/";
 const webPrefix = "packages/web/tests/";
@@ -73,14 +76,21 @@ export function selectTests(sources, changed) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${process.env.BASE}...${process.env.HEAD}`], { encoding: "utf8" }).split("\0").filter(Boolean);
-  if (!changed.every((file) => file.startsWith(prefix))) throw new Error("Narrow test selection requires a tests-only PR");
-  // A helper can reach a test through src/ or scripts/ (for example the issue registry).
-  // Keep those graph nodes, but emit only duel-server and web test files.
-  const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/", "scripts/"], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
-  const sources = Object.fromEntries(tracked.map((file) => [file, readFileSync(file, "utf8")]));
-  const selected = selectTests(sources, changed);
-  const files = selected.filter((file) => file.startsWith(prefix)).map((file) => file.slice("packages/duel-server/".length));
-  const webFiles = selected.filter((file) => file.startsWith(webPrefix)).map((file) => file.slice("packages/web/".length));
-  console.log(JSON.stringify({ files, webFiles }, null, 2));
-  appendFileSync(process.env.GITHUB_OUTPUT, `files=${JSON.stringify(files)}\nweb_files=${JSON.stringify(webFiles)}\n`);
+  if (process.argv.includes("--application")) {
+    const { sources, exports } = engineSources();
+    const selected = selectApplicationTests(sources, changed, exports);
+    console.log(JSON.stringify(selected, null, 2));
+    appendFileSync(process.env.GITHUB_OUTPUT, `files=${JSON.stringify(selected.files)}\nweb_files=${JSON.stringify(selected.webFiles)}\n`);
+  } else {
+    if (!changed.every((file) => file.startsWith(prefix))) throw new Error("Narrow test selection requires a tests-only PR");
+    // A helper can reach a test through src/ or scripts/ (for example the issue registry).
+    // Keep those graph nodes, but emit only duel-server and web test files.
+    const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/", "scripts/"], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
+    const sources = Object.fromEntries(tracked.map((file) => [file, readFileSync(file, "utf8")]));
+    const selected = selectTests(sources, changed);
+    const files = selected.filter((file) => file.startsWith(prefix)).map((file) => file.slice("packages/duel-server/".length));
+    const webFiles = selected.filter((file) => file.startsWith(webPrefix)).map((file) => file.slice("packages/web/".length));
+    console.log(JSON.stringify({ files, webFiles }, null, 2));
+    appendFileSync(process.env.GITHUB_OUTPUT, `files=${JSON.stringify(files)}\nweb_files=${JSON.stringify(webFiles)}\n`);
+  }
 }

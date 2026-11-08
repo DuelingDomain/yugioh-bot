@@ -193,13 +193,12 @@ await build({
     name: "side-deck-next-stubs",
     enforce: "pre",
     resolveId(id: string) {
-      if (id === "next/font/google" || id === "next/font/local") return "\0fonts";
+      if (id === "next/font/local") return "\0fonts";
       if (id === "next/link") return "\0link";
     },
     load(id: string) {
       if (id === "\0fonts") {
         return `const font = () => ({ className: "", variable: "", style: {} });
-          export { font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed };
           export default font;`;
       }
       if (id === "\0link") {

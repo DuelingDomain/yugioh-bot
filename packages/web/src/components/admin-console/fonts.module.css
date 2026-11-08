@@ -1,0 +1,7 @@
+.sans {
+  --adm-sans: "Admin Sans Ext", var(--adm-sans-base);
+}
+
+.mono {
+  --adm-mono: "Admin Mono Ext", var(--adm-mono-base);
+}

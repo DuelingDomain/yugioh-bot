@@ -1,8 +1,8 @@
 import { expect, type APIRequestContext } from "@playwright/test";
 
 /** Alice (seat 0, host) and Bob (seat 1) sit at a started 1v1 table, each with the seeded legal deck. */
-export async function startTwoPlayerTable(alice: APIRequestContext, bob: APIRequestContext) {
-  const created = await alice.post("/api/remote", { data: { gameId: "ygo", seatCount: 2 } });
+export async function startTwoPlayerTable(alice: APIRequestContext, bob: APIRequestContext, visibility?: "public" | "private") {
+  const created = await alice.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, ...(visibility ? { visibility } : {}) } });
   expect(created.status(), await created.text()).toBe(201);
   const slug = (await created.json()).slug as string;
   expect((await bob.post(`/api/remote/${slug}/seat`, { data: { seat: 1 } })).ok()).toBe(true);
