@@ -6,6 +6,8 @@ import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
 type Offset = { dx: number; dy: number };
+/** The status chip asks the dock of a seat to open: `detail.seat`. */
+export const NOTIFY_OPEN_EVENT = "dd-remote-notify-open";
 /** With less room than this, a card choice shrinks and its text scrolls. */
 const TIGHT_ROOM = 250;
 // One saved offset per anchor: an offset from the top of the seat means nothing from its bottom. The CSS names the anchor in --dock-anchor.
@@ -42,9 +44,14 @@ export function NotifyDock({ seat, onSlot, view }: { seat: number; onSlot: (seat
     const read = () => Array.from(node.children).reduce((sum, child) => sum + (child.getAttribute("data-testid") === "toasts" ? child.childElementCount : child.textContent ? 1 : 0), 0);
     shownCount.current = read(); setCount(shownCount.current);
     // Applied before the next paint: the header never shows for a frame with an empty stack.
-    const observer = new MutationObserver(() => { const next = read(); if (next === shownCount.current) return; shownCount.current = next; flushSync(() => setCount(next)); }); observer.observe(node, { childList: true, subtree: true, characterData: true });
+    // A new notice opens a minimized stack: nothing that waits for the player stays hidden.
+    const observer = new MutationObserver(() => { const next = read(); if (next === shownCount.current) return; const more = next > shownCount.current; shownCount.current = next; flushSync(() => { setCount(next); if (more) setOpen(true); }); }); observer.observe(node, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    const onOpen = (event: Event) => { if ((event as CustomEvent<{ seat?: number }>).detail?.seat === seat) setOpen(true); };
+    window.addEventListener(NOTIFY_OPEN_EVENT, onOpen); return () => window.removeEventListener(NOTIFY_OPEN_EVENT, onOpen);
+  }, [seat]);
   const save = (next: Offset) => { wanted.current = next; setOffset(next); const node = root.current; try { localStorage.setItem(KEY(seat, node ? anchorOf(node) : "top"), JSON.stringify(next)); } catch { /* no storage */ } };
   // Keep the whole stack inside the seat panel.
   const clamp = (next: Offset, base: Offset): Offset => {

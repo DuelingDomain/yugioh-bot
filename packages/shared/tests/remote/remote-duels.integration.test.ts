@@ -1142,6 +1142,76 @@ describe("solo remote tables", () => {
     expect(ygoModule.parseCommand({ text: "next phase", actorSeat: 3, state })).toBeNull();
   });
 
+  it("lets an owner-list admin spectate a private table with a visible badge; others and actions stay closed", () => {
+    const { service, users, db } = setup();
+    vi.stubEnv("OWNER_USER_IDS", String(users[3]));
+    const t = Date.now();
+    try {
+      const slug = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 2 as SeatCount }, t + 0).slug;
+      expect(service.get(slug, "g", users[0]).visibility).toBe("private");
+      // A non-admin, and an admin who did not ask, get the public-only rule.
+      expect(() => service.spectate(slug, "g", users[2], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[3], t + 1)).toThrow("This table is private");
+      expect(() => service.spectate(slug, "g", users[2], t + 1, { admin: true })).toThrow("This table is private");
+      expect(() => service.list("g", users[2], "all")).toThrow();
+      const view = service.spectate(slug, "g", users[3], t + 2, { admin: true });
+      expect(view.spectator).toBe(true);
+      expect(view.spectatorCount).toBe(1);
+      // The players see the badge data; the log has one public line without camera data.
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([{ userId: users[3], name: expect.any(String) }]);
+      service.spectate(slug, "g", users[3], t + 3, { admin: true });
+      expect(service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching")).toHaveLength(1);
+      expect(service.list("g", users[3], "all").map(t => t.slug)).toContain(slug);
+      // The admin cannot act or take a seat.
+      expect(() => service.act(slug, "g", users[3], { baseSeq: 0, action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "x", type: "turn.end" }) }, t + 4)).toThrow();
+      expect(() => service.join(slug, "g", users[3], "Admin", 1, t + 4)).toThrow("cannot take a seat");
+      // Two tabs: one closing keeps the watch; the last one ends the slot at once.
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-one-aaaa" });
+      service.spectate(slug, "g", users[3], t + 4, { admin: true, tab: "tab-two-bbbb" });
+      service.stopSpectating(slug, "g", users[3], t + 5, "tab-one-aaaa");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toHaveLength(1);
+      service.stopSpectating(slug, "g", users[3], t + 6, "tab-two-bbbb");
+      expect(service.get(slug, "g", users[0]).adminWatchers).toEqual([]);
+      // A reload within the grace adds no lines (not "stopped" then "started").
+      service.spectate(slug, "g", users[3], t + 7, { admin: true, tab: "tab-new-cccc" });
+      service.stopSpectating(slug, "g", users[3], t + 8, "tab-new-cccc");
+      service.spectate(slug, "g", users[3], t + 9, { admin: true, tab: "tab-new-dddd" });
+      const watchLines = () => service.get(slug, "g", users[0]).events.filter(e => e.action.type === "admin.watching").map(e => (e.action as { watching: boolean }).watching);
+      expect(watchLines()).toEqual([true]);
+      // After the grace the stop line is written (by the next touch of the table, or the sweep).
+      service.stopSpectating(slug, "g", users[3], t + 10, "tab-new-dddd");
+      expect(watchLines()).toEqual([true]);
+      expect(service.sweepIdle(t + 10 + 15_000).map(x => x.slug)).toContain(slug);
+      expect(watchLines()).toEqual([true, false]);
+      expect(db.prepare("select count(*) as n from remote_spectators").get()).toEqual({ n: 0 });
+      // With no watch slot, the admin joins like any invited person (the private table's link is its invite).
+      expect(service.join(slug, "g", users[3], "Admin", 1, t + 20_000 + 10).seats.map(x => x.userId)).toContain(users[3]);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
+    const s = deckSession("normal", false);
+    vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
+    try {
+      s.select(s.save().id);
+      s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+      s.service.ready(s.room.slug, "g", s.users[1], true, 2002); s.start();
+      const t = 3000;
+      const read = s.service.get(s.room.slug, "g", s.users[0], t);
+      // The admin joins after the player read the table and before the player acts.
+      s.service.spectate(s.room.slug, "g", s.users[3], t + 1, { admin: true });
+      const acted = s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-joins", type: "detection.mode", mode: "tap", reason: "slow-offer" }) }, t + 2);
+      expect(acted.lastSeq).toBeGreaterThan(read.lastSeq + 1);
+      // A real game change in between still makes an old baseSeq stale.
+      expect(() => s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "really-stale", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 3)).toThrow("Stale sequence");
+      // Stopping adds a line too and still does not block the next move.
+      const read2 = s.service.get(s.room.slug, "g", s.users[0], t + 4);
+      s.service.stopSpectating(s.room.slug, "g", s.users[3], t + 5);
+      expect(s.service.act(s.room.slug, "g", s.users[0], { baseSeq: read2.lastSeq,
+        action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "after-admin-leaves", type: "detection.mode", mode: "auto", reason: "slow-offer" }) }, t + 6).lastSeq).toBeGreaterThan(read2.lastSeq);
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("refuses a new multi-seat room at the live room cap; solo tables, joins and idle rooms do not count", () => {
     const { service, users, db } = setup();
     db.prepare("update remote_tables set status='ended'").run();

@@ -132,6 +132,24 @@ export function orientFieldFromHands(calibration:FieldCalibration,left:number,ri
   throw new Error('Choose two adjacent corners along your edge of the mat.');
 }
 
+/**
+ * The same grid moved by whole rows along the mat (positive = toward the player, negative = away). New mat point (x, y) lands where the old (x, y + rows) was.
+ * Throws when the moved grid would leave the picture.
+ */
+export function shiftFieldCalibrationRows(calibration:FieldCalibration, rows:number):FieldCalibration {
+  const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION,dy=-rows*FIELD_ROW;
+  const corners=unitCorners.map(u=>{const m=orient(u,orientation,true);return fieldMatPoint({x:m.x,y:m.y-dy},calibration);});
+  return createFieldCalibration(corners,calibration.orientation,calibration.zoneSpacing,calibration.zones);
+}
+/**
+ * Fix for monster and spell cards placed in swapped rows (monster in S, spell/trap in M): the quick setup then reads a
+ * reflected mat. This reflects the rows (M becomes S and S becomes M) in the same picture plane.
+ */
+export function swapFieldCalibrationRows(calibration:FieldCalibration):FieldCalibration {
+  const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
+  const flipped=createFieldCalibration(calibration.corners,{playerSide:sides[(sides.indexOf(orientation.playerSide)+2)%4],mirrored:!orientation.mirrored},calibration.zoneSpacing,calibration.zones);
+  return shiftFieldCalibrationRows(flipped,-1);
+}
 export const fieldCenter = (card: Pick<DetectedQuad,'quad'>): Point => ({x:card.quad.reduce((s,p)=>s+p.x,0)/4,y:card.quad.reduce((s,p)=>s+p.y,0)/4});
 type Homography=number[];
 const unitCorners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];

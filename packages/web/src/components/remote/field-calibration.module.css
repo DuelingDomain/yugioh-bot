@@ -7,3 +7,11 @@
 .grid text{fill:#fff2cd;font:700 32px var(--font-duel-ui),system-ui,sans-serif;text-anchor:middle;dominant-baseline:middle;paint-order:stroke;stroke:rgb(9 5 18/.95);stroke-width:5px;pointer-events:none}
 
 .cardChoice{position:absolute;transform:translate(-50%,-50%);min-height:44px;padding:8px;border:2px solid #fff0c9;border-radius:6px;background:#21152f;color:#fff0c9;z-index:4;cursor:pointer}
+
+.quick svg{margin:10px 0 0}
+.check{margin:8px 0;padding:10px 12px;border:1px solid var(--gold);border-radius:8px;background:rgb(232 185 79/.08)}
+.check strong{display:block;margin-bottom:4px;color:var(--gold-ink)}
+.check p{margin:4px 0}
+.check p button{margin:6px 8px 0 0}
+.checkActions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.grid polygon[data-lit]{fill:rgb(232 185 79/.38);stroke:#fff0c9;stroke-width:3}

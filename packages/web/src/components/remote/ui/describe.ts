@@ -42,6 +42,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
+    case "admin.watching": return { kind: "PH", text: a.watching ? `Admin ${a.name} started watching` : `Admin ${a.name} stopped watching`, undoable: false };
     case "table.started": {
       const opening = a.opening;
       if (!opening) return { kind: "PH", text: "The duel started", undoable: false };

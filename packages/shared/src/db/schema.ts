@@ -1933,6 +1933,22 @@ function migrateRemoteDuels(db: Database.Database) {
     last_seen_at integer not null,
     primary key (table_id,user_id)
   ) without rowid`);
+  // One row per open browser tab of a spectator, so one tab that closes does not end the slot of the others. Rows live for seconds.
+  db.exec(`create table if not exists remote_spectator_tabs (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    tab_id text not null,
+    last_seen_at integer not null,
+    primary key (table_id,user_id,tab_id)
+  ) without rowid`);
+  // An admin watch whose "started" log line is written and whose "stopped" line is not. ending_at is set when the last tab leaves; the stop line
+  // is written after a short grace, so a reload adds no lines.
+  db.exec(`create table if not exists remote_admin_watch (
+    table_id integer not null references remote_tables(id) on delete cascade,
+    user_id integer not null,
+    ending_at integer,
+    primary key (table_id,user_id)
+  ) without rowid`);
   for (const table of ["remote_seats", "remote_bot_seats"]) {
     addColumnIfMissing(db, table, "saved_deck_id", "integer");
     addColumnIfMissing(db, table, "deck_json", "text");

@@ -7,8 +7,13 @@ import s from "./remote-ui.module.css";
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
-export function TopBar({ crumb, tournament = null, chip, health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
-  crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
+/** The phone copy of the "Admin watching" badge: the header has no room, so it takes its own row. Hidden on wide screens, where TopBar shows it. */
+export function AdminWatchStrip({ names }: { names: string[] }) {
+  return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
+}
+
+export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
+  crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[]; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; onView: (webcamOnly: boolean) => void;
 }) {
@@ -18,6 +23,7 @@ export function TopBar({ crumb, tournament = null, chip, health, healthOpen, car
     <a className={s.logo} href={tournament?.href ?? "/duels/remote"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
     <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
     <span className={s.cchip}>{chip}</span>
+    {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}
     <span className={s.sp} />
     <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">
       <button type="button" aria-pressed={!webcamOnly} data-testid="view-both" aria-label="Both: show cameras and virtual fields, beta" onClick={() => onView(false)} title="Show the cameras and the virtual fields, beta (W)">Both <span className={s.vbeta}>Beta</span></button>
