@@ -31,7 +31,7 @@ export function cardIdentities(path: string): CardIdentity[] {
 export async function prereleaseHistory(start: string, commit: string, directory: string): Promise<PrereleaseHistory> {
   if (!/^[a-f0-9]{12,40}$/.test(start) || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("Invalid prerelease history pin");
   const repo = join(directory, "prerelease-history");
-  execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", "--single-branch", "https://github.com/ProjectIgnis/BabelCDB.git", repo], { timeout: 120_000, stdio: "pipe" });
+  execFileSync("git", ["-c", "maintenance.auto=false", "clone", "--filter=blob:none", "--no-checkout", "--single-branch", "https://github.com/ProjectIgnis/BabelCDB.git", repo], { timeout: 120_000, stdio: "pipe" });
   return readPrereleaseSnapshots(repo, start, commit, join(directory, "historical-cdbs"));
 }
 
@@ -45,7 +45,7 @@ export async function readPrereleaseHistory(repo: string, start: string, commit:
 /** Snapshot edges retain the actual commit boundary, including skipped weekly
  * bumps and merged branches. Blob reads are batched; races remain exact strings. */
 export async function readPrereleaseSnapshots(repo: string, start: string, commit: string, directory: string): Promise<PrereleaseHistory> {
-  const git = (args: string[], input?: string) => execFileSync("git", ["-C", repo, ...args], { input, timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  const git = (args: string[], input?: string) => execFileSync("git", ["-C", repo, "-c", "maintenance.auto=false", ...args], { input, timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   try { git(["cat-file", "-e", `${commit}^{commit}`]); }
   catch { git(["fetch", "origin", commit]); }
   git(["merge-base", "--is-ancestor", start, commit]);
@@ -70,9 +70,23 @@ export async function readPrereleaseSnapshots(repo: string, start: string, commi
   try { partial = git(["config", "--get", "remote.origin.promisor"]).toString("utf8").trim() === "true"; }
   catch { /* complete clones have no promisor remote */ }
   const fetched = new Set<string>();
+  const fetchBatch = (blobs: string[]): void => {
+    try {
+      // Match Git's lazy promisor fetch: advertising commits as "have" can
+      // make GitHub omit their still-missing blobs and return an empty pack.
+      git(["-c", "fetch.negotiationAlgorithm=noop", "fetch", "--filter=blob:none",
+        "--no-auto-maintenance", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--stdin", "origin"], blobs.join("\n") + "\n");
+    } catch (error) {
+      if (blobs.length === 1) throw error; // Never silently accept incomplete history.
+      console.warn(`[prerelease] Retrying failed ${blobs.length}-blob fetch in smaller batches`);
+      const middle = Math.floor(blobs.length / 2);
+      fetchBatch(blobs.slice(0, middle));
+      fetchBatch(blobs.slice(middle));
+    }
+  };
   const fetchBlobs = (blobs: Set<string>) => {
     const needed = [...blobs].filter(blob => !fetched.has(blob)).sort();
-    if (partial && needed.length) git(["fetch", "--no-tags", "--no-write-fetch-head", "--stdin", "origin"], needed.join("\n") + "\n");
+    if (partial) for (let offset = 0; offset < needed.length; offset += 32) fetchBatch(needed.slice(offset, offset + 32));
     needed.forEach(blob => fetched.add(blob));
   };
   fetchBlobs(new Set([...trees.values()].flatMap(tree => [...tree].filter(([file]) => isPrereleaseDatabaseFile(file)).map(([, blob]) => blob))));

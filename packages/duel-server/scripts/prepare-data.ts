@@ -186,7 +186,7 @@ export async function prepareData(
     await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
     return { directory, skipped: false, ...manifest };
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 
