@@ -15,13 +15,17 @@ export interface HistoryFilters {
   q: string;
   /** Card name. */
   card: string;
+  /** Empty means online and Remote duels together. */
+  type: HistoryTypeFilter | "";
 }
+
+export type HistoryTypeFilter = "online" | "remote";
 
 export type HistoryStatus = "completed" | "interrupted" | "cancelled";
 
 const HISTORY_STATUSES: readonly string[] = ["completed", "interrupted", "cancelled"];
 
-export const EMPTY_HISTORY_FILTERS: HistoryFilters = { from: "", to: "", format: "", status: "", q: "", card: "" };
+export const EMPTY_HISTORY_FILTERS: HistoryFilters = { from: "", to: "", format: "", status: "", q: "", card: "", type: "" };
 
 export type HistoryPreset = "today" | "yesterday" | "week";
 
@@ -52,6 +56,7 @@ export function parseHistoryParams(source: ParamSource): { scope: DuelHistorySco
       status: HISTORY_STATUSES.includes(status) ? (status as HistoryStatus) : "",
       q: read(source, "q").trim(),
       card: read(source, "card").trim(),
+      type: read(source, "type") === "online" ? "online" : read(source, "type") === "remote" ? "remote" : "",
     },
   };
 }
@@ -83,6 +88,7 @@ export function historyQuery(scope: DuelHistoryScope, filters: HistoryFilters = 
   if (filters.status && scope === "all") query.set("status", filters.status);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (filters.card.trim()) query.set("card", filters.card.trim());
+  if (filters.type) query.set("type", filters.type);
   if (cursor) query.set("cursor", cursor);
   return query.toString();
 }
@@ -98,10 +104,11 @@ export function lobbySearch(history: boolean, scope: DuelHistoryScope, filters: 
   if (filters.status && scope === "all") query.set("status", filters.status);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (filters.card.trim()) query.set("card", filters.card.trim());
+  if (filters.type) query.set("type", filters.type);
   return `?${query.toString()}`;
 }
 
-const LOBBY_PARAMS = ["view", "scope", "from", "to", "format", "status", "q", "card"];
+const LOBBY_PARAMS = ["view", "scope", "from", "to", "format", "status", "q", "card", "type"];
 
 /**
  * The page search after the lobby writes its own params: other params of the page (such as a future `?invite=`)
