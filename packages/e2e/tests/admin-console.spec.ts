@@ -195,7 +195,10 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     await expect(loadMore).toBeVisible();
     await loadMore.click();
     await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("before="))).toBe(true);
-    await view(page, "Duels").getByRole("checkbox", { name: /Include practice bot/ }).check();
+    // The list end, and with it the load-more sentinel, is in view. The checkbox is clicked in place, without scrolling to the toolbar,
+    // so the old sentinel stays inside the observer margin when the query changes.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await view(page, "Duels").getByRole("checkbox", { name: /Include practice bot/ }).dispatchEvent("click");
     await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("bots=1") && !l.includes("before="))).toBe(true);
     const firstPageDone = log.findIndex((l) => l.startsWith("res ") && l.includes("bots=1") && !l.includes("before="));
     const earlyCursor = log.findIndex((l) => l.startsWith("req ") && l.includes("bots=1") && l.includes("before="));
