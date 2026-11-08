@@ -25,7 +25,9 @@ export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
   const previousGameEndedAt = room.state.match.games?.at(-1)?.endedAt;
   const history = events.slice(Math.max(0, start + 1)).filter(e => !undone.has(e.id)
     && (previousGameEndedAt === undefined || e.at > previousGameEndedAt));
-  const recent: number[] = [], seen = new Set(board);
+  // A card from an opponent's Graveyard or field can end up on my side (Monster Reborn, Change of Heart), so what they show is a prior too.
+  const opposing = room.state.seats.filter(s => s.seat !== seat && !s.eliminated).flatMap(s => s.twin.filter(c => c.zone !== 'hand' && c.zone !== 'deck' && c.zone !== 'extra' && publicCard(c)).flatMap(c => cardCode(c) ? [cardCode(c)!] : []));
+  const recent: number[] = [], seen = new Set([...board, ...opposing]);
   for (const event of history) {
     const a = event.action;
     const owner = 'seat' in a ? a.seat : event.actorSeat;
@@ -47,5 +49,5 @@ export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
   }
   const deck=room.seats.find(s=>s.seat===seat)?.deck?.deck;
   return { decklist: deck?[...deck.main,...deck.extra,...deck.side]:[], seen: [...seen].slice(-512),
-    context: [...new Set([...board, ...recent.slice(-24)])].slice(0, 64), scope: scopeFor(room, seat) };
+    context: [...new Set([...board, ...recent.slice(-24), ...opposing.slice(-16)])].slice(0, 64), scope: scopeFor(room, seat) };
 }

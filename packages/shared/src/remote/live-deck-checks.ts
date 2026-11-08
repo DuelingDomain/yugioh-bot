@@ -41,26 +41,29 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       const sameFieldInstance=!!twin&&remoteFieldZone(twin.zone)&&checks.instances.some(i=>i.seat===action.seat&&i.public&&i.copyKey===copyKey&&i.zone===twin.zone&&!remoteLocationsDistinct(i,twin));
       const freshTwin=(!context.replay||(context.twinPlacementGuard??0)>=3)&&!!twin&&!sameFieldInstance&&!checks.instances.some(i=>i.seat===action.seat&&i.refs.includes(twin.ref));
       const distinct=freshTwin||context.showCardsSetFromDeck!==undefined && !!twin && next.effectTracking?.origins.some(o=>o.seat===action.seat && o.ref===twin.ref);
-      observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity, distinct } : card);
+      // A card another player owns (Monster Reborn on their Graveyard, Change of Heart) is not a copy of this player's deck, and says nothing about its owner's deck.
+      const controlled = twin?.ownerSeat !== undefined;
+      if (!controlled) observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity, distinct } : card);
       next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
-        notInDecklist: context.identified?.notInDecklist ?? false, addErrors: context.identified?.addErrors ?? [] };
+        notInDecklist: controlled ? false : context.identified?.notInDecklist ?? false, addErrors: controlled ? [] : context.identified?.addErrors ?? [] };
       // An explicit ref attaches recognition to the same physical twin card.
       if (twin && (legacy ? twin.faceUp : isPublic(twin))) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; if(action.source!=='auto')delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true; }
     }
   }
   if (action.type === "twin.flip" || action.type === "twin.move") {
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.cardRef);
-    if(twin && isPublic(twin)) observe(action.seat,{...twin,cardRef:twin.ref});
+    // A card another player owns is not a copy of this player's deck.
+    if(twin && twin.ownerSeat===undefined && isPublic(twin)) observe(action.seat,{...twin,cardRef:twin.ref});
   }
   if(action.type==="effect.activated" && context.effect?.source.cardRef) {
     const twin=next.seats[action.actorSeat].twin.find(c=>c.ref===context.effect!.source.cardRef);
-    if(twin) observe(action.actorSeat,{...twin,cardRef:twin.ref});
+    if(twin && twin.ownerSeat===undefined) observe(action.actorSeat,{...twin,cardRef:twin.ref});
   }
   if(!legacy && (action.type==="effect.choose" || action.type==="effect.announce")) {
     const origin=next.effectTracking?.origins.find(o=>o.id===action.originId);
     const twin=origin ? next.seats[origin.seat].twin.find(c=>c.ref===origin.ref) : undefined;
-    if(origin && twin && isPublic(twin)) observe(origin.seat,{...twin,cardRef:twin.ref,distinct:true});
+    if(origin && twin && twin.ownerSeat===undefined && isPublic(twin)) observe(origin.seat,{...twin,cardRef:twin.ref,distinct:true});
   }
   if (action.type === "twin.place") {
     const proof = action.copyProof, at = action.at ?? next.updatedAt;

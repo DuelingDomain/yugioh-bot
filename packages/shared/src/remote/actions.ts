@@ -89,6 +89,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     trapMonster: z.boolean().optional() }),
   /** Link an Equip Card to the monster it equips (any seat), or clear the link with `target: null`. */
   z.strictObject({ ...meta, type: z.literal("twin.equip"), seat: remoteSeatSchema, cardRef: id, target: z.strictObject({ seat: remoteSeatSchema, ref: id }).nullable() }),
+  /** Control change. The card moves from `seat` (its holder) to `toSeat`, into a zone on `toSeat`'s side. The taker or the holder may send it. A card that returns to its owner's seat drops the owner mark. */
+  z.strictObject({ ...meta, type: z.literal("twin.control"), seat: remoteSeatSchema, cardRef: id, toSeat: remoteSeatSchema,
+    zone: z.enum(["monster", "extra-monster", "spell-trap", "field", "pendulum", "graveyard", "banished"]), slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional() }),
   /** Record the materials of a summoned card already on the field: Xyz attaches them; Synchro/Link/Fusion send them to the GY. */
   z.strictObject({ ...meta, type: z.literal("twin.attach"), seat: remoteSeatSchema, cardRef: id, ...summon.shape }),
   /** Detach one Xyz material (default: to the GY). */
@@ -114,6 +117,10 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   trapZone?: number;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
   equippedTo?: { seat: number; ref: string };
+  /** Server-authored: the seat of the real owner while another player controls the card (Monster Reborn on their Graveyard, Change of Heart). Cleared when it returns. */
+  ownerSeat?: number;
+  /** Server-authored: what a face-down card was, kept for its owner while another player controls it. Never shown to anyone else. */
+  ownerIdentity?: { cardId?: number; passcode?: number; name?: string; race?: string };
   /** Server-authored: Xyz materials under this card, bottom first (twin refs in zone "material"). */
   materials?: string[];
   /** Server-authored: the Xyz Monster this material is attached to. */

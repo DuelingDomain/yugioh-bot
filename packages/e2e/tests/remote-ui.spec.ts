@@ -2252,4 +2252,102 @@ test.describe("remote duels screen, tokens and the camera", () => {
     // The whole board is back: the token in M3, the first card in M4, no card in M3.
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
   });
+
+  // A plain monster in a Spell & Trap Zone can be legal (equipped by a card, placed as a Continuous Trap), so the table keeps it where the camera saw it and asks.
+  test("a plain monster seen in a Spell & Trap Zone stays there and asks, and Keep leaves it", async ({ page, context }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>; w.__tracks = [];
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "running", tracks: w.__tracks, metrics: { detectorMs: 0, recognitionMs: 0, dutyPercent: 0, intervalMs: 333, samples: 0, skipped: 0, placements: 0, latencyMs: 0, errors: 0 } }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, scanNow() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+      };
+    });
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const mine = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { zone: string; slot?: number }[]).map(c => `${c.zone}:${c.slot}`);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
+    await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
+    await page.waitForTimeout(1500);
+    const sees = (id: string, zone: string, cardId: string) => page.evaluate(([trackId, cell, code]) => {
+      const w = window as unknown as { __tracks: unknown[]; __e2eField: { entries: { current: Map<string, unknown> }; handle: (event: unknown) => void } };
+      const now = performance.now();
+      const track = { id: trackId, zone: cell, faceDown: false, cardId: code, revision: 0, state: "identified", firstSeen: now - 3000, lastSeen: now, removed: false, visible: true, position: "attack",
+        card: { kind: "face-up", confidence: 1, partial: false, quad: [{ x: .4, y: .4 }, { x: .5, y: .4 }, { x: .5, y: .5 }, { x: .4, y: .5 }] } };
+      w.__e2eField.entries.current.set(code, { cardId: code, passcode: Number(code), name: "Dark Magician" });
+      w.__tracks = [track]; w.__e2eField.handle({ type: "placed", track });
+    }, [id, zone, cardId] as const);
+
+    const prompt = page.getByTestId("monster-in-st");
+    await sees("cam1", "S3", "46986414");
+    await expect(prompt).toBeVisible();
+    // The card stays where the camera saw it until the player answers.
+    await expect.poll(mine).toEqual(["spell-trap:3"]);
+    await expect(page.getByTestId("monster-in-st-move")).toContainText("Move to M3");
+    await page.getByTestId("monster-in-st-keep").click();
+    await expect(prompt).toBeHidden();
+    await expect.poll(mine).toEqual(["spell-trap:3"]);
+  });
+});
+
+test.describe("remote duels screen, card logic", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+  const seedCards = async (context: { request: APIRequestContext }, slug: string, cards: { seat: number; zone: string; ref: string; cardId: number; name: string; slot?: number }[]) => {
+    let room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    for (const { seat, zone, ...card } of cards) {
+      const response = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: seat, seat, zone, card: { ...card, faceUp: true, position: "attack" } } } });
+      expect(response.status(), await response.text()).toBe(200); room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    }
+    return async () => (await (await context.request.get(`/api/remote/${slug}`)).json()) as { state: { seats: { twin: { ref: string; zone: string; slot?: number; position?: string; ownerSeat?: number; equippedTo?: { seat: number; ref: string } }[] }[] } };
+  };
+
+  test("control change: Monster Reborn asks which Graveyard, the revived card is mine, and Return control gives it back", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 1, zone: "graveyard", ref: "dm", cardId: 46986414, name: "Dark Magician" },
+      { seat: 0, zone: "spell-trap", ref: "mr", cardId: 83764718, name: "Monster Reborn", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0");
+    await expect(field.locator('[data-zone="s1"]')).toBeVisible();
+    await field.locator('[data-zone="s1"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByRole("button", { name: "Activate" }).click();
+    // The card logic knows Monster Reborn revives from a Graveyard, so the table asks. The player picks the card.
+    const dialog = page.getByTestId("control-dialog");
+    await expect(dialog).toContainText("Revive from which Graveyard?", { timeout: 60_000 });
+    await dialog.getByTestId("control-pick").first().click();
+    // The table never picks the zone or the position: both buttons are the player's choice. The zone stays locked until the position is chosen.
+    await expect(dialog.getByTestId("control-zone-M3")).toBeDisabled();
+    await dialog.getByTestId("control-position-defense").click();
+    await dialog.getByTestId("control-zone-M3").click();
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 3, position: "defense", ownerSeat: 1 });
+    expect((await room()).state.seats[1].twin.some(card => card.ref === "dm")).toBe(false);
+    await field.locator('[data-zone="m3"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByTestId("card-control").click();
+    await page.getByTestId("control-dialog").getByTestId("control-zone-M2").click();
+    await expect.poll(async () => (await room()).state.seats[1].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 2 });
+    expect((await room()).state.seats[0].twin.some(card => card.ref === "dm")).toBe(false);
+  });
+
+  test("equip: a Union monster in a Spell & Trap Zone asks which monster it equips, and links only after a click", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 0, zone: "monster", ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1 },
+      { seat: 0, zone: "spell-trap", ref: "yd", cardId: 65622692, name: "Y-Dragon Head", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    const dialog = page.getByTestId("control-dialog");
+    await expect(dialog).toContainText("equipped to which monster?", { timeout: 60_000 });
+    expect((await room()).state.seats[0].twin.find(card => card.ref === "yd")?.equippedTo).toBeUndefined();
+    await dialog.getByTestId("equip-pick").first().click();
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
+  });
 });

@@ -39,8 +39,30 @@ function takeMaterial(seat: RemoteSeatState, top: TwinCard, ref: string, at: num
   return card;
 }
 const cardKnown = (card: TwinCard) => !!(card.cardId || card.passcode || card.name);
+/** A card another player controls goes back to its owner's twin when it leaves the field: the owner gets it and its identity. */
+function returnToOwner(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard) {
+  if (card.ownerSeat === undefined) return;
+  const owner = card.ownerSeat !== holder.seat ? seats[card.ownerSeat] : undefined;
+  delete card.ownerSeat;
+  if (owner && !owner.eliminated && !owner.twin.some(c => c.ref === card.ref)) {
+    const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
+    owner.twin.push(card); restoreOwnerIdentity(card);
+  }
+}
+/** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
+function restoreOwnerIdentity(card: TwinCard) {
+  const kept = card.ownerIdentity; delete card.ownerIdentity;
+  if (kept && !card.cardId && !card.passcode && !card.name) Object.assign(card, kept);
+}
+/** Send a card to the Graveyard (end of the pile). A controlled card goes to its owner's Graveyard. */
+function sendToGrave(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard) {
+  delete card.materialOf;
+  const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
+  holder.twin.push(card); card.zone = "graveyard";
+  returnToOwner(seats, holder, card);
+}
 /** Xyz: the materials go under the card (an Xyz material brings its own: rank-up). Others: the materials go to the GY. */
-function applySummon(seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number, strict: boolean) {
+function applySummon(seats: readonly RemoteSeatState[], seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number, strict: boolean) {
   if (kind === "xyz") remoteAssert(MONSTER_ZONES.has(top.zone) && top.faceUp, "Xyz materials need a face-up Xyz Monster on the field", 409);
   // A camera placement keeps a good read: a material that changed since the read (moved to the GY …) is skipped, not fatal.
   const usable = refs.filter(ref => validMaterial(seat.twin.find(c => c.ref === ref), top, at));
@@ -48,7 +70,7 @@ function applySummon(seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteS
   for (const ref of usable) {
     const card = takeMaterial(seat, top, ref, at);
     if (kind !== "xyz") {
-      delete card.materialOf; seat.twin.splice(seat.twin.indexOf(card), 1); seat.twin.push(card); card.zone = "graveyard"; continue;
+      sendToGrave(seats, seat, card); continue;
     }
     const carried = card.materials ?? [];delete card.materials;
     top.materials = [...(top.materials ?? []).filter(m => m !== card.ref && !carried.includes(m)), ...carried, card.ref];
@@ -68,11 +90,11 @@ function clearZoneLinks(state: RemoteState, at: number) {
       const lifted = card.zone === "hand" && !!card.departedFrom?.auto && MONSTER_ZONES.has(card.departedFrom.zone) && card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
       const keep = MONSTER_ZONES.has(card.zone) && card.faceUp || lifted;
       const live = card.materials.map(ref => seat.twin.find(c => c.ref === ref)).filter((m): m is TwinCard => !!m && m.zone === "material" && m.materialOf === card.ref);
-      if (!keep) for (const m of live) { delete m.materialOf; seat.twin.splice(seat.twin.indexOf(m), 1); seat.twin.push(m); m.zone = "graveyard"; }
+      if (!keep) for (const m of live) sendToGrave(state.seats, seat, m);
       if (keep && live.length) card.materials = live.map(m => m.ref); else delete card.materials;
     }
     for (const card of [...seat.twin]) if (card.zone === "material" && !seat.twin.some(c => c.ref === card.materialOf && c.materials?.includes(card.ref))) {
-      delete card.materialOf; seat.twin.splice(seat.twin.indexOf(card), 1); seat.twin.push(card); card.zone = "graveyard";
+      sendToGrave(state.seats, seat, card);
     }
   }
   for (const seat of state.seats) for (const card of seat.twin) {
@@ -249,7 +271,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
       else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
-      if (action.summon) applySummon(s, card, action.summon.kind, action.summon.materialRefs, at, false);
+      if (action.summon) applySummon(next.seats, s, card, action.summon.kind, action.summon.materialRefs, at, false);
       deckAction = { ...action, card };
       break;
     }
@@ -311,6 +333,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
+      // A controlled card that leaves the field goes to its owner's side (their Graveyard, hand, Deck…).
+      if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card);
       break;
     }
     case "twin.equip": {
@@ -322,10 +346,51 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       card.equippedTo = { seat: action.target.seat, ref: target.ref };
       break;
     }
+    case "twin.control": {
+      remoteAssert(action.actorSeat === action.seat || action.actorSeat === action.toSeat, "Only the new or the current controller can change control", 403);
+      remoteAssert(action.seat !== action.toSeat, "The card is already on that side", 409);
+      const from = seat(action.seat), to = seat(action.toSeat);
+      const card = from.twin.find(c => c.ref === action.cardRef);
+      remoteAssert(card && !card.token && (FIELD_ZONES.has(card.zone) || card.zone === "graveyard" || card.zone === "banished"), "Only a card on the field or in a Graveyard or banished pile can change control", 409);
+      remoteAssert(!to.twin.some(c => c.ref === card.ref) && to.twin.length < 100, "Duplicate card ref or field is full", 409);
+      validZone(action.zone);
+      const pile = action.zone === "graveyard" || action.zone === "banished";
+      const owner = card.ownerSeat ?? from.seat;
+      // A Graveyard or banished pile belongs to the owner of the card: control never puts a card in the other player's pile.
+      remoteAssert(!pile || owner === to.seat, "A card goes to its owner's Graveyard or banished pile only", 409);
+      // The controller sees only what the table already showed: a face-down card keeps its identity for its owner only.
+      if (!remotePublicCard(card)) {
+        const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
+        for (const key of ["cardId", "passcode", "name", "race"] as const) if (card[key] !== undefined) (kept as Record<string, unknown>)[key] = card[key];
+        if (Object.keys(kept).length && !card.ownerIdentity && owner !== to.seat) card.ownerIdentity = kept;
+        for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "publicIdentity"] as const) delete card[key];
+      }
+      if (!pile) freeSlot(to, action.zone, action.slot, card.ref);
+      // Xyz materials stay under the Xyz and change sides with it (they go to their owner's Graveyard when it leaves the field).
+      const under = card.zone === "monster" || card.zone === "extra-monster" ? (card.materials ?? []).map(ref => from.twin.find(c => c.ref === ref)).filter((m): m is TwinCard => !!m && m.zone === "material" && m.materialOf === card.ref) : [];
+      remoteAssert(!under.some(m => to.twin.some(c => c.ref === m.ref)) && to.twin.length + 1 + under.length <= 100, "Duplicate card ref or field is full", 409);
+      from.twin = from.twin.filter(c => c !== card && !under.includes(c));
+      for (const key of ["slot", "trapZone", "equippedTo", "departedFrom", "materialOf"] as const) delete card[key];
+      for (const m of under) { const mOwner = m.ownerSeat ?? from.seat; if (mOwner === to.seat) { delete m.ownerSeat; restoreOwnerIdentity(m); } else m.ownerSeat = mOwner; }
+      to.twin.push(...under);
+      // Other cards that point to this monster follow it to the new side.
+      for (const other of next.seats) for (const item of other.twin) if (item.equippedTo?.seat === from.seat && item.equippedTo.ref === card.ref) item.equippedTo = { seat: to.seat, ref: card.ref };
+      if (under.length) card.materials = under.map(m => m.ref); else delete card.materials;
+      if (owner === to.seat) { delete card.ownerSeat; restoreOwnerIdentity(card); } else card.ownerSeat = owner;
+      // A face-down card on the field stays face-down whatever the client sends: flipping is twin.flip's job, and a flip here would reveal it.
+      const stayDown = !card.faceUp && (MONSTER_ZONES.has(card.zone) || card.zone === "spell-trap");
+      card.zone = action.zone;
+      if (action.slot !== undefined && !pile) card.slot = action.slot;
+      if (action.position !== undefined) card.position = action.position;
+      // A card taken from or returned to the field keeps its face; only a card sent to a pile shows face up.
+      card.faceUp = pile ? true : stayDown ? false : action.faceUp ?? card.faceUp;
+      to.twin.push(card);
+      break;
+    }
     case "twin.attach": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
-      applySummon(s, card, action.kind, action.materialRefs, at, true);
+      applySummon(next.seats, s, card, action.kind, action.materialRefs, at, true);
       break;
     }
     case "twin.detach": {
@@ -338,6 +403,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (enteringPile("material", action.zone)) { s.twin.splice(s.twin.indexOf(material), 1); s.twin.push(material); }
       material.zone = action.zone;
       if (["hand", "deck", "extra"].includes(action.zone)) { delete material.publicIdentity; if (action.zone !== "hand") material.faceUp = false; }
+      // A material that another player owns goes to its owner, wherever it was sent.
+      returnToOwner(next.seats, s, material);
       break;
     }
     case "pile.order": {
