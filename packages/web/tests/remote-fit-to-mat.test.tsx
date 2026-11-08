@@ -6,13 +6,22 @@ import {createFieldCalibration,type FieldCalibration,type MatFitResult} from '@y
 const worker=vi.hoisted(()=>vi.fn());
 vi.mock('@yugidraft/vision',async importOriginal=>({...await importOriginal<typeof import('@yugidraft/vision')>(),fitToMat:worker}));
 import {useFieldTransform} from '../src/components/remote/field-transform';
+vi.mock('../src/components/duel/fonts',()=>({duelFontClasses:''}));
+import {FieldCalibrationControl} from '../src/components/remote/field-calibration';
 import {FitToMatControl} from '../src/components/remote/fit-to-mat';
 const corners=[{x:.1,y:.35},{x:.9,y:.4},{x:.9,y:1.1},{x:.1,y:1.05}] as MatFitResult['corners'];
 const good:MatFitResult={corners,orientation:{playerSide:'top',mirrored:false},mirror:false,confidence:'high',reason:'',flags:{colWindowAmbiguous:false,sideByPrior:true,zonesFound:9,reason:''},metrics:{inliers:9,rows:2,columns:5,columnSpan:7,meanErrorPitch:.01,maxErrorPitch:.02},flipped:{corners:corners!.map(p=>({...p,y:p.y-.25})) as NonNullable<MatFitResult['corners']>,orientation:{playerSide:'bottom',mirrored:false}}};
-afterEach(()=>{cleanup();vi.restoreAllMocks();worker.mockReset();});
-function setup(){
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();worker.mockReset();});
+function camera(){
+ vi.stubGlobal('createImageBitmap',vi.fn(async()=>({width:640,height:360,close:vi.fn()})));
+ vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,preview');
+ vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(()=>{});
  const video=document.createElement('video');Object.defineProperties(video,{videoWidth:{value:640},videoHeight:{value:360},readyState:{value:2}});
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({drawImage:vi.fn(),getImageData:()=>({width:640,height:360,data:new Uint8ClampedArray(640*360*4)})} as any);
+ return video;
+}
+function setup(){
+ const video=camera();
  const saved=vi.fn();
  function Harness(){
   const [busy,setBusy]=useState(false),[grid,setGrid]=useState<FieldCalibration>();
@@ -21,7 +30,7 @@ function setup(){
  }
  const view=render(<StrictMode><Harness/></StrictMode>);return {...view,saved};
 }
-it('fits once in StrictMode, saves high confidence, flips both ways, and releases busy',async()=>{
+it('fits once in StrictMode, previews high confidence, flips both ways, and releases busy',async()=>{
  worker.mockResolvedValue(good);const {saved}=setup();
  await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));expect(worker).toHaveBeenCalledTimes(1);
  expect(screen.getByRole('button',{name:'Fit to my mat'})).toBeEnabled();
@@ -50,4 +59,20 @@ it('retains fitted bounds across editor nudges and shrinking then regrowing',()=
  act(()=>result.current.move(0,-.01));act(()=>result.current.move(0,.01));
  act(()=>result.current.scaleBy(.9));act(()=>result.current.scaleBy(1/.9));
  result.current.corners.forEach((p,i)=>expect(Math.hypot(p.x-corners![i].x,p.y-corners![i].y)).toBeLessThan(1e-8));
+});
+
+it('keeps a fitted grid local until Save, and Cancel leaves saved calibration intact',async()=>{
+ worker.mockResolvedValue(good);const video=camera(),saved=vi.fn(),cancel=vi.fn();
+ render(<FieldCalibrationControl video={video} onSave={saved} onCancel={cancel}/>);
+ await screen.findByRole('button',{name:'Flip'});
+ expect(saved).not.toHaveBeenCalled();
+ expect(screen.getByText(/preview/i)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Cancel calibration'}));expect(cancel).toHaveBeenCalledOnce();expect(saved).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Save calibration'}));expect(saved).toHaveBeenCalledOnce();
+});
+it('does not auto-fit a placed manual calibration, but still allows an explicit preview',async()=>{
+ worker.mockResolvedValue(good);const video=camera(),saved=vi.fn();
+ render(<FieldCalibrationControl video={video} initialCalibration={createFieldCalibration(corners!,{playerSide:'top',mirrored:false})} onSave={saved} onCancel={()=>{}}/>);
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,30));});expect(worker).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Fit to my mat'}));await screen.findByRole('button',{name:'Flip'});expect(saved).not.toHaveBeenCalled();
 });

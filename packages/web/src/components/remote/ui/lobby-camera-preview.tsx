@@ -8,7 +8,7 @@ import type { FieldCalibration, FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, SheetSegmented, sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { loadFieldCalibration, loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
+import { loadFieldCalibrationRecord, saveFieldCalibration } from "@/lib/remote/use-field-watcher";
 import { FieldOrientationControls } from "../field-orientation";
 import { LobbyZonesStep } from "./lobby-zones-step";
 import { LobbyZonesView } from "./lobby-zones-view";
@@ -87,10 +87,11 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
   const source = hub.sourceFor(seat);
   const video = useRef<HTMLVideoElement>(null);
   const [calibration,setCalibration]=useState<FieldCalibration>();
+  const [phonePlaced,setPhonePlaced]=useState(false);
   const [calibrating,setCalibrating]=useState(false);
   const seatKey=room?seatKeyOf(room):undefined;
-  useEffect(()=>{setCalibration(seatKey?loadFieldCalibration(seatKey,cameraKey):undefined);},[seatKey,cameraKey]);
-  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed,captureSize:video.current?.videoWidth?{width:video.current.videoWidth,height:video.current.videoHeight}:undefined});setCalibration(grid);}};
+  useEffect(()=>{const record=seatKey?loadFieldCalibrationRecord(seatKey,cameraKey):undefined;setCalibration(record?.calibration);setPhonePlaced(record?.placed??false);},[seatKey,cameraKey]);
+  const saveCalibration=(grid:FieldCalibration,placed?:boolean)=>{if(seatKey){saveFieldCalibration(seatKey,grid,cameraKey,{placed,captureSize:video.current?.videoWidth?{width:video.current.videoWidth,height:video.current.videoHeight}:undefined});setCalibration(grid);if(placed!==undefined)setPhonePlaced(placed);}};
   const inFlight = useRef(false);
   const [note, setNote] = useState("");
   const [reading, setReading] = useState(false);
@@ -123,8 +124,8 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
     </div>
     {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={grid=>saveCalibration(grid)}/>
       <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
-      {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-        onFit={grid=>saveCalibration(grid,true)} onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
+      {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} placed={phonePlaced} detectCalibrationCards={calibrationCards}
+        onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
     <p className={ui.hint}>Click a face-up card to test the reader.</p>
     <p className={cx(ui.hint, s.readNote)} role="status" data-testid={`lobby-phone-read-${seat}`}>{note}</p>
   </div>;
@@ -356,8 +357,8 @@ function WebcamPanel({ room, voiceRecognition, onCheck }: { room: RemoteRoom; vo
       {aspectChanged?<p className={ui.hint} role="status">Camera shape changed. Check the zones.</p>:null}
       {debugAllowed&&debugEnabled&&cameraLock.debug?<p className={ui.hint} data-testid="lobby-camera-debug">{cameraLock.debug}</p>:null}
     </div>
-    {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-      onFit={grid=>saveCalibration(grid,true)} onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
+    {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} placed={placed} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
+      onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
     {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }}
       restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}

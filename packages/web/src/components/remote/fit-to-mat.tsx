@@ -20,11 +20,14 @@ export function FitToMatControl(props:Props) {
     if(request.current||disabled||!video?.videoWidth||video.readyState<2)return;
     const controller=new AbortController();request.current=controller;
     setBusy(true);onBusy(true);setNote('Looking for printed zones…');setFit(null);setFlipped(false);
+    let frame:ImageBitmap|undefined;
     try{
-      const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-      const context=canvas.getContext('2d',{willReadFrequently:true})!;
-      context.drawImage(video,0,0); // Raw camera only: never capture the preview's SVG/grid or UI.
-      const frame=context.getImageData(0,0,canvas.width,canvas.height);
+      frame=await createImageBitmap(video);
+      if(controller.signal.aborted){frame.close();return;}
+      const canvas=document.createElement('canvas'),scale=Math.min(1,960/frame.width);
+      canvas.width=Math.round(frame.width*scale);canvas.height=Math.round(frame.height*scale);
+      canvas.getContext('2d')!.drawImage(frame,0,0,canvas.width,canvas.height);
+      // Transfer raw pixels to the worker; only the small local preview is encoded asynchronously.
       const {fitToMat}=await import('@yugidraft/vision');
       controller.signal.throwIfAborted();
       const prior=latest.current.calibration?.orientation;
@@ -33,9 +36,10 @@ export function FitToMatControl(props:Props) {
       const calibration=matFitCalibration(result);
       if(!calibration){setNote(`${result.flags.colWindowAmbiguous?'Show the whole mat width, including Deck and GY. ':''}${fallback}`);return;}
       lastApplied.current=calibration;latest.current.onCapture(canvas);latest.current.onApply(calibration);setFit(result);
-      setNote(result.flags.sideByPrior?'Grid fitted and saved. Check M1 and S5; use Flip if your side is reversed.':'Grid fitted and saved to printed zones.');
+      setNote(result.flags.sideByPrior?'Preview only. Your side is unsure: check M1 and S5, use Flip if reversed, then Save calibration to confirm.':'Preview fitted to printed zones. Check it, then Save calibration to keep it.');
     }catch{if(!controller.signal.aborted)setNote(fallback);}
     finally{
+      frame?.close();
       if(request.current===controller){request.current=null;setBusy(false);latest.current.onBusy(false);}
     }
   }
