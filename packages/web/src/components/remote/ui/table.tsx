@@ -286,6 +286,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
   const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
   const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
+  // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
+  useEffect(() => { if (layers.layer !== "surrender") setSurrenderPick(null); }, [layers.layer]);
   // The game ended, I am out, or the opening started: drop a surrender question that is no longer true.
   useEffect(() => { if (!canSurrender && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, layers]);
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
