@@ -304,8 +304,11 @@ Disputes have no soft deadline until decided. `hard_delete_at` is always table
 end + 14 days, including unresolved disputes. Cancellation deletes immediately;
 account deletion removes either participant's evidence even after room deletion.
 Starting a replay leaves the previous copy on its original deletion deadline;
-a newly ended room replaces that per-pairing copy. Room deletion
-still runs after 24 hours by default and only nulls evidence/result room IDs.
+a newly ended room replaces that per-pairing copy. Started rooms, their history
+and board-state replays are kept indefinitely by default. An optional positive
+`REMOTE_DUELS_RETENTION_DAYS` cap can delete ended rooms and only nulls
+evidence/result room IDs; unset or `0` keeps started rooms forever. Abandoned
+ended lobbies that never started are still deleted after one day without a cap.
 The worker's existing hourly `pruneRemoteDuels` performs evidence deletion too;
 expired evidence is never recaptured by its purge safety net.
 

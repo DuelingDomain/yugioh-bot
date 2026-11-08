@@ -2,10 +2,10 @@
 
 /**
  * Shown before a player joins a Remote tournament (decision D8). Short plain text about what is stored and for how long.
- * Placeholder: the owner gives the final text later. It must stay one constant.
+ * Includes the owner decision to retain history and board-state replays indefinitely by default.
  */
 export const REMOTE_JOIN_NOTICE =
-  "Remote Duel: your match is played on camera with your own cards. The site keeps only the result facts, not video, and deletes them within 14 days.";
+  "Remote Duel: your match is played on camera with your own cards. Match history and board-state replays are kept with no time limit by default. Video is not recorded. The separate tournament result-evidence copy is deleted within 14 days.";
 
 /** Shown in place of the deck line: a Remote entrant registers no deck (decision D11). */
 export const REMOTE_NO_DECK_NOTE = "No deck to register. You play with your own cards on camera.";

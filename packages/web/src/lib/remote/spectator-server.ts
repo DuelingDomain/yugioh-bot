@@ -72,17 +72,19 @@ export async function makeRoomForPlayer(slug: string, identity: string) {
 }
 const janitorKey = "__remoteSpectatorJanitor";
 /** SFU discovery is the retry ledger after SQL room/pair rows have been purged. */
-async function retireDeletedRooms(sdk: RoomServiceClient) {
+async function retireFinishedRooms(sdk: RoomServiceClient) {
   const rooms = await sdk.listRooms();
-  const exists = getDb().prepare("select 1 from remote_tables where slug=?");
+  // Match mediaRosters' 15-minute grace; retained history must not keep media alive.
+  const live = getDb().prepare("select 1 from remote_tables where slug=? and (status!='ended' or ended_at>?)");
+  const cutoff = Date.now() - 15 * 60_000;
   for (const room of rooms) {
     const match = /^remote-([a-z0-9]{8})(?:-voice)?$/.exec(room.name);
-    if (!match || exists.get(match[1])) continue;
+    if (!match || live.get(match[1], cutoff)) continue;
     // A failed delete leaves the SFU room discoverable on the next tick, including old-token rejoins.
     try { await sdk.deleteRoom(room.name); } catch { /* Retry from the next SFU listing. */ }
   }
 }
-/** Slot expiry, rollout removal and deleted tables have no request of their own, so this ends their media. */
+/** Slot expiry, rollout removal and finished/deleted tables have no request of their own, so this ends their media. */
 export function startSpectatorCleanup() {
   if (process.env.REMOTE_DUELS !== "1" || !client()) return;
   const root = globalThis as typeof globalThis & { [janitorKey]?: ReturnType<typeof setInterval> };
@@ -92,7 +94,7 @@ export function startSpectatorCleanup() {
     if (running) return; running = true;
     try {
       const sdk = client(); if (!sdk) return;
-      await retireDeletedRooms(sdk).catch(() => undefined);
+      await retireFinishedRooms(sdk).catch(() => undefined);
       for (const { slug } of createRemoteDuelService(getDb()).mediaRosters()) await reconcile(sdk, slug).catch(() => undefined);
     } catch { /* The next tick tries again. */ }
     finally { running = false; }

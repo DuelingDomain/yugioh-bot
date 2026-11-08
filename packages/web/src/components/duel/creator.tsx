@@ -350,6 +350,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
           <p className={ui.lede}>{remote
             ? "Pick the seats and your deck. The host can change the rules in the room until the duel starts."
             : "Set the rules once. They lock when the table opens and stay in match history."}</p>
+          {remote ? <p className={ui.hint}>Remote match history and board-state replays are kept with no time limit by default. Video is not recorded.</p> : null}
         </header>
 
         {remote ? null : <HostedTableNotice disabled={creating} refreshVersion={noticeVersion} onCancelled={onTableCancelled} />}
