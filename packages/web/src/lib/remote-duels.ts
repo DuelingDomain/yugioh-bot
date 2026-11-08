@@ -45,7 +45,7 @@ export async function requireRemoteActor() {
   if (!isRemoteDuelUser(access.userId)) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
   const guildId = process.env.DISCORD_GUILD_ID;
   if (!guildId) return { ok: false as const, response: remoteJson({ error: "Guild is not configured" }, 500) };
-  return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb()) };
+  return { ok: true as const, userId: access.userId, displayName: access.userName, guildId, remote: createRemoteDuelService(getDb(), { openingRoll: process.env.REMOTE_OPENING_ROLL !== "0" }) };
 }
 export function remoteError(error: unknown) {
   if (error instanceof TournamentRemoteError) return remoteJson({ error: error.message, code: error.code,

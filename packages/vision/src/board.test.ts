@@ -176,12 +176,116 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   q.watcher.dismiss(prompt.track.id);q.appearance=Array.from({length:12},(_,i)=>i%2);q.identity='B';q.outlines=[card(.4,.3)];
   for(let i=0;i<40;i++)await q.tick(250);
   assert.equal(q.events.filter(e=>e.type==='prompt').length,1);assert.equal(q.reads,1);assert.equal(q.watcher.getSnapshot().tracks[0].state,'dismissed');q.watcher.dispose();
-  const history=fieldRig('low match',2);for(let n=0;n<3;n++){history.appearance=Array.from({length:12},(_,i)=>i===n?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();const latest=history.events.filter(e=>e.type==='prompt').at(-1)!;history.watcher.dismiss(latest.track.id);history.outlines=[];history.appearance=Array(12).fill(.2);for(let i=0;i<12;i++)await history.tick();}assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'absent dismissals do not exhaust live slots');history.appearance=Array.from({length:12},(_,i)=>i===0?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'returning dismissed card stays silent');history.watcher.dispose();
+  const history=fieldRig('low match',2);for(let n=0;n<3;n++){history.embedding=Array.from({length:3},(_,i)=>i===n?1:0);history.appearance=Array.from({length:12},(_,i)=>i===n?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();const latest=history.events.filter(e=>e.type==='prompt').at(-1)!;history.watcher.dismiss(latest.track.id);history.outlines=[];history.appearance=Array(12).fill(.2);for(let i=0;i<12;i++)await history.tick();}assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'absent dismissals do not exhaust live slots');history.embedding=[1,0,0];history.appearance=Array.from({length:12},(_,i)=>i===0?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'returning dismissed card stays silent');history.watcher.dispose();
   const ignoredSet=fieldRig();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();ignoredSet.watcher.dismiss(ignoredSet.events[0].track.id);ignoredSet.outlines=[];for(let i=0;i<12;i++)await ignoredSet.tick();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();assert.equal(ignoredSet.events.filter(e=>e.type==='prompt').length,0);assert.equal(ignoredSet.reads,0);ignoredSet.watcher.dispose();
   const unread=fieldRig('low match');unread.known=[{id:'unread',zone:'M2',faceDown:false}];for(let i=0;i<8;i++)await unread.tick();assert.equal(unread.events.some(e=>e.type==='prompt'),false);assert.equal(unread.watcher.getSnapshot().tracks[0].id,'unread');unread.watcher.dispose();
   const hidden=fieldRig();hidden.known=[{id:'hidden',zone:'M2',faceDown:true}];for(let i=0;i<8;i++)await hidden.tick();assert.ok(hidden.events.some(e=>e.type==='placed'&&e.track.id==='hidden'&&!e.track.faceDown));assert.equal(hidden.events.some(e=>e.type==='prompt'),false);hidden.watcher.dispose();
   const set=fieldRig();set.known=[{id:'public',zone:'M2',cardId:'A',faceDown:false}];set.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await set.tick();assert.ok(set.events.some(e=>e.type==='flipped'&&e.track.id==='public'&&e.track.faceDown));assert.equal(set.events.some(e=>e.type==='prompt'),false);set.watcher.dispose();
 });
+test('automatic dismissals keep weak outlines even without a provisional placement',async()=>{
+ const r=fieldRig();r.outlines=[card(.1,.3),card(.35,.3),card(.6,.3)];
+ try{
+  await r.tick(600);
+  const dismissed=r.watcher.getSnapshot().tracks.filter(t=>t.state==='dismissed');
+  assert.equal(dismissed.length,2,'the uncalibrated spread guard dismisses two new tracks');
+  r.outlines=[card(.1,.3),{...card(.35,.3),confidence:.3,kept:true},{...card(.6,.3),confidence:.3,kept:true}];
+  await r.tick(600);
+  for(const t of dismissed)assert.ok(r.keeps.some(q=>JSON.stringify(q)===JSON.stringify(t.card.quad)),'dismissed outline retains the detector keep allowance');
+ }finally{r.watcher.dispose();}
+});
+
+test('automatic prompt and read dismissals re-arm on two full front scans at .6',async()=>{
+ for(const path of ['prompt','read'] as const){
+  const r=fieldRig(path==='prompt'?'low match':'sure');
+  try{
+   if(path==='read')r.qualityAt=()=>({faceDown:true});
+   for(let i=0;i<8&&(path==='prompt'||r.watcher.getSnapshot().tracks[0]?.state!=='dismissed');i++)await r.tick();
+   if(path==='prompt'){r.outlines=[{...card(.3,.3),kind:'face-down'}];await r.tick(600);}
+   const dismissed=r.watcher.getSnapshot().tracks[0];assert.equal(dismissed.state,'dismissed',path);
+   const revision=dismissed.revision??0;r.qualityAt=undefined;
+   r.outlines=[{...card(.3,.3),confidence:.6}];await r.tick(600);
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed','one full pass is insufficient');
+   r.outlines=[{...card(.3,.3),confidence:.59}];await r.tick(600);
+   r.outlines=[{...card(.3,.3),confidence:.6}];await r.tick(600);
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed','a weaker full pass resets the streak');
+   r.motion=.02;r.motionRegion={x:.3,y:.3,w:.15,h:.25};const detects=r.detects;
+   await r.tick(100);assert.equal(r.detects,detects+1);assert.equal(r.watcher.getSnapshot().debug?.full,false,'a cropped detector pass');
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed','cropped passes do not advance the front streak');
+   r.motion=0;r.motionRegion=undefined;
+   await r.tick(600);
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate',path);
+   assert.equal(r.watcher.getSnapshot().tracks[0].revision,revision+1);
+   const reads=r.reads;r.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await r.tick();
+   assert.ok(r.reads>reads,'a fresh recognition runs');
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,path==='prompt'?'prompt':'identified');
+  }finally{r.watcher.dispose();}
+ }
+});
+
+test('automatic re-arms stop after three attempts and Scan field resets the cap',async()=>{
+ const r=fieldRig();r.qualityAt=()=>({faceDown:true});
+ try{
+  for(let i=0;i<80;i++)await r.tick(600);
+  const track=r.watcher.getSnapshot().tracks[0];assert.equal(track.state,'dismissed');
+  assert.equal(track.revision,3,'three automatic re-arms');assert.equal(r.reads,4,'initial read plus three retries');
+  r.watcher.scanNow();r.qualityAt=undefined;for(let i=0;i<8;i++)await r.tick(600);
+  assert.equal(r.watcher.getSnapshot().tracks[0].state,'identified');assert.equal(r.reads,5);
+ }finally{r.watcher.dispose();}
+});
+
+test('Scan field re-arms player dismissals and persists only named gallery entries',async()=>{
+ let saved:unknown=[];const gallery=createFieldIdentityGallery([],()=>{saved=gallery.entries();});
+ const named={space:'art-box' as const,values:[0,1]},dismissed={space:'art-box' as const,values:[1,0]};
+ gallery.remember(named,'B');const otherSeat=createFieldIdentityGallery();otherSeat.remember(dismissed);
+ const r=fieldRig('low match',20,gallery);r.embedding=dismissed.values;
+ try{
+  for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
+  r.watcher.dismiss(id);assert.deepEqual(gallery.resolve(dismissed),{kind:'match',cardId:undefined});
+  r.watcher.scanNow();assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate');
+  assert.deepEqual(gallery.entries(),[{embedding:named,cardId:'B'}]);
+  assert.deepEqual(createFieldIdentityGallery(saved).entries(),gallery.entries(),'the persistence callback saves the cleared gallery');
+  assert.deepEqual(otherSeat.resolve(dismissed),{kind:'match',cardId:undefined},'another seat keeps its dismissal');
+  for(let i=0;i<8;i++)await r.tick();
+  assert.equal(r.events.filter(e=>e.type==='prompt').length,2);assert.equal(r.reads,2);
+  assert.equal(r.watcher.getSnapshot().tracks[0].id,id);
+ }finally{r.watcher.dispose();}
+});
+
+test('dismissed tracks expire only after sustained absence in full detector passes',async()=>{
+ for(const playerDismissed of [false,true]){
+  const r=fieldRig(playerDismissed?'low match':'sure');
+  try{
+   if(!playerDismissed)r.qualityAt=()=>({faceDown:true});
+   for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
+   if(playerDismissed)r.watcher.dismiss(id);
+   assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');
+   // Keep the old pixels to prove expiry depends on detector absence, not clear-mat pixels.
+   r.appearance=Array.from({length:12},(_,i)=>i%2?.6:.2);r.outlines=[];
+   r.busy=true;const detects=r.detects;await r.tick(4000);
+   assert.equal(r.detects,detects);assert.ok(r.watcher.getSnapshot().tracks.some(t=>t.id===id),'time without detection cannot expire a dismissal');r.busy=false;
+   await r.tick(600);for(let i=0;i<4;i++)await r.tick(600);
+   assert.ok(r.watcher.getSnapshot().tracks.some(t=>t.id===id),'less than three seconds of full misses');
+   r.outlines=[{...card(.3,.3),confidence:.3,kept:true}];await r.tick(600);
+   r.outlines=[];await r.tick(600);for(let i=0;i<4;i++)await r.tick(600);
+   assert.ok(r.watcher.getSnapshot().tracks.some(t=>t.id===id),'a weak outline resets the absence window');
+   await r.tick(600);assert.equal(r.watcher.getSnapshot().tracks.length,0);
+   assert.ok(r.events.filter(e=>e.type==='removed'&&e.track.id===id).length<=1,'expiry does not repeat a placeholder removal');
+   r.qualityAt=undefined;r.outlines=[card(.3,.3)];await r.tick(2000);
+   const fresh=r.watcher.getSnapshot().tracks[0];assert.ok(fresh);assert.notEqual(fresh.id,id);assert.equal(fresh.state,'candidate');
+  }finally{r.watcher.dispose();}
+ }
+});
+
+test('player-dismissed cards stay quiet on unchanged confident fronts without Scan field',async()=>{
+ const r=fieldRig('low match');r.embedding=[1,0];
+ try{
+  for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.dismiss(id);
+  for(let i=0;i<30;i++)await r.tick(600);
+  assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');assert.equal(r.reads,1);
+  assert.equal(r.events.filter(e=>e.type==='prompt').length,1);
+ }finally{r.watcher.dispose();}
+});
+
 test('new face-down cards Set without identity inference; turning up retains the ref',async()=>{
   const r=fieldRig();r.appearance=Array(12).fill(.8);r.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<6;i++)await r.tick();
   assert.equal(r.reads,0);assert.equal(r.events.filter(e=>e.type==='placed').length,1);const placed=r.events.find(e=>e.type==='placed')!;assert.equal(placed.track.cardId,undefined);const id=placed.track.id;r.watcher.confirm(id);
@@ -271,6 +375,48 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   assert.equal(zones.fieldOrientation(card(.3,.3,.3,.12),1920,1080),'defense');
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
+
+test('moving, turning and resizing the grid keep every zone on its cell at any angle and side, and the corner order stays the mat\'s',()=>{
+  const base=[{x:.2,y:.2},{x:.8,y:.2},{x:.8,y:.8},{x:.2,y:.8}],aspect=16/9,orientation={playerSide:'right' as const,mirrored:true};
+  const original=zones.createFieldCalibration(base,orientation),near=(a:number,b:number,eps=1e-6)=>Math.abs(a-b)<eps;
+  const mat=(zone:string)=>{const cell=zones.fieldZoneCells().find(c=>c.zone===zone)!;return {x:cell.x+cell.w/2,y:cell.y+cell.h/2};};
+  const shows=(cal:ReturnType<typeof zones.createFieldCalibration>,at:(zone:string)=>{x:number;y:number})=>{
+    for(const zone of ['M1','S5','DECK','GY','EXTRA']){const p=at(zone);assert.equal(zones.mapFieldZone(card(p.x-.01,p.y-.01,.02,.02),cal).zone,zone);}
+  };
+  // A quarter turn, a half turn, three quarters and odd angles: where each zone lands is worked out by hand (turn in pixels about the centre, then the size the fit left).
+  for(const degrees of [0,90,180,270,37,-100]){
+    const out=zones.turnFieldQuad(base,degrees,aspect)!,k=1/out.restore,rad=degrees*Math.PI/180;
+    shows(zones.createFieldCalibration(out.corners,orientation),zone=>{
+      const p=zones.fieldMatPoint(mat(zone),original),x=(p.x-.5)*aspect,y=p.y-.5;
+      return {x:.5+k*(x*Math.cos(rad)-y*Math.sin(rad))/aspect,y:.5+k*(x*Math.sin(rad)+y*Math.cos(rad))};
+    });
+    assert.ok(near(zones.fieldQuadTurn(out.corners,aspect),(degrees+360)%360,1e-4));
+    assert.ok(out.corners.every(c=>c.x>=0&&c.x<=1&&c.y>=0&&c.y<=1));
+  }
+  // The grid is wider than the picture is tall, so a quarter turn makes it smaller; turning back returns the size.
+  const quarter=zones.turnFieldQuad(base,90,aspect)!,back=zones.turnFieldQuad(quarter.corners,-90,aspect,quarter.restore)!;
+  assert.ok(quarter.restore>1&&back.restore===1&&back.corners.every((c,i)=>near(c.x,base[i].x,1e-9)&&near(c.y,base[i].y,1e-9)));
+  // Card shapes are measured with width and height swapped when the mat runs sideways: side left/right XOR a 90/270 turn.
+  const sideways=(side:'bottom'|'right',degrees:number)=>zones.fieldQuarterTurn(zones.createFieldCalibration(zones.turnFieldQuad(base,degrees,aspect)!.corners,{playerSide:side,mirrored:false}),aspect);
+  assert.deepEqual([sideways('bottom',0),sideways('bottom',90),sideways('right',0),sideways('right',90),sideways('bottom',180),sideways('bottom',270)],[false,true,true,false,false,true]);
+  // Move: exact, and it stops at the picture's edge.
+  const moved=zones.moveFieldQuad(base,.03,-.02)!;
+  assert.ok(moved.every((c,i)=>near(c.x,base[i].x+.03)&&near(c.y,base[i].y-.02)));
+  assert.ok(near(Math.max(...zones.moveFieldQuad(base,1,0)!.map(c=>c.x)),1));
+  // A corner handle: the opposite corner stays put and the dragged corner follows the pointer; Shift keeps the proportions.
+  const corner=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85})!;
+  assert.ok(near(corner[0].x,.2)&&near(corner[0].y,.2)&&near(corner[2].x,.9)&&near(corner[2].y,.85));
+  const kept=zones.resizeFieldQuad(base,{x:1,y:1},{x:.9,y:.85},true)!;
+  assert.ok(near((kept[2].x-kept[0].x)/(kept[2].y-kept[0].y),(base[2].x-base[0].x)/(base[2].y-base[0].y)));
+  // An edge handle changes one side only.
+  const edge=zones.resizeFieldQuad(base,{x:.5,y:0},{x:.4,y:.1})!;
+  assert.ok(near(edge[0].y,.1)&&near(edge[1].y,.1)&&near(edge[0].x,.2)&&near(edge[2].x,.8)&&near(edge[2].y,.8)&&near(edge[3].y,.8));
+  // Dragging past the picture stops at its edge, and a pinch grows the grid in place.
+  assert.ok(zones.resizeFieldQuad(base,{x:1,y:1},{x:3,y:3})!.every(c=>c.x<=1&&c.y<=1));
+  const grown=zones.pinchFieldQuad(base,1.2,0,aspect)!;
+  assert.ok(grown[2].x-grown[0].x>base[2].x-base[0].x&&near(grown[0].x+grown[2].x,1)&&near(grown[0].y+grown[2].y,1));
+});
+
 
 test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}]);
@@ -703,7 +849,7 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  const a=fieldRig('sure',20,restored);a.embedding=[1,0];a.identity='B';a.outlines=[card(.2,.3),card(.65,.3)];for(let i=0;i<12;i++)await a.tick();
  const placements=a.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.ok(placements.every(e=>e.track.cardId==='A'));assert.notEqual(placements[0].track.id,placements[1].track.id);assert.equal(a.events.some(e=>e.type==='prompt'),false);a.watcher.dispose();
  const unsure=fieldRig('not sure',20,restored);unsure.embedding=[.75,Math.sqrt(1-.75**2)];unsure.identity='B';for(let i=0;i<8;i++)await unsure.tick();assert.ok(unsure.events.some(e=>e.type==='placed'&&e.track.cardId==='B'&&e.track.bestMatch));assert.equal(unsure.events.some(e=>e.type==='prompt'),false);unsure.watcher.dispose();
- restored.remember(vector,undefined);const b=fieldRig('sure',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,1);b.watcher.dispose();
+ restored.remember(vector,undefined);const b=fieldRig('sure',20,restored);b.embedding=[1,0];for(let i=0;i<8;i++)await b.tick();assert.equal(b.events.length,0);assert.equal(b.watcher.getSnapshot().tracks[0].state,'dismissed');b.outlines=[];for(let i=0;i<20;i++)await b.tick();assert.equal(b.watcher.getSnapshot().tracks.length,0,'absent dismissed tracks expire while the gallery remembers the player choice');b.watcher.dispose();
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
 

@@ -4,6 +4,9 @@ export type CameraTraffic = {
   direction: "sent" | "received"; seat: number; codec: string; width: number; height: number; fps: number;
   /** RTP payload bytes so far, all layers. Transport overhead is not in it. */
   bytes: number; at: number; layers: CameraLayer[]; limit?: string;
+  /** Sent cameras only: what the webcam delivers before encoding (WebRTC media-source), and the seconds the browser limited the top layer by cause. */
+  capture?: { fps: number; width: number; height: number };
+  limitedFor?: { cpu: number; bandwidth: number };
 };
 export type CameraRate = Omit<CameraTraffic, "bytes" | "at" | "layers"> & { kbps?: number; layers: { rid: string; width: number; height: number; kbps?: number }[] };
 
@@ -27,8 +30,13 @@ export async function cameraTraffic(direction: "sent" | "received", seat: number
         .sort((a, b) => a.width - b.width);
       const top = layers[layers.length - 1];
       const reason = streams.map(r => r.qualityLimitationReason).find(v => v && v !== "none") as string | undefined;
+      const source = direction === "sent" ? rows.find(r => r.type === "media-source" && r.kind === "video") : undefined;
+      const topStream = [...streams].sort((a, b) => num(b.frameWidth) - num(a.frameWidth))[0];
+      const durations = topStream.qualityLimitationDurations as { cpu?: number; bandwidth?: number } | undefined;
       out.push({ direction, seat, codec, width: top.width, height: top.height, fps: top.fps, bytes: layers.reduce((n, l) => n + l.bytes, 0),
-        at: Math.max(...streams.map(r => num(r.timestamp))), layers, limit: reason });
+        at: Math.max(...streams.map(r => num(r.timestamp))), layers, limit: reason,
+        ...(source ? { capture: { fps: num(source.framesPerSecond), width: num(source.width), height: num(source.height) } } : {}),
+        ...(durations ? { limitedFor: { cpu: num(durations.cpu), bandwidth: num(durations.bandwidth) } } : {}) });
     } catch { /* A closed transport has no stats. */ }
   }
   return out;
@@ -52,9 +60,13 @@ export function cameraRates(previous: Map<string, CameraTraffic>, next: CameraTr
   return rates;
 }
 
+/** Sent cameras: the capture before encoding and how long the browser limited the sent picture, by cause. */
+const sentDetail = (r: CameraRate) => r.direction !== "sent" ? "" :
+  `${r.capture ? `\n  capture ${Math.round(r.capture.fps)} fps${r.capture.width ? ` ${r.capture.width}x${r.capture.height}` : ""}` : ""}${r.limitedFor ? `\n  limited: cpu ${r.limitedFor.cpu.toFixed(1)} s · bandwidth ${r.limitedFor.bandwidth.toFixed(1)} s` : ""}`;
+
 /** One line per camera: `sent seat 1 · H264 · 1920x1080 · 15 fps · 812 kbps`. Layers (low to top) follow for a simulcast stream. */
 export function trafficLine(r: CameraRate): string {
   const rate = r.kbps === undefined ? "– kbps" : `${Math.round(r.kbps)} kbps`;
   const layers = r.layers.length > 1 ? ` [${r.layers.map(l => `${l.rid || "?"} ${l.width}x${l.height} ${l.kbps ?? "–"}`).join(" · ")}]` : "";
-  return `${r.direction === "sent" ? "sent " : "recv "} seat ${r.seat + 1} · ${r.codec} · ${r.width}x${r.height} · ${Math.round(r.fps)} fps · ${rate}${r.limit ? ` · limited by ${r.limit}` : ""}${layers}`;
+  return `${r.direction === "sent" ? "sent " : "recv "} seat ${r.seat + 1} · ${r.codec} · ${r.width}x${r.height} · ${Math.round(r.fps)} fps · ${rate}${r.limit ? ` · limited by ${r.limit}` : ""}${layers}${sentDetail(r)}`;
 }
