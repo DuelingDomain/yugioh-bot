@@ -680,3 +680,54 @@ textarea.crNotes { font-family: inherit; font-size: 14.5px; min-height: 84px; }
 .visionSample img { object-fit:contain; flex-shrink:0; }
 .visionSample p { margin:8px 0; }
 @media(max-width:760px) { .tabbar8 { grid-template-columns:repeat(8,minmax(0,1fr)); padding:0; } .tabbar8 .tab { font-size:9px; } .visionSample { gap:12px; } .visionSample .btns { gap:6px; } }
+
+/* duel history: range bar, list, stats panel */
+.dsRangeBar { margin-top: 16px; }
+.dsDates { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.dsDates label { display: inline-flex; align-items: center; gap: 8px; color: var(--t3); font-size: 12.5px; }
+.dsDates input[type="date"] { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--t1); background: transparent; font: inherit; font-size: 13.5px; color-scheme: dark; }
+.dsDates input[type="date"]:focus-visible { outline: none; border-color: var(--line2); }
+.dsToggle { display: inline-flex; align-items: center; gap: 9px; color: var(--t2); font-size: 13.5px; cursor: pointer; }
+.dsToggle input { width: 16px; height: 16px; accent-color: var(--gold); margin: 0; }
+.dsLayout { display: grid; grid-template-columns: minmax(0, 1fr) 328px; gap: 44px; align-items: start; }
+.dsList { min-width: 0; }
+.dsMore { display: flex; gap: 14px; align-items: center; justify-content: center; padding: 20px 0 4px; }
+.dsPanel { position: sticky; top: 24px; min-width: 0; padding-left: 32px; border-left: 1px solid var(--line); max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.dsPanel[data-loading="1"] { opacity: .6; transition: opacity .15s; }
+.dsHead { padding: 18px 0 4px; }
+.dsK { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--t3); }
+.dsRange { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin-top: 6px; }
+.dsVs { color: var(--t3); font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
+.dsBlock { padding: 20px 0 6px; border-top: 1px solid var(--line); margin-top: 18px; }
+.dsBlock:first-of-type { margin-top: 12px; }
+.dsBlock h3 { font-family: var(--mono); font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: .12em; color: var(--t3); margin-bottom: 10px; }
+.dsBig { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.dsBig b { font-size: 40px; font-weight: 500; letter-spacing: -.04em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.dsChart { height: 96px; margin-top: 12px; position: relative; }
+.dsRow { display: grid; grid-template-columns: minmax(0, 1fr) auto 72px; align-items: baseline; column-gap: 12px; padding: 7px 0; position: relative; font-size: 13.5px; }
+.dsLabel { color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsValue { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.change { text-align: right; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.change b { font-weight: 600; color: var(--good); }
+.change b[data-dir="down"] { color: var(--crit); }
+.change b[data-dir="flat"] { color: var(--t3); }
+.dsBar { grid-column: 1 / -1; display: block; height: 3px; border-radius: 2px; background: var(--s1); opacity: .55; margin-top: 6px; min-width: 0; }
+.dsRow:has(.dsBar) { padding-bottom: 9px; }
+.dsNote { color: var(--t3); font-size: 12.5px; line-height: 1.5; margin: 8px 0 4px; }
+.dsNote b { color: var(--t2); font-weight: 500; }
+.hours { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; height: 64px; align-items: end; }
+.hourCol { display: flex; align-items: flex-end; height: 100%; }
+.hourCol i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: var(--s1); opacity: .5; }
+.hourCol i[data-peak="1"] { opacity: 1; background: var(--gold); }
+.hourCol:hover i { opacity: 1; }
+.hourAxis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9.5px; color: var(--t3); margin-top: 6px; }
+@media (max-width: 1240px) and (min-width: 761px) {
+  .dsLayout { grid-template-columns: 1fr; gap: 0; }
+  .dsPanel { order: -1; position: static; max-height: none; overflow: visible; padding-left: 0; border-left: 0; margin-bottom: 20px; }
+}
+@media (max-width: 760px) {
+  .dsLayout { grid-template-columns: 1fr; gap: 0; }
+  .dsPanel { order: -1; position: static; max-height: none; overflow: visible; padding-left: 0; border-left: 0; margin-bottom: 20px; }
+  .dsDates { width: 100%; }
+  .dsRangeBar .toolbarEnd { margin-left: 0; }
+}

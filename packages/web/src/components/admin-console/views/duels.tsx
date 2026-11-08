@@ -1,106 +1,19 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { duration, plural } from "@/lib/admin-console/format";
-import { ADMIN_TIME_ZONE_LABEL, formatClock } from "@/lib/admin-console/time";
-import type { LiveDuel, LiveSeat, SeatOutcome, TodayData, TodayDuel, TodayResult, UserKey } from "@/lib/admin-console/types";
+import { useState } from "react";
+import { plural } from "@/lib/admin-console/format";
+import type { LiveDuel } from "@/lib/admin-console/types";
 import type { ConsoleActions } from "../admin-console";
-import { TODAY_ANCHOR, liveCounts, okData, type Snapshots } from "../model";
-import { Avatar, Notice, SectionHead, Since, Tag, WatchLink, useNow } from "../parts";
+import { liveCounts, okData, type Snapshots } from "../model";
+import { Notice, SectionHead, Since, Tag, WatchLink } from "../parts";
 import styles from "../admin-console.module.css";
+import { DuelRangeSection } from "./duel-range";
+import { Seat } from "./duel-parts";
 
 type Filter = "all" | "duels" | "drafts";
-type TodayFilter = "all" | "oneVsOne" | "multi" | "ranked";
-const TODAY_FILTERS: [TodayFilter, string][] = [["all", "All"], ["oneVsOne", "1v1"], ["multi", "Multi"], ["ranked", "Ranked"]];
-const OUTCOME_WORD: Record<Exclude<SeatOutcome, null>, string> = { won: "Won", lost: "Lost", draw: "Draw" };
-const RESULT_WORD: Record<Exclude<TodayResult, "won">, string> = { live: "Live", draw: "Draw", interrupted: "Interrupted", cancelled: "Cancelled", idle: "Idle" };
-
-function Seat({ seat, toPlay, outcome, onOpen }: { seat: LiveSeat; toPlay?: boolean; outcome?: SeatOutcome; onOpen: (userId: UserKey) => void }) {
-  const mark: ReactNode = toPlay ? <span className={styles.toPlay}>To decide</span>
-    : outcome ? <span className={styles.outcome} data-outcome={outcome}>{OUTCOME_WORD[outcome]}</span> : <span />;
-  const body = (
-    <>
-      <Avatar name={seat.name} url={seat.avatarUrl} size="sm" bot={seat.bot} />
-      <span className={styles.nm}>{seat.name}</span>
-      {mark}
-    </>
-  );
-  return seat.userId !== null
-    ? <button type="button" className={styles.pl} onClick={() => onOpen(seat.userId!)} title={`Open ${seat.name}`} style={{ textAlign: "left" }}>{body}</button>
-    : <div className={styles.pl}>{body}</div>;
-}
-
 function turnText(duel: LiveDuel): { big: string; small: string } {
   if (duel.status === "lobby") return { big: "Lobby", small: `${duel.players.length} seated` };
   return { big: duel.turn != null ? `T${duel.turn}` : "T–", small: duel.turn != null ? "Turn" : "Starting" };
-}
-
-function resultText(duel: TodayDuel): string {
-  if (duel.result !== "won") return RESULT_WORD[duel.result];
-  const winners = duel.seats.filter((seat) => seat.outcome === "won").map((seat) => seat.name);
-  return winners.length ? `${winners.join(" & ")} won` : "Won";
-}
-
-function TodayRow({ duel, onOpen, now }: { duel: TodayDuel; onOpen: (userId: UserKey) => void; now: number }) {
-  const running = duel.result === "live" || duel.result === "idle";
-  const facts = [duel.turns != null ? `${duel.turns} ${duel.turns === 1 ? "turn" : "turns"}` : null, duration((duel.endedAt ?? now) - duel.startedAt)].filter(Boolean).join(" · ");
-  return (
-    <div className={styles.tblRow} role="row">
-      <div className={styles.cFmt} role="cell">
-        <div className={styles.fmt}>{duel.formatLabel.replace(" duel", "")}<Tag tone={duel.ranked ? "gold" : undefined}>{duel.ranked ? "Ranked" : "Casual"}</Tag></div>
-        <div className={styles.fmtSmall} title={duel.name}>{duel.genesys ? "Genesys · " : ""}{duel.name}</div>
-      </div>
-      <div className={`${styles.cPl} ${styles.players}`} role="cell">
-        {duel.seats.map((seat, i) => <Seat key={`${seat.name}-${i}`} seat={seat} outcome={seat.outcome} onOpen={onOpen} />)}
-      </div>
-      <div className={`${styles.cRes} ${styles.res}`} role="cell" data-result={duel.result}>
-        <b title={resultText(duel)}>{duel.result === "live" ? <span className={styles.dot} data-tone="good" /> : null}{resultText(duel)}</b>
-        <small>{facts}</small>
-      </div>
-      <div className={`${styles.cAt} ${styles.num}`} role="cell"><time dateTime={new Date(duel.startedAt).toISOString()}>{formatClock(duel.startedAt)}</time></div>
-      <div className={styles.cAct} role="cell">
-        {running ? <WatchLink href={duel.href} label="Watch" /> : <WatchLink href={duel.href} label="Replay" icon="play" />}
-      </div>
-    </div>
-  );
-}
-
-/** Every duel that started today (Eastern time, ET), newest first, with the result per player and a replay. */
-function TodaySection({ today, failed, actions, flush }: { today: TodayData | null; failed: string | null; actions: ConsoleActions; flush?: boolean }) {
-  const [filter, setFilter] = useState<TodayFilter>("all");
-  const now = useNow();
-  const duels = (today?.duels ?? []).filter((d) => filter === "all" ? true
-    : filter === "oneVsOne" ? d.format === "1v1" : filter === "multi" ? d.format !== "1v1" : d.ranked);
-  const total = today ? today.counts[filter] : 0;
-  return (
-    <div id={TODAY_ANCHOR} className={styles.anchor}>
-      <SectionHead title="Today" n={today ? plural(today.counts.all, "duel", "duels") : undefined} flush={flush}
-        aside={<span className={styles.aside}>{today ? `Since ${formatClock(today.dayStart)} ${ADMIN_TIME_ZONE_LABEL}` : null}</span>} />
-      {failed ? <Notice tone="warn" title="The duels of today are not available">{failed}</Notice> : (
-        <>
-          <div className={`${styles.toolbar} ${styles.toolbarTight}`}>
-            <div className={styles.seg} role="group" aria-label="Filter duels of today">
-              {TODAY_FILTERS.map(([key, label]) => (
-                <button key={key} type="button" aria-pressed={filter === key} aria-label={`${label}, ${today ? today.counts[key] : 0}`} onClick={() => setFilter(key)}>{label}<span>{today ? today.counts[key] : 0}</span></button>
-              ))}
-            </div>
-            <span className={`${styles.aside} ${styles.toolbarEnd}`}>
-              {today && duels.length < total ? `Showing ${duels.length} of ${total} · ` : ""}Replays open in a new tab
-            </span>
-          </div>
-          <div className={styles.todayTbl} role="table" aria-label="Duels today">
-            <div className={styles.tblHead} role="row">
-              <span role="columnheader">Format</span><span role="columnheader">Players</span><span role="columnheader">Result</span>
-              <span role="columnheader" className={styles.hAt}>Started</span><span role="columnheader"><span className={styles.srOnly}>Open</span></span>
-            </div>
-            {duels.length === 0
-              ? <div className={`${styles.empty} ${styles.emptySm}`} role="row"><span role="cell">{!today ? "Loading" : today.counts.all === 0 ? "No duel started today." : "No duel of today fits this filter."}</span></div>
-              : duels.map((d) => <TodayRow key={d.slug} duel={d} onOpen={actions.openPerson} now={now} />)}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleActions }) {
@@ -108,11 +21,8 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
   const result = s.live.result;
   const live = okData(s.live);
   const counts = liveCounts(live);
-  // The Today list has its own request, so it shows even when the live tables do not.
-  const todaySection = (
-    <TodaySection today={okData(s.today)} actions={actions}
-      failed={s.today.result && s.today.result.state !== "ok" ? s.today.result.message : null} />
-  );
+  // The duel history has its own requests, so it shows even when the live tables do not.
+  const todaySection = <DuelRangeSection onOpen={actions.openPerson} />;
   if (result && result.state !== "ok") {
     return <><Notice tone={result.state === "error" ? "warn" : "info"} title="Live tables are not available">{result.message}</Notice>{todaySection}</>;
   }
