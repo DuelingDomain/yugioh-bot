@@ -109,6 +109,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
         </div>
       </header>
 
+      <p className={ui.hint}>Remote match history and board-state replays are kept with no time limit by default. Video is not recorded.</p>
+
       {alert ? <div className={cx(ui.banner, ui.bannerBad, r.alert)} role="alert"><AlertTriangle size={16} strokeWidth={1.7} aria-hidden /><div className={ui.bannerBody}>{alert}</div></div> : null}
 
       <div className={r.layout}>
