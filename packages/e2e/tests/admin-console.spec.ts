@@ -193,6 +193,7 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     await view(page, "Duels").getByRole("group", { name: "Date range" }).getByRole("button", { name: /7 days/ }).click();
     const loadMore = view(page, "Duels").getByRole("button", { name: "Load more" });
     await expect(loadMore).toBeVisible();
+    await loadMore.click();
     await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("before="))).toBe(true);
     await view(page, "Duels").getByRole("checkbox", { name: /Include practice bot/ }).check();
     await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("bots=1") && !l.includes("before="))).toBe(true);
