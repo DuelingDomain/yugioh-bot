@@ -609,7 +609,7 @@ it('the watcher hook discards resource setup that resolves after unmount',async(
 });
 
 const noFieldBacks=vi.hoisted(()=>[] as never[]);
-vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>({devices:[],cameraId:'',...state.feedHub}),useFieldBacks:()=>noFieldBacks,useTapSeat:()=>false}));
+vi.mock('../src/components/remote/ui/video-hub',()=>({useVideoHub:()=>({devices:[],cameraId:'',setRescanHandler:()=>undefined,...state.feedHub}),useFieldBacks:()=>noFieldBacks,useTapSeat:()=>false}));
 vi.mock('../src/components/remote/ui/recognizer',async importOriginal=>{
  const original=await importOriginal<typeof import('../src/components/remote/ui/recognizer')>();
  return {...original,attachOwnFeed:()=>{},detachOwnFeed:()=>{},detectCards:state.feedDetect,ownFeedFrames:vi.fn(async()=>[]),ownFieldResources:(...args:Parameters<typeof original.ownFieldResources>)=>state.fieldWatch?Promise.resolve({entries:state.fieldWatch.entries??cards,cpuBusy:()=>false}):original.ownFieldResources(...args)};
