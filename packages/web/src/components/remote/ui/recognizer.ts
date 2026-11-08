@@ -1,3 +1,4 @@
+import { visionPaceFactor } from "@/lib/remote/send-health-store";
 import type { RecognizeRawFeed } from "@/lib/remote/video";
 import { relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
 import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
@@ -383,17 +384,21 @@ export async function prepareOwnReader(priors?:Priors) {
 }
 export function detachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo !== video) return;
-  ownBuffer?.stop(); ownBuffer = null; ownVideo = null;
+  ownBuffer?.stop(); ownBuffer = null; ownVideo = null; lastOwnSample = undefined;
 }
 /** Clones of the buffered frames (up to 6, newest second). The caller closes them. */
 export function ownFeedFrames(): Promise<ImageBitmap[]> {
   return ownBuffer ? ownBuffer.snapshot() : Promise.reject(new Error("The own feed is not buffered"));
 }
 
+let lastOwnSample: { sample: { frame: ImageBitmap; at: number }; when: number } | undefined;
+const OWN_SAMPLE_GAP_MS = 100;
 /** Minimal shared-reader bridge for the owner-only field watcher. Manual reads take priority. */
 export async function ownFieldResources(getPriors: () => Priors) {
   const [reader, found] = await Promise.all([loadRecognizer(), loadMeta()]);
   if (!reader || !found) return null;
+  // A new watcher starts without a last frame: the previous one closed the cached throttle frame.
+  lastOwnSample = undefined;
   return {
     recognizer: {
       get detectorBackend() { return reader.detectorBackend; },
@@ -403,7 +408,16 @@ export async function ownFieldResources(getPriors: () => Priors) {
       detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
-    buffer: { sample: (options?:{maxAgeMs?:number}) => ownBuffer ? ownBuffer.sample(options) : Promise.reject(new Error("Waiting for the own camera buffer")) },
+    buffer: { sample: async (options?:{maxAgeMs?:number}) => {
+      if (!ownBuffer) return Promise.reject(new Error("Waiting for the own camera buffer"));
+      // While the sent video is CPU limited (lib/remote/send-health.ts) the watcher gets the frame it already has: the same `at`, which it skips at once
+      // (no detector pass, no timed wait), so real passes come at most every slow x 100 ms. Nothing waits and the main thread stays free.
+      const slow = visionPaceFactor();
+      if (slow > 1 && lastOwnSample && Date.now() - lastOwnSample.when < slow * OWN_SAMPLE_GAP_MS) return lastOwnSample.sample;
+      const sample = await ownBuffer.sample(options);
+      lastOwnSample = { sample, when: Date.now() };
+      return sample;
+    } },
     getPriors: () => priorsFor(found, getPriors()),
     cpuBusy: () => pendingJobs > 0,
     entries: found.entries,
