@@ -377,11 +377,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const other of next.seats) for (const item of other.twin) if (item.equippedTo?.seat === from.seat && item.equippedTo.ref === card.ref) item.equippedTo = { seat: to.seat, ref: card.ref };
       if (under.length) card.materials = under.map(m => m.ref); else delete card.materials;
       if (owner === to.seat) { delete card.ownerSeat; restoreOwnerIdentity(card); } else card.ownerSeat = owner;
+      // A face-down card on the field stays face-down whatever the client sends: flipping is twin.flip's job, and a flip here would reveal it.
+      const stayDown = !card.faceUp && (MONSTER_ZONES.has(card.zone) || card.zone === "spell-trap");
       card.zone = action.zone;
       if (action.slot !== undefined && !pile) card.slot = action.slot;
       if (action.position !== undefined) card.position = action.position;
       // A card taken from or returned to the field keeps its face; only a card sent to a pile shows face up.
-      card.faceUp = pile ? true : action.faceUp ?? card.faceUp;
+      card.faceUp = pile ? true : stayDown ? false : action.faceUp ?? card.faceUp;
       to.twin.push(card);
       break;
     }

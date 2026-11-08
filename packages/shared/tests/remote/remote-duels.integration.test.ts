@@ -742,8 +742,10 @@ describe("remote deck registration and live checks", () => {
     const s = deckSession("normal"); s.select(s.save().id); s.start();
     s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "opp-card", cardId: 14558127, name: "Ash Blossom", faceUp: false, slot: 2, position: "defense" } });
     const view = () => s.room.state.seats.flatMap(seat => seat.twin).find(c => c.ref === "opp-card")!;
-    s.act({ type: "twin.control", actorSeat: 0, seat: 1, toSeat: 0, cardRef: "opp-card", zone: "monster", slot: 1, faceUp: false });
+    // A client that sends faceUp:true for a face-down field take does not flip the card.
+    s.act({ type: "twin.control", actorSeat: 0, seat: 1, toSeat: 0, cardRef: "opp-card", zone: "monster", slot: 1, faceUp: true });
     expect(view()).toMatchObject({ faceUp: false, ownerSeat: 1 });
+    expect(projectRemoteState(s.room.state, new Set([0])).seats[0].twin.find(c => c.ref === "opp-card")).not.toHaveProperty("cardId");
     s.act({ type: "twin.control", actorSeat: 0, seat: 0, toSeat: 1, cardRef: "opp-card", zone: "monster", slot: 3 });
     expect(s.room.state.seats[1].twin.find(c => c.ref === "opp-card")).toMatchObject({ zone: "monster", slot: 3, faceUp: false });
     for (const viewer of [new Set([0]), new Set<number>()]) expect(projectRemoteState(s.room.state, viewer).seats[1].twin.find(c => c.ref === "opp-card")).not.toHaveProperty("cardId");
