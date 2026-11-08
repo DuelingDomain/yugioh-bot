@@ -62,7 +62,8 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
     if (!dnd?.can(card) || event.pointerType === "touch" || (event.pointerType === "mouse" && event.button !== 0)) return;
     const start = { x: event.clientX, y: event.clientY }; const id = event.pointerId; let started = false; let marked: Element | null = null; let markClass = "";
     const hit = (x: number, y: number): { key: ZoneKey | "hand"; el: Element } | null => {
-      const at = document.elementFromPoint(x, y);
+      // A toast over the target never blocks a drop.
+      const at = document.elementsFromPoint(x, y).find(el => !el.closest('[data-testid="toasts"]')) ?? null;
       const chip = at?.closest("[data-hand-drop]"); if (chip) return { key: "hand", el: chip };
       const cell = at?.closest<HTMLElement>("[data-zone][data-seat]");
       return cell && Number(cell.dataset.seat) === seat ? { key: cell.dataset.zone as ZoneKey, el: cell } : null;
