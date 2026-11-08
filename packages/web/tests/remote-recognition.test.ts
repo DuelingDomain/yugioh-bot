@@ -576,6 +576,9 @@ it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Chec
  const monster={type:'Normal Monster',frameType:'normal',race:'Warrior'},token={ref:'token',zone:'monster',slot:2,token:{atk:0,def:0}};
  expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
+ // "Choose another zone" for a face-down card on the token's own cell: it takes the nearest free cell.
+ expect(projectFieldZone({zone:'M2',faceDown:true,twins:[token],tokenHolds:true}).zone).toBe('M1');
+ expect(projectFieldZone({zone:'M2',faceDown:true,twins:[token]}).zone).toBe('M2');
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');

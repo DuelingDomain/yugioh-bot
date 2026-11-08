@@ -115,8 +115,10 @@ export function zoneMoveLabel(facts:FieldZoneFacts|undefined,target:FieldZone):s
  * `check`. An occupied zone uses the nearest free zone of the same row; a full row abstains. Face-down cards
  * keep their row (the camera cannot see their type).
  */
-export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='normal',equipSource=false}:{
+export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='normal',equipSource=false,tokenHolds=false}:{
   zone:FieldZone; facts?:FieldZoneFacts; twins:readonly FieldTwin[]; ref?:string; faceDown?:boolean; format?:FieldFormat; equipSource?:boolean;
+  /** The player chose another zone for a card on a token's cell: the token holds its own cell too, so the card goes to the nearest free one. */
+  tokenHolds?:boolean;
 }):Projection {
   const accept=(target:FieldZone,check?:string,moved?:string):Projection=>({zone:target,label:fieldZoneLabel(target),...(check?{check}:{}),...(moved?{moved}:{})});
   const abstain=(reason:string):Projection=>({label:fieldZoneLabel(zone),reason});
@@ -124,7 +126,7 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   const occupied=(target:FieldZone)=>{
     const location=fieldZoneLocation(target);
     // A token has no physical card, so it never pushes a camera card out of the cell the card is in (the player chooses, see tokenInCell). It still holds its cell against every other target.
-    return twins.some(twin=>twin.ref!==ref&&(!twin.token||target!==zone)&&(twin.zone===target||
+    return twins.some(twin=>twin.ref!==ref&&(!twin.token||target!==zone||tokenHolds)&&(twin.zone===target||
       (twin.zone===location.zone&&(location.slot===undefined||twin.slot===location.slot))||
       (location.zone==='spell-trap'&&twin.trapZone===location.slot)||
       (twin.zone==='pendulum'&&((target==='S1'&&twin.slot===1)||(target==='S5'&&twin.slot===2)))));
