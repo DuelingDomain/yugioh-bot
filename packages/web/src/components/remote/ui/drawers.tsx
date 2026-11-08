@@ -124,8 +124,8 @@ export function Peek({ peek }: { peek: PeekState }) {
 }
 
 export type ToastItem = { id: number; text: ReactNode };
-export function Toasts({ items, dock }: { items: ToastItem[]; dock?: HTMLElement | null }) {
-  const list = <div className={dock ? s.toastsDocked : s.toasts} role="status" aria-live="polite" data-testid="toasts">{items.map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
+export function Toasts({ items, dock, top = false }: { items: ToastItem[]; dock?: HTMLElement | null; /** Over an open dialog: only the newest toast, on the dialog's hint row, clicks pass through. */ top?: boolean }) {
+  const list = <div className={dock ? s.toastsDocked : top ? s.toastsTop : s.toasts} role="status" aria-live="polite" data-testid="toasts">{(top ? items.slice(-1) : items).map(item => <div key={item.id} className={s.toast}>{item.text}</div>)}</div>;
   return dock ? createPortal(list, dock) : list;
 }
 

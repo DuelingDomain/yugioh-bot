@@ -53,6 +53,8 @@ export function setRecognitionMode(mode: RecognitionMode) {
   update({ mode, backend: null, ms: null, note: "", generation: load().generation + 1 });
   for (const reset of resetters) reset();
 }
+/** Changes each time the reader restarts (new mode, GPU lost, GPU retry). */
+export const recognitionGeneration = () => load().generation;
 /** The recognizer module restarts its reader when the mode changes. */
 export function onRecognitionReset(reset: () => void) { resetters.add(reset); return () => { resetters.delete(reset); }; }
 

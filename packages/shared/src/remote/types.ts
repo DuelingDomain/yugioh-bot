@@ -3,7 +3,7 @@ import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
 import type { RemoteEffectTracking } from "./effect-tracking.js";
-import type { RemoteBestOf, RemoteMatch } from "./match-contract.js";
+import type { RemoteBestOf, RemoteMatch, RemoteOpening } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteRevealedHand = 'until-played' | 'one-turn';
@@ -90,7 +90,7 @@ export type RemoteSystemAction =
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
   | { type: "seat.ready"; seat: number; ready: boolean }
-  | { type: "table.started"; handCounts?: 1 }
+  | { type: "table.started"; handCounts?: 1; opening?: RemoteOpening }
   | { type: "idle.warning"; closesAt: number }
   | { type: "table.ended"; reason: "idle" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
 export type RemoteEvent = {
