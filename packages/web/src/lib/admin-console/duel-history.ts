@@ -18,7 +18,7 @@ const TAB_SQL: Record<HistoryTab, string> = {
   multi: "d.format in ('tag', 'ffa3', 'ffa4')",
   ranked: "d.ranked = 1",
 };
-/** Same practice-bot and test-duel flags as the stats, so the tab counts and the stats agree. */
+/** Same practice-bot and test-duel flags as the stats. The tab counts cover engine duels only; the stats total also holds Remote tables. */
 const COUNTED = `(@all = 1 or ((case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json, '$.testDuel'), 0) else 0 end) = 0
   and not exists(select 1 from duel_seats bs where bs.duel_id = d.id and bs.is_bot = 1)))`;
 /** Start of the duel in whole seconds: one stable integer to order and page by, whatever shape the text was stored in. */
@@ -44,7 +44,7 @@ export function loadDuelHistory(db: Database.Database, guild: string, range: Due
   const scope = `d.guild_id = @guild and d.kind = 'play' and d.started_at is not null
       and julianday(coalesce(d.ended_at, d.created_at)) >= julianday(@floor)
       and julianday(d.started_at) >= julianday(@from) and julianday(d.started_at) < julianday(@to) and ${COUNTED}`;
-  const limit = Math.min(Math.max(opts.limit, 1), HISTORY_MAX_PAGE);
+  const limit = Math.min(Math.max(Math.trunc(opts.limit) || HISTORY_PAGE, 1), HISTORY_MAX_PAGE);
 
   const rows = db.prepare(`
     select ${TODAY_COLUMNS}, ${START_SECONDS} as start_seconds, 0 as n_all, 0 as n_multi, 0 as n_ranked
@@ -86,7 +86,7 @@ export async function duelHistoryResponse(request: Request): Promise<Response> {
   const tab = (HISTORY_TABS as readonly string[]).includes(query.get("tab") ?? "") ? (query.get("tab") as HistoryTab) : "all";
   const before = parseCursor(query.get("before"));
   if (query.get("before") && !before) return adminJson(failed("The page marker is not valid.", now), 400);
-  const limit = Number(query.get("limit")) || HISTORY_PAGE;
+  const limit = Math.trunc(Number(query.get("limit"))) || HISTORY_PAGE;
   try {
     return adminJson(ok(loadDuelHistory(getDb(), guild, range.range, { includeBots: query.get("bots") === "1", tab, before, limit, now }), now));
   } catch {
