@@ -136,19 +136,20 @@ export function orientFieldFromHands(calibration:FieldCalibration,left:number,ri
  * The same grid moved by whole rows along the mat (positive = toward the player, negative = away). New mat point (x, y) lands where the old (x, y + rows) was.
  * Throws when the moved grid would leave the picture.
  */
-export function shiftFieldCalibrationRows(calibration:FieldCalibration, rows:number):FieldCalibration {
+export function shiftFieldCalibrationRows(calibration:FieldCalibration, rows:number,limits=fieldQuadEnvelope(calibration.corners)):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION,dy=-rows*FIELD_ROW;
   const corners=unitCorners.map(u=>{const m=orient(u,orientation,true);return fieldMatPoint({x:m.x,y:m.y-dy},calibration);});
+  if(!inPicture(corners,limits))throw new Error('The grid would leave the picture.');
   return createFieldCalibration(corners,calibration.orientation,calibration.zoneSpacing,calibration.zones);
 }
 /**
  * Fix for monster and spell cards placed in swapped rows (monster in S, spell/trap in M): the quick setup then reads a
  * reflected mat. This reflects the rows (M becomes S and S becomes M) in the same picture plane.
  */
-export function swapFieldCalibrationRows(calibration:FieldCalibration):FieldCalibration {
+export function swapFieldCalibrationRows(calibration:FieldCalibration,limits=fieldQuadEnvelope(calibration.corners)):FieldCalibration {
   const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
   const flipped=createFieldCalibration(calibration.corners,{playerSide:sides[(sides.indexOf(orientation.playerSide)+2)%4],mirrored:!orientation.mirrored},calibration.zoneSpacing,calibration.zones);
-  return shiftFieldCalibrationRows(flipped,-1);
+  return shiftFieldCalibrationRows(flipped,-1,limits);
 }
 export const fieldCenter = (card: Pick<DetectedQuad,'quad'>): Point => ({x:card.quad.reduce((s,p)=>s+p.x,0)/4,y:card.quad.reduce((s,p)=>s+p.y,0)/4});
 type Homography=number[];
@@ -180,6 +181,14 @@ export function createFieldCalibration(points: Point[], orientation?:FieldOrient
   if(corners.length!==4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<-.5||p.y<-.5||p.x>1.5||p.y>1.5) || polygonArea(corners)<.02) throw new Error('Invalid field calibration: click opposite corners or four clockwise mat corners');
   const crosses=corners.map((a,i)=>{const b=corners[(i+1)%4],c=corners[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
   if(crosses.some(c=>c<=0))throw new Error('Invalid field calibration: corners must be clockwise from top left');
+  // Convex separating-axis check: even a diagonal quad whose bounding box
+  // touches the image must contain some visible area to be a calibration.
+  const axes=[{x:1,y:0},{x:0,y:1},...corners.map((a,i)=>{const b=corners[(i+1)%4];return {x:a.y-b.y,y:b.x-a.x};})];
+  if(axes.some(axis=>{
+    const project=(p:Point)=>p.x*axis.x+p.y*axis.y,a=corners.map(project),b=unitCorners.map(project);
+    return Math.max(...a)<=Math.min(...b)+1e-10||Math.max(...b)<=Math.min(...a)+1e-10;
+  }))throw new Error('Invalid field calibration: mat must overlap the picture');
+
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
   return {version:1,layout:FIELD_ZONE_LAYOUT,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }

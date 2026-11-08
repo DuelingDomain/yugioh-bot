@@ -56,12 +56,12 @@ export function FieldCalibrationControl({video,format='normal',defaultSide='bott
   /** Move the whole grid by rows along the mat (positive = toward you). */
   function shiftRows(rows:number){
     if(!preview)return;
-    try{const grid=shiftFieldCalibrationRows(preview,rows);tf.rebase(grid.corners);setError('');}
+    try{const limits=tf.grab().limits,grid=shiftFieldCalibrationRows(preview,rows,limits);tf.rebase(grid.corners,limits);setError('');}
     catch{setError('The grid cannot move further: it would leave the picture. Make it smaller with Size first.');}
   }
   function swapRows(){
     if(!preview)return;
-    try{const grid=swapFieldCalibrationRows(preview);tf.rebase(grid.corners);setOrientation(grid.orientation);setSwapAsk(false);setError('');}
+    try{const limits=tf.grab().limits,grid=swapFieldCalibrationRows(preview,limits);tf.rebase(grid.corners,limits);setOrientation(grid.orientation);setSwapAsk(false);setError('');}
     catch{setError('The grid cannot be swapped here: it would leave the picture. Make it smaller with Size first.');}
   }
   const cells=fieldGridCells(format);

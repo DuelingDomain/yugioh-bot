@@ -75,7 +75,7 @@ export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=
       if(quad)commit({...from,quad,angle:from.angle,restore:1},true);
     },[commit]),
     /** A new quad (for example from the two-card setup); the turn is read from it. */
-    rebase:useCallback((next:Point[])=>{lastPush.current=0;commit(startState(next,aspectRef.current),true);},[commit]),
+    rebase:useCallback((next:Point[],limits?:FieldQuadEnvelope)=>{lastPush.current=0;commit({...startState(next,aspectRef.current),...(limits?{limits}:{})},true);},[commit]),
     reset:useCallback(()=>{lastPush.current=0;commit(fresh(),true);},[commit]),
     undo:useCallback(()=>{
       const previous=history.current.pop();setDepth(history.current.length);
