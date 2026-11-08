@@ -291,7 +291,7 @@ describe("remote duel API foundation", () => {
     expect((await act(request(`/${room.slug}/actions`, { ...command, action: { ...command.action, actorSeat: 1, idempotencyKey: "spoof" } }), context)).status).toBe(403);
     expect((await GET(request("?scope=mine"))).status).toBe(200);
     expect(playerCount()).toEqual({ c: 0 });
-  });
+  }, 20_000); // Cold dynamic route imports after vi.resetModules: 4-5 s idle, 10 s on a loaded runner.
   it("authorizes format/deck setup, rejects foreign decks and blocks invalid ready-up", async () => {
     vi.stubEnv("REMOTE_DUELS","1");
     const { POST } = await import("../app/api/remote/route");
@@ -319,7 +319,7 @@ describe("remote duel API foundation", () => {
     expect((await ready(request("/ready",{ready:true}),context)).status).toBe(200);
     state.auth.mockResolvedValue({user:{id:String(foreign),name:"Guest"}});
     expect((await format(request("/format",{format:"domain"}),context)).status).toBe(404);
-  });
+  }, 20_000); // Cold dynamic route imports after vi.resetModules: 2-4 s idle, 10 s on a loaded runner.
   it("applies the REMOTE_DUELS_USERS rollout list to rooms, sockets and phones", async () => {
     vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("WS_INTERNAL_SECRET", "remote-secret");
     vi.stubEnv("LIVEKIT_URL", "ws://127.0.0.1:7880"); vi.stubEnv("LIVEKIT_API_KEY", "devkey"); vi.stubEnv("LIVEKIT_API_SECRET", "secret");

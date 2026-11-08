@@ -987,11 +987,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
 
   test("Duels → New → Remote Duel → Create room lands on the table", async ({ page }) => {
     await page.goto("/duels");
-    await expect(page.getByTestId("remote-tables-panel")).toBeVisible();
+    await expect(page.getByTestId("new-remote-duel")).toBeVisible();
     for (const [w, h] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
       await page.setViewportSize({ width: w, height: h });
       await page.goto("/duels");
-      await expect(page.getByRole("heading", { name: "Remote Duels" })).toBeVisible();
       await expect(page.getByRole("link", { name: "New Remote Duel" })).toBeVisible();
       await shot(page, `duels-${w}x${h}`);
       await page.goto("/duels/new");
@@ -1040,9 +1039,9 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     }
     // The new table is listed on the Duels page. It is yours and solo, so it is still being set up, not open to join.
     await page.goto("/duels");
-    const panel = page.getByTestId("remote-tables-panel");
-    await expect(panel.getByText("Your table")).toBeVisible();
-    await expect(panel.getByText("Setting up").first()).toBeVisible();
+    await expect(page.getByText("Your table").first()).toBeVisible();
+    await expect(page.getByText("Setting up").first()).toBeVisible();
+    await expect(page.getByText("Remote", { exact: true }).first()).toBeVisible();
     await shot(page, "duels-with-table-1920");
   });
 
@@ -1072,7 +1071,7 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
 // Run with E2E_REMOTE_OFF=1: the stack then starts without REMOTE_DUELS.
 test.describe("Remote Duel with the flag off leaves no trace", () => {
   test.skip(process.env.E2E_REMOTE_OFF !== "1", "needs a stack with REMOTE_DUELS off (E2E_REMOTE_OFF=1)");
-  test("no Play mode, no Remote Duels panel, no remote or deck requests", async ({ page, context }) => {
+  test("no Play mode, no Remote Duel button, no remote or deck requests", async ({ page, context }) => {
     await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, BASE_URL);
     const seen: string[] = [];
     page.on("request", request => { const path = new URL(request.url()).pathname; if (path.startsWith("/api/remote") || path === "/api/decks") seen.push(path); });
@@ -1082,7 +1081,7 @@ test.describe("Remote Duel with the flag off leaves no trace", () => {
     await expect(page.getByTestId("remote-setup")).toHaveCount(0);
     await page.goto("/duels");
     await expect(page.getByRole("heading", { name: "Duels", exact: true })).toBeVisible();
-    await expect(page.getByTestId("remote-tables-panel")).toHaveCount(0);
+    await expect(page.getByTestId("new-remote-duel")).toHaveCount(0);
     await page.waitForTimeout(6000);
     expect(seen).toEqual([]);
   });

@@ -122,7 +122,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     setBusy(true); setError("");
     try {
       await remoteApi(`/${slug}/${path}`, body);
-      if (path === "leave") router.push("/duels/remote"); else await mutate();
+      if (path === "leave") router.push("/duels"); else await mutate();
       return true;
     } catch (e) { setError((e as Error).message); void mutate(); return false; } finally { setBusy(false); }
   }, [slug, router, mutate]);
