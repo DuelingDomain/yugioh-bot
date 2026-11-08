@@ -15,7 +15,7 @@ import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Rect, Tier } from "./popup";
-import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
+import { canFlipSummon, interpret, suggestCommands, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
@@ -901,6 +901,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       card = matches[0].card;
     } else card = recentCard(seat);
     if (!card) return { text: "No card to move. Place one first.", ignored: true };
+    if (move.flipSummon && !canFlipSummon(card)) return { text: "Flip summon needs a face-down monster in a Monster Zone", ignored: true };
     const dest = move.dest;
     const emz = dest?.zone === "extra-monster" && !dest.slot ? freeEmzSlot(seat, cur.seats) : dest?.slot;
     const land: Landing = dest ? { zone: dest.zone, ...(dest.zone === "extra-monster" ? (emz ? { slot: emz } : {}) : dest.slot ? { slot: dest.slot } : {}) } : { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
@@ -940,7 +941,10 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
         set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`); void act({ type: "phase.set", actorSeat: me, phase: intent.phase }); break;
-      case "turn": set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => passTurn(), requestId); break;
+      case "turn":
+        // The attack chip comes first: a spoken pass must not replace it.
+        if (current.attack) { set("Resolve the attack first", true); break; }
+        set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => passTurn(), requestId); break;
       case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => void changeLp(intent.seat, intent.delta, "Voice adjustment"), requestId); break;
       case "attack": {
         const best = intent.resolution.candidates[0]; if (!best) { set("No attacker found", true); break; }

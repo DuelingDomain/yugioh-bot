@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parsePhaseCommand, remoteActionSchema, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
-import { interpret } from "@/components/remote/ui/grammar";
+import { canFlipSummon, interpret } from "@/components/remote/ui/grammar";
 import { buildMatcher } from "@/components/remote/ui/voice/speech-matcher";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
 import { buildPhrases, combineHits, FIXED_PHRASES, isChatter, spokenForm } from "@/components/remote/ui/voice/phrases";
@@ -108,36 +108,52 @@ describe("browser voice commands (KWS)", () => {
       return place(state, 1, "b", "Dark Magician", 1);
     };
     const players = [{ seat: 0, displayName: "Me" }, { seat: 1, displayName: "Opponent" }];
-    const said = (text: string, phase = "main1", me = 0) => {
-      const intent = interpret(text, { state: board(phase), players, me, trayOpen: false, cardNames: ["Blue-Eyes White Dragon", "Dark Magician"], now: 5000 });
+    const said = (text: string, phase = "main1", me = 0, extra: Partial<RemoteState> = {}) => {
+      const intent = interpret(text, { state: { ...board(phase), ...extra }, players, me, trayOpen: false, cardNames: ["Blue-Eyes White Dragon", "Dark Magician"], now: 5000 });
       return intent.kind === "phase" ? `phase ${intent.phase}` : intent.kind === "move" ? `move ${JSON.stringify(intent.move)}` : intent.kind;
     };
 
     it("maps spoken phrases to existing actions, and ignores the same words in talk", () => {
-      const cases: [string, string][] = [
+      const cases: [string, string, string?][] = [
         ["pass turn", "turn"], ["I pass", "turn"], ["I'll pass", "turn"], ["pass", "turn"], ["end my turn", "turn"], ["turn end", "turn"],
-        ["that's my turn", "turn"], ["your turn", "turn"], ["your go", "turn"], ["go ahead", "turn"],
+        ["that's my turn", "turn"], ["your turn", "turn"], ["your go", "turn"],
         ["going to battle", "phase battle"], ["into battle", "phase battle"], ["enter battle", "phase battle"], ["go to battle", "phase battle"], ["moving to end phase", "phase end"],
-        ["em two", "phase main2"], ["m2", "phase main2"], ["main two", "phase main2"], ["main phase one", "phase main1"], ["next phase", "phase battle"], ["standby", "phase standby"],
+        ["main two", "phase main2"], ["main phase one", "phase main1"], ["next phase", "phase battle"], ["standby", "phase standby"],
         ["swing at Dark Magician", "attack"], ["swing", "attack"], ["Blue-Eyes White Dragon swings at Dark Magician", "attack"], ["I attack with Blue-Eyes White Dragon", "attack"],
         ["Blue-Eyes White Dragon attacks Dark Magician", "attack"], ["attack directly", "attack"], ["direct attack", "attack"], ["go direct", "attack"],
         ["chain", "wake"], ["I chain", "wake"], ["in response", "wake"], ["respond", "wake"],
         ["set", "move {\"faceUp\":false}"], ["set a card", "move {\"faceUp\":false}"], ["I set one face down", "move {\"faceUp\":false}"],
-        ["flip summon Blue-Eyes White Dragon", "move {\"query\":\"blue eyes white dragon\",\"position\":\"attack\",\"faceUp\":true}"],
-        // m1 is also Monster Zone 1: from Main 1 it is not a later phase, so it stays the zone.
-        ["m1", "move {\"dest\":{\"zone\":\"monster\",\"slot\":1}}"],
+        ["flip summon Blue-Eyes White Dragon", "move {\"query\":\"blue eyes white dragon\",\"position\":\"attack\",\"faceUp\":true,\"flipSummon\":true}"],
+        // m1 and m2 are always Monster Zone 1 and 2, never a phase.
+        ["m1", "move {\"dest\":{\"zone\":\"monster\",\"slot\":1}}"], ["m2", "move {\"dest\":{\"zone\":\"monster\",\"slot\":2}}"],
+        // A bare flip summon, and a set by card type, would act on whatever card was touched last, so they do nothing.
+        ["flip summon", "none"], ["I set a trap", "none"], ["go ahead", "none"],
         // Words with no action yet, and the same words inside ordinary talk, do nothing.
         ["no response", "none"], ["no chain", "none"], ["resolve", "none"], ["okay", "none"], ["go", "none"],
         ["normal summon", "none"], ["summon", "none"], ["tribute summon", "none"], ["special summon", "none"], ["I set two face down", "none"],
         ["go ahead and play it", "none"], ["your turn is next", "none"], ["I was going to battle last turn", "none"], ["swing of memories", "none"], ["so I pass priority to you", "none"],
       ];
-      for (const [text, expected] of cases) expect(said(text), text).toBe(expected);
+      for (const [text, expected, phase] of cases) expect(said(text, phase), text).toBe(expected);
       // A phase word that is not a next phase is still ignored by the voice rule, and the soft turn phrases need your own turn from Main 1 on.
-      expect(said("go ahead", "draw")).toBe("none");
       expect(said("your turn", "standby")).toBe("none");
-      expect(said("go ahead", "main1", 1)).toBe("none");
-      expect(said("m1", "draw")).toBe("phase main1");
-      expect(said("em two", "end")).toBe("phase main2");
+      expect(said("I pass", "draw")).toBe("none");
+      expect(said("I'll pass", "main1", 1)).toBe("none");
+      // Spoken phases go through the same plausibility rule as the voice check page (the live table has no other check).
+      expect(said("em one", "main2")).toBe("none");
+      expect(said("em two", "end")).toBe("none");
+      expect(said("into battle", "main2")).toBe("none");
+      expect(said("going to the end", "main1")).toBe("none");
+      expect(said("m1", "draw")).toBe("move {\"dest\":{\"zone\":\"monster\",\"slot\":1}}");
+      expect(said("em two", "battle")).toBe("phase main2");
+      expect(said("m two", "battle")).toBe("phase main2");
+      expect(said("em one", "standby")).toBe("phase main1");
+      // A pending attack keeps its confirm chip: a spoken pass does not replace it.
+      const attacking = { attack: { id: "x", attackerSeat: 0, targetSeat: 1, direct: true } };
+      expect(said("pass turn", "main1", 0, attacking)).toBe("none");
+      expect(said("I pass", "main1", 0, attacking)).toBe("none");
+      expect(canFlipSummon({ zone: "monster", faceUp: false })).toBe(true);
+      expect(canFlipSummon({ zone: "spell-trap", faceUp: false })).toBe(false);
+      expect(canFlipSummon({ zone: "monster", faceUp: true })).toBe(false);
       expect(judgePhaseWord("main1", 2, true, heardPhaseOf("main phase one")!)).toMatchObject({ accept: false });
     });
 
@@ -151,10 +167,9 @@ describe("browser voice commands (KWS)", () => {
       expect(canonical("EM TWO")).toBe("main phase two");
       expect(canonical("SWING AT")).toBe("attack");
       expect(canonical("I CHAIN")).toBe("chain");
-      expect(canonical("FLIP SUMMON")).toBe("face up attack position");
-      const goAhead = combineHits([hit("GO AHEAD")], set.meanings);
-      expect(isChatter(goAhead, set.meanings, 900)).toBe(false);
-      expect(isChatter(goAhead, set.meanings, 3000)).toBe(true);
+      const iPass = combineHits([hit("I PASS")], set.meanings);
+      expect(isChatter(iPass, set.meanings, 900)).toBe(false);
+      expect(isChatter(iPass, set.meanings, 3000)).toBe(true);
       expect(isChatter(combineHits([hit("GO TO BATTLE")], set.meanings), set.meanings, 3000)).toBe(false);
     });
 
@@ -168,7 +183,8 @@ describe("browser voice commands (KWS)", () => {
       expect(heard("Swing")).toBe("attack");
       expect(heard("In response")).toBe("chain");
       expect(heard("I set one face down")).toBe("set");
-      expect(heard("Go ahead", 3000)).toBe("");
+      expect(heard("I pass", 3000)).toBe("");
+      expect(heard("Go ahead")).toBe("");
       expect(heard("so then he went ahead and passed the turn to me")).toBe("");
       expect(heard("no response")).toBe("");
       expect(heard("no chain")).toBe("");

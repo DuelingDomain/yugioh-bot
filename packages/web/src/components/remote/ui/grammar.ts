@@ -1,5 +1,6 @@
 import { naturalCommand } from "./voice/natural-phrases";
-import { parsePhaseCommand, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
+import { heardPhaseOf, judgePhaseWord, VOICE_PHASES, type VoicePhase } from "./voice/phase-plausibility";
+import { parsePhaseCommand, ygoBattleAllowed, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
 export type VoiceIntent =
@@ -18,7 +19,10 @@ export type VoiceIntent =
 /** Where a spoken move sends a card. slot is 1 to 5 (EMZ 1 = left, 2 = right); an Extra Monster Zone without a side has no slot. */
 export type MoveDest = { zone: "monster" | "spell-trap" | "field" | "extra-monster" | "graveyard" | "banished" | "hand" | "extra"; slot?: number };
 /** "Dark Magician to monster zone two", "set in trap zone one", "defense position", "graveyard". No query = the card placed last. */
-export type MoveIntent = { query?: string; dest?: MoveDest; position?: "attack" | "defense"; faceUp?: boolean };
+/** `flipSummon` marks a spoken "flip summon <card>": the table accepts it only for a face-down card in a Monster Zone. */
+export type MoveIntent = { query?: string; dest?: MoveDest; position?: "attack" | "defense"; faceUp?: boolean; flipSummon?: true };
+/** Whether a card may be flip summoned by voice: face down, in a Monster Zone. */
+export const canFlipSummon = (card: { zone: string; faceUp: boolean }) => card.zone === "monster" && !card.faceUp;
 
 export type GrammarContext = {
   state: RemoteState;
@@ -148,7 +152,18 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   const cards = contextCardNames(ctx).map(norm).filter(Boolean);
   const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, cards.some(card => text === card || text.startsWith(`${card} `)));
   if (natural && "ignore" in natural) return { kind: "none" };
-  if (natural) { raw = natural.text; text = norm(raw); }
+  let flipSummon = false;
+  if (natural) {
+    raw = natural.text; text = norm(raw); flipSummon = natural.flip === true;
+    // The live table has no other phase check, so a spoken phase must be a legal next phase, from the turn player (same rule as the voice check page).
+    const heard = heardPhaseOf(text);
+    if (heard && heard !== "endTurn") {
+      const current = ctx.state.phase as VoicePhase;
+      if (!VOICE_PHASES.includes(current) || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
+    }
+    // Passing the turn must not replace the attack that is waiting for its confirm.
+    if (text === "end turn" && ctx.state.attack) return { kind: "none" };
+  }
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) return phase;
@@ -163,7 +178,7 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   // Attack lines are for the attack resolver. "attack position" is a position word, not an attack.
   const attacking = /\battacks\b|\bdirect/.test(text) || /\battack\b(?! (?:position|mode)\b)/.test(text);
   const move = attacking ? null : parseMove(raw);
-  if (move) return { kind: "move", move };
+  if (move) return { kind: "move", move: flipSummon ? { ...move, flipSummon: true } : move };
   if (/\battacks?\b/.test(text) || /\bdirect(ly)?\b/.test(text)) {
     const direct = /\bdirect attack (on|at|against|to) (.+)$/.exec(text);
     const input = direct

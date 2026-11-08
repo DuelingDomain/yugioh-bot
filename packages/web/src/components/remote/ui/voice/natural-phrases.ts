@@ -23,7 +23,7 @@ const MOVES: readonly Natural[] = [
 export const NATURAL_PHRASES: readonly Natural[] = [
   // Passing the turn
   ["PASS TURN", "end turn"], ["I PASS", "end turn"], ["I'LL PASS", "end turn"], ["END MY TURN", "end turn"], ["TURN END", "end turn"],
-  ["THAT'S MY TURN", "end turn"], ["YOUR TURN", "end turn"], ["YOUR GO", "end turn"], ["GO AHEAD", "end turn"],
+  ["THAT'S MY TURN", "end turn"], ["YOUR TURN", "end turn"], ["YOUR GO", "end turn"],
   // Phases
   ["M ONE", "main phase one"], ["M TWO", "main phase two"], ["EM ONE", "main phase one"], ["EM TWO", "main phase two"],
   ...MOVES,
@@ -32,9 +32,8 @@ export const NATURAL_PHRASES: readonly Natural[] = [
   ["GO DIRECT", "direct attack"], ["GOING DIRECT", "direct attack"],
   // Chain and response (the table notes a response; "chain" also wakes an idle microphone)
   ["CHAIN", "chain"], ["I CHAIN", "chain"], ["RESPOND", "chain"], ["I RESPOND", "chain"], ["IN RESPONSE", "chain"],
-  // Sets and flips
+  // Sets (flip summon needs a card name and a face-down monster, so only the grammar reads it)
   ["SET", "set"], ["SET A CARD", "set"], ["SET IT", "set"], ["I SET", "set"], ["I SET ONE", "set"], ["I SET A CARD", "set"], ["I SET ONE FACE DOWN", "set"], ["I SET A CARD FACE DOWN", "set"],
-  ["FLIP SUMMON", "face up attack position"],
   // Said at the table but with no action in the app yet. They are listed so the listener hears "no response" as itself and not as "in response".
   ["NO RESPONSE", ""], ["NO CHAIN", ""], ["RESOLVE", ""], ["SUMMON", ""], ["NORMAL SUMMON", ""], ["TRIBUTE SUMMON", ""], ["SPECIAL SUMMON", ""],
 ];
@@ -43,17 +42,19 @@ export const NATURAL_PHRASES: readonly Natural[] = [
 export const NO_ACTION_PHRASES: readonly string[] = NATURAL_PHRASES.filter(([, canonical]) => canonical === "").map(([spoken]) => spoken);
 
 /** Also an ordinary sentence start, so never fired from a long utterance. */
-export const SOFT_PHRASES: ReadonlySet<string> = new Set(["YOUR TURN", "YOUR GO", "GO AHEAD", "THAT'S MY TURN", "I SET", "SET IT"]);
+export const SOFT_PHRASES: ReadonlySet<string> = new Set(["YOUR TURN", "YOUR GO", "I PASS", "I'LL PASS", "THAT'S MY TURN", "I SET", "SET IT"]);
 
 /** The turn order of phases (same ids as shared ygoPhases; not imported so the speech workers stay small). */
 const ORDER = ["draw", "standby", "main1", "battle", "main2", "end"];
-const SOFT_TURN = new Set(["your turn", "your go", "go ahead", "that s my turn"]);
-const TURN = new Set(["pass turn", "i pass", "i ll pass", "ill pass", "i pass turn", "turn end"]);
+const SOFT_TURN = new Set(["your turn", "your go", "i pass", "i ll pass", "ill pass", "that s my turn"]);
+const TURN = new Set(["pass turn", "i pass turn", "turn end"]);
 
-export type NaturalResult = { text: string } | { ignore: string } | null;
+export type NaturalResult = { text: string; flip?: true } | { ignore: string } | null;
 
 /** The phase a spoken name stands for, as parser text ("main phase two"). Null when it is not a phase name. */
 function phaseText(name: string): string | null {
+  // A bare "the end" is not a phase name ("going to the end of it").
+  if (/^(?:the )?end$/.test(name)) return null;
   const words = name.replace(/\bstand (?:by|bye)\b/, "standby").replace(/\b(?:face|faze|fase)\b/, "phase").replace(/ phase$/, "");
   if (/^(?:draw|standby|battle|end)$/.test(words)) return `${words} phase`;
   if (words === "main") return "main phase";
@@ -80,14 +81,9 @@ export function naturalCommand(text: string, state: { phase: string; turnSeat: n
   const move = /^(?:go(?:ing)? to|mov(?:e|ing) to|head(?:ing)? to|enter(?:ing)?|into) (?:the )?(.+)$/.exec(text);
   const moved = move && phaseText(move[1]);
   if (moved) return { text: moved };
-  // "m1" is also Monster Zone 1, so the digit form is a phase only when it is a later phase than now. "em one" and "m one" are always the phase.
-  const short = /^(e?m) ?(1|2|one|two)$/.exec(text);
-  if (short) {
-    const target = short[2] === "1" || short[2] === "one" ? "main1" : "main2";
-    const ahead = ORDER.indexOf(target) > ORDER.indexOf(state.phase);
-    if (!/\d/.test(short[2]) || ahead) return { text: target === "main1" ? "main phase one" : "main phase two" };
-    return null;
-  }
+  // "m1" and "m2" are Monster Zone 1 and 2 (the zone parser reads them), so only the spoken words "em one", "m two" are a phase.
+  const short = /^e?m (one|two)$/.exec(text);
+  if (short) return { text: short[1] === "one" ? "main phase one" : "main phase two" };
 
   // The attack resolver reads "attack directly"; a bare "direct attack" has no verb for it to split on.
   if (/^(?:(?:go|going) direct(?:ly)?|swings? direct(?:ly)?|direct attack)$/.test(text)) return { text: "attack directly" };
@@ -104,8 +100,9 @@ export function naturalCommand(text: string, state: { phase: string; turnSeat: n
 
   // "I set two face down" would set only one card, so it is left for the player to do by hand.
   if (/^(?:i )?(?:ll )?set (?:two|2|three|3|four|4|five|5|some|a few) /.test(text)) return { ignore: "sets more than one card" };
-  if (/^(?:i )?(?:ll )?set(?: (?:a|one|1|it|this|that|the))?(?: (?:card|monster|spell|trap))?(?: face ?down)?$/.test(text)) return { text: "set" };
+  if (/^(?:i )?(?:ll )?set(?: (?:a|one|1|it|this|that|the))?(?: card)?(?: face ?down)?$/.test(text)) return { text: "set" };
+  // Without a name "flip summon" would turn the last card touched face up, whatever it is, so a name is required.
   const flip = /^(?:i )?(?:ll )?flip summon(?: (.+))?$/.exec(text);
-  if (flip) return { text: `${flip[1] ? `${flip[1]} ` : ""}face up attack position` };
+  if (flip) return flip[1] ? { text: `${flip[1]} face up attack position`, flip: true } : { ignore: "flip summon needs a card name" };
   return null;
 }
