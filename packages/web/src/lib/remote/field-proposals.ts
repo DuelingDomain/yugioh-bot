@@ -71,7 +71,7 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
     t.state!=='dismissed'&&(!t.cardId||t.state==='candidate'));
 }
 export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'deck'|'extra'|undefined=undefined):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
-  if(!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
+  if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination||['graveyard','banished'].includes(card.zone)?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
 }
 

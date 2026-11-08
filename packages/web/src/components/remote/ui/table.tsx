@@ -64,6 +64,8 @@ import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTap
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
+import { FeedCardsProvider } from "./feed-cards";
+import { useTokens } from "./token-ui";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -142,7 +144,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const R = useRef({ room, state, layer: layers.layer, feedbackAdmin: false }); R.current = { room, state, layer: layers.layer, feedbackAdmin: !!feedbackPref?.isAdmin };
 
   // ---- card facts ----
-  const twinCodes = state.seats.flatMap(item => item.twin.map(cardCode));
+  const twinCodes = state.seats.flatMap(item => item.twin.map(card => cardCode(card) ?? card.token?.artId));
   const deckCodes = seatIds.flatMap(seat => deckIdsOf(room, seat));
   const [subject, setSubject] = useState<Subject | null>(null);
   const [flagSeat, setFlagSeat] = useState(0);
@@ -246,6 +248,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if(updated&&warning)toast(warning,5000);
     return updated;
   },[ctl.action,toast]);
+  const tokens = useTokens({ act, room, live, extraZones, layers, info });
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
@@ -842,8 +845,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const landOf = (card: TwinCard, key: ZoneKey | "hand"): Landing => key === "hand" ? { zone: "hand" } : landingForCell(key, cardInfo(cardCode(card)), extraZones);
   const fieldDrag = (seat: number): FieldDrag | undefined => !live || !(solo || seat === mySeat) ? undefined : {
     can: card => !picking && ["monster", "spell-trap", "field", "extra-monster", "pendulum", "graveyard", "banished"].includes(card.zone),
-    judge: (card, key) => judgeFor(seat, card, landOf(card, key)),
-    drop: (card, key) => { tryMove(seat, card, landOf(card, key)); },
+    judge: (card, key) => card.token ? tokens.judge(seat, card, key) : judgeFor(seat, card, landOf(card, key)),
+    drop: (card, key) => { if (card.token) tokens.drop(seat, card, key); else tryMove(seat, card, landOf(card, key)); },
   };
   /** The card this seat placed or moved last, if it is still on the field. */
   const recentCard = (seat: number): TwinCard | undefined => {
@@ -1183,6 +1186,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   }
   const openSubject = (card: TwinCard, from: Exclude<CardSource, "hand"> = "board", anchor?: Rect) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    if (card.token) { tokens.open(seat, card); return; }
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card);
@@ -1259,6 +1263,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
     if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
+    if (card?.token) { cancelRead(); tokens.open(seat, card); return true; }
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {
       cancelRead(); openSubject(card, "camera", at.anchor);
@@ -1284,6 +1289,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   /** Right click or long press on a card: its actions in the card drawer (move, flip, position, Graveyard, Wrong card?, Undo). True when something opened. */
   const openCardActions = (card: TwinCard): boolean => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    if (card.token) { tokens.open(seat, card); return true; }
     if (!cardCode(card) && !card.faceUp && !(solo || seat === mySeat)) { toast("Set card"); return true; }
     openSubject(card, "board"); return true;
   };
@@ -1300,9 +1306,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     const key = cell.dataset.zone as ZoneKey; const seat = Number(cell.dataset.seat);
     if (key === "gy") { openPile(seat, "graveyard", cell); return true; }
     if (isPile(key)) return false;
-    const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : false;
+    const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <FeedCardsProvider seats={state.seats} info={info}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1341,7 +1347,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
-            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined}
+            cameraControl={seat === mySeat ? <><CameraControl room={room} />{tokens.trigger(seat)}</> : tokens.trigger(seat)}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
@@ -1415,8 +1421,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       : match.phase === "siding" && match.siding
         ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     <Peek peek={peek} />
+    {tokens.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
-  </div>;
+  </div></FeedCardsProvider>;
 }

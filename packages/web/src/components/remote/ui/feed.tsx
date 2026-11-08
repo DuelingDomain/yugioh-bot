@@ -11,6 +11,7 @@ import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRea
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, useFieldBacks, useTapSeat, type Health } from "./video-hub";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
+import { HubFeedCards } from "./feed-cards";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
 import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
@@ -512,6 +513,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} onControlsEnter={calmHover} /> : null}
+      {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}

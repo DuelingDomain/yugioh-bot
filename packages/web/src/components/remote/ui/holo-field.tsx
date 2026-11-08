@@ -12,6 +12,7 @@ import {useMissingPiles} from '@/lib/remote/zone-grid';
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
 import { equipSourceOnField, fieldZoneCheck } from "@/lib/remote/field-legality";
+import { StatPlate, statsOf, statsText } from "./card-stats";
 
 const SHAPE = "polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)";
 const FRAME_CLASS: Record<FrameKind, string> = {
@@ -30,20 +31,24 @@ function ratingOf(kind: FrameKind, info: CardInfo | undefined): string | null {
  * arrows come from the card. The CSS frame under the image has the colour of the card type and stays when the image fails.
  * ATK / DEF come from the catalog data (a Link monster has ATK only).
  */
-export function CardFace({ card, info }: { card: TwinCard; info?: CardInfo }) {
+export function CardFace({ card, info, stats = "inline" }: { card: TwinCard; info?: CardInfo; /** "none": the field draws the numbers itself, upright (StatPlate), so the card carries none. */ stats?: "inline" | "none" }) {
   const [state, setState] = useState<"loading" | "ok" | "broken">("loading");
-  const code = cardCode(card);
-  const kind = frameOf(info);
-  const monster = isMonsterInfo(info);
+  const token = card.token;
+  // A token borrows the art of its catalog card; a generic token has none.
+  const code = cardCode(card) ?? token?.artId;
+  const kind: FrameKind = token ? "token" : frameOf(info);
+  const monster = !!token || isMonsterInfo(info);
   const link = kind === "link";
-  const rating = ratingOf(kind, info);
-  const stat = (value: number | undefined) => (value === undefined || value < 0 ? "?" : String(value));
+  const rating = token ? null : ratingOf(kind, info);
+  const stat = (value: number | undefined | null) => (value === undefined || value === null || value < 0 ? "?" : String(value));
+  const atk = token ? token.atk : info?.atk, def = token ? token.def : info?.def;
   return <div className={`${s.cd} ${FRAME_CLASS[kind]}`} data-frame={kind} data-art={state} style={{ "--h": hueOf(code ?? 1), "--shape": SHAPE } as React.CSSProperties}>
     <div className={s.nm} title={card.bestMatch?'Best match · use Wrong card? to correct':undefined}>{card.bestMatch?'Best match · ':''}{cardName(card, info)}</div>
     <div className={s.art} />
-    <div className={s.st}>{monster ? <><b>{stat(info?.atk)}</b>{link ? null : <b>{stat(info?.def)}</b>}</> : <b>{kind === "trap" ? "TRAP" : kind === "spell" ? "SPELL" : "\u2026"}</b>}</div>
+    {stats === "none" && monster ? (token ? <div className={s.st}><b>TOKEN</b></div> : null)
+      : <div className={s.st}>{monster ? <><b>{stat(atk)}</b>{link ? null : <b>{stat(def)}</b>}</> : <b>{kind === "trap" ? "TRAP" : kind === "spell" ? "SPELL" : "\u2026"}</b>}</div>}
     {code && state !== "broken" ? <img className={s.fimg} src={cardArt(code, "small")} alt="" draggable={false} onLoad={() => setState("ok")} onError={() => setState("broken")} /> : null}
-    {monster && info && state === "ok" ? <div className={s.plate} data-testid="card-plate"><b>{stat(info.atk)}</b>{link ? null : <><i>/</i><b>{stat(info.def)}</b></>}</div> : null}
+    {stats === "inline" && monster && (info || token) && state === "ok" ? <div className={s.plate} data-testid="card-plate"><b>{stat(atk)}</b>{link ? null : <><i>/</i><b>{stat(def)}</b></>}</div> : null}
     {rating && state === "ok" ? <span className={s.rate} data-testid="card-rating">{rating}</span> : null}
   </div>;
 }
@@ -213,7 +218,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const cell = cells[key]; const card = cell.card; const pile = isPile(key);
         const ghost = !card && !pile ? view[key].card : undefined;
         const cardInfo = card ? info(cardCode(card)) : undefined;
-        const unknown = !!card && card.faceUp && !cardCode(card);
+        const unknown = !!card && card.faceUp && !cardCode(card) && !card.token;
         const down = !!card && !card.faceUp;
         const defense = (!!card && card.position === "defense" && !pile) || ghost?.position === "defense";
         const monsterZone = isMonsterZone(key); const emzCell = key === "e1" || key === "e2";
@@ -250,7 +255,10 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
             <span className={`${s.originLabel} ${!origin&&card.publicIdentity?s.revealedChip:""}`} data-testid={!origin&&card.publicIdentity?"revealed-chip":undefined}>{origin || (card.publicIdentity?"Revealed":"Face-down")}</span></>;
         }
-        else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
+        else if (card) {
+          const stats = statsOf(card, cardInfo);
+          desc = cardName(card, cardInfo) + (card.token ? " (token)" : "") + (isMonsterInfo(cardInfo) || card.token ? (defense ? ", defense position" : ", attack position") : "") + (stats ? `, ${statsText(stats)}` : "");
+          inner = <><CardFace card={card} info={cardInfo} stats="none" />{stats ? <StatPlate stats={stats} turned={rotated} /> : null}</>; }
         else if (trapHolder) inner = <div className={z.held} data-testid="trap-zone-held"><small>{zoneLabel(key)} · TRAP MONSTER</small><b>{nameOf(trapHolder)}</b></div>;
         if (card && zoneCheck) desc += `. Check zone: ${zoneCheck}`;
         if (card?.equippedTo) desc += `. Equipped to ${target ? nameOf(target) : "a monster"}`;
