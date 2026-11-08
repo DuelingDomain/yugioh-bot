@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { plural } from "@/lib/admin-console/format";
 import { createRelease, previewEmail, publishRelease, releaseFrom, saveRelease, sendEmail } from "@/lib/updates/admin-client";
-import { SECTION_META, longDate, shortDate } from "@/lib/updates/model";
+import { SECTION_META } from "@/lib/updates/model";
+import { ADMIN_TIME_ZONE_LABEL, formatClock, formatLongDate } from "@/lib/admin-console/time";
 import { SECTION_KINDS, type AdminRelease, type EmailPreview, type EmailSendState, type ReleaseDraftInput, type ReleaseSectionKind } from "@/lib/updates/types";
 import type { ConsoleActions } from "./admin-console";
 import { SheetFrame } from "./creators-sheet";
@@ -75,7 +76,7 @@ export function ReleaseSheet({ release, configured, missingConfig, actions, onCh
       <div className={styles.crHead}>
         <h2>{release ? `v${release.version}` : "New release"}</h2>
         <p>
-          {published && release?.publishedAt ? `Published ${longDate(release.publishedAt)}. Players can read these notes now.`
+          {published && release?.publishedAt ? `Published ${dayLong(release.publishedAt)}. Players can read these notes now.`
             : release ? "A draft. Players can not see it yet."
             : "Write the notes first. Nothing shows to players until you publish."}
         </p>
@@ -366,7 +367,7 @@ function EmailBox({ release, configured, missingConfig, actions, onChanged, onSe
           <div className={own.state}>
             <StatusIcon tone={email.state === "done" ? "good" : "warn"} />
             <div>
-              <b>Sent on {email.confirmedAt ? longDate(email.confirmedAt) : "an earlier day"}</b>
+              <b>Sent on {email.confirmedAt ? dayLong(email.confirmedAt) : "an earlier day"}</b>
               <p>
                 {plural(email.sent, "email", "emails")} sent{email.failed ? `, ${email.failed} did not go out` : ""}.
                 {email.state === "needs_review" ? " Check the numbers." : ""} A release email can go out once, so there is no second send.
@@ -443,9 +444,14 @@ function PreviewCounts({ preview, expired }: { preview: EmailPreview; expired: b
   );
 }
 
+function dayLong(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? formatLongDate(ms) : "";
+}
+
 function shortTime(iso: string): string {
   const date = new Date(iso);
-  return Number.isFinite(date.getTime()) ? date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "soon";
+  return Number.isFinite(date.getTime()) ? `${formatClock(date.getTime())} ${ADMIN_TIME_ZONE_LABEL}` : "soon";
 }
 
 function Progress({ sent, failed, total }: { sent: number; failed: number; total: number }) {
