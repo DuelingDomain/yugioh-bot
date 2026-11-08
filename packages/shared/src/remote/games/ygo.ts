@@ -61,6 +61,8 @@ function clearZoneLinks(state: RemoteState, at: number) {
   // Xyz materials stay only under a face-up Xyz Monster on the field; else they go to the GY (bottom first).
   // A camera lift to the hand (the default for a card out of view) holds them for 30 s: the Xyz may come back.
   for (const seat of state.seats) {
+    // A token that left the Monster Zones (sent anywhere, or taken as a material) disappears.
+    if (seat.twin.some(card => card.token && !MONSTER_ZONES.has(card.zone))) seat.twin = seat.twin.filter(card => !card.token || MONSTER_ZONES.has(card.zone));
     for (const card of seat.twin) if (card.zone !== "material") delete card.materialOf;
     for (const card of [...seat.twin]) if (card.materials) {
       const lifted = card.zone === "hand" && !!card.departedFrom?.auto && MONSTER_ZONES.has(card.departedFrom.zone) && card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
@@ -85,6 +87,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
   let deckAction = action;
+  /** A token action changes table state only: it skips deck, effect and hand tracking. */
+  let tokenAction = false;
   const at = action.at ?? state.updatedAt;
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
@@ -208,7 +212,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const card of sightings) {
         remoteAssert(card.cardId || card.passcode, "A cardId or passcode is required");
         if (card.zone) validZone(card.zone);
-        if (card.cardRef) remoteAssert(ownField(action.seat).twin.some(c => c.ref === card.cardRef), "Unknown twin card", 409);
+        if (card.cardRef) {
+          const target = ownField(action.seat).twin.find(c => c.ref === card.cardRef);
+          remoteAssert(target, "Unknown twin card", 409);
+          remoteAssert(!target.token, "A token has no physical card to identify", 409);
+        }
       }
       break;
     }
@@ -218,6 +226,15 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
+      if (action.card.token) {
+        const token = action.card;
+        remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.slot >= 1 && token.slot <= 5 && token.faceUp && !token.cardId && !token.passcode,
+          "A token goes face-up into a Main Monster Zone", 409);
+        remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === token.ref), "Duplicate card ref or field is full", 409);
+        freeSlot(s, "monster", token.slot);
+        s.twin.push({ ...token, zone: "monster" });
+        tokenAction = true; break;
+      }
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
       if (reuse && "noop" in reuse) return next;
       if (reuse && "pending" in reuse) return next;
@@ -239,6 +256,29 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      if (card.token) {
+        // The camera never touches a token: nothing physical backs it.
+        if ("source" in action && action.source === "auto") return state;
+        tokenAction = true;
+        const gone = () => { s.twin = s.twin.filter(c => c !== card); };
+        if (action.type === "twin.remove") { gone(); break; }
+        if (action.type === "twin.flip") {
+          remoteAssert(action.faceUp, "A token stays face-up", 409);
+          if (action.position !== undefined) card.position = action.position;
+          break;
+        }
+        validZone(action.zone);
+        // Leaving the Main Monster Zones means the token disappears; it never goes to an Extra Monster Zone.
+        if (action.zone === "extra-monster") remoteAssert(false, "A token stays in the Main Monster Zones", 409);
+        if (action.zone !== "monster") { gone(); break; }
+        remoteAssert(action.faceUp !== false, "A token stays face-up", 409);
+        const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
+        remoteAssert(slot !== undefined, "A token needs a Monster Zone slot", 409);
+        freeSlot(s, action.zone, slot, card.ref);
+        card.zone = action.zone; card.slot = slot;
+        if (action.position !== undefined) card.position = action.position;
+        break;
+      }
       const fieldFaceState=!context?.replay||context.fieldFaceState===1;
       // A player who turns over the same field card by hand does not erase its publicly shown identity.
       // The camera seeing a card turned face-down makes it a plain Set for the opponent. Earlier face-down flips carry no source, so replays stay the same.
@@ -275,7 +315,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "twin.equip": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
-      remoteAssert(card && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
+      remoteAssert(card && !card.token && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
       if (!action.target) { delete card.equippedTo; break; }
       const target = next.seats[action.target.seat]?.twin.find(c => c.ref === action.target!.ref);
       remoteAssert(target && target !== card && MONSTER_ZONES.has(target.zone), "Equip target must be a monster on the field", 409);
@@ -284,7 +324,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "twin.attach": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
-      remoteAssert(card && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
+      remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
       applySummon(s, card, action.kind, action.materialRefs, at, true);
       break;
     }
@@ -319,9 +359,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "log.note": return next;
   }
-  applyRemoteEffectTracking(next, state, deckAction, context);
-  next = applyLiveDeckChecks(next, deckAction, context);
-  applyRemoteHand(next, state, action, context);
+  if (!tokenAction) {
+    applyRemoteEffectTracking(next, state, deckAction, context);
+    next = applyLiveDeckChecks(next, deckAction, context);
+    applyRemoteHand(next, state, action, context);
+  }
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
   for (const s of next.seats) if (s.eliminated) s.twin = [];

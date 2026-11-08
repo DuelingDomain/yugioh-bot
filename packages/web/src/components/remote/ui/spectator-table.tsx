@@ -23,6 +23,7 @@ import { matchOf } from "./match-model";
 import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
 import { PileViewer, type PileZone } from "./pile-viewer";
+import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
 import { useLayers } from "./use-layers";
 import type { RoomController } from "./use-remote-room";
@@ -56,8 +57,8 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
   </div></div>;
 }
 
-function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard }: {
-  seat: number; name: string; video: SpectatorVideo; online: boolean; stopped: boolean; frozen: (seat: number, value: boolean) => void;
+function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, format }: {
+  seat: number; name: string; video: SpectatorVideo; format: FieldFormat; online: boolean; stopped: boolean; frozen: (seat: number, value: boolean) => void;
   /** A click on the camera at a point of the frame (0..1). */ onCard: (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => void;
 }) {
   const snapshot = useSyncExternalStore(video.subscribe, video.getSnapshot, video.getSnapshot);
@@ -86,6 +87,7 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard }: {
       <div className={s.fcam} style={{ cursor: "default" }} onClick={click}>
         {track ? <video ref={element} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
           <span>{online ? `Waiting for ${name}'s camera.` : stopped ? "Table video is off." : "Connecting to table video…"}</span></div>}
+        {track ? <FeedCards seat={seat} frame={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }} format={format} read={() => video.tracks.calibration(seat)} /> : null}
       </div>
     </div>
   </div>;
@@ -121,7 +123,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
-  const info = useCardInfo([...state.seats.flatMap(item => [...item.twin.map(cardCode), ...(item.knownHand ?? []).map(card => card.cardId)]), subject?.cardId]);
+  const info = useCardInfo([...state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]), subject?.cardId]);
   const extraZones = hasExtraZones(room.format?.id);
   const format = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
 
@@ -166,7 +168,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const note = ended ? `This table has ended.${state.winnerSeat !== null && state.winnerSeat !== undefined ? ` ${name(state.winnerSeat)} won.` : ""}`
     : match.phase === "siding" ? "The players are side decking." : match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null;
 
-  return <div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc="1" data-testid="spectator-table" data-status={room.status}>
+  return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc="1" data-testid="spectator-table" data-status={room.status}>
     <div className={s.shell}>
       <header className={s.top}>
         <a className={s.logo} href="/duels" aria-label="Stop watching and return to the Duels page" onClick={() => void stopWatching(room.slug)}><span className={s.gem} /><b>Dueling Domain</b></a>
@@ -199,7 +201,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {state.seats[seat]?.eliminated ? <span className={s.tag}>OUT</span> : null}
             </header>
             <div className={s.sbody}>
-              {video ? <SpectatorFeed seat={seat} name={name(seat)} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
+              {video ? <SpectatorFeed seat={seat} name={name(seat)} format={format} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
               <div className={`${s.fside} ${v.side}`}>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
                 <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
@@ -219,5 +221,5 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     {opening ? <OpeningRollScreen opening={opening} mySeat={-1} name={name} now={serverNow} out={state.seats.map(seat => !!seat.eliminated)} /> : null}
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden seat={pile.seat} name={name(pile.seat)} mine={false} twin={state.seats[pile.seat].twin} zone={pile.zone} onZone={zone => setPile({ seat: pile.seat, zone })} info={info} onOpenCard={(card, anchor) => show(pile.seat, card, anchor, null)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={info(subject.cardId)} at={popAt} actions={NO_ACTIONS} onClose={() => layers.close("card")} /> : null}
-  </div>;
+  </div></FeedCardsProvider>;
 }

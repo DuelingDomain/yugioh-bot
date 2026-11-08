@@ -565,13 +565,22 @@ it('failed compensating Undo exposes a recoverable stale-placement error with th
 });
 
 it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Check zone',async()=>{
- const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
+ const {projectFieldZone,hardFieldZone,freeFieldZones}=await import('../src/lib/remote/field-legality');
  // Owner, Infinite Impermanence in a Monster Zone: a Trap without Trap Monster facts goes to the same column's S/T zone.
  const result=projectFieldZone({zone:'M4',facts:{type:'Trap Card',frameType:'normal',race:'Normal'},twins:[]});
  expect(result).toEqual({zone:'S4',label:'Spell/Trap Zone 4',moved:'Trap → S4'});
  expect(projectFieldZone({zone:'M3',facts:{type:'Spell Card',race:'Quick-Play'},twins:[{ref:'busy',zone:'spell-trap',slot:3}]}).zone).toBe('S2');
  expect(hardFieldZone({type:'Trap Card'},'M3',[],'self')).toBe('S3');
  expect(projectFieldZone({zone:'EMZ1',facts:{type:'Trap Card'},twins:[]}).zone).toBe('S2');
+ // A token holds its cell: a camera card in that cell stays there (the player is asked), any other target treats the cell as taken.
+ const monster={type:'Normal Monster',frameType:'normal',race:'Warrior'},token={ref:'token',zone:'monster',slot:2,token:{atk:0,def:0}};
+ expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
+ expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
+ // "Choose another zone" for a face-down card: the player picks from the free cells, and the token's cell is not one.
+ expect(freeFieldZones([token],undefined,true).slice(0,4)).toEqual(['M1','M3','M4','M5']);
+ // A known card sees only its own row.
+ expect(freeFieldZones([token],monster)).toEqual(['M1','M3','M4','M5']);
+ expect(freeFieldZones([token],{type:'Normal Trap Card'})).toEqual(['S1','S2','S3','S4','S5']);
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
