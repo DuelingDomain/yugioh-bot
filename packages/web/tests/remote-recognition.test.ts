@@ -604,10 +604,10 @@ it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and
   const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
   expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
  }
- expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
- expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
+ expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBe('M2');
+ expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBe('M2');
  expect(hardFieldZone({type:'Normal Spell Card'},'M2',[],'self')).toBe('S2');
- expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});
+ expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'M2',shift:true});
  expect(hardFieldZone({type:'Union Effect Monster'},'S2',[],'self')).toBeUndefined();
 });
 it('field legality: Main Deck monsters in the extra row go to the same column\'s Main Monster Zone; Pendulums are plausible',async()=>{
@@ -630,14 +630,14 @@ it('field legality: unavailable extra zones fall back to a free aligned main mon
  for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
 });
-it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle stays with Check zone',async()=>{
+it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); a plain monster like Ghost Belle moves to M and flags a grid shift',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const belle=projectFieldZone({zone:'S2',facts:{type:'Effect Monster',effectText:'(Quick Effect): You can discard this card; negate the activation.'},twins:[]});
- expect(belle).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});expect(belle.moved).toBeUndefined();
+ expect(belle).toMatchObject({zone:'M2',shift:true});
  expect(projectFieldZone({zone:'S3',facts:{type:'Effect Monster',effectText:'You can Set this card from your hand to your Spell & Trap Zone as a Spell.'},twins:[]})).toEqual({zone:'S3',label:'Spell/Trap Zone 3'});
  expect(projectFieldZone({zone:'S2',facts:{type:'Union Effect Monster'},twins:[]}).check).toBeUndefined();
  expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipSource:true}).check).toBeUndefined();
- expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('S2');
+ expect(projectFieldZone({zone:'S2',facts:{type:'Link Monster',frameType:'link'},twins:[]}).zone).toBe('M2');
 });
 it('field legality: Pendulum monsters keep outer spell/trap columns as scales; inner columns are marked',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');

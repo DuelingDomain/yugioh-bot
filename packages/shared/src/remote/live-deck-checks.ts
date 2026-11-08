@@ -51,7 +51,8 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   if (action.type === "twin.flip" || action.type === "twin.move") {
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.cardRef);
-    if(twin && isPublic(twin)) observe(action.seat,{...twin,cardRef:twin.ref});
+    // A card another player owns is not a copy of this player's deck.
+    if(twin && twin.ownerSeat===undefined && isPublic(twin)) observe(action.seat,{...twin,cardRef:twin.ref});
   }
   if(action.type==="effect.activated" && context.effect?.source.cardRef) {
     const twin=next.seats[action.actorSeat].twin.find(c=>c.ref===context.effect!.source.cardRef);

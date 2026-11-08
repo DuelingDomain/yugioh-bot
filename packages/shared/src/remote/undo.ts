@@ -260,6 +260,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
+    case "twin.control": return `${name}: control changed`;
     case "hand.add": return "Added card to hand";
     case "hand.reveal": return "Revealed card in hand";
     case "hand.forget": return "Forgot known hand card";

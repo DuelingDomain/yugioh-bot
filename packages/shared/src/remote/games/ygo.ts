@@ -311,6 +311,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
+      // A controlled card that leaves the field goes to its owner's side (their Graveyard, hand, Deck…).
+      if (action.type !== "twin.remove" && card.ownerSeat !== undefined && card.ownerSeat !== s.seat && !FIELD_ZONES.has(card.zone)) {
+        const owner = next.seats[card.ownerSeat];
+        if (owner && !owner.eliminated && !owner.twin.some(c => c.ref === card.ref)) { s.twin = s.twin.filter(c => c !== card); delete card.ownerSeat; owner.twin.push(card); }
+        else delete card.ownerSeat;
+      }
       break;
     }
     case "twin.equip": {
@@ -320,6 +326,32 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const target = next.seats[action.target.seat]?.twin.find(c => c.ref === action.target!.ref);
       remoteAssert(target && target !== card && MONSTER_ZONES.has(target.zone), "Equip target must be a monster on the field", 409);
       card.equippedTo = { seat: action.target.seat, ref: target.ref };
+      break;
+    }
+    case "twin.control": {
+      remoteAssert(action.actorSeat === action.seat || action.actorSeat === action.toSeat, "Only the new or the current controller can change control", 403);
+      remoteAssert(action.seat !== action.toSeat, "The card is already on that side", 409);
+      const from = seat(action.seat), to = seat(action.toSeat);
+      const card = from.twin.find(c => c.ref === action.cardRef);
+      remoteAssert(card && !card.token && (FIELD_ZONES.has(card.zone) || card.zone === "graveyard" || card.zone === "banished"), "Only a card on the field or in a Graveyard or banished pile can change control", 409);
+      remoteAssert(!to.twin.some(c => c.ref === card.ref) && to.twin.length < 100, "Duplicate card ref or field is full", 409);
+      validZone(action.zone);
+      const pile = action.zone === "graveyard" || action.zone === "banished";
+      // The thief sees only what the table already showed: a face-down card keeps no identity on the new side.
+      if (!remotePublicCard(card)) for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "publicIdentity"] as const) delete card[key];
+      if (!pile) freeSlot(to, action.zone, action.slot, card.ref);
+      from.twin = from.twin.filter(c => c !== card);
+      for (const key of ["slot", "trapZone", "equippedTo", "departedFrom", "materialOf"] as const) delete card[key];
+      // Other cards that point to this monster follow it to the new side. Its materials are not carried over.
+      for (const other of next.seats) for (const item of other.twin) if (item.equippedTo?.seat === from.seat && item.equippedTo.ref === card.ref) item.equippedTo = { seat: to.seat, ref: card.ref };
+      delete card.materials;
+      const owner = card.ownerSeat ?? from.seat;
+      if (owner === to.seat) delete card.ownerSeat; else card.ownerSeat = owner;
+      card.zone = action.zone;
+      if (action.slot !== undefined && !pile) card.slot = action.slot;
+      if (action.position !== undefined) card.position = action.position;
+      card.faceUp = pile ? true : action.faceUp ?? true;
+      to.twin.push(card);
       break;
     }
     case "twin.attach": {

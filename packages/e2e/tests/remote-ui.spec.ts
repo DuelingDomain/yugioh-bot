@@ -2253,3 +2253,50 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
   });
 });
+
+test.describe("remote duels screen, card logic", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+  const seedCards = async (context: { request: APIRequestContext }, slug: string, cards: { seat: number; zone: string; ref: string; cardId: number; name: string; slot?: number }[]) => {
+    let room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    for (const { seat, zone, ...card } of cards) {
+      const response = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: seat, seat, zone, card: { ...card, faceUp: true, position: "attack" } } } });
+      expect(response.status(), await response.text()).toBe(200); room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    }
+    return async () => (await (await context.request.get(`/api/remote/${slug}`)).json()) as { state: { seats: { twin: { ref: string; zone: string; slot?: number; ownerSeat?: number; equippedTo?: { seat: number; ref: string } }[] }[] } };
+  };
+
+  test("control change: Monster Reborn asks which Graveyard, the revived card is mine, and Return control gives it back", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 1, zone: "graveyard", ref: "dm", cardId: 46986414, name: "Dark Magician" },
+      { seat: 0, zone: "spell-trap", ref: "mr", cardId: 83764718, name: "Monster Reborn", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0");
+    await expect(field.locator('[data-zone="s1"]')).toBeVisible();
+    await field.locator('[data-zone="s1"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByRole("button", { name: "Activate" }).click();
+    // The card logic knows Monster Reborn revives from a Graveyard, so the table asks. The player picks the card.
+    const dialog = page.getByTestId("control-dialog");
+    await expect(dialog).toContainText("Revive from which Graveyard?", { timeout: 60_000 });
+    await dialog.getByTestId("control-pick").first().click();
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", ownerSeat: 1 });
+    expect((await room()).state.seats[1].twin.some(card => card.ref === "dm")).toBe(false);
+    await field.locator('[data-zone="m1"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByTestId("card-control").click();
+    await expect.poll(async () => (await room()).state.seats[1].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster" });
+    expect((await room()).state.seats[0].twin.some(card => card.ref === "dm")).toBe(false);
+  });
+
+  test("equip: a Union monster in a Spell & Trap Zone is accepted and linked to the only monster", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 0, zone: "monster", ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1 },
+      { seat: 0, zone: "spell-trap", ref: "yd", cardId: 65622692, name: "Y-Dragon Head", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
+  });
+});

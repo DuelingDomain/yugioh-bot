@@ -17,8 +17,12 @@ Card facts come from one resolver (`/api/cards/resolve`): the EDOPro engine `car
 | Link Monster | M, EMZ | → M |
 | Main Deck monster | M | EMZ → M (EMZ1 → M2, EMZ2 → M4) |
 | Monster Set as a Spell by its text (Artifact, Crystal Beast) | M, S/T | — |
-| Union, "equip this card", or a card on your field that equips monsters | M, S/T face-up | face-down in S/T: "Check zone?" |
+| Card logic: a monster that equips itself (Union, Agnumday-style Link/Fusion) or a monster that an Equip effect on your field equips | M, S/T face-up | face-down in S/T: "Check zone?" |
 | Pendulum Monster | M, S1/S5 (scales) | S2–S4: kept, "Check zone?" |
+
+A face-up monster with none of these reasons (a plain monster) seen in S/T is not kept there. It moves to the same column in M and the table offers "Zones look shifted — Recalibrate?" at once, because the whole zone grid is probably one row off (PR #535 kept such a card in S/T with "Check zone?").
+
+**Card logic** comes from the engine data, not from card text: `packages/duel-server/scripts/build-card-logic.ts` reads `cards.cdb` (Union type bit) and the card scripts (`Duel.Equip`, `EquipByEffect*`, `Duel.GetControl`, `SwapControl`, `CATEGORY_CONTROL`, "Special Summon from a Graveyard") and writes `packages/web/src/lib/remote/card-logic-data.ts` (card ids only, about 4 KB). Run it again after an engine data update. A card that is not in a list is plain. The card text rules stay as a fallback for cards the lists do not know.
 
 When the target zone is taken, the card goes to the nearest free zone in that row. When the row is full, the player chooses. A card that the camera sees now and that is in an illegal row on the board (from before) is moved the same way. Cards moved by hand on the board are the player's choice: they are not moved, and the manual move only shows a warning.
 
@@ -28,6 +32,9 @@ When the target zone is taken, the card goes to the nearest free zone in that ro
 
 - **Trap Monster.** A Trap with Trap Monster text that moves from S/T zone N to an M or EMZ zone keeps S/T zone N occupied (`trapZone: N` on the card). Other Traps hold nothing (they only get "Check zone?"). The board draws "S<N> · TRAP MONSTER <card>" in that zone. The reducer refuses another card there (Pendulum Zone 1/2 = S1/S5), and an Undo that would put a hold onto a used zone (or a card onto a held zone) is refused. The link goes when the card leaves the Monster Zones.
 - **Equip.** The card inspector has "Equipped to" for your face-up S/T cards (`equippedTo` on the card). The board shows the link on both cards. The link goes when either card leaves the field.
+
+- **Control change.** A card revived from an opponent's Graveyard, or taken from an opponent's field, ends on the taker's side. `twin.control` moves the twin card to the other seat and marks it `ownerSeat` (its owner). The card menu has "Take control" (an opponent's monster or Graveyard card) and "Return control" (a card with `ownerSeat`). When an activated card is known to revive from a Graveyard (Monster Reborn) or to take control (Snatch Steal, Change of Heart), the table asks "Revive from which Graveyard?" or "Take control of which monster?" and lists the opponents' cards. The player picks; nothing is guessed. A card with `ownerSeat` that goes to the GY or banished, or leaves the field, returns to its owner's pile. It is never flagged as "not in your decklist", and the opponents' public cards are priors for the camera reader.
+- **Equip by card logic.** A self-equip monster seen face-up in S/T is linked to the only monster on the table; with more than one monster the table shows a notice and the player picks "Equipped to".
 
 ## Pile exits
 

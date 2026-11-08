@@ -70,6 +70,8 @@ import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
 import { useTokens } from "./token-ui";
+import { useControlChange } from "./control-ui";
+import { controlOffer, equipsItself } from "@/lib/remote/card-logic";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
@@ -244,6 +246,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const addVoiceLog = useCallback((text: string) => setVoiceLog(list => [...list.slice(-30), { id: `vx:${Date.now()}`, time: fmtTime(Date.now()), kind: "VX" as const, text, fresh: true }]), []);
 
   // ---- actions ----
+  const controlOfferRef = useRef<((seat: number, wanted: ReturnType<typeof controlOffer>) => void) | undefined>(undefined);
   const act = useCallback(async(input:RemoteActionProposal)=>{
     let warning:string|undefined,proposal=input;
     if(input.type==='twin.move'){
@@ -258,9 +261,26 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     const updated=await ctl.action(proposal);
     if(quiet)setTimeout(()=>{quietError.current=false;},150);
     if(updated&&warning)toast(warning,5000);
+    // An activated card that takes control (card logic) asks which card it took. After the card popup closes, so the picker stays open.
+    if(updated&&proposal.type==='effect.activated'&&proposal.source.cardId){const wanted=controlOffer(proposal.source.cardId),seat=proposal.actorSeat;if(wanted)setTimeout(()=>controlOfferRef.current?.(seat,wanted),0);}
     return updated;
   },[ctl.action,toast]);
   const tokens = useTokens({ act, room, live, extraZones, layers, info });
+  const control = useControlChange({ act, room, live, layers, info, name, toast });
+  controlOfferRef.current = control.offer;
+  // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: link it when only one monster could be its target, else ask.
+  const equipNudged = useRef(new Set<string>());
+  useEffect(() => {
+    if (!live || (!solo && mySeat < 0)) return;
+    for (const seat of solo ? state.seats.map(item => item.seat) : [mySeat]) for (const card of state.seats[seat]?.twin ?? []) {
+      const id = cardCode(card);
+      if (card.zone !== "spell-trap" || !card.faceUp || !id || card.equippedTo || !equipsItself(id) || equipNudged.current.has(card.ref)) continue;
+      equipNudged.current.add(card.ref);
+      const targets = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => (c.zone === "monster" || c.zone === "extra-monster") && c.ref !== card.ref).map(c => ({ seat: other.seat, ref: c.ref })));
+      if (targets.length === 1) void act({ type: "twin.equip", actorSeat: seat, seat, cardRef: card.ref, target: targets[0] });
+      else toast(`${cardName(card, info(id))} is equipped to a monster. Pick it with "Equipped to" in the card menu.`, 6000);
+    }
+  }, [state.seats, live, solo, mySeat, act, toast, info]);
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
@@ -1171,6 +1191,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
+    // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
+    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) ? { control: { label: "Take control", onClick: () => { if (control.take(mySeat, subject.seat, subjectCard)) layers.close(); } } } : {}),
+    ...(subject && subjectCard?.ownerSeat !== undefined && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); layers.close(); } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
@@ -1222,7 +1245,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     const id = cardCode(card);
     // Your own card with no name still gets its actions (move, flip, Graveyard, Wrong card?). cardId 0 = not identified.
     if (!id && !((solo || seat === mySeat) && from === "board" && !anchor)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
-    setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id ? flagFor(seat, id) : null, addErrors: [], via: "field" });
+    setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id && card.ownerSeat === undefined ? flagFor(seat, id) : null, addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref });
     // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
     if (anchor) { setPopAt({ anchor, feed: null }); layers.open("card"); } else if (from === "board") layers.open("insp");
@@ -1247,7 +1270,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
-  const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
+  const warnRefs = (seat: number) => new Set(state.seats[seat]?.twin.filter(card => { const code = cardCode(card); return code && card.ownerSeat === undefined && flagFor(seat, code) === true; }).map(card => card.ref) ?? []);
   const twinCounts = (seat: number) => new Map(findTwinGroups(state.seats[seat]?.twin ?? []).flatMap(group => group.cards.map(card => [card.ref, group.cards.length] as const)));
   const draftPhase = PHASES.length;
   void draftPhase;
@@ -1464,6 +1487,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
     <Peek peek={peek} />
     {tokens.node}
+    {control.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />

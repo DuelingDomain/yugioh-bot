@@ -15,7 +15,7 @@ import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,f
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
+import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,plainMonsterInSpellTrap,zoneMoveLabel,equipSourceOnField,becomesTrapMonster} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -130,10 +130,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const promptCount=useRef(0),autoScanAt=useRef(-Infinity);
   const rowFixes=useRef(new Map<string,number>()),[shiftHint,setShiftHint]=useState(false),shiftHinted=useRef(false);
   useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);},[room.slug,seat]);
-  const noteRowFix=(ref:string)=>{
+  const noteRowFix=(ref:string,shifted=false)=>{
     const at=performance.now();rowFixes.current.set(ref,at);
     for(const [key,when] of rowFixes.current)if(at-when>120_000)rowFixes.current.delete(key);
-    if(rowFixes.current.size>=2&&!shiftHinted.current){shiftHinted.current=true;setShiftHint(true);}
+    if((shifted||rowFixes.current.size>=2)&&!shiftHinted.current){shiftHinted.current=true;setShiftHint(true);}
   };
   useEffect(()=>setRecovery(null),[room.slug,seat]);
   const setDeparture=(value:Departure|null)=>{departureRef.current=value;setDepartureState(value);};
@@ -510,10 +510,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       const wasLeaving=departureRef.current?.ref===target.card.ref;setDeparture(null);
       // Turning a board card over is no news: the table's Undo covers it. Only an uncertain read asks for a look.
-      if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved)noteRowFix(target.card.ref);return;}
+      if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved)noteRowFix(target.card.ref,projected.shift);return;}
       setNotice(summon?`${fieldSummonNotice(summon.kind,entry?.name??'Card',summon.materialRefs.map(materialName))} · auto`:`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed${projected.moved?` · ${projected.moved}`:''} · auto`);setUndoId(updated?.state.undo?.actionId??'');
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
-      if(projected.moved)noteRowFix(target.card.ref);
+      if(projected.moved)noteRowFix(target.card.ref,projected.shift);
     }finally{setPending(false);}
   }
   function handleHeld(event:HeldCardEvent) {
@@ -984,7 +984,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...fieldZoneLocation(target),...(latest.name?{name:latest.name}:{}),zoneRule:zoneMoveLabel(facts,target),...(latest.position?{position:latest.position}:{})});
         if(updated){
           const rule=`${latest.name??'Card'}: ${zoneMoveLabel(facts,target)}`;
-          setNotice(rule);noteRowFix(card.ref);setUndoId(updated.state.undo?.actionId??'');
+          setNotice(rule);noteRowFix(card.ref,plainMonsterInSpellTrap(facts,zone,{equipSource:equipSourceOn(twins)}));setUndoId(updated.state.undo?.actionId??'');
         }
       });
     }
