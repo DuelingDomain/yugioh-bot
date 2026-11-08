@@ -22,6 +22,7 @@ import { serverNow } from "./api";
 import { matchOf } from "./match-model";
 import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
+import { PeerVisionChip } from "./peer-vision-chip";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
@@ -57,6 +58,11 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
   </div></div>;
 }
 
+function SpectatorVisionChip({ video, seat, name }: { video: SpectatorVideo; seat: number; name: string }) {
+  const stats = useSyncExternalStore(video.vision.subscribe, () => video.vision.get(seat), () => undefined);
+  return <PeerVisionChip stats={stats} name={name} />;
+}
+
 function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, format }: {
   seat: number; name: string; video: SpectatorVideo; format: FieldFormat; online: boolean; stopped: boolean; frozen: (seat: number, value: boolean) => void;
   /** A click on the camera at a point of the frame (0..1). */ onCard: (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => void;
@@ -84,6 +90,7 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
   };
   return <div className={s.feedcol} data-testid={`feed-col-${seat}`} style={{ "--vr": ratio } as CSSProperties}>
     <div className={s.cams} role="group" aria-label={`${name}'s field camera. Click a public card to see it.`} data-testid={`feed-${seat}`} data-layer-asked={video.layerName}>
+      {track ? <div className={s.feedTagRow}><SpectatorVisionChip video={video} seat={seat} name={name} /></div> : null}
       <div className={s.fcam} style={{ cursor: "default" }} onClick={click}>
         {track ? <video ref={element} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
           <span>{online ? `Waiting for ${name}'s camera.` : stopped ? "Table video is off." : "Connecting to table video…"}</span></div>}

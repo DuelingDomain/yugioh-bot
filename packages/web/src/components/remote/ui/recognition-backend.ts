@@ -90,4 +90,7 @@ let gpuRetries = 0, lastGpuLoss: { reason: string; at: number } | undefined;
 export const gpuLossReason = () => lastGpuLoss;
 
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+/** Read outside React: where the card reader runs now, and a way to follow it. */
+export const recognitionBackendNow = (): RecognitionBackendState => load();
+export const subscribeRecognitionBackend = subscribe;
 export function useRecognitionBackend(): RecognitionBackendState { return useSyncExternalStore(subscribe, load, () => DEFAULT); }

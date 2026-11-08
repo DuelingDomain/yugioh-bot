@@ -17,6 +17,7 @@ import { keepCameraAuto, optimizeRecognitionCapture, releaseCameraLock } from '.
 import { CAMERA_PUBLISH, applyCameraRate, capSendResolution, cpuLimited, publishCamera, republishAsFallback, watchCpuLimit, watchEncoder } from './video-profile';
 import { readVideoRate, saveVideoRate, type VideoRate } from './video-rate';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
+import { PEER_VISION_INTERVAL_MS, PEER_VISION_REFRESH_MS, PEER_VISION_TOPIC, PeerVisionCache, encodePeerVision, peerVisionChanged, roundMs, type PeerVision } from './peer-vision';
 import { watchSendHealth } from './send-health';
 import { recognitionGeneration } from '@/components/remote/ui/recognition-backend';
 
@@ -48,6 +49,15 @@ export class RemoteVideo {
   /** Rescan requests between seats. Data channel only: no game action, so baseSeq never moves. */
   private rescan: RescanChannel;
   private backsSent=false;
+  /** What the other players see on this player's feed: reader speed and video rate. Fed by `setVision`, sent over the data channel. */
+  readonly vision = new PeerVisionCache();
+  private visionReport?: Pick<PeerVision, "backend" | "ms" | "detect">;
+  private visionSent?: PeerVision;
+  private visionAt = 0;
+  /** The last time `sendVision` read the encoder stats: that read is the costly part, so it runs once per interval at most. */
+  private visionTried = 0;
+  private visionBusy = false;
+  private visionTimer?: ReturnType<typeof setInterval>;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: readVideoRate() };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
@@ -68,7 +78,7 @@ export class RemoteVideo {
     // beforeunload can be cancelled. Leave only when pagehide confirms the departure.
     if (typeof window !== 'undefined') window.addEventListener('pagehide', this.pagehide);
     this.phone = new DesktopPhoneLink(this.room, { ...options, read: options.readPhone, onScan: options.onPhoneScan, changed: () => this.sync() });
-    this.room.on(RoomEvent.ParticipantConnected, () => this.options.onPhonePresence?.());
+    this.room.on(RoomEvent.ParticipantConnected, () => { this.options.onPhonePresence?.(); this.visionSent = undefined; });
     const sync = () => this.sync();
     for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted,
@@ -78,7 +88,8 @@ export class RemoteVideo {
     this.room.on(RoomEvent.SignalConnected, () => this.patch({ signalLost: false }));
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
       this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
-      if (connection !== ConnectionState.Connected) this.fieldTracks.clear();
+      if (connection !== ConnectionState.Connected) { this.fieldTracks.clear(); this.vision.clear(); this.stopVisionTimer(); }
+      else if (!this.visionTimer) { this.visionTimer = setInterval(() => void this.sendVision(), PEER_VISION_INTERVAL_MS); void this.sendVision(); }
       if (connection === ConnectionState.Disconnected) {
         this.channel?.close(); this.scans.abort();
         void this.voice.stop();
@@ -93,6 +104,7 @@ export class RemoteVideo {
       const from = participant ? this.seatOf(participant) : this.options.members.find(member =>
         member.userId !== null && identity === `remote-user-${member.userId}`)?.seat;
       if (from === undefined) return;
+      if (topic === PEER_VISION_TOPIC) { if (from !== this.options.seat) this.vision.receive(from, bytes); return; }
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
         if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value,{keepBacks:true});return;}
@@ -399,6 +411,38 @@ export class RemoteVideo {
     this.endWatches(); this.codec = ""; this.sentRate = undefined;
     if (this.snapshot.sendFailed) this.patch({ sendFailed: false });
   }
+  /** This player's reader state, from the card reader and the Auto-detect setting. Null when there is no camera to speak for. */
+  setVision(report: Pick<PeerVision, "backend" | "ms" | "detect"> | null) {
+    const before = this.visionReport;
+    this.visionReport = report ?? undefined;
+    // Only stores the report: the interval sends it. A new reader backend or Auto-detect mode goes out at once, a read time does not.
+    if (report && (!before || before.backend !== report.backend || before.detect !== report.detect)) void this.sendVision();
+  }
+  private stopVisionTimer() { clearInterval(this.visionTimer); this.visionTimer = undefined; }
+  /** Frames per second and size of the top layer this computer sends. Nothing when the camera is a phone or the encoder has no stats yet. */
+  private async sentVideo(): Promise<Pick<PeerVision, "fps" | "width" | "height">> {
+    const camera = this.camera;
+    if (!camera || this.phone.forSeat(this.options.seat)) return {};
+    const senders = [camera.sender, ...[...camera.simulcastCodecs.values()].map(codec => codec.sender)];
+    const top = (await cameraTraffic("sent", this.options.seat, senders)).sort((a, b) => b.width - a.width)[0];
+    return top && top.fps > 0 && top.width > 0 ? { fps: Math.round(top.fps), width: top.width, height: top.height } : {};
+  }
+  /** At most one stats read and one message per 3 s, and only when a value moved meaningfully (or every 5 s, for a player who joined later). */
+  private async sendVision() {
+    const report = this.visionReport;
+    if (!report || this.closed || this.visionBusy || this.room.state !== ConnectionState.Connected || Date.now() - this.visionTried < PEER_VISION_INTERVAL_MS - 200) return;
+    this.visionBusy = true; this.visionTried = Date.now();
+    try {
+      const next: PeerVision = { backend: report.backend, detect: report.detect, ...(report.ms === undefined ? {} : { ms: roundMs(report.ms) }), ...await this.sentVideo().catch(() => ({})) };
+      const now = Date.now();
+      if (!peerVisionChanged(this.visionSent, next) && now - this.visionAt < PEER_VISION_REFRESH_MS) return;
+      if (this.closed || this.room.state !== ConnectionState.Connected) return;
+      // Room wide: spectators see it too. It is the same public summary the player sees on their own feed.
+      await this.room.localParticipant.publishData(encodePeerVision(next), { reliable: true, topic: PEER_VISION_TOPIC });
+      this.visionSent = next; this.visionAt = now;
+    } catch { /* A chip is not worth an error: the next tick tries again. */ }
+    finally { this.visionBusy = false; }
+  }
   /** Raw WebRTC counters of every camera this device sends or receives, for the owner Debug panel. Never throws. */
   async trafficStats(): Promise<CameraTraffic[]> {
     if (this.room.state !== ConnectionState.Connected) return [];
@@ -467,5 +511,5 @@ export class RemoteVideo {
     await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
-  dispose() { this.rescan.close(); if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
+  dispose() { this.rescan.close(); if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.stopVisionTimer(); this.vision.clear(); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
 }
