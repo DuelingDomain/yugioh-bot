@@ -145,7 +145,7 @@ export const ICONS: Record<HistoryIconKind, { Icon: IconComponent; tone: IconTon
 };
 
 type Hover = { card: HistoryCard; anchor: HTMLElement };
-type ThumbHandlers = {
+export type ThumbHandlers = {
   onEnter: (card: HistoryCard, element: HTMLElement) => void;
   onLeave: () => void;
   onOpen: (card: HistoryCard) => void;
@@ -240,9 +240,14 @@ type RowProps = {
   animate: boolean;
   handlers: ThumbHandlers;
   tones?: SeatTones;
+  /** The replay's battle log: a press on the row moves the replay here. */
+  onSeek?: () => void;
+  /** The replay's battle log: the row the replay is on, and a row that has not happened yet. */
+  playhead?: boolean;
+  future?: boolean;
 };
 
-const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones }: RowProps) {
+export const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones, onSeek, playhead, future }: RowProps) {
   const styles = useSkinStyles(baseStyles, "history");
   const rowTone = toneStyle(tones, entry.seat);
   const attack = entry.icon === "attack" || entry.icon === "direct";
@@ -258,8 +263,13 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tone
       data-summon={summonMethodForIcon(entry.icon) ?? undefined}
       data-latest={latest || undefined}
       data-enter={animate || undefined}
-      aria-current={latest ? "true" : undefined}
+      data-playhead={playhead || undefined}
+      data-future={future || undefined}
+      aria-current={latest || playhead ? "true" : undefined}
     >
+      {onSeek ? (
+        <button type="button" className={styles.seek} onClick={onSeek} aria-label={`Go to: ${entry.sentence}`} />
+      ) : null}
       <span className={styles.mark} aria-hidden="true" />
       <span className={styles.thumbs} data-count={entry.thumbs.length}>
         {attack && second ? (
@@ -315,9 +325,12 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tone
   a.tones === b.tones &&
   a.latest === b.latest &&
   a.animate === b.animate &&
+  a.playhead === b.playhead &&
+  a.future === b.future &&
+  a.onSeek === b.onSeek &&
   a.handlers === b.handlers);
 
-const PhaseRow = memo(function PhaseRow({ row }: { row: HistoryPhaseRow }) {
+export const PhaseRow = memo(function PhaseRow({ row }: { row: HistoryPhaseRow }) {
   const styles = useSkinStyles(baseStyles, "history");
   return (
     <li className={styles.phase} data-battle={row.battle || undefined}>

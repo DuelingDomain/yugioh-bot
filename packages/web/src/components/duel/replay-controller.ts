@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   opponentSeatsOf,
@@ -26,13 +26,56 @@ import {
   isDuelAccessError,
 } from "./api";
 import { useCoinPlaying } from "./coin-toss-lock";
+import { getAnimationSpeed, subscribeAnimationSpeed } from "./animation-speed";
+import { duelFxClock } from "./fx-clock";
+import { waitForReveal, type AnimationSource } from "./prompt-reveal";
 import { seatTeamLabel } from "./table-format";
 import type { PromptDraft, TableController } from "./table/types";
 import type { InspectTarget } from "./inspector";
 import type { DuelActivateHandler, DuelHoverHandler } from "./field-keys";
 
+/** Pause per move when the board has no animation to wait for (reduced motion), at 1x. */
 export const BASE_STEP_MS = 1400;
-export const SPEEDS = [0.5, 1, 2, 4] as const;
+/** Presets that the + and - keys step through. The speed slider reaches every value between the ends. */
+export const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4] as const;
+export const MIN_REPLAY_SPEED = 0.25;
+export const MAX_REPLAY_SPEED = 4;
+/** Browser-only, per viewer: the speed a viewer last chose. */
+export const REPLAY_SPEED_KEY = "yugidraft.replaySpeed.v1";
+
+export function normalizeReplaySpeed(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.round(Math.min(MAX_REPLAY_SPEED, Math.max(MIN_REPLAY_SPEED, value)) * 100) / 100;
+}
+
+export function loadReplaySpeed(): number {
+  try {
+    const raw = window.localStorage.getItem(REPLAY_SPEED_KEY);
+    return raw == null ? 1 : normalizeReplaySpeed(JSON.parse(raw));
+  } catch { return 1; }
+}
+
+export function saveReplaySpeed(value: number): void {
+  try { window.localStorage.setItem(REPLAY_SPEED_KEY, JSON.stringify(normalizeReplaySpeed(value))); }
+  catch { /* The speed still holds for this tab when storage is blocked. */ }
+}
+
+/** The next preset above (direction 1) or below (-1) a speed. Stays at the ends. */
+export function stepReplaySpeed(speed: number, direction: 1 | -1): number {
+  if (direction > 0) return SPEEDS.find((value) => value > speed + 0.001) ?? MAX_REPLAY_SPEED;
+  return [...SPEEDS].reverse().find((value) => value < speed - 0.001) ?? MIN_REPLAY_SPEED;
+}
+
+/** The slider runs on a log scale from -100 (0.25x) through 0 (1x) to 100 (4x), so 1x sits in the middle. */
+export function speedToSlider(speed: number): number {
+  return Math.round((Math.log(normalizeReplaySpeed(speed)) / Math.log(MAX_REPLAY_SPEED)) * 100);
+}
+
+/** Back from the slider. A thumb near the middle snaps to exactly 1x. */
+export function sliderToSpeed(position: number): number {
+  if (Math.abs(position) <= 6) return 1;
+  return normalizeReplaySpeed(Math.pow(MAX_REPLAY_SPEED, position / 100));
+}
 /** The query parameter that keeps the selected frame across a reload. */
 export const FRAME_PARAM = "frame";
 
@@ -417,7 +460,7 @@ export function stepButtonProps(disabled: boolean, onClick: () => void) {
   return { "aria-disabled": disabled || undefined, onClick: disabled ? undefined : onClick } as const;
 }
 
-export type ReplayKeyAction = "toggle" | "next" | "previous" | "first" | "last";
+export type ReplayKeyAction = "toggle" | "next" | "previous" | "first" | "last" | "faster" | "slower";
 
 /** The keyboard map of the replay. Fields, dialogs and focused buttons keep their own keys. */
 export function replayKeyAction(event: KeyboardEvent, doc: Pick<Document, "querySelector"> = document): ReplayKeyAction | null {
@@ -437,23 +480,57 @@ export function replayKeyAction(event: KeyboardEvent, doc: Pick<Document, "query
     case "ArrowLeft": return "previous";
     case "Home": return "first";
     case "End": return "last";
+    case "+":
+    case "=": return "faster";
+    case "-":
+    case "_": return "slower";
     default: return null;
   }
 }
 
+/** What the paced autoplay needs from the page. Without it autoplay steps on a plain timer (tests, reduced motion). */
+export interface ReplayPace {
+  reducedMotion: boolean;
+  /** The element that holds the board's animations. The whole document when it is not set yet. */
+  source: () => AnimationSource | null;
+  /** True when the move at this index plays any effect (a card moves, an attack, a chain). */
+  hasEffects: (index: number) => boolean;
+}
+
+/** Virtual milliseconds (the FX clock scales them with the speed): the pause before the next move. */
+export const PACE_TIMING = {
+  /** Reading time for a move that plays effects. */
+  beatMs: 800,
+  /** A move that plays nothing (a bookkeeping update) goes by quickly. */
+  quietMs: 250,
+  /** Quiet time after the last effect ends. */
+  settleMs: 350,
+  /** One move never holds the replay longer than this. */
+  capMs: 10_000,
+};
+
 /**
- * Autoplay: steps to the next frame every BASE_STEP_MS / speed and stops at the last one. A coin toss in
- * the replay plays on its own clock, so autoplay waits until it is gone and then steps on.
+ * Autoplay: steps to the next frame and stops at the last one. The pause is paced like a live game: wait a beat for
+ * the viewer to read the move, then until the board effects of that move have ended (the same gate the prompts use),
+ * then a short settle. All waits run on the FX clock, so the speed slider scales them together with the effects.
+ * Without `pace`, or with reduced motion, it steps every BASE_STEP_MS / speed. A coin toss in the replay plays on
+ * its own clock, so autoplay waits until it is gone and then steps on.
  */
-export function useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying }: {
+export function useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying, pace }: {
   playing: boolean;
   index: number;
   last: number;
   speed: number;
   setIndex: (update: (value: number) => number) => void;
   setPlaying: (playing: boolean) => void;
+  pace?: ReplayPace;
 }): void {
   const coinPlaying = useCoinPlaying();
+  const paced = pace != null && !pace.reducedMotion;
+  const paceRef = useRef(pace);
+  paceRef.current = pace;
+  // A paced wait keeps its own pace when the speed changes (the FX clock rescales it); only the plain timer restarts.
+  const speedDep = paced ? 0 : speed;
   useEffect(() => {
     if (!playing) return;
     if (index >= last) {
@@ -461,9 +538,27 @@ export function useReplayAutoplay({ playing, index, last, speed, setIndex, setPl
       return;
     }
     if (coinPlaying) return;
-    const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
-    return () => window.clearTimeout(timer);
-  }, [playing, index, speed, last, coinPlaying, setIndex, setPlaying]);
+    if (!paced) {
+      const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
+      return () => window.clearTimeout(timer);
+    }
+    const abort = new AbortController();
+    const effects = paceRef.current?.hasEffects(index) ?? true;
+    void waitForReveal({
+      source: () => paceRef.current?.source() ?? (typeof document === "undefined" ? null : document),
+      reducedMotion: false,
+      timing: {
+        beatMs: effects ? PACE_TIMING.beatMs : PACE_TIMING.quietMs,
+        settleMs: effects ? PACE_TIMING.settleMs : 0,
+        capMs: PACE_TIMING.capMs,
+      },
+      signal: abort.signal,
+    }).then((done) => {
+      if (done) setIndex((value) => Math.min(value + 1, last));
+    });
+    return () => abort.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, index, speedDep, last, coinPlaying, paced, setIndex, setPlaying]);
 }
 
 export interface ReplayController {
@@ -496,15 +591,19 @@ interface Selection {
  * Selection is kept by frame ID, so the same frame stays selected when the frames are replaced (another card
  * visibility) or the page is reloaded (`?frame=`). The index is only the fallback when the ID is gone.
  */
-export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true, syncFrameToUrl = true }: {
+export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true, syncFrameToUrl = true, boardRef, reducedMotion }: {
   slug: string;
-  frames: readonly Pick<ReplayFrameV2, "frameId">[] | null;
+  frames: readonly (Pick<ReplayFrameV2, "frameId"> & { view?: { events: readonly unknown[] } })[] | null;
   seatCount: number;
   mySeat: number | null;
   /** False while the table is hidden (another card view loads): the keys do nothing and autoplay waits. */
   enabled?: boolean;
   /** An oversized replay uses the selected fork step in the URL, separate from its final board preview. */
   syncFrameToUrl?: boolean;
+  /** The element that holds the board's effects. Autoplay waits for them to end. Absent: autoplay steps on a plain timer. */
+  boardRef?: RefObject<AnimationSource | null>;
+  /** Reduced motion: the effects are short and autoplay steps on a plain timer. */
+  reducedMotion?: boolean;
 }): ReplayController {
   // The router's own params, not window.location: on a client-side move (End fork, Open the source replay) the address bar
   // still holds the old page while this first render runs, so only the router knows the frame the link asked for.
@@ -514,7 +613,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
     index: 0,
   }));
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<number>(1);
+  const [speed, setSpeedState] = useState<number>(1);
   const [epoch, setEpoch] = useState(0);
   const [cameraChoice, setCameraChoice] = useState<number | null>(null);
 
@@ -580,7 +679,36 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
   }, []);
   const resetEffects = useCallback(() => setEpoch((value) => value + 1), []);
 
-  useReplayAutoplay({ playing: playing && enabled, index, last, speed, setIndex: setIndexByUpdate, setPlaying });
+  // The speed a viewer chose last time. Read after mount so the server and first client render agree.
+  useEffect(() => { setSpeedState(loadReplaySpeed()); }, []);
+  const setSpeed = useCallback((value: number) => {
+    const next = normalizeReplaySpeed(value);
+    setSpeedState(next);
+    saveReplaySpeed(next);
+  }, []);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+
+  // The same speed drives the effects, so a move plays as a live one, only faster or slower. The viewer's own
+  // animation speed setting still counts. Effects already running finish at their pace (the clock's rule).
+  useEffect(() => {
+    const apply = () => duelFxClock.setReviewSpeed(speed * getAnimationSpeed());
+    apply();
+    const unsubscribe = subscribeAnimationSpeed(apply);
+    return () => {
+      unsubscribe();
+      duelFxClock.setReviewSpeed(null);
+    };
+  }, [speed]);
+
+  const pace = useMemo<ReplayPace | undefined>(() => (
+    boardRef == null ? undefined : {
+      reducedMotion: reducedMotion ?? false,
+      source: () => boardRef.current,
+      hasEffects: (at) => (framesRef.current?.[at]?.view?.events.length ?? 1) > 0,
+    }
+  ), [boardRef, reducedMotion]);
+  useReplayAutoplay({ playing: playing && enabled, index, last, speed, setIndex: setIndexByUpdate, setPlaying, pace });
 
   // Keep the selected frame in the address so a reload comes back to it. Debounced: browsers cap history writes.
   useEffect(() => {
@@ -603,12 +731,14 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
       if (action === "toggle") togglePlay();
       else if (action === "next") stepForward();
       else if (action === "previous") stepBack();
+      else if (action === "faster") setSpeed(stepReplaySpeed(speedRef.current, 1));
+      else if (action === "slower") setSpeed(stepReplaySpeed(speedRef.current, -1));
       else if (action === "first") seek(0);
       else seek(Math.max((framesRef.current?.length ?? 1) - 1, 0));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [frames, enabled, togglePlay, stepForward, stepBack, seek]);
+  }, [frames, enabled, togglePlay, stepForward, stepBack, seek, setSpeed]);
 
   return {
     index,

@@ -18,7 +18,6 @@ import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspecto
 import { DuelLogLine, useLogCategories } from "./log-line";
 import { useDuelPreferences } from "./preferences";
 import {
-  SPEEDS,
   createReadOnlyTableController,
   NO_FINAL_BOARD_COPY,
   UNCHECKED_PARAM,
@@ -40,8 +39,11 @@ import { useOpenForks } from "./replay-open-forks";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { ReplayStatus } from "./replay-status";
+import { ReplayBattleLog } from "./replay-battle-log";
+import { ReplayScrubber, ReplayTurnJump } from "./replay-scrubber";
+import { ReplaySpeedControl } from "./replay-speed";
 import { ReplayVerificationNote } from "./replay-verification";
-import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
+import { buildReplayTimeline, replayMarkers, type ReplayLogEntry } from "./replay-timeline";
 import { formatLabel } from "./table-format";
 import { genesysLabel, genesysOf, sessionBoardRule } from "./genesys";
 import type { TableController } from "./table/types";
@@ -148,7 +150,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   );
   const preferences = useDuelPreferences();
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<"card" | "log">("card");
+  const [pane, setPane] = useState<"card" | "log">("log");
   const [mobileInspect, setMobileInspect] = useState(false);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -157,9 +159,13 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const seatCount = model ? seatCountFor(model.session.format) : 2;
   // While another card view loads, the table is hidden: no key may move it (see ReplayBusy).
   const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
-  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting, syncFrameToUrl: !model?.forkSteps });
+  const controller = useReplayController({
+    slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting, syncFrameToUrl: !model?.forkSteps,
+    boardRef, reducedMotion: preferences.reducedMotion,
+  });
   const { index, last, playing, speed, epoch, camera } = controller;
   const timeline = useMemo(() => (frames ? buildReplayTimeline(frames) : null), [frames]);
+  const markers = useMemo(() => (frames ? replayMarkers(frames) : []), [frames]);
 
   // The owner's open forks and the Jump in request live here, not in the header: the table shells remount their header on
   // every seek, and a remount must not ask the list again or lose a Jump in that is on its way.
@@ -370,9 +376,13 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const inspector = (
     <CardInspector target={inspect} onInspectCard={(card) => setInspect({ type: "card", card })} />
   );
-  const sideContent = pane === "card" ? inspector : (
-    <LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} playerName={playerName} />
+  const battleLog = (
+    <ReplayBattleLog timeline={timeline} index={index} mySeat={model.mySeat} seatCount={seatCount} playerName={playerName}
+      onSeek={controller.seek} reducedMotion={preferences.reducedMotion}
+      onInspectCard={(card) => setInspect("location" in card ? { type: "card", card } : { type: "info", card })}
+      details={<LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} playerName={playerName} />} />
   );
+  const sideContent = pane === "card" ? inspector : battleLog;
   const tabs = (mobile: boolean) => (
     <div className={`${styles.tabs} ${replayStyles.tabs}`} role="group" aria-label={mobile ? "Mobile replay panels" : "Replay panels"}>
       {(["card", "log"] as const).map((tab) => (
@@ -406,7 +416,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
         <aside className={styles.inspector}>
           <span className={styles.chamfer} aria-hidden="true" />
           {tabs(false)}
-          <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"} {...cardScrollerProps(pane === "card")}>{sideContent}</div>
+          <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"} data-replay-side={pane} {...cardScrollerProps(pane === "card")}>{sideContent}</div>
         </aside>
         <section className={styles.boardColumn} aria-label="Replay field">
           <div className={styles.board} ref={boardRef}>
@@ -420,6 +430,15 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
             {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}
             <CoinTossFx events={engine.events} duelKey={`${slug}:replay:${epoch}`} reducedMotion={preferences.reducedMotion} passive />
+            {/* The chain stack is an overlay on the board: a section in the column would push the board up and down. */}
+            {engine.chain.length ? (
+              <section className={replayStyles.chain} aria-label="Current chain">
+                <strong>Chain · resolves highest link first</strong>
+                <ol>{engine.chain.map((link) => (
+                  <li key={link.index}><b>{link.index}</b><span>{link.name ?? "Effect"}<small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small></span></li>
+                ))}</ol>
+              </section>
+            ) : null}
             </MoveSourceBoundary>
           </div>
           <nav className={styles.phases} aria-label="Duel phases">
@@ -430,27 +449,22 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
               </button>
             ))}
           </nav>
-          {engine.chain.length ? (
-            <section className={styles.chain} aria-label="Current chain">
-              <strong>Chain · resolves highest link first</strong>
-              <ol>{engine.chain.map((link) => (
-                <li key={link.index}><b>{link.index}</b><span>{link.name ?? "Effect"}<small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small></span></li>
-              ))}</ol>
-            </section>
-          ) : null}
           <div className={styles.promptDock} data-idle="true">
             <div className={replayStyles.controls}>
-              {result ? (
-                <div className={replayStyles.result} role="status">
-                  <strong>{resultHeadline}</strong>
-                  <span>{result.reason}</span>
-                </div>
-              ) : null}
-              <div className={replayStyles.caption} aria-live="off">
+              {/* A fixed-size slot: the text is cut to its lines, so no move changes the height of the board above. */}
+              <div className={replayStyles.caption} aria-live="off" data-replay-caption data-result={result ? "true" : undefined}>
+                {result ? (
+                  <div role="status" data-replay-result className={replayStyles.resultLines}>
+                    <strong title={resultHeadline}>{resultHeadline}</strong>
+                    <span title={result.reason}>{result.reason}</span>
+                  </div>
+                ) : null}
                 <span className={replayStyles.actor}>{actor}</span>
-                <ul className={replayStyles.captionLines}>
-                  {newLines.slice(-4).map((entry, i) => <li key={`${entry.id}-${i}`}>{entry.text}</li>)}
-                </ul>
+                {result ? null : (
+                  <ul className={replayStyles.captionLines}>
+                    {newLines.slice(-2).map((entry, i) => <li key={`${entry.id}-${i}`} title={entry.text}>{entry.text}</li>)}
+                  </ul>
+                )}
               </div>
               <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
               <div className={replayStyles.transport}>
@@ -468,22 +482,12 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                   <button type="button" className={replayStyles.iconButton} aria-label="Last move"
                     {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={18} aria-hidden /></button>
                 </div>
-                <input type="range" className={replayStyles.slider} aria-label="Replay position"
-                  min={0} max={last} step={1} value={index}
-                  aria-valuetext={`Move ${index} of ${last}`}
-                  onChange={(event) => controller.seek(Number(event.target.value))} />
-                <div className={replayStyles.meta}>
-                  <span>Move {index} / {last}</span>
-                  <label className="flex items-center gap-2">
-                    <span className="sr-only">Playback speed</span>
-                    <select className={replayStyles.select} value={speed} aria-label="Playback speed"
-                      onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-                      {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-                    </select>
-                  </label>
-                </div>
+                <ReplayScrubber markers={markers} index={index} last={last} onSeek={controller.seek} />
+                <span className={replayStyles.count}>Move {index} / {last}</span>
+                <ReplaySpeedControl speed={speed} onChange={controller.setSpeed} />
               </div>
               <div className={replayStyles.viewBar} role="group" aria-label="Replay view">
+                <ReplayTurnJump markers={markers} turn={engine.turn} onSeek={controller.seek} />
                 <label className={replayStyles.viewField}>
                   <span>View from</span>
                   <select className={replayStyles.select} value={camera} aria-label="View from seat"
@@ -506,14 +510,15 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                   </div>
                 ) : null}
                 {renderOwnerTools(true)}
-              </div>
-              <ReplayVerificationNote verification={checkNoteOf(model)} />
-              {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
-              {model.mySeat == null || model.visibility === "public"
-                ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
-              <p className={replayStyles.note}>
                 <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
-              </p>
+              </div>
+              {/* One reserved row for every note: a note that comes and goes must not change the board height. */}
+              <div className={replayStyles.notes}>
+                <ReplayVerificationNote verification={checkNoteOf(model)} />
+                {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
+                {model.mySeat == null || model.visibility === "public"
+                  ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
+              </div>
             </div>
           </div>
         </section>
@@ -527,7 +532,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
       <div className={styles.mobileBar}>{tabs(true)}</div>
       {hover && !mobileInspect ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)} title={pane === "card" ? "Card" : "Duel log"}>
-        {sideContent}
+        {pane === "card" ? inspector : <div className={replayStyles.sheetLog}>{battleLog}</div>}
       </Sheet>
     </div>
     </ReplayBusy>

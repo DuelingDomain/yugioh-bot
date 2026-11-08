@@ -117,10 +117,11 @@ describe("DuelReplayView transport", () => {
     try {
       fireEvent.click(screen.getByRole("button", { name: "Play" }));
       expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
-      act(() => { vi.advanceTimersByTime(1400); });
+      // The pause follows the duel pace: a beat, then the board settling (prompt-reveal.ts).
+      await act(async () => { await vi.advanceTimersByTimeAsync(1400); });
       expect(screen.getByText("Move 1 / 3")).toBeTruthy();
-      fireEvent.change(screen.getByRole("combobox", { name: "Playback speed" }), { target: { value: "4" } });
-      act(() => { vi.advanceTimersByTime(350); });
+      fireEvent.change(screen.getByRole("slider", { name: "Playback speed" }), { target: { value: "100" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(400); });
       expect(screen.getByText("Move 2 / 3")).toBeTruthy();
     } finally {
       vi.useRealTimers();
@@ -137,7 +138,7 @@ describe("DuelReplayView transport", () => {
     fireEvent.keyDown(window, { key: "Home" });
     expect(screen.getByText("Move 0 / 3")).toBeTruthy();
     // A focused field keeps its own keys.
-    fireEvent.keyDown(screen.getByRole("combobox", { name: "Playback speed" }), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("slider", { name: "Playback speed" }), { key: "ArrowRight" });
     expect(screen.getByText("Move 0 / 3")).toBeTruthy();
     document.body.insertAdjacentHTML("beforeend", `<div role="dialog" aria-modal="true"><button id="in-dialog">Close</button></div>`);
     fireEvent.keyDown(document.getElementById("in-dialog")!, { key: "ArrowRight", bubbles: true });

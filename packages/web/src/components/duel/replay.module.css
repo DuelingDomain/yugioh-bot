@@ -8,11 +8,32 @@
   color: #e7edf6;
   font-size: 14px;
 }
-.caption { min-height: 2.6em; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.actor { color: #ddc389; font-weight: 600; }
-.captionLines { display: flex; flex-direction: column; gap: 1px; color: #c5d0de; overflow-wrap: anywhere; }
-.captionLines li { line-height: 1.35; }
-.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.controls { contain: layout; }
+/* A fixed box: three lines tall at every width, text cut with an ellipsis. Nothing a move says can move the board. */
+.caption { height: calc(3 * 1.35em + 4px); overflow: hidden; display: flex; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.35; }
+.actor { flex: none; color: #ddc389; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.captionLines { display: flex; flex-direction: column; gap: 0; color: #c5d0de; min-width: 0; }
+.captionLines li { line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.resultLines { display: flex; flex-direction: column; min-width: 0; order: 2; }
+.resultLines strong { font-family: var(--font-display); font-size: 15px; line-height: 1.35; color: #f0d9a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.resultLines span { color: #c5d0de; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.count { flex: none; min-width: 13ch; text-align: right; font-variant-numeric: tabular-nums; color: #b6c7d9; white-space: nowrap; }
+.notes { height: 1.5em; overflow: hidden; display: flex; gap: 12px; align-items: center; min-width: 0; }
+.notes > * { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sheetLog { position: relative; height: min(70vh, 560px); }
+/* The chain stack floats over the board; as a block in the column it pushed the board up and down. */
+.chain {
+  position: absolute; top: 8px; right: 8px; z-index: 5; pointer-events: none;
+  width: min(260px, 40%); max-height: 45%; overflow: hidden;
+  padding: 6px 8px; border: 1px solid rgb(201 168 96 / 0.45); background: rgb(12 18 28 / 0.88);
+  color: #e7edf6; font-size: 12px;
+}
+.chain strong { display: block; margin-bottom: 4px; color: #ddc389; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.chain ol { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.chain li { display: flex; gap: 6px; align-items: baseline; }
+.chain li b { color: #f0d9a0; }
+.chain small { display: block; color: #9db0c4; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .buttons { display: flex; align-items: center; gap: 4px; }
 .iconButton {
   display: grid;
@@ -72,12 +93,11 @@
    (.log li[data-kind="chain"]); the doubled class keeps the new-line light on top of those. */
 .logNew.logNew[data-kind] { background: rgb(139 92 246 / 0.18); border-left: 3px solid #b48bea; padding-left: 8px; }
 @media (max-width: 900px) {
-  .meta { margin-left: 0; width: 100%; justify-content: space-between; }
   .controls { padding: 8px; }
 }
 .tabs button[aria-pressed="true"] { color: #f4edff; background: #352052; border-color: #b48bea; box-shadow: 0 0 10px rgb(139 92 246 / 0.4), inset 0 0 10px rgb(139 92 246 / 0.2); }
 .tabs button:focus-visible { outline: 2px solid #c4a35a; outline-offset: 1px; }
-.viewBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.viewBar { min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .viewField { display: flex; align-items: center; gap: 8px; color: #b6c7d9; font-size: 13px; }
 .segmented { display: inline-flex; margin-left: auto; border: 1px solid #3a3348; }
 .segmented button { min-height: 36px; padding: 0 12px; background: #121822; color: #c5d0de; font-size: 13px; }

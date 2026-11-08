@@ -7,7 +7,6 @@ import { type DuelEngineView, type ReplayVisibility } from "@yugidraft/shared/du
 import { useDuelPreferences } from "./preferences";
 import { useIsNarrow } from "./side-panel";
 import {
-  SPEEDS,
   stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
@@ -23,6 +22,7 @@ import { MasterSeatsContext } from "./master-place";
 import { FieldCracksScope } from "./field-cracks/context";
 import { TagShell } from "./tag/tag-shell";
 import { useMatchHistoryHref } from "./history-link";
+import { ReplaySpeedControl } from "./replay-speed";
 import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
 import styles from "./replay-tag.module.css";
@@ -140,12 +140,7 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
         <input type="range" className={styles.slider} aria-label="Replay position" min={0} max={last} step={1} value={index}
           aria-valuetext={`Move ${index} of ${last}`} onChange={(event) => controller.seek(Number(event.target.value))} />
         <span className={styles.count}>{index} / {last}</span>
-        <label className={styles.speed}>
-          <span className="sr-only">Playback speed</span>
-          <select className={styles.select} value={speed} aria-label="Playback speed" onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </label>
+        <div className={styles.speed}><ReplaySpeedControl speed={speed} onChange={controller.setSpeed} /></div>
       </div>
       {narrow ? viewControls : null}
     </div>

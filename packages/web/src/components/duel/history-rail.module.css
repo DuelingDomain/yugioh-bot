@@ -166,6 +166,37 @@
   background: var(--h-loss);
 }
 
+/* Replay battle log: a press anywhere on the row seeks. The card thumbs sit above it and keep their own hover and press. */
+.seek {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.seek:hover { background: rgb(var(--h-rule-rgb) / 0.08); }
+.seek:focus-visible { outline: 2px solid var(--h-pen); outline-offset: -2px; }
+.row > .thumbs, .row > .text, .row > .lp { position: relative; z-index: 1; pointer-events: none; }
+.row > .thumbs button { pointer-events: auto; }
+/* The row the replay is on: the same red edge as the newest live row. Rows still to come are dimmed. */
+.row[data-playhead] {
+  background: rgb(228 90 77 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(228 90 77 / 0.6);
+}
+.row[data-playhead]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--h-loss);
+}
+.row[data-future] { opacity: 0.45; }
+.row[data-future]:hover { opacity: 0.85; }
+
 /* Owner mark: a solid bar for you, a dashed bar for the opponent. The text label carries it as well. */
 .mark { position: absolute; left: 0; top: calc(4 * var(--h-unit)); bottom: calc(4 * var(--h-unit)); width: 3px; border-radius: 2px; }
 .row[data-side="you"] .mark { background: var(--h-pen); }

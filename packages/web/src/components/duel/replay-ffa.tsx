@@ -7,7 +7,6 @@ import { seatCountFor, type DuelEngineView, type DuelSession, type ReplayFrameV2
 import { isEliminated } from "./multi-seat";
 import type { DuelPreferences } from "./preferences";
 import {
-  SPEEDS,
   stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
@@ -18,6 +17,7 @@ import {
   checkNoteOf,
 } from "./replay-controller";
 import type { ReplayLogEntry } from "./replay-timeline";
+import { ReplaySpeedControl } from "./replay-speed";
 import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
 import type { ReplayCheckNote } from "./replay-controller";
@@ -118,13 +118,7 @@ export function ReplayTableTransport({
           <button type="button" className={icon} aria-label="Last move"
             {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
         </div>
-        <label className={styles.speedField}>
-          <span className="sr-only">Playback speed</span>
-          <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
-            onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </label>
+        <div className={styles.speedField}><ReplaySpeedControl speed={speed} onChange={controller.setSpeed} /></div>
       </div>
       <div className={styles.scrub}>
         <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
