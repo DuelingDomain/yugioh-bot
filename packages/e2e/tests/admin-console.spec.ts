@@ -185,6 +185,24 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     await expect(row(FLOOR.tag)).toHaveCount(0);
     await filters.getByRole("button", { name: /^All/ }).click();
 
+    // Paging: page 2 of the 7 days loads, then a bots change must not send the old cursor with the new query.
+    const log: string[] = [];
+    const history = (url: string) => url.includes("/api/admin/console/duel-history");
+    page.on("request", (r) => { if (history(r.url())) log.push(`req ${r.url()}`); });
+    page.on("response", (r) => { if (history(r.url())) log.push(`res ${r.url()}`); });
+    await view(page, "Duels").getByRole("group", { name: "Date range" }).getByRole("button", { name: /7 days/ }).click();
+    const loadMore = view(page, "Duels").getByRole("button", { name: "Load more" });
+    await expect(loadMore).toBeVisible();
+    await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("before="))).toBe(true);
+    await view(page, "Duels").getByRole("checkbox", { name: /Include practice bot/ }).check();
+    await expect.poll(() => log.some((l) => l.startsWith("res ") && l.includes("bots=1") && !l.includes("before="))).toBe(true);
+    const firstPageDone = log.findIndex((l) => l.startsWith("res ") && l.includes("bots=1") && !l.includes("before="));
+    const earlyCursor = log.findIndex((l) => l.startsWith("req ") && l.includes("bots=1") && l.includes("before="));
+    expect(earlyCursor === -1 || earlyCursor > firstPageDone, `a before= request for the new query went out before its first page arrived: ${log.join(" | ")}`).toBe(true);
+    await view(page, "Duels").getByRole("checkbox", { name: /Include practice bot/ }).uncheck();
+    await view(page, "Duels").getByRole("group", { name: "Date range" }).getByRole("button", { name: /Today/ }).click();
+    await expect(list).toBeVisible();
+
     // A player opens the person panel.
     await tag.getByRole("button", { name: /valon_x/ }).click();
     await expect(page).toHaveURL(/#people$/);

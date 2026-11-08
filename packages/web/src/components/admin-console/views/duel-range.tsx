@@ -28,20 +28,37 @@ const dayLabel = (key: string) => formatDayMonth(Date.parse(`${key}T12:00:00Z`))
 const spanLabel = (from: string, to: string) => from === to ? dayLabel(from) : `${dayLabel(from)} to ${dayLabel(to)}`;
 /** The same span with the year, for the section header. */
 const spanLabelYear = (from: string, to: string) => from === to ? formatDate(Date.parse(`${from}T12:00:00Z`)) : `${dayLabel(from)} to ${formatDate(Date.parse(`${to}T12:00:00Z`))}`;
+/** "75 duels + 2 Remote": the list holds engine duels only, Remote tables are counted apart. */
+const duelCount = (c: DuelPeriodStats) => {
+  const remote = c.byFormat.remote;
+  return remote > 0 ? `${plural(c.total - remote, "duel", "duels")} + ${nf(remote)} Remote` : plural(c.total, "duel", "duels");
+};
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
 
-/** One JSON request that keeps the last answer on screen while the next one loads. */
+/** Why a request failed. The section routes answer `{state, message}`; the access gate answers `{error}` with 401, 403, 404 or 503. */
+function failureText(status: number, body: { state?: string; message?: string } | null): string {
+  if (body && typeof body === "object" && "state" in body && typeof body.message === "string") return body.message;
+  if (status === 401) return "Sign in again.";
+  if (status === 503) return "Access check is not available.";
+  if (status === 403 || status === 404) return "You do not have access to this page.";
+  return "The duels could not be loaded.";
+}
+
+/**
+ * One JSON request that keeps the last answer on screen while the next one loads.
+ * `dataUrl` is the URL the kept answer came from: after the URL changes it differs from `url` until the new answer arrives.
+ */
 function useApi<T>(url: string | null, refresh: number) {
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
+  const [state, setState] = useState<{ data: T | null; dataUrl: string | null; error: string | null; loading: boolean }>({ data: null, dataUrl: null, error: null, loading: true });
   useEffect(() => {
     if (!url) return;
     const abort = new AbortController();
     setState((s) => ({ ...s, loading: true }));
     fetch(url, { cache: "no-store", signal: abort.signal })
       .then(async (res) => {
-        const body = (await res.json().catch(() => null)) as SectionResult<T> | null;
-        if (body?.state === "ok") setState({ data: body.data, error: null, loading: false });
-        else setState((s) => ({ data: s.data, error: body ? body.message : res.status === 404 || res.status === 403 ? "You do not have access to this page." : "The duels could not be loaded.", loading: false }));
+        const body = (await res.json().catch(() => null)) as (SectionResult<T> | { error?: string }) | null;
+        if (body && "state" in body && body.state === "ok") setState({ data: body.data, dataUrl: url, error: null, loading: false });
+        else setState((s) => ({ ...s, error: failureText(res.status, body as { state?: string; message?: string } | null), loading: false }));
       })
       .catch((error) => { if (!abort.signal.aborted) setState((s) => ({ ...s, error: String(error?.name) === "AbortError" ? s.error : "The duels could not be loaded.", loading: false })); });
     return () => abort.abort();
@@ -53,8 +70,8 @@ function useApi<T>(url: string | null, refresh: number) {
 
 type Dir = "up" | "down" | "flat";
 /** A change against the previous period. `bad` marks a number where more is worse (it turns red when it grows). */
-function Change({ cur, prev, bad, absolute }: { cur: number; prev: number; bad?: boolean; absolute?: boolean }) {
-  const d = absolute ? delta(Math.round(cur * 10) / 10, Math.round(prev * 10) / 10) : delta(cur, prev, true);
+function Change({ cur, prev, bad }: { cur: number; prev: number; bad?: boolean }) {
+  const d = delta(cur, prev, true);
   const dir: Dir = bad ? (d.dir === "up" ? "down" : d.dir === "down" ? "up" : "flat") : d.dir;
   return <span className={styles.change}><b data-dir={dir}>{d.text}</b></span>;
 }
@@ -112,7 +129,7 @@ function StatsPanel({ stats, loading, bots, onBots }: { stats: DuelStatsData; lo
       <div className={styles.dsHead}>
         <div className={styles.dsK}>Stats</div>
         <div className={styles.dsRange}>{spanLabel(range.from, range.to)}</div>
-        <div className={styles.dsVs}>Change against {spanLabel(range.previous.from, range.previous.to)}, the {range.days === 1 ? "day" : `${range.days} days`} before. Days run midnight to midnight {ADMIN_TIME_ZONE_LABEL}.</div>
+        <div className={styles.dsVs}>Change against {spanLabel(range.previous.from, range.previous.to)}, the {range.days === 1 ? "day" : `${range.days} days`} before. Days run midnight to midnight {ADMIN_TIME_ZONE_LABEL}.{range.previous.partial ? " The range is still running, so the days before count only the same time of day." : ""}</div>
       </div>
 
       <Block title="Duels">
@@ -178,19 +195,21 @@ function StatsPanel({ stats, loading, bots, onBots }: { stats: DuelStatsData; lo
 
 /* ---------------- list ---------------- */
 
-function DuelList({ query, tab, onTab, onOpen, live, rangeLabel, onCounts }: {
-  query: string; tab: Tab; onTab: (tab: Tab) => void; onOpen: (userId: UserKey) => void; live: boolean; rangeLabel: string; onCounts: (counts: TodayCounts | null) => void;
+function DuelList({ query, tab, onTab, onOpen, live, rangeLabel }: {
+  query: string; tab: Tab; onTab: (tab: Tab) => void; onOpen: (userId: UserKey) => void; live: boolean; rangeLabel: string;
 }) {
   const now = useNow();
   const [tick, setTick] = useState(0);
-  const first = useApi<DuelHistoryPage>(`/api/admin/console/duel-history?${query}&tab=${tab}`, tick);
+  const firstUrl = `/api/admin/console/duel-history?${query}&tab=${tab}`;
+  const first = useApi<DuelHistoryPage>(firstUrl, tick);
+  // After a range, tab or bots change the hook still holds the old page until the new one arrives. Its cursor must not be used for the new query.
+  const firstData = first.dataUrl === firstUrl ? first.data : null;
   const [more, setMore] = useState<{ duels: TodayDuel[]; next: string | null; key: string } | null>(null);
   const [moreLoading, setMoreLoading] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   const key = `${query}|${tab}`;
   const extra = more?.key === key ? more : null;
-  const counts = first.data?.counts ?? null;
-  useEffect(() => { onCounts(counts); }, [counts, onCounts]);
+  useEffect(() => { setMore(null); setMoreError(null); }, [key]);
   // A new range or tab starts again from the first page. The 60 second refresh only runs while no extra page is loaded.
   const extraRef = useRef(extra);
   extraRef.current = extra;
@@ -202,9 +221,9 @@ function DuelList({ query, tab, onTab, onOpen, live, rangeLabel, onCounts }: {
 
   const duels = useMemo(() => {
     const seen = new Set<string>();
-    return [...(first.data?.duels ?? []), ...(extra?.duels ?? [])].filter((d) => !seen.has(d.slug) && seen.add(d.slug));
-  }, [first.data, extra]);
-  const next = extra ? extra.next : first.data?.next ?? null;
+    return [...(firstData?.duels ?? []), ...(extra?.duels ?? [])].filter((d) => !seen.has(d.slug) && seen.add(d.slug));
+  }, [firstData, extra]);
+  const next = !firstData ? null : extra ? extra.next : firstData.next;
   const loadMore = useCallback(async () => {
     if (!next || moreLoading) return;
     setMoreLoading(true); setMoreError(null);
@@ -227,7 +246,7 @@ function DuelList({ query, tab, onTab, onOpen, live, rangeLabel, onCounts }: {
     return () => io.disconnect();
   }, [next, loadMore, moreError]);
 
-  const c = first.data?.counts;
+  const c = firstData?.counts;
   const total = c ? c[TABS.find(([k]) => k === tab)![2]] : 0;
   return (
     <div className={styles.dsList}>
@@ -239,14 +258,14 @@ function DuelList({ query, tab, onTab, onOpen, live, rangeLabel, onCounts }: {
         </div>
         <span className={`${styles.aside} ${styles.toolbarEnd}`}>{c && duels.length < total ? `Showing ${duels.length} of ${nf(total)} · ` : ""}Replays open in a new tab</span>
       </div>
-      {first.error && !first.data ? <Notice tone="warn" title="The duels are not available">{first.error}</Notice> : (
+      {first.error && !firstData && !first.loading ? <Notice tone="warn" title="The duels are not available">{first.error}</Notice> : (
         <div className={styles.todayTbl} role="table" aria-label={`Duels, ${rangeLabel}`} aria-busy={first.loading}>
           <div className={styles.tblHead} role="row">
             <span role="columnheader">Format</span><span role="columnheader">Players</span><span role="columnheader">Result</span>
             <span role="columnheader" className={styles.hAt}>Started</span><span role="columnheader"><span className={styles.srOnly}>Open</span></span>
           </div>
           {duels.length === 0
-            ? <div className={`${styles.empty} ${styles.emptySm}`} role="row"><span role="cell">{!first.data ? "Loading" : c && c.all === 0 ? "No duel started in this range." : "No duel of this range fits this filter."}</span></div>
+            ? <div className={`${styles.empty} ${styles.emptySm}`} role="row"><span role="cell">{!firstData ? "Loading" : c && c.all === 0 ? "No duel started in this range." : "No duel of this range fits this filter."}</span></div>
             : duels.map((d) => <TodayRow key={d.slug} duel={d} onOpen={onOpen} now={now} showDay={rangeLabel !== "today"} />)}
         </div>
       )}
@@ -271,7 +290,6 @@ export function DuelRangeSection({ onOpen }: { onOpen: (userId: UserKey) => void
   const todayKey = easternDayKey(nowMs);
   const [draft, setDraft] = useState<{ from: string; to: string }>({ from: todayKey, to: todayKey });
   const [tick, setTick] = useState(0);
-  const [, setCounts] = useState<TodayCounts | null>(null);
 
   const query = rangeQuery(choice, bots);
   const live = choice.kind === "preset" || choice.to >= todayKey;
@@ -287,11 +305,10 @@ export function DuelRangeSection({ onOpen }: { onOpen: (userId: UserKey) => void
     : days(draft.from, draft.to) > DUEL_RANGE_MAX_DAYS ? `A range is at most ${DUEL_RANGE_MAX_DAYS} days.` : null;
   const range = stats.data?.range;
   const label = choice.kind === "preset" && choice.preset === "today" ? "today" : range ? spanLabel(range.from, range.to) : "the range";
-  const onCounts = useCallback((next: TodayCounts | null) => setCounts(next), []);
 
   return (
     <div id={TODAY_ANCHOR} className={styles.anchor}>
-      <SectionHead title="Duel history" n={stats.data ? plural(stats.data.current.total, "duel", "duels") : undefined}
+      <SectionHead title="Duel history" n={stats.data ? duelCount(stats.data.current) : undefined}
         aside={<span className={styles.aside}>{range ? spanLabelYear(range.from, range.to) : null}</span>} />
       <div className={`${styles.toolbar} ${styles.toolbarTight} ${styles.dsRangeBar}`}>
         <div className={styles.seg} role="group" aria-label="Date range">
@@ -316,7 +333,7 @@ export function DuelRangeSection({ onOpen }: { onOpen: (userId: UserKey) => void
       </div>
       {stats.error && !stats.data ? <Notice tone="warn" title="The duel stats are not available">{stats.error}</Notice> : null}
       <div className={styles.dsLayout}>
-        <DuelList query={query} tab={tab} onTab={setTab} onOpen={onOpen} live={live} rangeLabel={label} onCounts={onCounts} />
+        <DuelList query={query} tab={tab} onTab={setTab} onOpen={onOpen} live={live} rangeLabel={label} />
         {stats.data ? <StatsPanel stats={stats.data} loading={stats.loading} bots={bots} onBots={setBots} /> : <aside className={styles.dsPanel} aria-busy="true"><div className={styles.dsK}>Stats</div><p className={styles.dsNote}>{stats.error ?? "Loading"}</p></aside>}
       </div>
     </div>
