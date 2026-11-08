@@ -76,3 +76,12 @@ it('does not auto-fit a placed manual calibration, but still allows an explicit 
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,30));});expect(worker).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Fit to my mat'}));await screen.findByRole('button',{name:'Flip'});expect(saved).not.toHaveBeenCalled();
 });
+
+it.each(['bottom','top','left','right'] as const)('passes the actual %s side to the fit worker',async side=>{
+ worker.mockResolvedValue(good);const video=camera();
+ render(<FitToMatControl video={video} auto calibration={createFieldCalibration(corners!,{playerSide:side,mirrored:true})} onBusy={()=>{}} onCapture={()=>{}} onApply={()=>{}}/>);
+ await waitFor(()=>expect(worker).toHaveBeenCalledOnce());expect(worker.mock.calls[0][1]).toMatchObject({playerSide:side,mirrored:true});
+});
+it('uses the phone default bottom side when no side was saved',async()=>{
+ worker.mockResolvedValue(good);setup();await waitFor(()=>expect(worker).toHaveBeenCalledOnce());expect(worker.mock.calls[0][1].playerSide).toBe('bottom');
+});

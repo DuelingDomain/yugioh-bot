@@ -1,13 +1,13 @@
 "use client";
 
 import {useEffect,useRef,useState} from 'react';
-import {createFieldCalibration,matFitCalibration,type FieldCalibration,type MatFitResult} from '@yugidraft/vision';
+import {createFieldCalibration,matFitCalibration,type FieldCalibration,type MatFitResult,type PlayerSide} from '@yugidraft/vision';
 import table from './ui/remote-ui.module.css';
 
 const attempted=new WeakSet<HTMLVideoElement>();
 const fallback="We could not see your mat's zones clearly. Turn on the zone grid and place it on your mat.";
 interface Props {
-  video:HTMLVideoElement|null; auto:boolean; disabled?:boolean; calibration?:FieldCalibration;
+  video:HTMLVideoElement|null; auto:boolean; defaultSide?:PlayerSide; disabled?:boolean; calibration?:FieldCalibration;
   onApply(grid:FieldCalibration):void; onBusy(value:boolean):void; onCapture(frame:HTMLCanvasElement):void;
 }
 /** One automatic attempt per camera element on first setup; subsequent fits are explicit. Pixels never leave this device. */
@@ -31,7 +31,7 @@ export function FitToMatControl(props:Props) {
       const {fitToMat}=await import('@yugidraft/vision');
       controller.signal.throwIfAborted();
       const prior=latest.current.calibration?.orientation;
-      const result=await fitToMat(frame,{signal:controller.signal,playerSide:prior?.playerSide==='bottom'?'bottom':'top',mirrored:prior?.mirrored});
+      const result=await fitToMat(frame,{signal:controller.signal,playerSide:prior?.playerSide??latest.current.defaultSide??'bottom',mirrored:prior?.mirrored});
       if(controller.signal.aborted)return;
       const calibration=matFitCalibration(result);
       if(!calibration){setNote(`${result.flags.colWindowAmbiguous?'Show the whole mat width, including Deck and GY. ':''}${fallback}`);return;}

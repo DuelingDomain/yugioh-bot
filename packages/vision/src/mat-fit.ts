@@ -1,9 +1,9 @@
-import {createFieldCalibration, FIELD_ZONE_PITCH, type FieldCalibration, type FieldOrientation} from './field-zones';
+import {createFieldCalibration, FIELD_ZONE_PITCH, type FieldCalibration, type FieldOrientation, type PlayerSide} from './field-zones';
 import type {Point} from './types';
 import type {RGBAImage} from './pixels';
 import {quadMap} from './geometry';
 
-export interface MatFitOptions { playerSide?:'top'|'bottom'; mirrored?:boolean }
+export interface MatFitOptions { playerSide?:PlayerSide; mirrored?:boolean }
 export interface MatFitResult {
   /** Image-clockwise TL, TR, BR, BL, normalized like FieldCalibration. May extrapolate off camera. */
   corners:[Point,Point,Point,Point]|null;
@@ -202,7 +202,7 @@ function hypotheses(lat:Lattice,n:number,options:MatFitOptions):Hypothesis[] {
       if(row===1||row===2||row===0&&(col===2||col===4))good++;
       else if(row===0&&col===6)good+=.3;else bad++;
     }
-    const prior=.02*Number(side===(options.playerSide??'top'))+.01*Number(mirror===(options.mirrored??false));
+    const prior=.02*Number(side===(options.playerSide??'bottom'))+.01*Number(mirror===(options.mirrored??false));
     out.push({side,mirror,r0,c0,score:good-1.5*bad+prior});
   }
   return out.sort((a,b)=>b.score-a.score);
@@ -232,10 +232,30 @@ function fitPlane(src:Point[],dst:Point[],projective:boolean):((p:Point)=>Point)
 
 /** Pure, one-shot CPU detector. Supply RAW camera pixels before drawing any grid or labels. */
 export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
-  const result:MatFitResult={corners:null,orientation:{playerSide:options.playerSide??'top',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason:''},reason:'',metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
+  const result:MatFitResult={corners:null,orientation:{playerSide:options.playerSide??'bottom',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason:''},reason:'',metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
   const fail=(reason:string)=>{result.reason=result.flags.reason=reason;return result;};
   if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return fail('invalid-frame');
   if(Math.max(image.width/image.height,image.height/image.width)>6)return fail('invalid-frame');
+  // A side camera sees the seven columns vertically. Normalize its raw pixels,
+  // then restore image-clockwise corners and the player's original side.
+  if(options.playerSide==='left'||options.playerSide==='right'){
+    const left=options.playerSide==='left',data=new Uint8ClampedArray(image.data.length);
+    for(let y=0;y<image.height;y++)for(let x=0;x<image.width;x++){
+      const rx=left?y:image.height-1-y,ry=left?image.width-1-x:x;
+      const src=(y*image.width+x)*4,dst=(ry*image.height+rx)*4;
+      for(let k=0;k<4;k++)data[dst+k]=image.data[src+k];
+    }
+    const fitted=fitMat({data,width:image.height,height:image.width},{...options,playerSide:'bottom'});
+    const restore=(corners:NonNullable<MatFitResult['corners']>)=>{
+      const order=left?[3,0,1,2]:[1,2,3,0];
+      return order.map(i=>left?{x:1-corners[i].y,y:corners[i].x}:{x:corners[i].y,y:1-corners[i].x}) as NonNullable<MatFitResult['corners']>;
+    };
+    const orientation=(o:FieldOrientation):FieldOrientation=>({...o,playerSide:o.playerSide==='bottom'?options.playerSide!:left?'right':'left'});
+    fitted.orientation=orientation(fitted.orientation);
+    if(fitted.corners)fitted.corners=restore(fitted.corners);
+    if(fitted.flipped)fitted.flipped={corners:restore(fitted.flipped.corners),orientation:orientation(fitted.flipped.orientation)};
+    return fitted;
+  }
   const {strength,angle,w,h}=ridges(image);
   if(percentile(strength,.99)<.001)return fail('no-zones');
   const theta=estimateTilt(strength,angle,w),rects:Rect[]=[];

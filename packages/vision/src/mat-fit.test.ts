@@ -17,7 +17,7 @@ const centers=[
 ];
 const names=['DECK','GY','S5','M5','S4','M4','S3','M3','S2','M2','S1','M1','EXTRA','FIELD'];
 test('fits printed centres and assigns M to the printed monster row, including saved reload',async()=>{
-  const image=await frame(),start=performance.now(),cpu=process.cpuUsage(),result=fitMat(image),ms=performance.now()-start,used=process.cpuUsage(cpu),cpuMs=(used.user+used.system)/1000;
+  const image=await frame(),start=performance.now(),cpu=process.cpuUsage(),result=fitMat(image,{playerSide:'top'}),ms=performance.now()-start,used=process.cpuUsage(cpu),cpuMs=(used.user+used.system)/1000;
   const grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));
   const limits=fieldQuadEnvelope(grid.corners),unchanged=moveFieldQuad(grid.corners,0,0,limits);assert.ok(unchanged);
   unchanged.forEach((p,i)=>assert.ok(Math.hypot(p.x-grid.corners[i].x,p.y-grid.corners[i].y)<1e-8));
@@ -68,7 +68,7 @@ test('rotated real-frame variants retain correct rows and sub-pitch accuracy',as
     const rotate=(x:number,y:number,sign=1)=>({x:cx+c*(x-cx)-sign*s*(y-cy),y:cy+sign*s*(x-cx)+c*(y-cy)});
     const source=[{x:0,y:0},{x:image.width,y:0},{x:image.width,y:image.height},{x:0,y:image.height}].map(p=>rotate(p.x,p.y,-1));
     const moved=warpQuad(image,source as Quad,image.width,image.height)!;
-    const result=fitMat(moved),grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));
+    const result=fitMat(moved,{playerSide:'top'}),grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));
     const cells=fieldZoneCells(),errors=centers.map(([x,y],i)=>{
       const target=rotate(x,y),cell=cells.find(c=>c.zone===names[i])!,p=fieldMatPoint({x:cell.x+cell.w/2,y:cell.y+cell.h/2},grid);
       return Math.hypot(p.x*image.width-target.x,p.y*image.height-target.y);
@@ -86,4 +86,18 @@ test('blurred printed zones, art-only and noisy cloth do not yield a saved fit',
   for(const input of [{...image,data:blurred},{width:640,height:360,data:noise},{width:800,height:260,data:art}]){
     const result=fitMat(input);assert.equal(matFitCalibration(result),undefined,JSON.stringify(result));
   }
+});
+
+test('quarter-turn camera priors retain named zones and flag side uncertainty',async()=>{
+ const image=await frame(),base=fitMat(image,{playerSide:'bottom'});assert.ok(base.corners);
+ for(const side of ['left','right'] as const){
+  const rotated=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).rotate(side==='left'?90:270).raw().toBuffer({resolveWithObject:true});
+  const result=fitMat({width:rotated.info.width,height:rotated.info.height,data:rotated.data},{playerSide:side});
+  const grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));assert.equal(result.orientation.playerSide,side);assert.equal(result.flags.sideByPrior,true);assert.ok(result.flipped);
+  const baseGrid=matFitCalibration(base)!;
+  for(const cell of fieldZoneCells()){
+   const at={x:cell.x+cell.w/2,y:cell.y+cell.h/2},p=fieldMatPoint(at,baseGrid),q=fieldMatPoint(at,grid),expected=side==='left'?{x:1-p.y,y:p.x}:{x:p.y,y:1-p.x};
+   assert.ok(Math.hypot(q.x-expected.x,q.y-expected.y)<.01,`${side} ${cell.zone}`);
+  }
+ }
 });
