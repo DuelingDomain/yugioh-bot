@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowRight, Camera, Lock, Users } from "lucide-react";
+import { ArrowRight, Camera, Lock, Trophy, Users } from "lucide-react";
 import type { RemoteHistoryItem, RemoteTable } from "@yugidraft/shared/remote";
 import { cx, sheetButtonClass } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
@@ -34,6 +34,7 @@ export function RemoteHistoryRow({ duel }: { duel: RemoteHistoryItem }) {
         <span className={ui.chip}><Camera size={13} strokeWidth={1.6} aria-hidden />Remote</span>
         <span className={ui.chip}>{remoteFormatName(duel.formatId)} · {tableKind(duel.seatCount)}</span>
         <span className={ui.chip}>Finished</span>
+        {duel.tournament ? <span className={ui.chip}><Trophy size={13} strokeWidth={1.6} aria-hidden />{duel.tournament.name ?? "Tournament"}</span> : null}
         {duel.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
         {when ? <time className={styles.activity} dateTime={duel.endedAt ?? duel.createdAt ?? undefined}>{when}</time> : null}
       </span>
@@ -44,6 +45,7 @@ export function RemoteHistoryRow({ duel }: { duel: RemoteHistoryItem }) {
       {meta.length ? <p className={styles.meta}>{meta.map((part, index) => <span key={index}>{part}</span>)}</p> : null}
     </div>
     <div className={styles.historyActions}>
+      {duel.tournament?.slug ? <Link href={`/tournament/${encodeURIComponent(duel.tournament.slug)}`} className={sheetButtonClass("secondary", "sm")} data-testid={`remote-tournament-${duel.slug}`}>Tournament</Link> : null}
       <Link href={`/duels/remote/${duel.slug}/replay`} className={sheetButtonClass("primary", "sm")} data-testid={`remote-replay-${duel.slug}`}>Replay</Link>
     </div>
   </li>;

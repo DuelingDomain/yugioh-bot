@@ -37,6 +37,9 @@ type Row = TableRow & { state_json: string };
 // Lists and idle notifications need metadata, never board/undo snapshots or event replay.
 const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
   .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of,json_extract(t.state_json,'$.revealedHand') as revealed_hand";
+const REPLAY_CACHE_SIZE = 6;
+/** One small cache per database: the web makes a new service for each request. */
+const replayCaches = new WeakMap<Database.Database, Map<string, RemoteReplay>>();
 type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number; effects_json: string | null; messages_json: string | null; facts_hash: string | null };
 type EventMessage = { seat: number; text: string };
 
@@ -680,10 +683,12 @@ export function createRemoteDuelService(db: Database.Database, options: {
         params.cursorTime = cursor.t as number; params.cursorId = cursor.id as number;
         where.push(`(${when}<@cursorTime or (${when}=@cursorTime and t.id<@cursorId))`);
       }
-      type HistoryRow = TableRow & { outcome: string | null; history_time: number };
+      type HistoryRow = TableRow & { outcome: string | null; history_time: number; tournament_slug: string | null; tournament_name: string | null };
       const rows = db.prepare(`select ${tableColumns},${when} as history_time,
-        json_extract(t.state_json,'$.match.winnerSeat','$.winnerSeat','$.turn','$.match.games') as outcome
-        from remote_tables t where ${where.join(" and ")} order by ${when} desc,t.id desc limit @limit`).all(params) as HistoryRow[];
+        json_extract(t.state_json,'$.match.winnerSeat','$.winnerSeat','$.turn','$.match.games') as outcome,
+        tr.web_slug as tournament_slug,tr.name as tournament_name
+        from remote_tables t left join tournament_matches tm on tm.id=t.tournament_match_id
+        left join tournaments tr on tr.id=tm.tournament_id and tr.guild_id=t.guild_id where ${where.join(" and ")} order by ${when} desc,t.id desc limit @limit`).all(params) as HistoryRow[];
       const page = rows.slice(0, limit);
       const iso = (ms: number | null) => ms == null ? null : new Date(ms).toISOString();
       const items = page.map((row): RemoteHistoryItem => {
@@ -693,6 +698,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const metadata = table(row);
         return { remote: true, slug: row.slug, cursor: Buffer.from(JSON.stringify({ t: row.history_time, id: row.id })).toString("base64url"), name: "Remote Duel", seatCount: row.seat_count, tableType: row.seat_count === 2 ? "1v1" : row.seat_count === 3 ? "ffa3" : "ffa4",
           formatId: metadata.format?.id ?? "normal", bestOf: (row.best_of ?? 1) as 1 | 3, visibility: row.visibility, status: "ended",
+          tournament: row.tournament_match_id != null ? { slug: row.tournament_slug, name: row.tournament_name } : null,
           createdAt: iso(row.created_at), startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
           durationMs: row.started_at != null && row.ended_at != null ? Math.max(0, row.ended_at - row.started_at) : null,
           turnCount: typeof turn === "number" ? turn : null, endReason: row.end_reason,
@@ -715,10 +721,18 @@ export function createRemoteDuelService(db: Database.Database, options: {
         remoteAssert(row.status === "ended" && row.started_at != null, "The replay opens when the duel has ended", 409, "REPLAY_NOT_READY");
         const mine = privateSeats(row, userId), spectator = !seated;
         // The same projection as the live views, with the undo data left out: the board is what a replay shows.
+        // The undo data is cut off before the projection copies the board: it holds a board snapshot per action, so copying it
+        // for every step would cost more and more as the duel gets longer.
         const project = (state: RemoteState, events: RemoteEvent[]) => {
-          const view = spectator ? projectRemoteSpectator({ table: metadata, state, events }) : projectRemoteSnapshot({ table: metadata, state, events }, mine);
-          return { state: { ...view.state, undo: null, undoHistory: [] } as RemoteState, events: view.events };
+          const board = { ...state, undo: null, undoHistory: [] } as RemoteState;
+          const view = spectator ? projectRemoteSpectator({ table: metadata, state: board, events }) : projectRemoteSnapshot({ table: metadata, state: board, events }, mine);
+          return { state: view.state, events: view.events };
         };
+        // An ended table never changes, so a viewer who steps through the same replay again reuses the rebuilt frames.
+        const replayCache = replayCaches.get(db) ?? replayCaches.set(db, new Map()).get(db)!;
+        const cacheKey = `${row.id}:${row.last_seq}:${spectator ? "spectator" : [...mine].join(",")}`;
+        const cached = replayCache.get(cacheKey);
+        if (cached) { replayCache.delete(cacheKey); replayCache.set(cacheKey, cached); return cached; }
         let initial: RemoteState | undefined, previous: RemoteState | undefined;
         const steps: RemoteReplayStep[] = [];
         replayState(row, (e, state) => {
@@ -726,7 +740,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
           steps.push({ seq: e.seq, at: e.created_at, turn: view.state.turn, event: view.events[0]!, ops: diffView(previous, view.state) });
           previous = view.state;
         }, state => { initial = previous = project(state, []).state; });
-        return { table: projectRemoteTable(metadata, mine), viewer: (spectator ? "spectator" : "player") as RemoteReplay["viewer"], mySeat: seated ? metadata.seats.find(s => s.userId === userId)!.seat : null, initial: initial!, steps };
+        const replay: RemoteReplay = { table: projectRemoteTable(metadata, mine), viewer: spectator ? "spectator" : "player", mySeat: seated ? metadata.seats.find(s => s.userId === userId)!.seat : null, initial: initial!, steps };
+        replayCache.set(cacheKey, replay);
+        if (replayCache.size > REPLAY_CACHE_SIZE) replayCache.delete(replayCache.keys().next().value!);
+        return replay;
       })();
     },
     replay(slug: string, guildId: string, userId: number): RemoteState {

@@ -4,17 +4,23 @@
 .meta { color: var(--duel-ink-3); font-size: 13px; }
 .chip { display: inline-block; padding: 1px 8px; border: 1px solid var(--duel-rule); border-radius: 999px; color: var(--duel-pen-ink); font-size: 12px; margin-right: 8px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
-.board { display: grid; gap: 12px; min-width: 0; }
-.seat { border: 1px solid var(--duel-rule-lo); border-radius: 8px; background: var(--duel-panel); padding: 10px; display: grid; gap: 8px; }
+.board { display: grid; gap: 12px; min-width: 0; justify-items: center; container-type: inline-size;
+  /* The mats are sized from the width of the board, and on wide screens also from the height of the window, so every field is on screen while stepping. */
+  --per: 1; --gapx: 0px; --cap: 120px;
+  --cell-w: min(var(--cap), calc(((100cqw - var(--gapx)) / var(--per) - 46px) / 7)); }
+.board { --rows: 6; }
+.board[data-seats="2"] { --rows: 3; }
+.board { grid-template-columns: repeat(2, max-content); justify-content: center; align-items: start; --per: 2; --gapx: 12px; }
+.seat { width: fit-content; max-width: 100%; border: 1px solid var(--duel-rule-lo); border-radius: 8px; background: var(--duel-panel); padding: 10px; display: grid; gap: 8px; }
 .seat[data-turn="true"] { border-color: var(--duel-rule-hi); }
 .seatHead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .seatHead b { font-weight: 450; overflow-wrap: anywhere; }
 .lp { font-family: var(--duel-f-num); font-size: 22px; font-variant-numeric: tabular-nums; }
 .out { color: var(--duel-loss-ink); font-size: 12px; margin-left: 6px; }
 .counts { color: var(--duel-ink-3); font-size: 12px; }
-.grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.emz { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; width: 28%; margin: 0 auto; }
-.cell { position: relative; aspect-ratio: 59 / 86; border: 1px dashed var(--duel-rule-lo); border-radius: 4px; overflow: hidden; display: grid; place-items: center; font-size: 10px; color: var(--duel-ink-4); text-align: center; background: var(--duel-panel-2); }
+.grid { display: grid; grid-template-columns: repeat(7, var(--cell-w)); justify-content: center; gap: 4px; }
+.emz { display: grid; grid-template-columns: repeat(2, var(--cell-w)); justify-content: center; gap: 4px; }
+.cell { position: relative; width: var(--cell-w); height: calc(var(--cell-w) * 86 / 59); border: 1px dashed var(--duel-rule-lo); border-radius: 4px; overflow: hidden; display: grid; place-items: center; font-size: 10px; color: var(--duel-ink-4); text-align: center; background: var(--duel-panel-2); }
 .cell[data-filled="true"] { border-style: solid; border-color: var(--duel-rule); color: var(--duel-ink-2); }
 .cell img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cell[data-pos="defense"] img { transform: rotate(90deg) scale(.68); }
@@ -34,6 +40,14 @@
 .log button:focus-visible { outline: 2px solid var(--duel-pen); }
 .log small { color: var(--duel-ink-3); font-variant-numeric: tabular-nums; }
 .state { color: var(--duel-ink-3); padding: 24px 0; }
+@media (min-width: 901px) {
+  /* Three rows of cells per mat column, plus the mat headers, have to fit in the window height. */
+  .board { --cap: max(30px, min(92px, calc((100dvh - 400px) / var(--rows) * 59 / 86))); }
+}
+@media (max-width: 1199px) {
+  /* Too narrow for mats side by side: they stack. */
+  .board, .board[data-seats] { grid-template-columns: minmax(0, 1fr); --per: 1; --gapx: 0px; --rows: 6; }
+}
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .log { max-height: 30vh; }

@@ -13,6 +13,7 @@ import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
 import { applyRemoteOpening } from "../../src/remote/match.js";
 import { applyPatch } from "../../src/remote/delta.js";
+import { mergeHistory } from "../../src/services/history-merge.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -3843,5 +3844,20 @@ describe("remote match history and replay", () => {
     s.db.prepare("update remote_tables set visibility='public' where slug=?").run(s.slug);
     expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items.map(item => item.slug)).toEqual([s.slug]);
     expect(s.service.replayFrames(s.slug, "g", s.outsider).viewer).toBe("spectator");
+  });
+
+  it("keeps reading Remote rows on later pages when they are all older than the online page", () => {
+    const s = endedTable();
+    const remote = s.service.listHistory("g", s.a).items[0]!;
+    const online = (id: number, endedAt: string) => ({ id, endedAt, createdAt: endedAt }) as never;
+    // Page 1 holds online rows newer than the Remote table and online has more; page 2 is the last online page.
+    const first = { duels: [online(1, "2999-01-02T00:00:00.000Z"), online(2, "2999-01-01T00:00:00.000Z")], nextCursor: "o2", canSeeAll: false };
+    const last = { duels: [online(3, "1999-01-01T00:00:00.000Z")], nextCursor: null, canSeeAll: false };
+    const page1 = mergeHistory({ cursor: undefined, online: () => first, remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
+    expect(page1.duels).toHaveLength(2);
+    expect(page1.nextCursor).not.toBeNull();
+    const page2 = mergeHistory({ cursor: page1.nextCursor, online: cursor => (expect(cursor).toBe("o2"), last), remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
+    expect(page2.duels.map(item => ("remote" in item ? item.slug : item.id))).toEqual([3, remote.slug]);
+    expect(page2.nextCursor).toBeNull();
   });
 });

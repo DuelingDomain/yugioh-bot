@@ -15,6 +15,8 @@ export type RemoteHistoryItem = {
   formatId: string;
   bestOf: 1 | 3;
   visibility: "public" | "private";
+  /** Set for a tournament table. `slug` is null when the tournament has no web page. */
+  tournament: { slug: string | null; name: string | null } | null;
   status: "ended";
   createdAt: string | null;
   startedAt: string | null;

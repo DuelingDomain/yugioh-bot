@@ -95,6 +95,8 @@ export * from "./admin-spectate.js";
 export * from "./creator-access.js";
 
 export * from "./remote-duels.js";
+export { mergeHistory } from "./history-merge.js";
+export type { HistoryType, MergedHistoryPage } from "./history-merge.js";
 
 export * from "./remote-access.js";
 

@@ -1,11 +1,11 @@
-import { DuelServiceError } from "@yugidraft/shared/services";
-import type { DuelHistoryPage, DuelListItem } from "@yugidraft/shared/duels";
-import type { RemoteHistoryItem, RemoteHistoryPage } from "@yugidraft/shared/remote";
+import { DuelServiceError } from "./duels.js";
+import type { DuelHistoryPage, DuelListItem } from "../duels/index.js";
+import type { RemoteHistoryItem, RemoteHistoryPage } from "../remote/history.js";
 
 export type HistoryType = "all" | "online" | "remote";
 export type MergedHistoryPage = { duels: (DuelListItem | RemoteHistoryItem)[]; nextCursor: string | null; canSeeAll: boolean };
 
-/** The merged list keeps one cursor per source. `od` and `rd` mean that source has no more rows. */
+/** The merged list keeps one cursor per source. `od` and `rd` mean that source has no more rows; `r: ""` means Remote has not started. */
 type Composite = { o?: string; r?: string; od?: 1; rd?: 1 };
 
 function readComposite(cursor: string | null | undefined): Composite {
@@ -33,18 +33,19 @@ export function mergeHistory(input: {
 }): MergedHistoryPage {
   const cursor = readComposite(input.cursor);
   const online = cursor.od ? null : input.online(cursor.o);
-  const remote = cursor.rd ? null : input.remote(cursor.r);
+  const remote = cursor.rd ? null : input.remote(cursor.r || undefined);
   const onlineMore = !!online?.nextCursor, onlineItems = online?.duels ?? [];
   const cut = onlineMore && onlineItems.length ? timeOf(onlineItems[onlineItems.length - 1]!) : -Infinity;
   const remoteItems = (remote?.items ?? []).filter(item => timeOf(item) >= cut);
-  // Remote rows left out of this page are read again from the last row that was kept.
-  const remoteNext = remoteItems.length < (remote?.items.length ?? 0) || remote?.nextCursor
-    ? remoteItems.length ? remoteItems[remoteItems.length - 1]!.cursor : cursor.r : null;
+  // Remote rows left out of this page are read again from the last row that was kept. "" is the start of the list (page 1 has
+  // no Remote position yet), so it is never mixed up with `rd`, which means Remote has no more rows.
+  const remoteMore = !!remote && (remoteItems.length < remote.items.length || !!remote.nextCursor);
+  const remoteNext = remoteMore ? (remoteItems.length ? remoteItems[remoteItems.length - 1]!.cursor : cursor.r ?? "") : null;
   const duels = [...onlineItems, ...remoteItems].sort((a, b) => timeOf(b) - timeOf(a));
-  const done = !onlineMore && !remoteNext;
+  const done = !onlineMore && remoteNext === null;
   const next: Composite = {
     ...(onlineMore ? { o: online!.nextCursor! } : { od: 1 }),
-    ...(remoteNext ? { r: remoteNext } : { rd: 1 }),
+    ...(remoteNext !== null ? { r: remoteNext } : { rd: 1 }),
   };
   return { duels, canSeeAll: !!online?.canSeeAll || !!remote?.canSeeAll,
     nextCursor: done ? null : Buffer.from(JSON.stringify(next)).toString("base64url") };

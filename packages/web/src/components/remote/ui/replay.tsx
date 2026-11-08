@@ -88,7 +88,7 @@ function Player({ replay }: { replay: RemoteReplay }) {
       <a href="/duels" className={sheetButtonClass("quiet", "sm")}>Back to duels</a>
     </div>
     <div className={s.layout}>
-      <div className={s.board} aria-live="off">
+      <div className={s.board} data-seats={replay.table.seatCount} aria-live="off">
         {state.seats.map(seat => <SeatMat key={seat.seat} state={state} seat={seat.seat} name={name(seat.seat)} extraZones={extraZones} />)}
       </div>
       <div className={s.side}>

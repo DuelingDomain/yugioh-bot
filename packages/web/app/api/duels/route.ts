@@ -1,7 +1,7 @@
 import { report } from "@yugidraft/shared/observability";
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
-import { createDuelSeriesService, createRemoteDuelService, DuelServiceError } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createRemoteDuelService, DuelServiceError, mergeHistory } from "@yugidraft/shared/services";
 import { RemoteDuelError } from "@yugidraft/shared/remote";
 import { env } from "@/lib/env";
 import { assertDuelInviteUrl, duelUrl, sendDuelInvite } from "@/lib/announce-bot";
@@ -9,7 +9,6 @@ import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { playerIdentity } from "@/lib/player-lookup";
-import { mergeHistory } from "@/lib/history-merge";
 import { remoteDuelsEnabledFor } from "@/lib/remote-duels";
 
 export const runtime = "nodejs";
