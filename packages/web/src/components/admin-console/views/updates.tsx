@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { plural } from "@/lib/admin-console/format";
 import { listReleases } from "@/lib/updates/admin-client";
-import { shortDate } from "@/lib/updates/model";
+import { formatDate } from "@/lib/admin-console/time";
 import type { AdminRelease, AdminReleasesResponse, EmailSendState } from "@/lib/updates/types";
 import type { ConsoleActions } from "../admin-console";
 import { Icon, Notice, StatusIcon, Tag, type Tone } from "../parts";
@@ -135,7 +135,7 @@ function Row({ release, configured, selected, onOpen }: { release: AdminRelease;
         {release.major ? <Tag>Major</Tag> : null}
       </div>
       <div role="cell" className={own.email} data-tone={email.tone}>{email.word}</div>
-      <div role="cell" className={`${styles.num} ${own.date}`}>{release.publishedAt ? shortDate(release.publishedAt) : "-"}</div>
+      <div role="cell" className={`${styles.num} ${own.date}`}>{release.publishedAt ? formatDate(Date.parse(release.publishedAt)) : "-"}</div>
       <div className={styles.chev} role="cell"><Icon name="chev" /></div>
     </div>
   );

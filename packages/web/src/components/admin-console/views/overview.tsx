@@ -47,7 +47,7 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
         </div>
         <div className={styles.stat}>
           {/* Only the label and the number are the link; the chart below keeps its own tab stop. */}
-          <a className={styles.statLink} href={`#${TODAY_ANCHOR}`} title="See every duel of today">
+          <a className={styles.statLink} href={`#${TODAY_ANCHOR}`} title="Every duel started today, practice bot and test duels included. The list opens without them; tick the box to see them.">
             <div className={styles.statLabel}>Duels today<Icon name="chev" className={styles.statChev} /></div>
             <div className={styles.statNum}>{today ? today.counts.all : dash}</div>
           </a>

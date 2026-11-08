@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createDuelService } from "@yugidraft/shared/services";
+import { createDuelService, createRemoteDuelService } from "@yugidraft/shared/services";
 import { seedIdentity } from "../../shared/tests/helpers/identity";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
@@ -54,6 +54,46 @@ it("returns and accepts an opaque cursor", async () => {
   expect(first.duels[0].slug).toBe(next.slug); expect(first.nextCursor).toEqual(expect.any(String));
   const second = await (await get(`archived=1&scope=all&limit=1&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
   expect(second.duels[0].slug).toBe(privateSlug); expect(second.nextCursor).toBeNull();
+});
+it("paginates dense Remote history newest-first for members, admins and the Remote filter", async () => {
+  vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("REMOTE_DUELS_USERS", "*");
+  const db = state.db!, online = createDuelService(db), remote = createRemoteDuelService(db);
+  const expected: { slug: string; time: number; remote: boolean; completed: boolean }[] = [];
+  const base = Date.parse("2026-10-12T12:00:00Z");
+  for (let i = 0; i < 60; i++) {
+    const duel = online.create({ guildId: "history-test", organizerPlayerId: 2, name: "Online", mode: "normal" });
+    const time = base - i * 60_000;
+    db.prepare("update duels set status='completed', ended_at=? where id=?").run(i === 59 ? "unreadable" : new Date(time).toISOString(), duel.id);
+    expected.push({ slug: duel.slug!, time: i === 59 ? -Infinity : time, remote: false, completed: true });
+  }
+  for (let i = 0; i < 122; i++) {
+    const room = remote.create({ guildId: "history-test", userId: 102, displayName: "Member", gameId: "ygo", seatCount: 2, bestOf: 1, visibility: "private" });
+    // The newest 75 have no winner; also cover timestamp ties and two rows older than every dated online row.
+    const time = base + (i < 75 ? 120_000 : 0) - (i < 120 ? Math.floor(i / 2) * 1000 : 4_000_000 + i);
+    db.prepare("update remote_tables set status='ended', started_at=?, ended_at=?, state_json=json_set(state_json,?,?) where slug=?")
+      .run(time - 1000, time, i % 2 ? "$.match.winnerSeat" : "$.winnerSeat", i < 75 ? null : 0, room.slug);
+    expected.push({ slug: room.slug, time, remote: true, completed: i >= 75 });
+  }
+  // Stable ties follow each source's descending id order.
+  expected.reverse().sort((a, b) => b.time - a.time || Number(a.remote) - Number(b.remote));
+  for (const [userId, scope] of [[102, "mine"], [101, "all"]] as const) {
+    state.auth.mockResolvedValue({ user: { id: String(userId), name: "Viewer" } });
+    for (const [type, status] of [["all", "any"], ["all", "completed"], ["remote", "any"], ["remote", "completed"]]) {
+      const query = new URLSearchParams({ archived: "1", scope, type, status, format: "1v1", limit: "50" });
+      const slugs: string[] = [];
+      do {
+        const response = await get(query.toString()); expect(response.status).toBe(200);
+        const page = await response.json();
+        expect(page.duels.length).toBeGreaterThan(0);
+        expect(page.duels.length).toBeLessThanOrEqual(50);
+        slugs.push(...page.duels.map((row: { slug: string }) => row.slug));
+        if (!page.nextCursor) break;
+        query.set("cursor", page.nextCursor);
+        expect(slugs.length).toBeLessThan(expected.length);
+      } while (true);
+      expect(slugs).toEqual(expected.filter(row => (type === "all" || row.remote) && (status !== "completed" || row.completed)).map(row => row.slug));
+    }
+  }
 });
 it("keeps member visibility and mine/live behavior", async () => {
   expect((await (await get("archived=1")).json()).duels).toEqual([]);

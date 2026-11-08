@@ -133,10 +133,10 @@ export function weekAverage(stats: StatsData, key: keyof StatsData["series"]): n
   return before.length ? before.reduce((a, b) => a + b, 0) / before.length : 0;
 }
 
-/** "13 Oct" from the Eastern day key "2026-10-13". The key is a plain calendar date, so it is read as UTC midnight to keep the day from shifting. */
+/** "Oct 13" from the Eastern day key "2026-10-13". The key is a plain calendar date, so it is read as UTC midnight to keep the day from shifting. */
 export function shortDay(day: string): string {
   const date = new Date(`${day}T00:00:00Z`);
-  return Number.isFinite(date.getTime()) ? date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : day;
+  return Number.isFinite(date.getTime()) ? date.toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" }) : day;
 }
 
 export interface HeaderText { eyebrow: string; title: string; em?: string; sub: string }

@@ -78,6 +78,12 @@ export type RemoteReductionContext = {
   /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
   handCountCorrections?: 1;
 };
+/** Persist current reducer semantics for live actions and account-deletion concessions. */
+export const REMOTE_REDUCTION_VERSIONS = {
+  undoVersion: 1, matchFlowVersion: 1, twinPlacementGuard: 5, fieldFaceState: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1,
+} as const satisfies RemoteReductionContext;
+
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
 }

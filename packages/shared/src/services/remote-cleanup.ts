@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readRemoteState, writeRemoteState } from "../remote/storage.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { getRemoteGame } from "../remote/index.js";
+import { REMOTE_REDUCTION_VERSIONS } from "../remote/deck-checks.js";
 import type { RemoteAction } from "../remote/actions.js";
 import type { RemoteSystemAction } from "../remote/types.js";
 import type Database from "better-sqlite3";
@@ -71,7 +72,7 @@ export function deleteUserRemoteData(db: Database.Database, userId: number, dele
       const {state_json} = db.prepare("select state_json from remote_tables where id=?").get(room.id) as {state_json:string};
       const before = readRemoteState(db,state_json);
       action = {type:"player.concede",actorSeat:seat.seat,idempotencyKey,at:now};
-      const context = {accountDeletion:1,showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1,handReview:1,handCountCorrections:1} as const;
+      const context = {...REMOTE_REDUCTION_VERSIONS,accountDeletion:1,showCardsSetFromDeck:before.showCardsSetFromDeck} as const;
       const state = getRemoteGame(room.game_id).reduce(before,action,context);
       effects = JSON.stringify(context);
       ended = state.match.phase === "done";

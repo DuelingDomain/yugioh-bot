@@ -1822,6 +1822,7 @@ function migrateRemoteDuels(db: Database.Database) {
       end_reason text
     );
     create index if not exists remote_tables_guild_status_idx on remote_tables(guild_id,status);
+    create index if not exists remote_tables_history_idx on remote_tables(guild_id,coalesce(ended_at,created_at) desc,id desc) where status='ended';
     create index if not exists remote_tables_idle_idx on remote_tables(last_event_at) where status != 'ended';
     create table if not exists remote_seats (
       table_id integer not null references remote_tables(id),
