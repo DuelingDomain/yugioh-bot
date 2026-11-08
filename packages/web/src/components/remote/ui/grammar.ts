@@ -1,3 +1,4 @@
+import { naturalCommand } from "./voice/natural-phrases";
 import { parsePhaseCommand, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
@@ -140,8 +141,14 @@ function findSeat(text: string, ctx: GrammarContext): number | undefined {
 /** Turns one finished transcript into a single intent. `tolerant` numbers and names are resolved here. */
 export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   raw = commandText(raw, ctx);
-  const text = norm(raw);
+  let text = norm(raw);
   if (!commandUtterance(raw, ctx)) return { kind: "none" };
+  // Common table talk ("pass", "going to battle", "swing at Dark Magician", "I chain") becomes the text the strict parsers know.
+  // With the card tray open every line names a card, so it is left alone.
+  const cards = contextCardNames(ctx).map(norm).filter(Boolean);
+  const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, cards.some(card => text === card || text.startsWith(`${card} `)));
+  if (natural && "ignore" in natural) return { kind: "none" };
+  if (natural) { raw = natural.text; text = norm(raw); }
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) return phase;

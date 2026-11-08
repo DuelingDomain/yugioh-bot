@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parsePhaseCommand, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
+import { parsePhaseCommand, remoteActionSchema, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
+import { interpret } from "@/components/remote/ui/grammar";
+import { buildMatcher } from "@/components/remote/ui/voice/speech-matcher";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
-import { buildPhrases, combineHits, FIXED_PHRASES, spokenForm } from "@/components/remote/ui/voice/phrases";
+import { buildPhrases, combineHits, FIXED_PHRASES, isChatter, spokenForm } from "@/components/remote/ui/voice/phrases";
 import { heardPhaseOf, judgePhaseWord } from "@/components/remote/ui/voice/phase-plausibility";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 
@@ -94,5 +96,82 @@ describe("browser voice commands (KWS)", () => {
     expect(verdict("main1", 2, false, "battle")).toBe("not your turn");
     expect(heardPhaseOf("main phase two")).toBe("main2");
     expect(heardPhaseOf("draw")).toBeNull();
+  });
+
+  // The common duel phrases (owner request 2026-11-08): what players really say, mapped to actions the table already has.
+  describe("common duel phrases", () => {
+    const place = (state: RemoteState, seat: number, ref: string, name: string, slot: number) => ygoModule.reduce(state, remoteActionSchema.parse({
+      type: "twin.place", actorSeat: seat, seat, zone: "monster", at: 1000 + slot + seat * 10, idempotencyKey: `fx-${ref}`, card: { ref, name, slot, faceUp: true, position: "attack" } }));
+    const board = (phase: string, turnSeat = 0) => {
+      let state = { ...ygoModule.initialState({ seatCount: 2 }), turn: 2, phase, turnSeat } as RemoteState;
+      state = place(state, 0, "a", "Blue-Eyes White Dragon", 1);
+      return place(state, 1, "b", "Dark Magician", 1);
+    };
+    const players = [{ seat: 0, displayName: "Me" }, { seat: 1, displayName: "Opponent" }];
+    const said = (text: string, phase = "main1", me = 0) => {
+      const intent = interpret(text, { state: board(phase), players, me, trayOpen: false, cardNames: ["Blue-Eyes White Dragon", "Dark Magician"], now: 5000 });
+      return intent.kind === "phase" ? `phase ${intent.phase}` : intent.kind === "move" ? `move ${JSON.stringify(intent.move)}` : intent.kind;
+    };
+
+    it("maps spoken phrases to existing actions, and ignores the same words in talk", () => {
+      const cases: [string, string][] = [
+        ["pass turn", "turn"], ["I pass", "turn"], ["I'll pass", "turn"], ["pass", "turn"], ["end my turn", "turn"], ["turn end", "turn"],
+        ["that's my turn", "turn"], ["your turn", "turn"], ["your go", "turn"], ["go ahead", "turn"],
+        ["going to battle", "phase battle"], ["into battle", "phase battle"], ["enter battle", "phase battle"], ["go to battle", "phase battle"], ["moving to end phase", "phase end"],
+        ["em two", "phase main2"], ["m2", "phase main2"], ["main two", "phase main2"], ["main phase one", "phase main1"], ["next phase", "phase battle"], ["standby", "phase standby"],
+        ["swing at Dark Magician", "attack"], ["swing", "attack"], ["Blue-Eyes White Dragon swings at Dark Magician", "attack"], ["I attack with Blue-Eyes White Dragon", "attack"],
+        ["Blue-Eyes White Dragon attacks Dark Magician", "attack"], ["attack directly", "attack"], ["direct attack", "attack"], ["go direct", "attack"],
+        ["chain", "wake"], ["I chain", "wake"], ["in response", "wake"], ["respond", "wake"],
+        ["set", "move {\"faceUp\":false}"], ["set a card", "move {\"faceUp\":false}"], ["I set one face down", "move {\"faceUp\":false}"],
+        ["flip summon Blue-Eyes White Dragon", "move {\"query\":\"blue eyes white dragon\",\"position\":\"attack\",\"faceUp\":true}"],
+        // m1 is also Monster Zone 1: from Main 1 it is not a later phase, so it stays the zone.
+        ["m1", "move {\"dest\":{\"zone\":\"monster\",\"slot\":1}}"],
+        // Words with no action yet, and the same words inside ordinary talk, do nothing.
+        ["no response", "none"], ["no chain", "none"], ["resolve", "none"], ["okay", "none"], ["go", "none"],
+        ["normal summon", "none"], ["summon", "none"], ["tribute summon", "none"], ["special summon", "none"], ["I set two face down", "none"],
+        ["go ahead and play it", "none"], ["your turn is next", "none"], ["I was going to battle last turn", "none"], ["swing of memories", "none"], ["so I pass priority to you", "none"],
+      ];
+      for (const [text, expected] of cases) expect(said(text), text).toBe(expected);
+      // A phase word that is not a next phase is still ignored by the voice rule, and the soft turn phrases need your own turn from Main 1 on.
+      expect(said("go ahead", "draw")).toBe("none");
+      expect(said("your turn", "standby")).toBe("none");
+      expect(said("go ahead", "main1", 1)).toBe("none");
+      expect(said("m1", "draw")).toBe("phase main1");
+      expect(said("em two", "end")).toBe("phase main2");
+      expect(judgePhaseWord("main1", 2, true, heardPhaseOf("main phase one")!)).toMatchObject({ accept: false });
+    });
+
+    it("keyword spotter: every phrase can be encoded, joins up, and soft phrases need a short utterance", () => {
+      const set = buildPhrases(["Dark Magician"], sp);
+      expect(set.counts.skipped).toEqual([]);
+      const hit = (spoken: string) => ({ keyword: [...set.meanings].find(([, meaning]) => meaning.kind !== "card" && meaning.spoken === spoken)![0] });
+      const canonical = (...spoken: string[]) => combineHits(spoken.map(hit), set.meanings).canonical;
+      expect(canonical("PASS", "TURN")).toBe("end turn");
+      expect(canonical("GOING TO BATTLE")).toBe("battle phase");
+      expect(canonical("EM TWO")).toBe("main phase two");
+      expect(canonical("SWING AT")).toBe("attack");
+      expect(canonical("I CHAIN")).toBe("chain");
+      expect(canonical("FLIP SUMMON")).toBe("face up attack position");
+      const goAhead = combineHits([hit("GO AHEAD")], set.meanings);
+      expect(isChatter(goAhead, set.meanings, 900)).toBe(false);
+      expect(isChatter(goAhead, set.meanings, 3000)).toBe(true);
+      expect(isChatter(combineHits([hit("GO TO BATTLE")], set.meanings), set.meanings, 3000)).toBe(false);
+    });
+
+    it("speech model matcher: the same phrases from a transcript, and no match on chatter", () => {
+      const matcher = buildMatcher(["Dark Magician"]);
+      const heard = (text: string, ms = 900) => matcher.match(text, ms).canonical;
+      expect(heard("Pass turn.")).toBe("end turn");
+      expect(heard("Your go.")).toBe("end turn");
+      expect(heard("Going to battle")).toBe("battle phase");
+      expect(heard("M2")).toBe("main phase two");
+      expect(heard("Swing")).toBe("attack");
+      expect(heard("In response")).toBe("chain");
+      expect(heard("I set one face down")).toBe("set");
+      expect(heard("Go ahead", 3000)).toBe("");
+      expect(heard("so then he went ahead and passed the turn to me")).toBe("");
+      expect(heard("no response")).toBe("");
+      expect(heard("no chain")).toBe("");
+    });
   });
 });

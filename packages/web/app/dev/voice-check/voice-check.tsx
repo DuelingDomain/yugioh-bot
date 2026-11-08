@@ -9,6 +9,7 @@ import { DEFAULT_PHRASE_OPTIONS, buildPhrases, combineHits, isChatter, placehold
 import { HEARD_PHASES, PHASE_LABEL, VOICE_PHASES, heardPhaseOf, judgePhaseWord, type HeardPhase, type VoicePhase } from "@/components/remote/ui/voice/phase-plausibility";
 import { ASR_BASE, KwsClient, type KwsReady, type KwsStatus, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
 import { buildMatcher } from "@/components/remote/ui/voice/speech-matcher";
+import { NATURAL_PHRASES, SOFT_PHRASES } from "@/components/remote/ui/voice/natural-phrases";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 
 const sp = createSentencePiece(vocab as SentencePieceVocab);
@@ -276,6 +277,16 @@ export function VoiceCheck() {
             </table>
           </div>
         </details></>}
+        <details data-testid="common-phrases">
+          <summary>Common duel phrases, both methods ({NATURAL_PHRASES.length}: what players say, and what it does. Blank means the listener hears it but the table has no action yet)</summary>
+          <div style={{ maxHeight: 240, overflow: "auto" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
+              <thead><tr><th style={cell}>Said</th><th style={cell}>Becomes</th><th style={cell}>Only a short, isolated utterance</th></tr></thead>
+              <tbody>{NATURAL_PHRASES.map(([spoken, canonical]) => (
+                <tr key={spoken}><td style={cell}>{spoken.toLowerCase()}</td><td style={cell}>{canonical || "no action yet"}</td><td style={cell}>{SOFT_PHRASES.has(spoken) ? "yes" : ""}</td></tr>))}</tbody>
+            </table>
+          </div>
+        </details>
         <div>
           {status === "off" ? <button onClick={() => start()} data-testid="start">Start</button> : <button onClick={stop}>Stop</button>}{" "}
           <span data-testid="status">{status}</span>{" "}

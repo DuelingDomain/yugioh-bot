@@ -1,5 +1,5 @@
 import { doubleMetaphone } from "double-metaphone";
-import { FIXED_PHRASES, spokenForm } from "./phrases";
+import { FIXED_PHRASES, isBareSpoken, spokenForm } from "./phrases";
 
 /**
  * Grammar matcher for speech-to-text output (Method B of the voice check). The whole utterance is matched against commands,
@@ -68,7 +68,7 @@ export const DEFAULTS: MatcherOptions = { cmdMin: 0.78, nameMin: 0.66, margin: 0
 export function buildMatcher(deck: readonly string[], opts: Partial<MatcherOptions> = {}) {
   const o = { ...DEFAULTS, ...opts };
   // commands
-  const cmds: Entry[] = FIXED_PHRASES.map(([spoken, canonical]: [string, string]) => ({ key: keyOf(norm(spoken)), meaning: { kind: "cmd", canonical } as Meaning, bare: !spoken.includes(" ") }));
+  const cmds: Entry[] = FIXED_PHRASES.map(([spoken, canonical]: [string, string]) => ({ key: keyOf(norm(spoken)), meaning: { kind: "cmd", canonical } as Meaning, bare: isBareSpoken(spoken) }));
   // names: full + distinctive partials, same rules as the keyword spotter, shared partials carry every name
   const spokenMap = new Map<string, { names: Set<string>; full: boolean }>();
   const put = (spoken: string, name: string, full: boolean) => { const e = spokenMap.get(spoken) ?? { names: new Set<string>(), full }; e.names.add(name); e.full = e.full || full; spokenMap.set(spoken, e); };

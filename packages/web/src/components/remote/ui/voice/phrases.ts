@@ -1,4 +1,5 @@
 import { ALIASES } from "./aliases";
+import { NATURAL_PHRASES, SOFT_PHRASES } from "./natural-phrases";
 import type { SentencePiece } from "./sentencepiece";
 
 /**
@@ -47,6 +48,8 @@ export const FIXED_PHRASES: readonly Fixed[] = [
   ["EFFECT", "effect"], ["ACTIVATE", "activate"], ["ACTIVATE EFFECT", "activate effect"], ["EFFECT OF", "effect"], ["ACTIVATE EFFECT OF", "activate effect"],
   ["ATTACK", "attack"], ["ATTACKS", "attacks"], ["ATTACK WITH", "attack with"], ["DIRECT ATTACK", "direct attack"],
   ["DRAW", "draw"],
+  // Common table talk (natural-phrases.ts): pass turn, M1/M2, going to battle, swing, chain, set, flip summon.
+  ...NATURAL_PHRASES.map(([spoken, canonical]): Fixed => [spoken, canonical]),
 ];
 const JOINERS: readonly (readonly [string, "phase" | "one" | "two" | "turn"])[] = [["PHASE", "phase"], ["ONE", "one"], ["TWO", "two"], ["TURN", "turn"]];
 
@@ -193,7 +196,7 @@ export function combineHits(hits: readonly VoiceHit[], meanings: ReadonlyMap<str
       if (common.length) { parts[last].names = common; parts[last].spoken = meaning.spoken }
       else parts.push({ text: "", names: meaning.names, spoken: meaning.spoken });
     } else if (meaning.word === "phase") { if (last < 0 || !/\bphase$/.test(parts[last].text)) parts.push({ text: "phase" }); }
-    else if (meaning.word === "turn") { if (parts[last]?.text === "end phase") parts[last].text = "end turn"; else parts.push({ text: "turn" }); }
+    else if (meaning.word === "turn") { if (parts[last]?.text === "end phase") parts[last].text = "end turn"; else if (parts[last]?.text !== "end turn") parts.push({ text: "turn" }); }
     else if (last >= 0 && /^main phase$/.test(parts[last].text)) parts[last].text = `main phase ${meaning.word}`;
     else parts.push({ text: meaning.word });
   }
@@ -205,14 +208,15 @@ export function combineHits(hits: readonly VoiceHit[], meanings: ReadonlyMap<str
   let canonical: string;
   if (verbs.length && cards.length === 1 && verbs.length + 1 === parts.length) canonical = `activate effect of ${cards[0].text}`;
   else if (verbs.length > 1 && verbs.length === parts.length) canonical = verbs.map(part => part.text).sort((a, b) => b.length - a.length)[0];
-  else canonical = parts.map(part => part.text).join(" ");
+  else canonical = parts.map(part => part.text).filter(Boolean).join(" ");
   return { canonical, tags, heard, ambiguous };
 }
 
-/** A bare one-word phase ("battle", "end") counts only as a short, isolated utterance. Longer chatter that contains it is ignored. */
+/** A bare one-word phase ("battle", "end") or a phrase that is also an ordinary sentence start ("go ahead") counts only as a short, isolated utterance. Longer chatter that contains it is ignored. */
 export const BARE_WORD_MAX_MS = 1200;
+export const isBareSpoken = (spoken: string) => !spoken.includes(" ") || SOFT_PHRASES.has(spoken.toUpperCase());
 export function isChatter(combined: Combined, meanings: ReadonlyMap<string, PhraseMeaning>, speechMs: number): boolean {
   if (combined.tags.length !== 1) return false;
   const meaning = meanings.get(combined.tags[0]);
-  return (meaning?.kind === "fixed" || meaning?.kind === "card") && !meaning.spoken.includes(" ") && speechMs > BARE_WORD_MAX_MS;
+  return (meaning?.kind === "fixed" || meaning?.kind === "card") && isBareSpoken(meaning.spoken) && speechMs > BARE_WORD_MAX_MS;
 }
