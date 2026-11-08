@@ -2,6 +2,31 @@ import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
 import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
+import type {MatFitOptions, MatFitResult} from './mat-fit';
+
+/** One CPU request in an isolated vision worker. No model/index warmup or per-frame inference. */
+export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{signal?:AbortSignal;workerUrl?:string}={}):Promise<MatFitResult> {
+  const {signal,workerUrl,...opts}=options;
+  signal?.throwIfAborted();
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(workerUrl??'/dev/vision-lab/assets/worker.js?v=mat-fit-v1',{type:'module',name:'mat-fit'});
+    const finish=(error?:Error,result?:MatFitResult)=>{
+      clearTimeout(timeout);signal?.removeEventListener('abort',abort);worker.terminate();
+      if(error)reject(error);else resolve(result!);
+    };
+    const abort=()=>finish(new DOMException('Mat fit cancelled','AbortError'));
+    const timeout=setTimeout(()=>finish(new Error('Mat fit timed out')),10_000);
+    signal?.addEventListener('abort',abort,{once:true});
+    worker.onmessage=event=>{
+      if(event.data.id!==1)return;
+      finish(event.data.error?new Error(event.data.error):undefined,event.data.result);
+    };
+    worker.onerror=event=>finish(new Error(event.message||'Mat fit worker failed'));
+    worker.onmessageerror=()=>finish(new Error('Mat fit response could not be read'));
+    try{worker.postMessage({id:1,type:'fitToMat',frame,opts},typeof ImageBitmap!=='undefined'&&frame instanceof ImageBitmap?[frame]:[]);}
+    catch(error){finish(error instanceof Error?error:new Error(String(error)));}
+  });
+}
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {

@@ -124,7 +124,7 @@ function SeatFeed({ seat, name, room, cameraKey }: { seat: number; name: string;
     {room?<><FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("phone")} onChange={grid=>saveCalibration(grid)}/>
       <SheetButton size="sm" onClick={()=>setCalibrating(true)}>Calibrate phone zones</SheetButton>
       {calibrating?<FieldCalibrationControl video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-        onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
+        onFit={grid=>saveCalibration(grid,true)} onSave={grid=>{saveCalibration(grid,true);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}</>:null}
     <p className={ui.hint}>Click a face-up card to test the reader.</p>
     <p className={cx(ui.hint, s.readNote)} role="status" data-testid={`lobby-phone-read-${seat}`}>{note}</p>
   </div>;
@@ -357,7 +357,7 @@ function WebcamPanel({ room, voiceRecognition, onCheck }: { room: RemoteRoom; vo
       {debugAllowed&&debugEnabled&&cameraLock.debug?<p className={ui.hint} data-testid="lobby-camera-debug">{cameraLock.debug}</p>:null}
     </div>
     {calibrating ? <FieldCalibrationControl large video={video.current} format={formatOf(room)} initialCalibration={calibration} detectCalibrationCards={calibrationCards}
-      onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
+      onFit={grid=>saveCalibration(grid,true)} onSave={(grid: FieldCalibration) => { saveCalibration(grid, true); setCalibrating(false); setChecking(true); }} onCancel={() => setCalibrating(false)} /> : null}
     {checking && !calibrating ? <LobbyZonesView stream={stream.current} ratio={ratio} format={formatOf(room)} calibration={calibration} calibrated={calibrated} changed={layoutChanged} onConfirm={() => { if (calibration) saveCalibration(calibration, true); }}
       restoreFocus={() => expandButton.current} onChange={grid => saveCalibration(grid)}
       onRedo={() => { setChecking(false); setCalibrating(true); }} onClose={() => setChecking(false)} /> : null}

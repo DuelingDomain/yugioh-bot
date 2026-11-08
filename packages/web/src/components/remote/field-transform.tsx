@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { fieldQuadPoint, fieldQuadTurn, moveFieldQuad, pinchFieldQuad, resizeFieldQuad, turnFieldQuad, type FieldHandle } from '@yugidraft/vision';
+import { fieldQuadEnvelope, type FieldQuadEnvelope, fieldQuadPoint, fieldQuadTurn, moveFieldQuad, pinchFieldQuad, resizeFieldQuad, turnFieldQuad, type FieldHandle } from '@yugidraft/vision';
 import { DEFAULT_GRID_CORNERS } from '@/lib/remote/zone-grid';
 import s from './field-transform.module.css';
 
@@ -9,17 +9,18 @@ type Point={x:number;y:number};
 /**
  * `quad` is the grid as saved (clockwise from the mat's top-left corner). `angle` is its turn in degrees (0 up to 360), read from the quad
  * when the screen opens. `restore` is how much smaller a turn made the grid than the owner asked for; turning back grows it again.
+ * `limits` retains the initial fitted envelope through edits and undo, including any inferred off-camera EMZ row.
  */
-interface State {quad:Point[];angle:number;restore:number}
+interface State {quad:Point[];angle:number;restore:number;limits:FieldQuadEnvelope}
 export type FieldGrab=State;
 /** Fine steps for the buttons and keys: 1% of the picture to move, a degree to turn (Shift: three times the move, five times the turn). */
 export const MOVE_STEP=.01,ROTATE_STEP=1,ROTATE_BIG=5;
 /** A drag near a quarter turn sticks to it. */
 export const SNAP_DEGREES=3;
 const wrapTurn=(degrees:number)=>((degrees%360)+360)%360;
-const fresh=():State=>({quad:DEFAULT_GRID_CORNERS.map(p=>({...p})),angle:0,restore:1});
+const fresh=():State=>({quad:DEFAULT_GRID_CORNERS.map(p=>({...p})),angle:0,restore:1,limits:fieldQuadEnvelope(DEFAULT_GRID_CORNERS)});
 /** A saved quad opens at the turn it already has (the record holds only the corners), so a turn adds to it instead of piling on. */
-const startState=(corners:Point[]|undefined,aspect:number):State=>corners?.length===4?{quad:corners.map(p=>({...p})),angle:fieldQuadTurn(corners,aspect),restore:1}:fresh();
+const startState=(corners:Point[]|undefined,aspect:number):State=>corners?.length===4?{quad:corners.map(p=>({...p})),angle:fieldQuadTurn(corners,aspect),restore:1,limits:fieldQuadEnvelope(corners)}:fresh();
 
 /**
  * The whole-field calibration, edited like a picture: move it, drag a corner or edge to resize it (the opposite side stays put), turn it
@@ -51,18 +52,18 @@ export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=
     notify.current?.(next.quad);
   },[]);
   const turnFrom=useCallback((from:State,degrees:number)=>{
-    const out=turnFieldQuad(from.quad,degrees,aspectRef.current,from.restore);
-    if(out)commit({quad:out.corners,angle:wrapTurn(from.angle+degrees),restore:out.restore},true);
+    const out=turnFieldQuad(from.quad,degrees,aspectRef.current,from.restore,from.limits);
+    if(out)commit({...from,quad:out.corners,angle:wrapTurn(from.angle+degrees),restore:out.restore},true);
   },[commit]);
   const pinchFrom=useCallback((from:State,factor:number,degrees:number)=>{
-    const quad=pinchFieldQuad(from.quad,factor,degrees,aspectRef.current);
-    if(quad)commit({quad,angle:wrapTurn(from.angle+degrees),restore:1},true);
+    const quad=pinchFieldQuad(from.quad,factor,degrees,aspectRef.current,from.limits);
+    if(quad)commit({...from,quad,angle:wrapTurn(from.angle+degrees),restore:1},true);
   },[commit]);
   return {
     corners:state.quad,angle:state.angle,aspect,canUndo:depth>0,
     /** The state a drag starts from; pass it back to the `...From` calls. */
     grab:useCallback(()=>ref.current,[]),
-    move:useCallback((dx:number,dy:number)=>{const quad=moveFieldQuad(ref.current.quad,dx,dy);if(quad)commit({...ref.current,quad},true);},[commit]),
+    move:useCallback((dx:number,dy:number)=>{const quad=moveFieldQuad(ref.current.quad,dx,dy,ref.current.limits);if(quad)commit({...ref.current,quad},true);},[commit]),
     /** Turn the grid clockwise by `degrees` (negative = anticlockwise), any amount. */
     turnBy:useCallback((degrees:number)=>turnFrom(ref.current,degrees),[turnFrom]),
     turnFrom,pinchFrom,
@@ -70,8 +71,8 @@ export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=
     scaleBy:useCallback((factor:number)=>pinchFrom(ref.current,factor,0),[pinchFrom]),
     /** Drag a corner or edge handle to a picture point; the opposite side stays where it was. */
     resizeFrom:useCallback((from:State,handle:FieldHandle,pointer:Point,keepAspect:boolean)=>{
-      const quad=resizeFieldQuad(from.quad,handle,pointer,keepAspect);
-      if(quad)commit({quad,angle:from.angle,restore:1},true);
+      const quad=resizeFieldQuad(from.quad,handle,pointer,keepAspect,from.limits);
+      if(quad)commit({...from,quad,angle:from.angle,restore:1},true);
     },[commit]),
     /** A new quad (for example from the two-card setup); the turn is read from it. */
     rebase:useCallback((next:Point[])=>{lastPush.current=0;commit(startState(next,aspectRef.current),true);},[commit]),
