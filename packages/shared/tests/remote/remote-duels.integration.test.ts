@@ -14,6 +14,7 @@ import { readRemoteState } from "../../src/remote/storage.js";
 import { applyRemoteOpening } from "../../src/remote/match.js";
 import { applyPatch } from "../../src/remote/delta.js";
 import { mergeHistory } from "../../src/services/history-merge.js";
+import type { RemoteHistoryItem } from "../../src/remote/history.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -3859,5 +3860,23 @@ describe("remote match history and replay", () => {
     const page2 = mergeHistory({ cursor: page1.nextCursor, online: cursor => (expect(cursor).toBe("o2"), last), remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
     expect(page2.duels.map(item => ("remote" in item ? item.slug : item.id))).toEqual([3, remote.slug]);
     expect(page2.nextCursor).toBeNull();
+  });
+
+  it("ends the list when a status filter hides every Remote row", () => {
+    // 120 Remote rows without a winner, read 50 at a time, and no online rows.
+    const rows = Array.from({ length: 120 }, (_, i) => ({ slug: `r${i}`, winnerSeat: null, endedAt: new Date(Date.UTC(2999, 0, 1) - i * 1000).toISOString(), cursor: String(i) }) as never as RemoteHistoryItem);
+    const remote = (cursor: string | undefined) => {
+      const start = cursor === undefined ? 0 : Number(cursor) + 1;
+      const items = rows.slice(start, start + 50);
+      return { items, nextCursor: start + 50 < rows.length ? items[items.length - 1]!.cursor : null, canSeeAll: true };
+    };
+    let cursor: string | null = null, pages = 0;
+    do {
+      const page = mergeHistory({ cursor, online: () => ({ duels: [], nextCursor: null, canSeeAll: true }), remote, remoteKeep: item => item.winnerSeat !== null });
+      expect(page.duels).toHaveLength(0);
+      cursor = page.nextCursor;
+    } while (cursor && ++pages < 10);
+    expect(cursor).toBeNull();
+    expect(pages).toBe(2);
   });
 });

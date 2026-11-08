@@ -30,17 +30,22 @@ export function mergeHistory(input: {
   cursor: string | null | undefined;
   online: (cursor: string | undefined) => DuelHistoryPage;
   remote: (cursor: string | undefined) => RemoteHistoryPage;
+  /** Hides Remote rows after the page is read. Hidden rows still count as read, so the next page starts after them. */
+  remoteKeep?: (item: RemoteHistoryItem) => boolean;
 }): MergedHistoryPage {
   const cursor = readComposite(input.cursor);
   const online = cursor.od ? null : input.online(cursor.o);
   const remote = cursor.rd ? null : input.remote(cursor.r || undefined);
   const onlineMore = !!online?.nextCursor, onlineItems = online?.duels ?? [];
   const cut = onlineMore && onlineItems.length ? timeOf(onlineItems[onlineItems.length - 1]!) : -Infinity;
-  const remoteItems = (remote?.items ?? []).filter(item => timeOf(item) >= cut);
-  // Remote rows left out of this page are read again from the last row that was kept. "" is the start of the list (page 1 has
-  // no Remote position yet), so it is never mixed up with `rd`, which means Remote has no more rows.
-  const remoteMore = !!remote && (remoteItems.length < remote.items.length || !!remote.nextCursor);
-  const remoteNext = remoteMore ? (remoteItems.length ? remoteItems[remoteItems.length - 1]!.cursor : cursor.r ?? "") : null;
+  // Remote rows newer than the cut are read; the rest are read again on the next page. The position moves to the last row
+  // that was read, kept or hidden, so a page of hidden rows cannot be read twice. "" is the start of the list (page 1 has no
+  // Remote position yet), so it is never mixed up with `rd`, which means Remote has no more rows.
+  const raw = remote?.items ?? [];
+  const read = raw.filter(item => timeOf(item) >= cut);
+  const remoteItems = input.remoteKeep ? read.filter(input.remoteKeep) : read;
+  const remoteMore = !!remote && (read.length < raw.length || !!remote.nextCursor);
+  const remoteNext = remoteMore ? (read.length ? read[read.length - 1]!.cursor : cursor.r ?? "") : null;
   const duels = [...onlineItems, ...remoteItems].sort((a, b) => timeOf(b) - timeOf(a));
   const done = !onlineMore && remoteNext === null;
   const next: Composite = {
