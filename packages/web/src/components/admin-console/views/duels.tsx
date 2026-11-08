@@ -75,7 +75,7 @@ function TodaySection({ today, failed, actions, flush }: { today: TodayData | nu
   return (
     <div id={TODAY_ANCHOR} className={styles.anchor}>
       <SectionHead title="Today" n={today ? plural(today.counts.all, "duel", "duels") : undefined} flush={flush}
-        aside={<span className={styles.aside}>{today ? `Since 00:00 ${ADMIN_TIME_ZONE_LABEL}` : null}</span>} />
+        aside={<span className={styles.aside}>{today ? `Since ${formatClock(today.dayStart)} ${ADMIN_TIME_ZONE_LABEL}` : null}</span>} />
       {failed ? <Notice tone="warn" title="The duels of today are not available">{failed}</Notice> : (
         <>
           <div className={`${styles.toolbar} ${styles.toolbarTight}`}>

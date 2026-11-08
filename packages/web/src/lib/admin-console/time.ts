@@ -1,7 +1,7 @@
 /**
  * The one time zone of the admin console: US Eastern (EST in winter, EDT in summer), shown as "ET".
  * Every time, date and day boundary in /admin goes through the shared helper (the Discord bot uses the same one) and the
- * formatters below, which keep the old en-GB shapes (day before month, 24-hour clock) and only fix the zone.
+ * formatters below: US Eastern, 12-hour clock with AM/PM, month before day ("Nov 8, 12:28 AM").
  */
 import { EASTERN_TIME_LABEL, EASTERN_TIME_ZONE, easternDayKey } from "@yugidraft/shared/util/eastern-time";
 
@@ -17,19 +17,24 @@ function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.Da
   return found;
 }
 
-/* ---------- display (en-GB: day before month, 24-hour clock) ---------- */
-const show = (ms: number, options: Intl.DateTimeFormatOptions) => formatter("en-GB", options).format(ms);
+/* ---------- display (en-US: month before day, 12-hour clock with AM/PM) ---------- */
+// Newer ICU puts a narrow no-break space before AM/PM; a plain space reads the same and wraps like normal text.
+const show = (ms: number, options: Intl.DateTimeFormatOptions) => formatter("en-US", { ...options, hour12: true }).format(ms).replace(/[\u202f\u00a0]/g, " ");
 
-/** "14:05" */
-export const formatClock = (ms: number) => show(ms, { hour: "2-digit", minute: "2-digit", hour12: false });
-/** "25 Oct" */
+/** "12:28 AM" */
+export const formatClock = (ms: number) => show(ms, { hour: "numeric", minute: "2-digit" });
+/** "Nov 8" */
 export const formatDayMonth = (ms: number) => show(ms, { day: "numeric", month: "short" });
-/** "25 Oct 2026", day padded ("05 Oct 2026") */
-export const formatDate = (ms: number) => show(ms, { day: "2-digit", month: "short", year: "numeric" });
-/** "25 Oct, 14:05" */
-export const formatDayMonthClock = (ms: number) => show(ms, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-/** "Sun 25 Oct" */
+/** "Nov 8, 2026" */
+export const formatDate = (ms: number) => show(ms, { day: "numeric", month: "short", year: "numeric" });
+/** "November 8, 2026" */
+export const formatLongDate = (ms: number) => show(ms, { day: "numeric", month: "long", year: "numeric" });
+/** "Nov 8, 12:28 AM" */
+export const formatDayMonthClock = (ms: number) => show(ms, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+/** "Nov 8, 2026, 12:28 AM" */
+export const formatDateClock = (ms: number) => show(ms, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+/** "Sun, Nov 8" */
 export const formatWeekdayDate = (ms: number) => show(ms, { weekday: "short", day: "numeric", month: "short" });
-/** "25 Oct", or "25 Oct 2025" when the year is not the current Eastern year. */
+/** "Nov 8", or "Nov 8, 2025" when the year is not the current Eastern year. */
 export const formatDayMonthUnlessThisYear = (ms: number, now: number = Date.now()) =>
-  easternDayKey(ms).slice(0, 4) === easternDayKey(now).slice(0, 4) ? formatDayMonth(ms) : show(ms, { day: "numeric", month: "short", year: "numeric" });
+  easternDayKey(ms).slice(0, 4) === easternDayKey(now).slice(0, 4) ? formatDayMonth(ms) : formatDate(ms);
