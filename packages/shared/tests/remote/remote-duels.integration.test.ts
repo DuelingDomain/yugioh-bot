@@ -3372,9 +3372,74 @@ it('upgrades the event deletion guard atomically and leaves current SQL untouche
   } finally {spy.mockRestore();}
 });
 
-it('expires all room storage after 24 hours across batches and removes account remote data', async () => {
+it('uses the abandoned-lobby partial index after repeated migrations', () => {
+  const {db,service}=setup();
+  migrate(db); migrate(db);
+  const plans:string[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('select id,slug from remote_tables ')) {
+      plans.push(...(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(86_400_000,100) as {detail:string}[]).map(row=>row.detail));
+    }
+    return prepare(sql);
+  });
+  try { service.purgeEnded(86_400_000,100,2*86_400_000,true); }
+  finally { spy.mockRestore(); }
+  expect(plans).toEqual(['SEARCH remote_tables USING INDEX remote_tables_unstarted_retention (ended_at<?)']);
+});
+
+it('prunes sessions with indexed room lookups only after the Undo and phone cleanup grace', () => {
+  const {db,service,users}=setup();
+  const now=86_400_000, grace=15*60_000;
+  db.exec(`create table remote_phone_pairs(id text primary key,slug text,user_id integer,revoked integer,cleanup_pending integer);
+    create table remote_phone_modes(slug text,user_id integer);
+    create table remote_phone_attempts(bucket text primary key,slug text,started_at integer,count integer);`);
+  const sessions=['remote_phone_pairs','remote_phone_modes','remote_phone_attempts','remote_spectators','remote_spectator_tabs','remote_admin_watch'];
+  const rooms=[grace+1,grace,1].map(age=>{
+    const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},now-age);
+    const {id}=db.prepare('select id from remote_tables where slug=?').get(room.slug) as {id:number};
+    db.prepare("update remote_tables set status='ended',ended_at=? where id=?").run(now-age,id);
+    db.prepare('insert into remote_phone_pairs values(?,?,?,1,1)').run(room.slug,room.slug,users[0]);
+    db.prepare('insert into remote_phone_modes values(?,?)').run(room.slug,users[0]);
+    db.prepare('insert into remote_phone_attempts values(?,?,?,1)').run(room.slug,room.slug,now);
+    db.prepare('insert into remote_spectators values(?,?,?)').run(id,users[1],now);
+    db.prepare('insert into remote_spectator_tabs values(?,?,?,?)').run(id,users[1],'tab',now);
+    db.prepare('insert into remote_admin_watch values(?,?,null)').run(id,users[1]);
+    return {...room,id};
+  });
+  const plans:{sql:string;details:string[]}[]=[];
+  const prepare=db.prepare.bind(db);
+  const spy=vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{
+    if(sql.startsWith('delete from') && sql.includes('remote_tables')) {
+      plans.push({sql,details:(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(sql.includes('?')?[now-grace]:[])) as {detail:string}[]).map(row=>row.detail)});
+    }
+    return prepare(sql);
+  });
+  try { service.pruneSessions(now); }
+  finally { spy.mockRestore(); }
+  for(const name of sessions) {
+    const key=name.startsWith('remote_phone')?'slug':'table_id';
+    const remaining=db.prepare(`select ${key} as room from ${name}`).all();
+    expect(remaining,name).toEqual(rooms.slice(1).map(room=>({room:key==='slug'?room.slug:room.id})));
+  }
+  expect(plans).toHaveLength(6);
+  for(const {sql,details} of plans) {
+    expect(details.join('; '),sql).toContain('CORRELATED SCALAR SUBQUERY');
+    expect(details.join('; '),sql).not.toMatch(/LIST SUBQUERY|SCAN (?:t|remote_tables)\b/);
+    expect(details.join('; '),sql).toMatch(/SEARCH t USING (?:INDEX sqlite_autoindex_remote_tables_1 \(slug=\?\)|INTEGER PRIMARY KEY \(rowid=\?\))/);
+  }
+  // Undo can reopen a recently ended room; its sessions survive subsequent pruning.
+  db.prepare("update remote_tables set status='active',ended_at=null where id=?").run(rooms[2].id);
+  service.pruneSessions(now+1);
+  for(const name of sessions) expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:1});
+});
+
+it('keeps history and replay indefinitely, prunes transient data, and supports an optional retention cap', async () => {
   const {pruneRemoteDuels} = await import('../../src/services/remote-retention.js');
-  const s=deckSession();s.start();s.place('retention-card');
+  const s=deckSession('domain',false);
+  s.service.join(s.room.slug,'g',s.users[1],'Guest',1,2001);
+  s.service.ready(s.room.slug,'g',s.users[1],true,2002);
+  s.start();s.place('retention-card');
   const {db,service,users,room:table}=s;
   const day=86_400_000, now=3*day;
   vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','');
@@ -3392,13 +3457,15 @@ it('expires all room storage after 24 hours across batches and removes account r
       db.prepare('insert into remote_phone_modes values(?,?)').run(slug,users[0]);
       db.prepare('insert into remote_phone_attempts(bucket,started_at,count,slug) values(?,?,1,?)').run(slug,now,slug);
       db.prepare('insert into remote_spectators values(?,?,?)').run(roomId(slug),users[1],now);
+      db.prepare('insert into remote_spectator_tabs values(?,?,?,?)').run(roomId(slug),users[1],'tab',now);
+      db.prepare('insert into remote_admin_watch values(?,?,null)').run(roomId(slug),users[1]);
     };
     for(let i=0;i<101;i++) {
       const room=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2,solo:true},1000);
       attach(room.slug);
       db.prepare("update remote_tables set status='ended',ended_at=? where slug=?").run(now-day-1,room.slug);
     }
-    // Real board/Undo positions and content-addressed facts must go as well.
+    // These are board/Undo positions and replay facts, not camera or vision blobs.
     expect(db.prepare('select count(*) n from remote_state_values').get()).not.toEqual({n:0});
     expect(db.prepare('select count(*) n from remote_events where facts_hash is not null').get()).not.toEqual({n:0});
     attach(table.slug);
@@ -3406,11 +3473,32 @@ it('expires all room storage after 24 hours across batches and removes account r
     const idle=service.create({guildId:'g',userId:users[0],displayName:'Owner',gameId:'ygo',seatCount:2},1000);
     expect(service.sweepIdle(now).find(t=>t.slug===idle.slug)?.endReason).toBe('idle');
     db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now-day);
-    expect(pruneRemoteDuels(db,now)).toBe(101);
-    expect(service.get(table.slug,'g',users[0])).toBeDefined();
+    const stored=()=>['remote_tables','remote_seats','remote_bot_seats','remote_events','remote_state_values','remote_values']
+      .map(name=>db.prepare(`select * from ${name} order by 1,2`).all());
+    const history=service.listHistory('g',users[0]);
+    expect(history.items.map(item=>item.slug)).toContain(table.slug);
+    const expectedReplay=createRemoteDuelService(db).replayFrames(table.slug,'g',users[0]);
+    const expectedState=service.get(table.slug,'g',users[0]).state;
+    expect(pruneRemoteDuels(db,now)).toBe(101); // Only abandoned, never-started lobbies.
+    const retained=stored();
+    for(const name of ['remote_spectators','remote_spectator_tabs','remote_admin_watch','remote_phone_pairs','remote_phone_modes','remote_phone_attempts','remote_vision_ai_limits']) {
+      expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});
+    }
+    delete process.env.REMOTE_DUELS_RETENTION_DAYS;
+    expect(pruneRemoteDuels(db,now+day+1)).toBe(2); // Idle lobby and deckSession's initial lobby.
+    const forever=stored();
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','0');
+    expect(pruneRemoteDuels(db,now+365*day)).toBe(0);
+    expect(stored()).toEqual(forever);
+    expect(service.listHistory('g',users[0])).toEqual(history);
+    expect(service.get(table.slug,'g',users[0]).state).toEqual(expectedState);
+    expect(service.replay(table.slug,'g',users[0])).toEqual(expectedState);
+    expect(createRemoteDuelService(db).replayFrames(table.slug,'g',users[0])).toEqual(expectedReplay);
+    expect(retained[5]).toEqual(forever[5]); // Content-addressed replay/Undo values survive.
+    vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS','1');
+    expect(pruneRemoteDuels(db,now)).toBe(0); // Strict boundary: exactly one day remains.
     expect(pruneRemoteDuels(db,now+1)).toBe(1);
-    expect(()=>service.replay(table.slug,'g',users[0])).toThrow(/not found/i);
-    expect(pruneRemoteDuels(db,now+day+1)).toBe(2); // Includes deckSession's initial lobby.
+    expect(()=>service.replayFrames(table.slug,'g',users[0])).toThrow(/not found/i);
     const names=()=> (db.prepare("select name from sqlite_master where type='table' and name glob 'remote_*'").all() as {name:string}[]).map(r=>r.name);
     const empty=()=>{for(const name of names())expect(db.prepare(`select count(*) n from ${name}`).get(),name).toEqual({n:0});};
     empty();
@@ -3643,7 +3731,7 @@ it.each(['tap','manual'] as const)('keeps only tournament result evidence throug
   const { db, service } = setup(), day = 86_400_000, hour = 3_600_000;
   const actors = [seedIdentity(db), seedIdentity(db)];
   const clock = vi.spyOn(Date, 'now').mockReturnValue(25_000);
-  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS', '');
+  vi.stubEnv('REMOTE_DUELS_RETENTION_DAYS', '1');
   let fixture = 0;
   const make = () => {
     const tournamentId = Number(db.prepare(`insert into tournaments(guild_id,name,format,status,created_by_user_id,duel_type)
@@ -3774,7 +3862,7 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
   const s = await tournamentResultSession();
   const {pruneRemoteDuels} = await import("../../src/services/remote-retention.js");
   const day = 86_400_000;
-  vi.stubEnv("REMOTE_DUELS_RETENTION_DAYS", "");
+  vi.stubEnv("REMOTE_DUELS_RETENTION_DAYS", "1");
   try {
     let room: Pick<typeof s.room,"slug"|"lastEventAt"> = s.room;
     if (reason === "creator-left") {

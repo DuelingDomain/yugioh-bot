@@ -233,12 +233,12 @@ export function createRemoteDuelService(db: Database.Database, options: {
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    /** Explicit retention policy: remove at most `limit` ended rooms per transaction.
-     * Until this boundary, all GET/event/replay/Undo semantics remain available. */
-    purgeEnded(before: number, limit = 100, now = Date.now()): number {
+    /** Explicit retention cap, or only abandoned lobbies: at most `limit` rooms per transaction.
+     * Started tables and their replay/Undo facts are kept by default by the hourly caller. */
+    purgeEnded(before: number, limit = 100, now = Date.now(), unstartedOnly = false): number {
       remoteAssert(Number.isSafeInteger(before) && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, "Invalid retention boundary");
       return transaction(() => {
-        const rooms = db.prepare("select id,slug from remote_tables where status='ended' and ended_at<? order by ended_at limit ?")
+        const rooms = db.prepare(`select id,slug from remote_tables${unstartedOnly ? " indexed by remote_tables_unstarted_retention" : ""} where status='ended' and ended_at<?${unstartedOnly ? " and started_at is null" : ""} order by ended_at limit ?`)
           .all(before,limit) as {id: number; slug: string}[];
         for (const room of rooms) captureRemoteTournamentEvidence(db, room.id, now);
         return deleteRemoteRooms(db, rooms);

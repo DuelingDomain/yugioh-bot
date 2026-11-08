@@ -13,6 +13,14 @@ import { RemoteLobbyRoom } from '../src/components/remote/ui/lobby';
 
 afterEach(cleanup);
 
+it('shows the history and video disclosure to a casual invite guest',()=>{
+ const room={slug:'invite-guest',mySeat:1,createdBy:16,solo:false,seatCount:2,state:{match:{bestOf:3}},seats:[{seat:0,userId:16,displayName:'Host',ready:false},{seat:1,userId:17,displayName:'Guest',ready:false}]} as RemoteRoom;
+ const ctl={operation:vi.fn(),busy:false,realtime:'Connected'} as unknown as RoomController;
+ state.hub={rosterReady:false,manual:()=>false,phones:[]};
+ render(<RemoteLobbyRoom room={room} ctl={ctl}/>);
+ expect(screen.getByText('Remote match history and board-state replays are kept with no time limit by default. Video is not recorded.')).toBeVisible();
+});
+
 it.each(['manual','phone'])('waits for the saved %s camera choice before mounting the preview',mode=>{
  const room={slug:'saved-choice',mySeat:0,createdBy:16,solo:true,seatCount:2,state:{match:{bestOf:1}},seats:[{seat:0,userId:16,displayName:'Smoke',ready:false}]} as RemoteRoom;
  const ctl={operation:vi.fn(),busy:false,realtime:'Connected'} as unknown as RoomController;

@@ -1973,6 +1973,7 @@ function migrateRemoteDuels(db: Database.Database) {
   db.exec(`
     create index if not exists remote_events_facts_hash on remote_events(facts_hash) where facts_hash is not null;
     create index if not exists remote_tables_retention on remote_tables(ended_at) where status='ended';
+    create index if not exists remote_tables_unstarted_retention on remote_tables(ended_at) where status='ended' and started_at is null;
     create trigger if not exists remote_state_values_collect after delete on remote_state_values begin
       delete from remote_values where hash=old.value_hash
         and not exists(select 1 from remote_state_values where value_hash=old.value_hash)

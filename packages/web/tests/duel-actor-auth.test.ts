@@ -400,10 +400,10 @@ describe("remote LiveKit credentials", () => {
     vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
     state.db!.prepare("update remote_tables set last_event_at=? where slug=?").run(Date.now() - 600_001, room.slug);
     expect((await POST(request(), context)).status).toBe(409);
-    state.db!.prepare("update remote_tables set status='ended',last_event_at=? where slug=?").run(Date.now(), room.slug);
+    state.db!.prepare("update remote_tables set status='ended',last_event_at=?,ended_at=? where slug=?").run(Date.now(), Date.now()-16*60_000, room.slug);
     expect((await POST(request(), context)).status).toBe(409);
 
-    // Account deletion must also retire live SFU rooms after its SQL rows disappear.
+    // Retained ended tables and account deletion must both retire their SFU rooms.
     const { Room, RoomServiceClient } = await import('livekit-server-sdk');
     const { deleteUserAccount } = await import('@yugidraft/shared/services');
     const keep=remote.create({guildId:'guild-1',userId:guest,displayName:'Guest',gameId:'ygo',seatCount:2});
@@ -417,7 +417,6 @@ describe("remote LiveKit credentials", () => {
     const root=globalThis as typeof globalThis & {__remoteSpectatorJanitor?:ReturnType<typeof setInterval>};
     vi.useFakeTimers();
     try {
-      deleteUserAccount(state.db!,userId);
       const {startSpectatorCleanup}=await import('../src/lib/remote/spectator-server');
       startSpectatorCleanup();
       await vi.advanceTimersByTimeAsync(30_000);
@@ -427,6 +426,8 @@ describe("remote LiveKit credentials", () => {
       expect(media.has(`remote-${room.slug}-voice`)).toBe(false);
       expect(media.has(`remote-${keep.slug}`)).toBe(true);
       expect(drop).toHaveBeenCalledTimes(3);
+      expect(state.db!.prepare('select 1 from remote_tables where slug=?').get(room.slug)).toBeDefined();
+      deleteUserAccount(state.db!,userId);
       media.add(`remote-${room.slug}`); // A stale token must not recreate an abandoned room permanently.
       await vi.advanceTimersByTimeAsync(30_000);
       expect(media.has(`remote-${room.slug}`)).toBe(false);
