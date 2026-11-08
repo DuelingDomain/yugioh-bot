@@ -16,7 +16,7 @@
   font-size: 13px;
 }
 .check { flex: 1 0 100%; min-width: 0; }
-.text { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.text { flex: 1 1 240px; min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; gap: 1px; } /* room for headline, reason and actor: the result frame must not grow the bar */
 .result { display: flex; flex-direction: column; min-width: 0; }
 .result strong { font-family: var(--font-display); font-size: 15px; line-height: 1.25; color: #f0d9a0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result span { color: #c5d0de; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40,7 +40,8 @@
   outline-offset: 2px;
 }
 .scrub { flex: 2 1 260px; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.slider { flex: 1 1 auto; min-width: 60px; height: 28px; accent-color: #9b72d9; cursor: pointer; }
+.speed { flex: none; }
+.slider { flex: 1 1 0; min-width: 0; height: 28px; accent-color: #9b72d9; cursor: pointer; }
 .count { color: #b6c7d9; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .select { border: 1px solid #61738b; padding: 4px 6px; height: 32px; max-width: 100%; background: #142130; color: #e7edf6; font-size: 13px; }
 

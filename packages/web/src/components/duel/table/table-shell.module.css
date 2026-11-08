@@ -339,6 +339,13 @@
   left: 14px;
   right: 14px;
 }
+/* The floating Updates and Report bug chips sit at the bottom right of a wide window: the strip stops before them so its view row (cards, Show all cards) stays clickable. */
+@media (min-width: 900px) {
+  .shell.shell[data-hud="true"] .replayStrip,
+  .shell.shell[data-plaza-hud="true"] .replayStrip {
+    right: max(var(--hud-right, 14px), 250px);
+  }
+}
 /* Every other layout: a full-width row between the board and the station track. */
 .replayBar {
   position: relative;

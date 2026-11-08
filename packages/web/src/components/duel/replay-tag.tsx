@@ -1,5 +1,6 @@
 "use client";
 
+import { ReplayAllCardsToggle, type ReplayAllCards } from "./replay-all-cards";
 import { useCallback, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Flag, History, Pause, Play, SkipBack, SkipForward } from "lucide-react";
@@ -7,7 +8,6 @@ import { type DuelEngineView, type ReplayVisibility } from "@yugidraft/shared/du
 import { useDuelPreferences } from "./preferences";
 import { useIsNarrow } from "./side-panel";
 import {
-  SPEEDS,
   stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
@@ -23,6 +23,7 @@ import { MasterSeatsContext } from "./master-place";
 import { FieldCracksScope } from "./field-cracks/context";
 import { TagShell } from "./tag/tag-shell";
 import { useMatchHistoryHref } from "./history-link";
+import { ReplaySpeedControl } from "./replay-speed";
 import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
 import styles from "./replay-tag.module.css";
@@ -41,6 +42,8 @@ export interface ReplayTagProps {
   /** The card view the frames were fetched for. */
   visibility: ReplayVisibility;
   onVisibilityChange: (next: ReplayVisibility) => void;
+  /** "Show all cards" of a finished duel. Absent when the server cannot show it. */
+  allCards?: ReplayAllCards;
   /** A failed card-view switch: what is on screen stays, this says why. */
   notice?: string | null;
   /** Extra header controls (for example Jump in, owner only). They sit before the view controls. */
@@ -55,7 +58,7 @@ export interface ReplayTagProps {
  * seat is drawn at home; the cards each seat shows were fixed by the server for the card view that was asked for,
  * so a camera change never reveals a card and never refetches.
  */
-export function ReplayTag({ slug, viewerId, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
+export function ReplayTag({ slug, viewerId, model, timeline, engine, controller, visibility, onVisibilityChange, allCards, notice, tools, inputSuspended = false }: ReplayTagProps) {
   const historyHref = useMatchHistoryHref(viewerId);
   const preferences = useDuelPreferences();
   const narrow = useIsNarrow();
@@ -82,7 +85,7 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
   const actor = frameCaption(frame, index, atEnd, nameOf);
   const headline = replayResultHeadline(session, result, nameOf);
   const canSwitchCards = model.version === 2 && model.mySeat != null;
-  const publicOnly = model.mySeat == null || model.visibility === "public";
+  const publicOnly = (model.mySeat == null || model.visibility === "public") && !model.revealAll;
   const seats = [0, 1, 2, 3];
   const note = checkNoteOf(model);
   const checked = note !== "exact";
@@ -107,6 +110,7 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
           ))}
         </div>
       ) : null}
+      {allCards ? <ReplayAllCardsToggle {...allCards} className={styles.segmented} /> : null}
       <Link href={historyHref} className={styles.linkIcon} aria-label="Match history" title="Match history"><History size={16} aria-hidden /></Link>
       <Link href={`/duels/${slug}`} className={styles.linkIcon} aria-label="Final board" title="Final board"><Flag size={16} aria-hidden /></Link>
     </div>
@@ -140,12 +144,7 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
         <input type="range" className={styles.slider} aria-label="Replay position" min={0} max={last} step={1} value={index}
           aria-valuetext={`Move ${index} of ${last}`} onChange={(event) => controller.seek(Number(event.target.value))} />
         <span className={styles.count}>{index} / {last}</span>
-        <label className={styles.speed}>
-          <span className="sr-only">Playback speed</span>
-          <select className={styles.select} value={speed} aria-label="Playback speed" onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </label>
+        <div className={styles.speed}><ReplaySpeedControl speed={speed} onChange={controller.setSpeed} compact /></div>
       </div>
       {narrow ? viewControls : null}
     </div>

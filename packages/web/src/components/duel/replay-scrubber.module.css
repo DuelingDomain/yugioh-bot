@@ -1,0 +1,11 @@
+.scrubber { position: relative; flex: 1 1 140px; min-width: 0; height: 40px; }
+.slider { position: relative; z-index: 1; width: 100%; height: 40px; margin: 0; accent-color: #9b72d9; cursor: pointer; }
+.slider:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; }
+/* The marks lie under the slider's own track and never take a press. The thumb is about 16px wide, so the ends are inset by half of it. */
+.marks { position: absolute; inset: 0 8px; pointer-events: none; }
+.turn { position: absolute; bottom: 4px; width: 2px; height: 8px; margin-left: -1px; background: #d1ad6e; opacity: 0.85; }
+.swing { position: absolute; top: 4px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #e45a4d; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5); }
+.swing[data-gain] { background: #4fbf7f; }
+.jump { display: inline-flex; align-items: center; gap: 6px; color: #b6c7d9; font-size: 13px; }
+.select { border: 1px solid #61738b; padding: 6px 8px; height: 36px; background: #142130; color: #e7edf6; }
+.select:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; }

@@ -52,6 +52,11 @@ export interface DuelReplayV2 {
   visibility: ReplayVisibility;
   /** Echo the owner reveal request when present. Ordinary responses omit it. */
   reveal?: boolean;
+  /**
+   * True when the server built the finished-duel table with every hand, Extra Deck and face-down card visible.
+   * Only an ended duel's replay can carry it; it never appears for a live duel or a fork.
+   */
+  revealAll?: true;
   session: DuelSession;
   /** An owner with no source seat is a spectator with mySeat null and owner capabilities. */
   role: DuelActorRole;
