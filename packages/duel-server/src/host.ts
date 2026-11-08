@@ -1992,6 +1992,8 @@ export function createDuelHost(options: {
     all?: boolean;
     ownerUserId?: number;
     ownerPlayerId?: number;
+    /** The signed-in player who asks (not only an owner). Used by the series scouting rule. */
+    actorPlayerId?: number;
     unchecked?: boolean;
   }
 
@@ -2030,15 +2032,30 @@ export function createDuelHost(options: {
   }
 
   /**
-   * THE rule for "Show all cards" (every hand, Extra Deck, set card and private log line of a finished duel). One place, so
-   * it can be widened later (for example to scouting of public duels once the owner decides). Today:
-   *  - never a replay fork (a fork is a real game with private hands);
-   *  - only a viewer who played in this duel (any seat) or an app admin (owner access);
-   *  - a player sees it only when the duel is not a game of a series that is still running: between games, or in game 2 or 3,
-   *    the rival's hand of game 1 would be scouting. A tournament series is a series too. Admins already read every replay.
+   * True while this duel is a game of a series that is still running (active or between games) and the player is one of the
+   * series players. Such a player must not see the rival's hand of any game, even an admin who plays: it is scouting for the
+   * next game. A tournament series is a series too. Fails closed: when the series cannot be read, the player counts as playing.
    */
-  function mayShowAllCards(session: DuelSession, room: DuelRoom, isAdmin: boolean): boolean {
+  function isPlayerOfRunningSeries(session: DuelSession, playerId: number | undefined): boolean {
+    if (session.seriesId == null || playerId === undefined) return false;
+    try {
+      const summary = series.get(session.seriesId, session.guildId);
+      if (summary.status === "completed" || summary.status === "cancelled") return false;
+      return summary.playerIds.includes(playerId);
+    } catch { return true; }
+  }
+
+  /**
+   * THE rule for "Show all cards" (every hand, Extra Deck, set card and private log line of a finished duel). One place, so
+   * it can be widened later (for example to scouting of public duels once the owner decides). In this order:
+   *  - never a replay fork (a fork is a real game with private hands);
+   *  - never for a player of a series that is still running (see isPlayerOfRunningSeries), also when that player is an admin;
+   *  - an app admin (owner access) otherwise;
+   *  - a viewer who played in this duel (any seat) when the duel has no series, or the series is completed or cancelled.
+   */
+  function mayShowAllCards(session: DuelSession, room: DuelRoom, isAdmin: boolean, actorPlayerId: number | undefined): boolean {
     if (isReplayFork(session)) return false;
+    if (isPlayerOfRunningSeries(session, actorPlayerId)) return false;
     if (isAdmin) return true;
     if (room.mySeat === null) return false;
     if (session.seriesId == null) return true;
@@ -2095,7 +2112,7 @@ export function createDuelHost(options: {
           }
         }
       }
-      const all = projection.all === true && projection.version === 2 && mayShowAllCards(state.session, room, projection.ownerPlayerId !== undefined);
+      const all = projection.all === true && projection.version === 2 && mayShowAllCards(state.session, room, projection.ownerPlayerId !== undefined, projection.actorPlayerId);
       if ((projection.reveal || all) && finalView) {
         const ownViews = source.session.seats.map(seat => readSaved(seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) {
@@ -2260,8 +2277,13 @@ export function createDuelHost(options: {
       }
       dataSeat = body.seat as number;
     }
+    // An admin who plays in a running series gets no other seat's cards: same rule as "Show all cards".
+    if (privileged && (body.reveal === true || dataSeat !== (visibility === "public" ? null : room.mySeat))
+      && isPlayerOfRunningSeries(room.session, actor)) {
+      throw new RequestError("Another player's cards are not available while your series is running", 403, "ACCESS_DENIED");
+    }
     const owner = resolveOwnerPlayer(options.db, accessActor);
-    const result = await replay(slug, guildId, room, { version, visibility, dataSeat,
+    const result = await replay(slug, guildId, room, { version, visibility, dataSeat, actorPlayerId: actor,
       ...(privileged && body.reveal !== undefined ? { reveal: body.reveal as boolean } : {}),
       unchecked: body.unchecked === true,
       ...(body.all === true ? { all: true } : {}),

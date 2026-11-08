@@ -345,6 +345,25 @@ it("shows all cards of a finished duel only to its players and admins, and not w
   expect(running.response.status).toBe(200);
   expect(running.body.revealAll).toBeUndefined();
   expect(rivalHand(running.body)).toBeUndefined();
+  // An admin who plays in that running series: no scouting through all=1, reveal=1 or another seat either.
+  vi.stubEnv("OWNER_USER_IDS", "201");
+  const adminPlayer = { playerId: 64, userId: 201 };
+  const adminAll = await post({ ...adminPlayer, version: 2, all: true });
+  expect(adminAll.response.status).toBe(200);
+  expect(adminAll.body.revealAll).toBeUndefined();
+  expect(rivalHand(adminAll.body)).toBeUndefined();
+  const adminOwn = await post({ op: "owner-replay", ...adminPlayer, version: 2, all: true });
+  expect(adminOwn.response.status).toBe(200);
+  expect(adminOwn.body.revealAll).toBeUndefined();
+  expect(rivalHand(adminOwn.body)).toBeUndefined();
+  const adminReveal = await post({ op: "owner-replay", ...adminPlayer, version: 2, reveal: true });
+  expect(adminReveal.response.status).toBe(403);
+  const adminSeat = await post({ op: "owner-replay", ...adminPlayer, version: 2, seat: 1 });
+  expect(adminSeat.response.status).toBe(403);
+  // The admin's own seat is still fine.
+  const adminSelf = await post({ op: "owner-replay", ...adminPlayer, version: 2, seat: 0 });
+  expect(adminSelf.response.status).toBe(200);
+  vi.stubEnv("OWNER_USER_IDS", "101,102");
   // The same series once it is over.
   db.prepare("update duel_series set status='completed' where id=7").run();
   const over = await post({ playerId: 64, version: 2, all: true });
