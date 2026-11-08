@@ -1,0 +1,27 @@
+/* ATK / DEF plates and tokens (Remote Duels). Kept apart from remote-ui.module.css so other branches merge cleanly. */
+.wrap{position:absolute;inset:0;z-index:3;container-type:inline-size;display:flex;align-items:flex-end;justify-content:center;pointer-events:none}
+.turned{transform:rotate(180deg)}
+.plate{margin-bottom:4%;display:inline-flex;gap:.3em;align-items:baseline;max-width:96%;padding:1.5% 6%;border-radius:3px;background:rgb(5 8 16/.92);box-shadow:0 0 0 1px rgb(255 255 255/.14);color:#f1ecff;font:700 15cqw/1.15 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+.plate i{font-style:normal;color:#9d94c4}
+.plate em{font-style:normal;color:#f0d98a}
+
+/* The label on a camera feed, over the zone's centre. It is plain HTML, so it never turns with the card or the mat. */
+.feedLayer{position:absolute;z-index:3;pointer-events:none;overflow:hidden}
+.feedLayer svg{position:absolute;inset:0;width:100%;height:100%}
+.label{position:absolute;transform:translate(-50%,-50%);display:inline-flex;flex-direction:column;align-items:center;gap:1px;max-width:22%;padding:1px 4px;border-radius:3px;background:rgb(5 8 16/.82);color:#f1ecff;font:700 10.5px/1.1 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 1px 2px #000}
+.label small{max-width:100%;overflow:hidden;text-overflow:ellipsis;font:600 8.5px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:#c9bff0}
+.label em{font-style:normal;color:#f0d98a}
+.tokenFill{fill:rgb(42 38 60/.82);stroke:rgb(232 185 79/.95);stroke-width:.0035}
+.tokenFront{stroke:#fff2cd;stroke-width:.008;stroke-linecap:round;fill:none}
+
+/* The token dialog and menu. */
+.dialog{display:flex;flex-direction:column;gap:10px;padding:12px;min-width:min(340px,86vw)}
+.dialog h3{margin:0;font:700 15px/1.2 var(--font-duel-display),Oxanium,sans-serif}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.row label{font-size:12px;color:#c9bff0}
+.seg{display:inline-flex;gap:4px}
+.field{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#c9bff0}
+.num{width:92px;padding:5px 7px;border-radius:5px;border:1px solid var(--line2,#4b3f7a);background:rgb(7 4 14/.7);color:#f1ecff;font:600 13px/1.2 var(--font-duel-ui),system-ui,sans-serif}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto}
+.chosen{font-size:12px;color:#f0d98a}
+.note{margin:0;font-size:12px;color:#ffb3a8}

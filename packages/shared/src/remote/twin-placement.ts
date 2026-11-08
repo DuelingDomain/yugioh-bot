@@ -2,12 +2,14 @@ import { remoteAssert, type RemoteAction, type TwinCard } from "./actions.js";
 import { remotePhysicalSlot, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteState } from "./types.js";
 
-type Identity = { cardId?: number; passcode?: number; name?: string };
+type Identity = { cardId?: number; passcode?: number; name?: string; token?: unknown };
 const fold = (name?: string) => name?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 export const remoteFieldZone = (zone: string) => ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(zone);
 
 /** Catalog copy groups include alternate artworks. Names cover manual/catalog-free twins. */
 export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, b: Identity, context?: RemoteReductionContext): boolean {
+  // Two tokens of one name are two table objects, never copies of one physical card.
+  if (a.token || b.token) return false;
   const key = (card: Identity) => {
     const code = card.cardId ?? card.passcode;
     if (!code) return undefined;

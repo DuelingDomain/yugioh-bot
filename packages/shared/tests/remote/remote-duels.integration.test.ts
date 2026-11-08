@@ -3801,6 +3801,72 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
   } finally {vi.unstubAllEnvs();}
 });
 
+it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {
+  const s = deckSession('normal', false);
+  s.select(s.save().id);
+  s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
+  s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
+  const token = { ref: 'token-1', name: 'Sheep Token', slot: 2, faceUp: true, position: 'defense', token: { atk: 0, def: 0 } };
+  const mine = () => s.room.state.seats[0].twin.find(c => c.ref === 'token-1');
+
+  // Create: public at once, with its stats, for the opponent and for a spectator.
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: token });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2, position: 'defense', faceUp: true, name: 'Sheep Token', token: { atk: 0, def: 0 } });
+  const seenBy = (twin: { ref: string }[]) => twin.find(c => c.ref === 'token-1');
+  expect(seenBy(s.service.get(s.room.slug, 'g', s.users[1]).state.seats[0].twin)).toMatchObject({ name: 'Sheep Token', token: { def: 0 } });
+  const spectator = projectRemoteSpectator(s.service.snapshot(s.room.slug, 'g'));
+  expect(seenBy(spectator.state.seats[0].twin)).toMatchObject({ name: 'Sheep Token', zone: 'monster', slot: 2, position: 'defense', token: { atk: 0, def: 0 } });
+  expect(spectator.events.at(-1)?.action).toMatchObject({ type: 'twin.place', card: { ref: 'token-1', name: 'Sheep Token', token: { atk: 0 } } });
+
+  // Rules: not by the camera, not twice in one cell, not face-down, not outside the Monster Zones.
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: { ...token, ref: 'token-auto', slot: 3 } })).toThrow();
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-2' } })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'spell-trap', card: { ...token, ref: 'token-2', slot: 3 } })).toThrow();
+
+  // A card on the token's cell is refused, by the camera or by hand: the token stays until its owner removes it. Never an Extra Monster Zone.
+  const real = { ref: 'real-1', name: 'Tribute Monster', slot: 2, faceUp: true, position: 'attack' };
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: real })).toThrow(/occupied/i);
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'extra-monster', card: { ...token, ref: 'token-emz', slot: 1 } })).toThrow();
+  expect(() => s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, ref: 'token-6', slot: 6 } })).toThrow();
+  expect(() => s.act({ type: 'twin.move', seat: 0, zone: 'extra-monster', cardRef: 'token-1', slot: 1 })).toThrow();
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+
+  // The camera never moves or removes it: an Auto-detect departure changes nothing.
+  s.act({ type: 'twin.move', seat: 0, zone: 'hand', cardRef: 'token-1', source: 'auto' });
+  s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: false, source: 'auto' });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2, faceUp: true });
+
+  // Move and change position by hand.
+  s.act({ type: 'twin.move', seat: 0, zone: 'monster', cardRef: 'token-1', slot: 4, position: 'attack' });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 4, position: 'attack' });
+  s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: true, position: 'defense' });
+  expect(mine()).toMatchObject({ slot: 4, position: 'defense' });
+  expect(() => s.act({ type: 'twin.flip', seat: 0, cardRef: 'token-1', faceUp: false })).toThrow();
+
+  // Remove, and leaving the field: both make it disappear. Undo brings it back.
+  s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
+  expect(mine()).toBeUndefined();
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(mine()).toMatchObject({ slot: 4 });
+  s.act({ type: 'twin.move', seat: 0, zone: 'graveyard', cardRef: 'token-1' });
+  expect(mine()).toBeUndefined();
+  expect(s.room.state.seats[0].twin.some(c => c.zone === 'graveyard')).toBe(false);
+  expect(seenBy(projectRemoteSpectator(s.service.snapshot(s.room.slug, 'g')).state.seats[0].twin)).toBeUndefined();
+
+  // The player's own Remove frees the cell, and the card lands there.
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', card: { ...token, slot: 2 } });
+  s.act({ type: 'twin.remove', seat: 0, cardRef: 'token-1' });
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: real });
+  expect(s.room.state.seats[0].twin.find(c => c.ref === 'real-1')).toMatchObject({ zone: 'monster', slot: 2 });
+  // Two actions, so the placement's Undo comes first and the removal's second: both undone restore the token.
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+});
+
 describe("remote match history and replay", () => {
   function endedTable() {
     const s = deckSession("normal", false);

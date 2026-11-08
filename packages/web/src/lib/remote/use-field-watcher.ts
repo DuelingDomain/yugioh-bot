@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readTapChoice } from './tap-offer';
+import { e2eFieldHook } from './e2e-field-hook';
 import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
@@ -128,6 +129,8 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   useEffect(()=>{
     if(!options.owner||!options.active||!enabled||loaded!==storageKey){setSnapshot(initial);return;}
     let cancelled=false,reader:FieldWatcher|null=null;
+    // E2E stacks only: a test stands in for the camera reader (see e2e-field-hook.ts).
+    {const fake=e2eFieldHook?(window as unknown as {__e2eFieldWatcher?:FieldWatcher}).__e2eFieldWatcher:undefined;if(fake){watcher.current=fake;return()=>{if(watcher.current===fake)watcher.current=null;};}}
     void latest.current.create().then(async config=>{
       if(cancelled)return;
       if(!config){setSnapshot({...initial,status:'error',error:'Card reader assets are unavailable on this deployment.'});return;}
