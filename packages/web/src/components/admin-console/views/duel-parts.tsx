@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { duration } from "@/lib/admin-console/format";
-import { formatClock, formatDayMonthClock } from "@/lib/admin-console/time";
+import { formatClock, formatDayMonth } from "@/lib/admin-console/time";
 import type { LiveSeat, SeatOutcome, TodayDuel, TodayResult, UserKey } from "@/lib/admin-console/types";
 import { Avatar, Tag, WatchLink } from "../parts";
 import styles from "../admin-console.module.css";
@@ -47,7 +47,7 @@ export function TodayRow({ duel, onOpen, now, showDay }: { duel: TodayDuel; onOp
         <b title={resultText(duel)}>{duel.result === "live" ? <span className={styles.dot} data-tone="good" /> : null}{resultText(duel)}</b>
         <small>{facts}</small>
       </div>
-      <div className={`${styles.cAt} ${styles.num}`} role="cell"><time dateTime={new Date(duel.startedAt).toISOString()}>{showDay ? formatDayMonthClock(duel.startedAt) : formatClock(duel.startedAt)}</time></div>
+      <div className={`${styles.cAt} ${styles.num}`} role="cell"><time dateTime={new Date(duel.startedAt).toISOString()}>{formatClock(duel.startedAt)}{showDay ? <small className={styles.atDay}>{formatDayMonth(duel.startedAt)}</small> : null}</time></div>
       <div className={styles.cAct} role="cell">
         {running ? <WatchLink href={duel.href} label="Watch" /> : <WatchLink href={duel.href} label="Replay" icon="play" />}
       </div>

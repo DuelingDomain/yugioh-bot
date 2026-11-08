@@ -721,13 +721,30 @@ textarea.crNotes { font-family: inherit; font-size: 14.5px; min-height: 84px; }
 .hourCol i[data-peak="1"] { opacity: 1; background: var(--gold); }
 .hourCol:hover i { opacity: 1; }
 .hourAxis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9.5px; color: var(--t3); margin-top: 6px; }
-@media (max-width: 1240px) and (min-width: 761px) {
+.dsExpand { display: none; margin: 14px 0 4px; }
+.dsList .todayTbl .tblRow > .cRes b { white-space: normal; }
+@media (max-width: 1560px) and (min-width: 1241px) {
+  .dsLayout { grid-template-columns: minmax(0, 1fr) 256px; gap: 24px; }
+  .dsPanel { padding-left: 20px; }
+  .dsBig b { font-size: 34px; }
+  .dsList .todayTbl .tblHead, .dsList .todayTbl .tblRow { grid-template-columns: 96px minmax(0, 2.2fr) minmax(0, 0.8fr) 66px 92px; gap: 12px; }
+  .dsList .players { gap: 12px 16px; }
+  .dsList .pl { grid-template-columns: 28px minmax(0, 1fr); gap: 0 10px; }
+  .dsList .pl > :nth-child(1) { grid-row: 1 / span 2; }
+  .dsList .pl > :nth-child(3) { grid-column: 2; }
+}
+@media (max-width: 1240px) {
   .dsLayout { grid-template-columns: 1fr; gap: 0; }
   .dsPanel { order: -1; position: static; max-height: none; overflow: visible; padding-left: 0; border-left: 0; margin-bottom: 20px; }
+  .dsExpand { display: inline-flex; }
+  .dsPanel:not([data-open]) .dsBlock[data-more] { display: none; }
 }
 @media (max-width: 760px) {
-  .dsLayout { grid-template-columns: 1fr; gap: 0; }
-  .dsPanel { order: -1; position: static; max-height: none; overflow: visible; padding-left: 0; border-left: 0; margin-bottom: 20px; }
   .dsDates { width: 100%; }
   .dsRangeBar .toolbarEnd { margin-left: 0; }
+  .dsRangeBar .seg { width: 100%; }
+  .dsRangeBar .seg button { flex: 1; justify-content: center; padding: 0 6px; white-space: nowrap; }
+  .dsLead { display: none; }
 }
+.dsLead { font-style: normal; }
+.atDay { display: block; font-family: var(--sans); font-size: 11.5px; color: var(--t3); margin-top: 4px; }

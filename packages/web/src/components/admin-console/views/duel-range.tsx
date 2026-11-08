@@ -14,7 +14,7 @@ import { TodayRow } from "./duel-parts";
 
 type Choice = { kind: "preset"; preset: DuelRangePreset } | { kind: "custom"; from: string; to: string };
 type Tab = "all" | "1v1" | "multi" | "ranked";
-const PRESETS: [DuelRangePreset, string][] = [["today", "Today"], ["7d", "Last 7 days"], ["30d", "Last 30 days"]];
+const PRESETS: [DuelRangePreset, string, string][] = [["today", "", "Today"], ["7d", "Last ", "7 days"], ["30d", "Last ", "30 days"]];
 const TABS: [Tab, string, keyof TodayCounts][] = [["all", "All", "all"], ["1v1", "1v1", "oneVsOne"], ["multi", "Multi", "multi"], ["ranked", "Ranked", "ranked"]];
 const POLL_MS = 60_000;
 const nf = (n: number) => n.toLocaleString("en-US");
@@ -26,6 +26,8 @@ const rangeQuery = (choice: Choice, bots: boolean) => {
 /** "Nov 2 to Nov 8" from two Eastern day keys; the year shows when it is not this one. */
 const dayLabel = (key: string) => formatDayMonth(Date.parse(`${key}T12:00:00Z`));
 const spanLabel = (from: string, to: string) => from === to ? dayLabel(from) : `${dayLabel(from)} to ${dayLabel(to)}`;
+/** The same span with the year, for the section header. */
+const spanLabelYear = (from: string, to: string) => from === to ? formatDate(Date.parse(`${from}T12:00:00Z`)) : `${dayLabel(from)} to ${formatDate(Date.parse(`${to}T12:00:00Z`))}`;
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
 
 /** One JSON request that keeps the last answer on screen while the next one loads. */
@@ -68,8 +70,8 @@ function StatRow({ label, value, cur, prev, bad, bar, note }: { label: string; v
   );
 }
 
-function Block({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
-  return <section className={styles.dsBlock}><h3>{title}</h3>{children}{note ? <p className={styles.dsNote}>{note}</p> : null}</section>;
+function Block({ title, note, more, children }: { title: string; note?: ReactNode; more?: boolean; children: ReactNode }) {
+  return <section className={styles.dsBlock} data-more={more ? "1" : undefined}><h3>{title}</h3>{children}{note ? <p className={styles.dsNote}>{note}</p> : null}</section>;
 }
 
 function HourStrip({ values }: { values: number[] }) {
@@ -102,14 +104,15 @@ function StatsPanel({ stats, loading, bots, onBots }: { stats: DuelStatsData; lo
   const { current: c, previous: p, range } = stats;
   const sum = (o: object) => Object.values(o as Record<string, number>).reduce((a, b) => a + b, 0);
   const engineTotal = sum(c.byCardFormat);
+  const [open, setOpen] = useState(false);
   const other = c.endings.draw + c.endings.cancelled + c.endings.running;
   const otherPrev = p.endings.draw + p.endings.cancelled + p.endings.running;
   return (
-    <aside className={styles.dsPanel} aria-label="Duel stats for the range" aria-busy={loading} data-loading={loading ? "1" : undefined}>
+    <aside className={styles.dsPanel} aria-label="Duel stats for the range" aria-busy={loading} data-loading={loading ? "1" : undefined} data-open={open ? "1" : undefined}>
       <div className={styles.dsHead}>
         <div className={styles.dsK}>Stats</div>
         <div className={styles.dsRange}>{spanLabel(range.from, range.to)}</div>
-        <div className={styles.dsVs}>Change against {spanLabel(range.previous.from, range.previous.to)}, the {range.days === 1 ? "day" : `${range.days} days`} before.</div>
+        <div className={styles.dsVs}>Change against {spanLabel(range.previous.from, range.previous.to)}, the {range.days === 1 ? "day" : `${range.days} days`} before. Days run midnight to midnight {ADMIN_TIME_ZONE_LABEL}.</div>
       </div>
 
       <Block title="Duels">
@@ -124,26 +127,28 @@ function StatsPanel({ stats, loading, bots, onBots }: { stats: DuelStatsData; lo
         {FORMAT_ROWS.map(([key, label]) => <StatRow key={key} label={label} cur={c.byFormat[key]} prev={p.byFormat[key]} bar={c.total ? c.byFormat[key] / c.total : 0} />)}
       </Block>
 
-      <Block title="By card format" note="Engine duels. Remote tables have no card format.">
+      <button type="button" className={`${styles.btn} ${styles.btnSm} ${styles.dsExpand}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? "Show fewer stats" : "Show all stats"}</button>
+
+      <Block more title="By card format" note="Engine duels. Remote tables have no card format.">
         {CARD_ROWS.map(([key, label]) => <StatRow key={key} label={label} cur={c.byCardFormat[key]} prev={p.byCardFormat[key]} bar={engineTotal ? c.byCardFormat[key] / engineTotal : 0} />)}
       </Block>
 
-      <Block title="Players" note="People signed in and seated in a counted duel. New: their first counted duel is in this range.">
+      <Block more title="Players" note="People signed in and seated in a counted duel. New: their first counted duel is in this range.">
         <StatRow label="Unique" cur={c.players.unique} prev={p.players.unique} />
         <StatRow label="New" cur={c.players.new} prev={p.players.new} />
         <StatRow label="Returning" cur={c.players.returning} prev={p.players.returning} />
       </Block>
 
-      <Block title={`Busiest hours (${ADMIN_TIME_ZONE_LABEL})`}>
+      <Block more title={`Busiest hours (${ADMIN_TIME_ZONE_LABEL})`}>
         <HourStrip values={stats.perHour} />
       </Block>
 
-      <Block title="How duels ended" note="Engine duels. Won includes wins by the last opponent leaving.">
+      <Block more title="How duels ended" note="Engine duels. Won includes wins by the last opponent leaving.">
         {END_ROWS.map(([key, label, note]) => <StatRow key={key} label={label} note={note} cur={c.endings[key]} prev={p.endings[key]} bar={engineTotal ? c.endings[key] / engineTotal : 0} />)}
         {other > 0 || otherPrev > 0 ? <StatRow label="Other" note="Draws, cancelled tables and duels still running." cur={other} prev={otherPrev} /> : null}
       </Block>
 
-      <Block title="Practice bot and test duels"
+      <Block more title="Practice bot and test duels"
         note={bots ? "Counted in every number above." : "Counted apart. Not in any number above, and not in the list."}>
         <StatRow label="Practice bot" cur={c.practice} prev={p.practice} />
         <StatRow label="Test duels" cur={c.test} prev={p.test} />
@@ -153,17 +158,17 @@ function StatsPanel({ stats, loading, bots, onBots }: { stats: DuelStatsData; lo
         </label>
       </Block>
 
-      <Block title="Length" note="Completed engine duels with a saved turn count and end time.">
+      <Block more title="Length" note="Completed engine duels with a saved turn count and end time.">
         <StatRow label="Average turns" value={c.avgTurns === null ? "-" : c.avgTurns.toFixed(1)} cur={c.avgTurns ?? 0} prev={p.avgTurns ?? 0} />
         <StatRow label="Average minutes" value={c.avgMinutes === null ? "-" : c.avgMinutes.toFixed(1)} cur={c.avgMinutes ?? 0} prev={p.avgMinutes ?? 0} />
       </Block>
 
-      <Block title="Growth" note="Sign-ups are first web sign-ins. Waitlist joins are requests with a recorded join alert; they are not counted while join alerts are off.">
+      <Block more title="Growth" note="Sign-ups are first web sign-ins. Waitlist joins are requests with a recorded join alert; they are not counted while join alerts are off.">
         <StatRow label="New sign-ups" cur={c.signups} prev={p.signups} />
         <StatRow label="Waitlist joins" cur={c.waitlistJoins} prev={p.waitlistJoins} />
       </Block>
 
-      <Block title="Problems" note="No engine error counter exists. Errors from Sentry are in the Health view. Replay checks run when a replay opens.">
+      <Block more title="Problems" note="No engine error counter exists. Errors from Sentry are in the Health view. Replay checks run when a replay opens.">
         <StatRow label="Bug reports filed" cur={c.bugReports} prev={p.bugReports} bad />
         <StatRow label="Replay checks failed" cur={c.replayChecksFailed} prev={p.replayChecksFailed} bad note="Duels whose saved replay did not match the saved board when it was checked." />
       </Block>
@@ -287,11 +292,11 @@ export function DuelRangeSection({ onOpen }: { onOpen: (userId: UserKey) => void
   return (
     <div id={TODAY_ANCHOR} className={styles.anchor}>
       <SectionHead title="Duel history" n={stats.data ? plural(stats.data.current.total, "duel", "duels") : undefined}
-        aside={<span className={styles.aside}>{range ? `${spanLabel(range.from, range.to)}${range.from === range.to ? ` · ${formatDate(range.fromMs)}` : ""} · days run midnight to midnight ${ADMIN_TIME_ZONE_LABEL}` : null}</span>} />
+        aside={<span className={styles.aside}>{range ? spanLabelYear(range.from, range.to) : null}</span>} />
       <div className={`${styles.toolbar} ${styles.toolbarTight} ${styles.dsRangeBar}`}>
         <div className={styles.seg} role="group" aria-label="Date range">
-          {PRESETS.map(([preset, text]) => (
-            <button key={preset} type="button" aria-pressed={choice.kind === "preset" && choice.preset === preset} onClick={() => { setChoice({ kind: "preset", preset }); setTab("all"); }}>{text}</button>
+          {PRESETS.map(([preset, lead, text]) => (
+            <button key={preset} type="button" aria-pressed={choice.kind === "preset" && choice.preset === preset} onClick={() => { setChoice({ kind: "preset", preset }); setTab("all"); }}>{lead ? <i className={styles.dsLead}>{lead}</i> : null}{text}</button>
           ))}
           <button type="button" aria-pressed={choice.kind === "custom"} onClick={() => { setDraft({ from: range?.from ?? todayKey, to: range?.to ?? todayKey }); setChoice({ kind: "custom", from: range?.from ?? todayKey, to: range?.to ?? todayKey }); setTab("all"); }}>Custom</button>
         </div>
