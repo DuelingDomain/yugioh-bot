@@ -7,9 +7,10 @@ import s from "./remote-ui.module.css";
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
-export function TopBar({ crumb, tournament = null, chip, health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
+export function TopBar({ crumb, tournament = null, chip, health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, onSurrender, surrenderOpen, webcamOnly, onView }: {
   crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
+  /** Set while I am a living player in a live game: shows the Surrender button. */ onSurrender?: (el: HTMLElement) => void; surrenderOpen?: boolean;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; onView: (webcamOnly: boolean) => void;
 }) {
   const dot = health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : "";
@@ -29,6 +30,8 @@ export function TopBar({ crumb, tournament = null, chip, health, healthOpen, car
       <Icon name="card" /><span className={s.lbl}>Card</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>
       <Icon name="log" /><span className={s.lbl}>Log</span><span className={`${s.nb} ${logDot ? s.on : ""}`} /></button>
+    {onSurrender ? <button type="button" className={`${s.tb} ${s.tbSurrender}`} aria-haspopup="dialog" aria-expanded={surrenderOpen} aria-label="Surrender this game" title="Surrender this game" data-layer-opener data-testid="surrender-button" onClick={e => onSurrender(e.currentTarget)}>
+      <Icon name="flag" /><span className={s.lbl}>Surrender</span></button> : null}
   </header>;
 }
 
