@@ -19,6 +19,8 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
     delete seat.deckCount;
     if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
   }
+  // What a controlled face-down card was belongs to its owner only.
+  for(const seat of next.seats) for(const card of seat.twin) if(card.ownerIdentity && !seats.has(card.ownerSeat??-1)) delete card.ownerIdentity;
   for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
     delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch;
   }
@@ -115,6 +117,7 @@ function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs)
     // Revealed and returned-to-hand cards are public table knowledge: same filter as for players.
     if(next.showCardsSetFromDeck===false)seat.knownHand=seat.knownHand?.filter(c=>c.source!=='deck'||c.publicIdentity);
     seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
+    for(const card of seat.twin) delete card.ownerIdentity;
     for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
       delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.publicIdentity; delete card.setBy;
     }

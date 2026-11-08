@@ -252,7 +252,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if(input.type==='twin.move'){
       const card=R.current.room.state.seats[input.seat]?.twin.find(item=>item.ref===input.cardRef),code=card?cardCode(card):undefined;
       const twins=R.current.room.state.seats[input.seat]?.twin??[];
-      if(input.source!=='auto')warning=manualFieldZoneWarning(cardInfo(code),input.zone,input.slot,{faceDown:input.faceUp===false||input.faceUp===undefined&&card?.faceUp===false,equipSource:equipSourceOnField(twins,c=>cardInfo(cardCode(c)))});
+      if(input.source!=='auto')warning=manualFieldZoneWarning(cardInfo(code),input.zone,input.slot,{faceDown:input.faceUp===false||input.faceUp===undefined&&card?.faceUp===false,equipped:!!card?.equippedTo,equipSource:equipSourceOnField(twins,c=>cardInfo(cardCode(c)))});
       // A Trap moved from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone (docs/remote-duels/zone-rules.md).
       if(input.trapMonster===undefined&&becomesTrapMonster(card,cardInfo(code),input.zone))proposal={...input,trapMonster:true};
     }
@@ -268,19 +268,17 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const tokens = useTokens({ act, room, live, extraZones, layers, info });
   const control = useControlChange({ act, room, live, layers, info, name, toast });
   controlOfferRef.current = control.offer;
-  // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: link it when only one monster could be its target, else ask.
+  // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: ask which monster it equips. No link is made without a click.
   const equipNudged = useRef(new Set<string>());
   useEffect(() => {
     if (!live || (!solo && mySeat < 0)) return;
     for (const seat of solo ? state.seats.map(item => item.seat) : [mySeat]) for (const card of state.seats[seat]?.twin ?? []) {
       const id = cardCode(card);
       if (card.zone !== "spell-trap" || !card.faceUp || !id || card.equippedTo || !equipsItself(id) || equipNudged.current.has(card.ref)) continue;
-      equipNudged.current.add(card.ref);
-      const targets = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => (c.zone === "monster" || c.zone === "extra-monster") && c.ref !== card.ref).map(c => ({ seat: other.seat, ref: c.ref })));
-      if (targets.length === 1) void act({ type: "twin.equip", actorSeat: seat, seat, cardRef: card.ref, target: targets[0] });
-      else toast(`${cardName(card, info(id))} is equipped to a monster. Pick it with "Equipped to" in the card menu.`, 6000);
+      if (control.askEquip(seat, card)) equipNudged.current.add(card.ref);
+      return;
     }
-  }, [state.seats, live, solo, mySeat, act, toast, info]);
+  }, [state.seats, live, solo, mySeat, control]);
   const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
@@ -1192,8 +1190,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
     // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
-    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) ? { control: { label: "Take control", onClick: () => { if (control.take(mySeat, subject.seat, subjectCard)) layers.close(); } } } : {}),
-    ...(subject && subjectCard?.ownerSeat !== undefined && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); layers.close(); } } } : {}),
+    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) ? { control: { label: "Take control", onClick: () => { control.take(mySeat, subject.seat, subjectCard); } } } : {}),
+    ...(subject && subjectCard?.ownerSeat !== undefined && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
@@ -1204,7 +1202,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     }) } : {}),
     ...(subject && subjectCard && (subjectCard.faceUp || subjectCard.publicIdentity) && cardCode(subjectCard) ? (() => {
       const twins = state.seats[subject.seat]?.twin ?? [];
-      const reason = fieldZoneCheck(info(cardCode(subjectCard)), subjectCard.zone, subjectCard.slot, { faceDown: !subjectCard.faceUp, equipSource: equipSourceOnField(twins, c => info(cardCode(c))) });
+      const reason = fieldZoneCheck(info(cardCode(subjectCard)), subjectCard.zone, subjectCard.slot, { faceDown: !subjectCard.faceUp, equipped: !!subjectCard.equippedTo, equipSource: equipSourceOnField(twins, c => info(cardCode(c))) });
       return reason ? { zoneCheck: reason } : {};
     })() : {}),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),

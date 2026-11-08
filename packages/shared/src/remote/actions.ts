@@ -119,6 +119,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   equippedTo?: { seat: number; ref: string };
   /** Server-authored: the seat of the real owner while another player controls the card (Monster Reborn on their Graveyard, Change of Heart). Cleared when it returns. */
   ownerSeat?: number;
+  /** Server-authored: what a face-down card was, kept for its owner while another player controls it. Never shown to anyone else. */
+  ownerIdentity?: { cardId?: number; passcode?: number; name?: string; race?: string };
   /** Server-authored: Xyz materials under this card, bottom first (twin refs in zone "material"). */
   materials?: string[];
   /** Server-authored: the Xyz Monster this material is attached to. */

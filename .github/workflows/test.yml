@@ -384,6 +384,11 @@ jobs:
         with:
           key: ${{ needs.cores.outputs.key }}
 
+      # Engine data update PRs only (this job): the generated Remote Duels card logic must match the new data.
+      - name: Check Remote Duels card logic is current
+        if: matrix.shard == 1
+        run: prlimit --core=0 -- node --import tsx packages/duel-server/scripts/build-card-logic.ts --check
+
       # The runner reads prepare-data.ts at these exact refs. Its own selection adds
       # the fixed 150-card sample when shared Lua helpers change; do not select again here.
       - name: Smoke new and changed cards

@@ -567,7 +567,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
           effects.identified = { notInDecklist: !!registration && (fact ? !isInRemoteDeck(registration.deck, fact, effects.facts) : !registeredCodes.includes(code)),
             addErrors: !registration ? ["Select a saved deck in the lobby first."] : candidate ? candidate.validation.issues.map(i => i.message) : ["Card validation metadata is unavailable."] };
           // A card another player owns (Monster Reborn on their Graveyard, Change of Heart) is not part of this player's deck.
-          const sighted = command.type === "card.identified" ? command.cardRef : command.type === "cards.identified" ? command.cards.at(-1)?.cardRef : undefined;
+          const sighted = command.type === "card.identified" || command.type === "twin.flip" ? command.cardRef : command.type === "cards.identified" ? command.cards.at(-1)?.cardRef : undefined;
           if (sighted && before.seats[command.seat]?.twin.some(c => c.ref === sighted && c.ownerSeat !== undefined)) effects.identified.notInDecklist = false;
           if (command.type === "deck.add") {
             remoteAssert(command.seat === command.actorSeat, "Only the deck owner can edit their decklist", 403);

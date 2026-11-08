@@ -23,11 +23,44 @@ db.close();
 const dirs = ["official", "pre-release", "prerelease"].map(d => join(dataDir, "card-scripts", d)).filter(existsSync);
 const script = (id: number) => { for (const d of dirs) { const p = join(d, `c${id}.lua`); if (existsSync(p)) return readFileSync(p, "utf8"); } return undefined; };
 
-// The card being equipped is the 2nd argument of Duel.Equip(player, equip card, target). `c` is the script's own card.
+// Duel.Equip(player, equip card, target): the 2nd argument is the card that gets equipped. `c` is the script's own card.
+// Card.EquipByEffect*(host, e, tp, equip card, ...) (also written host:EquipByEffect*(e, tp, equip card)) equips the 4th card TO the host (utility.lua).
 const SELF = String.raw`(?:c|e:GetHandler\(\))`;
-const selfEquip = new RegExp(String.raw`Duel\.Equip\([^,()]+,\s*${SELF}\s*,|(?:\bc|e:GetHandler\(\)):EquipByEffect\w*\(|Card\.EquipByEffect\w*\(\s*${SELF}\s*,`);
-const otherEquip = new RegExp(String.raw`Duel\.Equip\([^,()]+,\s*(?!${SELF}\s*,)[\w.:()]+\s*,|\b(?!c\b)\w+:EquipByEffect\w*\(|Card\.EquipByEffect\w*\(\s*(?!${SELF}\s*,)`);
-const control = /\bDuel\.(?:GetControl|SwapControl)\(|CATEGORY_CONTROL|EFFECT_SET_CONTROL/;
+const isSelf = (text: string) => new RegExp(`^${SELF}$`).test(text.trim());
+const duelEquip = new RegExp(String.raw`Duel\.Equip\(\s*[^,()]+,\s*([\w.:()]+?)\s*,`, "g");
+const methodEquip = /(?:\b([\w.]+(?:\(\))?):|\bCard\.)EquipByEffect\w*\(/g;
+/** The top-level arguments of the call that opens just before `from`. */
+function argsAt(text: string, from: number): string[] {
+  const args: string[] = []; let depth = 0, start = from;
+  for (let i = from; i < text.length && i < from + 400; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") { if (depth === 0) { args.push(text.slice(start, i)); return args; } depth--; }
+    else if (ch === "," && depth === 0) { args.push(text.slice(start, i)); start = i + 1; }
+  }
+  return args;
+}
+/** What a script equips: its own card to another monster (`self`), or another monster to some host (`other`). */
+function equips(text: string) {
+  let self = false, other = false;
+  for (const m of text.matchAll(duelEquip)) { if (isSelf(m[1])) self = true; else other = true; }
+  for (const m of text.matchAll(methodEquip)) {
+    const args = argsAt(text, m.index! + m[0].length);
+    const host = m[1] ?? args.shift() ?? "", equipped = args[2] ?? "";
+    if (isSelf(equipped) && !isSelf(host)) self = true; else if (!isSelf(equipped)) other = true;
+  }
+  return { self, other };
+}
+// Control: Duel.GetControl(card, player, ...) gives the card to `player`. Giving it to the opponent (1-tp, 1-p: Mimighoul) is not taking control.
+const getControl = /Duel\.GetControl\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*([^,()]+)/g;
+const otherControl = /\bDuel\.SwapControl\(|CATEGORY_CONTROL|EFFECT_SET_CONTROL/;
+/** Cards that only return control to the owner: Owner's Seal, Release Brainwashing. They are not "take control". */
+const GIVES_BACK = new Set([9720537, 85395151]);
+const takesControl = (text: string) => {
+  const calls = [...text.matchAll(getControl)].map(m => m[1].trim());
+  if (calls.length) return calls.some(player => !/^1\s*-\s*(?:tp|p)$/.test(player));
+  return otherControl.test(text);
+};
 const reviveOpp = /Duel\.(?:SelectTarget|IsExistingTarget|SelectMatchingCard)\([^\n]*(?:LOCATION_GRAVE\s*,\s*LOCATION_GRAVE|\b0\s*,\s*LOCATION_GRAVE)/;
 
 const sets = { selfEquip: new Set<number>(), equippers: new Set<number>(), takeControl: new Set<number>(), reviveOpponent: new Set<number>() };
@@ -36,9 +69,10 @@ for (const [id, type] of typeOf) {
   if (type & TYPE_UNION) add(sets.selfEquip, id);
   const text = script(id); if (!text) continue;
   const monster = (type & TYPE_MONSTER) !== 0, equipSpell = (type & TYPE_SPELL) !== 0 && (type & TYPE_EQUIP) !== 0;
-  if (monster && selfEquip.test(text)) add(sets.selfEquip, id);
-  if (!equipSpell && otherEquip.test(text)) add(sets.equippers, id);
-  if (control.test(text)) add(sets.takeControl, id);
+  const found = equips(text);
+  if (monster && found.self) add(sets.selfEquip, id);
+  if (!equipSpell && found.other) add(sets.equippers, id);
+  if (!GIVES_BACK.has(id) && takesControl(text)) add(sets.takeControl, id);
   if (/CATEGORY_SPECIAL_SUMMON/.test(text) && reviveOpp.test(text) && (type & (TYPE_SPELL | TYPE_TRAP)) !== 0) add(sets.reviveOpponent, id);
 }
 
@@ -53,5 +87,14 @@ export const TAKE_CONTROL = ${JSON.stringify(pack(sets.takeControl))};
 /** Spells and Traps that Special Summon a target from the opponent's Graveyard (either Graveyard). */
 export const REVIVE_OPPONENT_GY = ${JSON.stringify(pack(sets.reviveOpponent))};
 `;
+// --check: CI fails when the committed file is out of date for the prepared engine data. Nothing is written.
+if (process.argv.includes("--check")) {
+  if (!existsSync(out) || readFileSync(out, "utf8") !== body) {
+    console.error("card-logic-data.ts is out of date. Run: npx tsx packages/duel-server/scripts/build-card-logic.ts");
+    process.exit(1);
+  }
+  console.log("card-logic-data.ts is up to date");
+  process.exit(0);
+}
 writeFileSync(out, body);
 console.log(Object.entries(sets).map(([k, v]) => `${k}: ${v.size}`).join(", "), "bytes", body.length);

@@ -729,6 +729,15 @@ describe("remote deck registration and live checks", () => {
     expect(createSavedDeckService(s.db).get(original.id, "g", s.users[0]).deck.main).toHaveLength(40);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
+  it("does not count a card taken from the opponent as a copy of the taker's deck", () => {
+    const s = deckSession("normal"); s.select(s.save().id); s.start();
+    s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "opp-card", cardId: 14558127, name: "Ash Blossom", faceUp: true, slot: 2 } });
+    s.act({ type: "twin.control", actorSeat: 0, seat: 1, toSeat: 0, cardRef: "opp-card", zone: "monster", slot: 1, faceUp: true });
+    expect(s.room.state.seats[0].twin.find(c => c.ref === "opp-card")).toMatchObject({ ownerSeat: 1 });
+    s.act({ type: "card.identified", seat: 0, cardRef: "opp-card", cardId: 14558127, zone: "monster", slot: 1, source: "auto" });
+    expect(s.room.state.identified).toMatchObject({ notInDecklist: false, addErrors: [] });
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
   it.each(["normal", "domain"] as const)("shows why an addition cannot stay legal in %s", format => {
     const s = deckSession(format); s.select(s.save(Array.from({ length: 60 }, (_, i) => i + 1)).id); s.start();
     s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "click" });

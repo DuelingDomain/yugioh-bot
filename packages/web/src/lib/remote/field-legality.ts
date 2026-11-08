@@ -10,10 +10,10 @@ export type FieldZoneFacts = { id?:number; type:string; frameType?:string; race?
 type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number; token?:unknown };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
 /** `moved`: the camera row was not legal for this card; it went to the nearest legal zone ("Trap → S3"). */
-/** `shift`: a plain monster stood in a Spell & Trap Zone, so the zone grid is probably one row off (the caller offers a recalibration). */
-type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string; moved?:string; shift?:true };
-/** Context that can make a soft placement plausible: an Equip effect on the same field. */
-export type ZoneContext = { faceDown?:boolean; equipSource?:boolean };
+/** `shiftTo`: a plain monster stands in a Spell & Trap Zone. It stays there; this is the Monster Zone it would belong in (the caller asks Move / Keep and counts it toward the grid check). */
+type Projection = { zone?:FieldZone; label:string; reason?:string; check?:string; moved?:string; shiftTo?:FieldZone };
+/** Context that can make a soft placement plausible: an Equip effect on the same field, or the card is linked as equipped (`equippedTo`). */
+export type ZoneContext = { faceDown?:boolean; equipSource?:boolean; equipped?:boolean };
 const piles = new Set(['GY','BANISHED','DECK','EXTRA','graveyard','banished','deck','extra','hand','hand-reveal']);
 const unknownType = 'Card type is unknown. Choose a zone manually.';
 
@@ -96,10 +96,10 @@ function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|unde
   if(kind.spell||kind.trap)return {legal:'ok'};
   // A monster in a Spell & Trap Zone.
   if(kind.spellTrapText)return {legal:'ok'};
-  if(kind.equip||context.equipSource)return context.faceDown?{legal:'unusual',reason:'A face-down monster in a Spell/Trap Zone needs a Set effect.'}:{legal:'ok'};
+  if(kind.equip||context.equipSource||context.equipped)return context.faceDown?{legal:'unusual',reason:'A face-down monster in a Spell/Trap Zone needs a Set effect.'}:{legal:'ok'};
   if(kind.pendulum)return targetSlot===1||targetSlot===5?{legal:'ok'}:{legal:'unusual',reason:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales.'};
-  // Card logic found no way for this monster to stand in a Spell & Trap Zone (no Equip, Union, Set or Continuous effect, and no Equip source on the field): the zone grid is probably one row off.
-  return {legal:'illegal',shift:true,reason:'Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.'};
+  // Card logic found no reason for this monster to stand in a Spell & Trap Zone (no Equip, Union, Set or Continuous effect, no Equip source on the field, not linked as equipped). It may be equipped or placed by another card, or the zone grid may be one row off: the card stays and the player is asked.
+  return {legal:'unusual',shift:true,reason:'A monster with no Equip, Set or Continuous effect is in a Spell/Trap Zone. Is it equipped or placed by a card?'};
 }
 
 /** "Check zone?": only for an exception card in an unusual zone. Never a reason to move the card. */
@@ -117,8 +117,8 @@ export function zoneMoveLabel(facts:FieldZoneFacts|undefined,target:FieldZone):s
  * `check`. An occupied zone uses the nearest free zone of the same row; a full row abstains. Face-down cards
  * keep their row (the camera cannot see their type).
  */
-export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='normal',equipSource=false}:{
-  zone:FieldZone; facts?:FieldZoneFacts; twins:readonly FieldTwin[]; ref?:string; faceDown?:boolean; format?:FieldFormat; equipSource?:boolean;
+export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='normal',equipSource=false,equipped=false}:{
+  zone:FieldZone; facts?:FieldZoneFacts; twins:readonly FieldTwin[]; ref?:string; faceDown?:boolean; format?:FieldFormat; equipSource?:boolean; equipped?:boolean;
 }):Projection {
   const accept=(target:FieldZone,check?:string,moved?:string):Projection=>({zone:target,label:fieldZoneLabel(target),...(check?{check}:{}),...(moved?{moved}:{})});
   const abstain=(reason:string):Projection=>({label:fieldZoneLabel(zone),reason});
@@ -139,16 +139,18 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   }
   const kind=cardKind(facts);
   if(!kind.known)return abstain(unknownType);
-  const check=(target:FieldZone)=>fieldZoneCheck(facts,target,undefined,{equipSource});
+  const check=(target:FieldZone)=>fieldZoneCheck(facts,target,undefined,{equipSource,equipped});
   const moved=(target:FieldZone)=>target===zone?'':zoneMoveLabel(facts,target);
   if(kind.field&&!occupied('FIELD'))return accept('FIELD',undefined,moved('FIELD'));
   if(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format))return row(kind.monster?'M':'S',check,moved);
   if(kind.field&&zone!=='FIELD'&&!zone.startsWith('S'))return row('S',check,moved);
-  const verdict=zoneVerdict(facts,zone,undefined,{equipSource});
-  if(verdict.legal==='illegal'){const moved_=row(kind.monster||kind.trapMonster&&zone.startsWith('EMZ')?'M':'S',check,moved);return verdict.shift&&moved_.zone?{...moved_,shift:true}:moved_;}
-  if(!occupied(zone))return accept(zone,verdict.legal==='unusual'?verdict.reason:undefined);
+  const verdict=zoneVerdict(facts,zone,undefined,{equipSource,equipped});
+  if(verdict.legal==='illegal')return row(kind.monster||kind.trapMonster&&zone.startsWith('EMZ')?'M':'S',check,moved);
+  // A plain monster in Spell & Trap stays where the camera saw it. `shiftTo` is where it would belong.
+  const shiftTo=verdict.shift?row('M').zone:undefined,stay=(p:Projection):Projection=>shiftTo&&p.zone?{...p,shiftTo}:p;
+  if(!occupied(zone))return stay(accept(zone,verdict.legal==='unusual'?verdict.reason:undefined));
   if(zone==='FIELD')return abstain('Field Spell Zone is occupied. Choose a zone manually.');
-  return row(zone.startsWith('S')?'S':'M',check);
+  return stay(row(zone.startsWith('S')?'S':'M',check));
 }
 
 /** True when a twin holds this zone: its cell, a Trap Monster's Spell & Trap Zone or a Pendulum Zone. `skipToken` leaves out a token (the camera card's own cell). */
@@ -210,9 +212,4 @@ export function fieldCandidateFitsZone(zone:FieldZone,facts:FieldZoneFacts|undef
  */
 export function becomesTrapMonster(card:{zone:string;slot?:number}|undefined,facts:FieldZoneFacts|undefined,to:string):boolean {
   return !!card&&card.zone==='spell-trap'&&card.slot!==undefined&&(to==='monster'||to==='extra-monster')&&cardKind(facts).trapMonster;
-}
-
-/** True when a face-up monster in a Spell & Trap Zone has no card-logic reason to be there (plain monster, no Equip source): a likely grid shift. */
-export function plainMonsterInSpellTrap(facts:FieldZoneFacts|undefined,zone:string,context:ZoneContext={}):boolean {
-  return zone.startsWith('S')&&!context.faceDown&&!!zoneVerdict(facts,zone,undefined,context).shift;
 }

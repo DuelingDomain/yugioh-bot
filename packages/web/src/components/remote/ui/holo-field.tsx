@@ -227,7 +227,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const taken = emzCell && !card ? facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(Number(key[1]))) : undefined;
         const carriedHere = !!carried && rv === key;
         const trapHolder = !card && /^s[1-5]$/.test(key) ? twin.find(other => other.trapZone === Number(key[1]) && (other.zone === "monster" || other.zone === "extra-monster")) : undefined;
-        const zoneCheck = card && !pile && cardCode(card) && (card.faceUp || card.publicIdentity) ? fieldZoneCheck(cardInfo, card.zone, card.slot, { faceDown: !card.faceUp, equipSource }) : undefined;
+        const zoneCheck = card && !pile && cardCode(card) && (card.faceUp || card.publicIdentity) ? fieldZoneCheck(cardInfo, card.zone, card.slot, { faceDown: !card.faceUp, equipSource, equipped: !!card.equippedTo }) : undefined;
         const equipped = card && !pile ? seatsOnBoard.flatMap(other => other.twin.filter(item => item.equippedTo?.seat === seat && item.equippedTo.ref === card.ref)) : [];
         const target = card?.equippedTo ? linkTarget(card.equippedTo) : undefined;
         const dropClass = dragging?.over === key && dragging.verdict ? VERDICT_CLASS[dragging.verdict] : carriedHere && dnd ? VERDICT_CLASS[dnd.judge(carried!, key).kind] : "";

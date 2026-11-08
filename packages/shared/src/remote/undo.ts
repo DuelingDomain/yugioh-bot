@@ -248,7 +248,8 @@ const summonName = (kind: string) => `${kind === "xyz" ? "Xyz" : kind[0].toUpper
 /** Public log labels use identities only when the physical card was public. */
 export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition): string {
   const ref = action.type === "twin.place" ? action.card.ref : "cardRef" in action ? action.cardRef : undefined;
-  const seat = "seat" in action ? action.seat : action.actorSeat;
+  // After a control change the card stands on the other side: look there.
+  const seat = action.type === "twin.control" ? action.toSeat : "seat" in action ? action.seat : action.actorSeat;
   const twin = position?.seats[seat].twin.find(c=>c.ref===ref);
   const name = twin && remotePublicCard(twin) ? twin.name ?? position?.deckChecks.instances.find(i=>i.seat===seat && i.refs.includes(twin.ref))?.name ?? "Card" : "Card";
   const zone = (z: string, slot?: number) => ({monster:"M", "spell-trap":"S", pendulum:"P", "extra-monster":"EMZ"}[z] ?? z) + (slot ?? "");
