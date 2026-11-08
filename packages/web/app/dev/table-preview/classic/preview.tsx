@@ -7,7 +7,7 @@ import { BattleFx } from "@/components/duel/battle-fx";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
 import { withCardStatusEngine } from "@/components/duel/table/fixtures/card-status";
-import { isBattlePhase } from "@/components/duel/constants";
+import { isBattlePhase, LOCATION_MZONE, LOCATION_OVERLAY } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
 import { CardInspector, type InspectTarget } from "@/components/duel/inspector";
@@ -23,6 +23,7 @@ import { parseAttackParam } from "@/components/duel/table/fixtures/preview-harne
 import { sessionBoardRule } from "@/components/duel/genesys";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "@/components/duel/solid/fixtures/states";
 import { useDuelAnimationSpeed } from "@/components/duel/animation-speed-control";
+import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 
 const noop = () => {};
 const NO_KEYS = new Set<string>();
@@ -41,11 +42,36 @@ export function classicStateId(raw: string | null | undefined): SolidStateId {
   return (SOLID_STATE_IDS as readonly string[]).includes(raw ?? "") ? (raw as SolidStateId) : "m1";
 }
 
+/** `?pick=material`: a Link material pick (one card at a time) over your own monsters, one already picked, so the bar shows Undo. */
+function materialPrompt(engine: DuelEngineView, seat: number): DuelPrompt {
+  const options = engine.seats[seat].monsters.flatMap((card, sequence) =>
+    card && sequence < 5
+      ? [{ id: `material-${sequence}`, label: card.name ?? "Monster", card: card as never, controller: seat, location: LOCATION_MZONE, sequence, selected: sequence === 1 }]
+      : [],
+  );
+  return { id: "preview-material", seat, kind: "toggle", title: "Select the card(s) to use as Link Material", min: 2, max: 2, finishable: false, options };
+}
+
+/** `?pick=detach`: an Xyz detach cost, the Materials window with a card per material (a pick of 1, Confirm shown). */
+function detachPrompt(engine: DuelEngineView, seat: number): DuelPrompt {
+  const hostCard = engine.seats[seat].monsters.find((card, sequence) => card && sequence < 5);
+  const options = Array.from({ length: 6 }, (_, index) => ({
+    id: `detach-${index}`,
+    label: `Material ${index + 1}`,
+    card: (hostCard ?? {}) as never,
+    controller: seat,
+    location: LOCATION_MZONE | LOCATION_OVERLAY,
+    sequence: index,
+    host: { controller: seat, location: LOCATION_MZONE, sequence: 1 },
+  }));
+  return { id: "preview-detach", seat, kind: "cards", title: "Detach 2 materials", min: 2, max: 2, cancelable: true, options } as DuelPrompt;
+}
+
 /**
  * The classic 1v1 room on fixture data: the room's own layout (header, board column, station track) with the real
  * DuelField, PhaseHub and StationTrack, and none of the room's network. Phase moves are logged, not sent.
  */
-export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter, status = false }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null; status?: boolean }) {
+export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter, status = false, pick = null }: { pick?: string | null; stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null; status?: boolean }) {
   const id = classicStateId(stateId);
   const { room: base } = useMemo(() => solidFixture(id), [id]);
   // `?attack=<seat>:<seq>><target>[:<seq>]` declares a late attack, as the multiplayer previews do.
@@ -71,11 +97,13 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
       const seats = next.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
       next = { ...next, engine: { ...next.engine, seats } };
     }
+    if (pick === "material" && next.engine) next = { ...next, engine: { ...next.engine, prompt: materialPrompt(next.engine, next.mySeat ?? 0) } };
+    if (pick === "detach" && next.engine) next = { ...next, engine: { ...next.engine, prompt: detachPrompt(next.engine, next.mySeat ?? 0) } };
     if (!event || !late || !next.engine) return next;
     const events = next.engine.events;
     const eventId = Math.max(0, ...events.map((entry) => entry.id)) + 1;
     return { ...next, engine: { ...next.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
-  }, [base, attack, late, lp, lpLate, status]);
+  }, [base, attack, late, lp, lpLate, status, pick]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
   // `?status=1` also mounts the real desktop inspector, so the Card tab's status rows can be checked on hover.
