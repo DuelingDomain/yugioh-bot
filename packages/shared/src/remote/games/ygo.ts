@@ -119,6 +119,27 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     if (action.reason === "start" && state.detection?.[action.actorSeat]?.mode === action.mode) return state;
     return { ...cloneRemoteCurrent(state), detection: { ...state.detection, [action.actorSeat]: { mode: action.mode, at } }, updatedAt: at };
   }
+  if (action.type === "player.concede" && context?.accountDeletion === 1) {
+    // A departed FFA seat cannot return in a later game, including a deletion during siding.
+    const playing = !state.ended && !state.seats[action.actorSeat].eliminated;
+    const next = playing ? reduce(state,action,{...context,accountDeletion:undefined}) : {...cloneRemoteCurrent(state),updatedAt:at};
+    const seat = next.seats[action.actorSeat];
+    seat.accountDeleted = true; seat.eliminated = true; seat.twin = []; seat.knownHand = [];
+    delete next.match.pendingResult;
+    const remaining = next.seats.filter(s => !s.accountDeleted);
+    const living = next.seats.filter(s => !s.eliminated);
+    if ((!state.ended && living.length <= 1) || remaining.length <= 1) {
+      const winner = (!state.ended ? living[0] : remaining[0])?.seat ?? null;
+      next.ended = true; next.winnerSeat = winner; next.attack = null;
+      next.match.phase = "done"; next.match.winnerSeat = winner;
+      delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat;
+    } else {
+      if (next.match.firstChooser != null && next.seats[next.match.firstChooser].accountDeleted) next.match.firstChooser = remaining[0].seat;
+      if (next.match.firstSeat != null && next.seats[next.match.firstSeat].accountDeleted) delete next.match.firstSeat;
+      if (next.match.siding && !next.match.siding.ready.includes(seat.seat)) next.match.siding.ready.push(seat.seat);
+    }
+    return next;
+  }
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
   if (matchResult) {
     if (action.type === "match.confirm" && action.accept && state.match.pendingResult?.lpSeat !== undefined) {

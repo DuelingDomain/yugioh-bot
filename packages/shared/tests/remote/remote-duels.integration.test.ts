@@ -3535,7 +3535,12 @@ it('keeps history and replay indefinitely, prunes transient data, and supports a
     db.prepare('insert into remote_vision_ai_limits values(?,?,1)').run(users[0],now);
     deleteUserAccount(db,users[0]);
     expect(service.get(unrelated.slug,'g',users[1])).toBeDefined();
-    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:1});
+    expect(db.prepare('select count(*) n from remote_tables').get()).toEqual({n:2});
+    const pastSeatEvents = db.prepare("select user_id,action_json from remote_events where table_id=? and json_extract(action_json,'$.type') in ('seat.joined','seat.left') and actor_seat=1 order by seq").all(roomId(other.slug)) as {user_id:number|null;action_json:string}[];
+    expect(pastSeatEvents.map(event=>({userId:event.user_id,action:JSON.parse(event.action_json)}))).toEqual([
+      {userId:null,action:{type:'seat.joined',seat:1,userId:null}},
+      {userId:null,action:{type:'seat.left',seat:1,userId:null}},
+    ]);
     for(const name of ['remote_spectators','remote_phone_pairs','remote_phone_modes','remote_vision_ai_limits']) {
       expect(db.prepare(`select count(*) n from ${name} where user_id=?`).get(users[0]),name).toEqual({n:0});
     }
@@ -3873,7 +3878,8 @@ it.each(['tap','manual'] as const)('keeps only tournament result evidence throug
     const account=make(); captureRemoteTournamentEvidence(db,account.tableId);
     pruneRemoteDuels(db,account.endedAt+day+1);
     db.transaction(()=>deleteUserRemoteData(db,actors[1].userId)).immediate();
-    expect(evidence(account.matchId)).toBeUndefined();
+    expect(evidence(account.matchId)).toMatchObject({table_id:null});
+    expect(JSON.parse(evidence(account.matchId)!.players_json)).toContainEqual({userId:null,seat:1});
     expect(db.pragma('foreign_key_check')).toEqual([]);
   } finally {clock.mockRestore();vi.unstubAllEnvs();}
 });
@@ -3977,7 +3983,7 @@ it('keeps a token as public table state: created, moved and removed by its owner
 });
 
 describe("remote match history and replay", () => {
-  function endedTable() {
+  function endedTable(privateAnnotations = false) {
     const s = deckSession("normal", false);
     const [a, b, outsider] = s.users, slug = s.room.slug;
     s.select(s.save().id);
@@ -3988,6 +3994,10 @@ describe("remote match history and replay", () => {
     s.service.start(slug, "g", a, 2003);
     const send = (user: number, action: Record<string, unknown>, at: number) => s.service.act(slug, "g", user, { baseSeq: s.service.get(slug, "g", user).lastSeq,
       action: remoteActionSchema.parse({ idempotencyKey: "hist-" + at, ...action }) }, at);
+    if (privateAnnotations) {
+      send(a, {type:"twin.place",actorSeat:0,seat:0,zone:"monster",card:{ref:"token",name:"Private token label",slot:1,token:{atk:0,def:0}}},2050);
+      send(a, {type:"lp.change",actorSeat:0,seat:0,delta:-100,reason:"Private LP note"},2060);
+    }
     send(a, { type: "log.note", actorSeat: 0, text: "Good luck" }, 2100);
     send(b, { type: "player.concede", actorSeat: 1 }, 2200);
     return { ...s, a, b, outsider, slug };
@@ -4021,6 +4031,88 @@ describe("remote match history and replay", () => {
     s.db.prepare("update remote_tables set visibility='public' where slug=?").run(s.slug);
     expect(s.service.listHistory("g", s.outsider, { scope: "all" }).items.map(item => item.slug)).toEqual([s.slug]);
     expect(s.service.replayFrames(s.slug, "g", s.outsider).viewer).toBe("spectator");
+  });
+
+  it.each([
+    [3, null, 0, null], // A cut-off Bo3 has a game winner, but no match winner.
+    [3, 1, 0, 1],
+    [1, null, 0, 0],
+    [null, null, 0, 0], // Legacy Bo1 rows have no match bestOf.
+  ])("filters completed history consistently with its winner (Bo%s, match %s, game %s)", (bestOf, matchWinner, gameWinner, expected) => {
+    const s = endedTable();
+    s.db.prepare(`update remote_tables set state_json=json_set(state_json,
+      '$.match.bestOf',?,'$.match.winnerSeat',?,'$.winnerSeat',?) where slug=?`)
+      .run(bestOf, matchWinner, gameWinner, s.slug);
+    expect(s.service.listHistory("g", s.a).items[0].winnerSeat).toBe(expected);
+    const completed = s.service.listHistory("g", s.a, { completed: true, limit: 1 });
+    expect(completed.items.map(item => item.winnerSeat)).toEqual(expected === null ? [] : [expected]);
+    expect(completed.nextCursor).toBeNull();
+  });
+
+  it("keeps the opponent's history and replay with Deleted player after account deletion", async () => {
+    const s = endedTable(true);
+    const one = seedIdentity(s.db, { userId: s.a }), two = seedIdentity(s.db, { userId: s.b });
+    const tournament = Number(s.db.prepare(`insert into tournaments(guild_id,name,format,status,created_by_user_id)
+      values('g','Cup','round_robin','active',?)`).run(s.b).lastInsertRowid);
+    const match = Number(s.db.prepare(`insert into tournament_matches(tournament_id,player_one_id,player_two_id,round_number,status)
+      values(?,?,?,1,'complete')`).run(tournament, one.playerId, two.playerId).lastInsertRowid);
+    const tableId = (s.db.prepare("select id from remote_tables where slug=?").get(s.slug) as {id:number}).id;
+    s.db.prepare("update remote_tables set tournament_match_id=? where id=?").run(match, tableId);
+    s.db.prepare(`insert into tournament_remote_matches(tournament_match_id,table_id,table_slug,player_one_id,player_two_id,
+      status,player_one_choice,player_one_note,organizer_user_id,organizer_note,created_at,updated_at)
+      values(?,?,?,?,?,'disputed','dispute','Private dispute',?,'Private decision',1000,1000)`)
+      .run(match, tableId, s.slug, one.playerId, two.playerId, s.a);
+    const { captureRemoteTournamentEvidence } = await import("../../src/services/tournament-remote-evidence.js");
+    captureRemoteTournamentEvidence(s.db, tableId, 2300);
+    const evidence = () => s.db.prepare("select * from tournament_remote_evidence where tournament_match_id=?").get(match) as
+      { player_one_user_id:number|null; players_json:string; result_events_json:string; reports_json:string; games_json:string; public_board_json:string };
+    const facts = evidence();
+    // Cache the replay before deletion too: a later read must not return copied identity or notes.
+    const before = s.service.replayFrames(s.slug, "g", s.b);
+    const finalBoard = before.steps.reduce((view, step) => applyPatch(view, step.ops), before.initial);
+    finalBoard.seats[0].twin.find(card=>card.ref === "token")!.name = "Token";
+
+    s.db.exec(`create table remote_phone_pairs(id text,slug text,user_id integer);
+      create table remote_phone_modes(slug text,user_id integer);
+      create table remote_phone_attempts(bucket text,slug text,started_at integer);
+      create table remote_vision_ai_limits(user_id integer);`);
+    s.db.prepare("insert into remote_phone_pairs values('secret-pair',?,?)").run(s.slug, s.a);
+    s.db.prepare("insert into remote_phone_modes values(?,?)").run(s.slug, s.a);
+    s.db.prepare("insert into remote_phone_attempts values('hashed-ip',?,1000)").run(s.slug);
+    s.db.prepare("insert into remote_vision_ai_limits values(?)").run(s.a);
+
+    deleteUserAccount(s.db, s.a);
+
+    expect(s.service.listHistory("g", s.b).items[0]).toMatchObject({ slug:s.slug, mySeat:1,
+      seats:[{displayName:"Deleted player",bot:false},{displayName:"Bea"}] });
+    vi.stubEnv("OWNER_USER_IDS",String(s.outsider));
+    try {
+      expect(s.service.listHistory("g",s.outsider,{scope:"all"}).items[0].seats[0].displayName).toBe("Deleted player");
+      expect(s.service.replayFrames(s.slug,"g",s.outsider).table.seats[0].displayName).toBe("Deleted player");
+    } finally { vi.unstubAllEnvs(); }
+    expect(s.service.get(s.slug, "g", s.b)).toMatchObject({ createdBy:null,
+      seats:[{userId:null,displayName:"Deleted player",bot:false},{userId:s.b}] });
+    const replay = s.service.replayFrames(s.slug, "g", s.b);
+    expect(replay.table.seats[0]).toMatchObject({userId:null,displayName:"Deleted player"});
+    expect(replay.steps.reduce((view, step) => applyPatch(view, step.ops), replay.initial)).toEqual(finalBoard);
+    expect(JSON.stringify(replay)).not.toMatch(/Sulman|Good luck|Private/);
+    expect(JSON.stringify(s.db.prepare("select json from remote_values").all())).not.toContain("Private");
+    expect(s.db.prepare("select count(*) n from remote_events where user_id=?").get(s.a)).toEqual({n:0});
+    expect(s.db.prepare("select bucket from remote_phone_attempts").all()).toEqual([{bucket:"hashed-ip"}]);
+    for (const table of ["remote_phone_pairs","remote_phone_modes","remote_vision_ai_limits"])
+      expect(s.db.prepare(`select count(*) n from ${table}`).get()).toEqual({n:0});
+    expect(evidence()).toMatchObject({player_one_user_id:null,games_json:facts.games_json});
+    expect(JSON.stringify(evidence())).not.toContain("Private");
+    expect(JSON.parse(evidence().players_json)[0]).toEqual({userId:null,seat:0});
+    expect(JSON.parse(evidence().reports_json)[0]).toMatchObject({userId:null,note:null,choice:"dispute"});
+    expect(JSON.parse(evidence().result_events_json).every((e:{userId:number|null})=>e.userId!==s.a)).toBe(true);
+    expect(s.db.prepare("select organizer_user_id,organizer_note,player_one_note from tournament_remote_matches").get())
+      .toEqual({organizer_user_id:null,organizer_note:null,player_one_note:null});
+    expect(deleteUserAccount(s.db, s.a).counts).toEqual({});
+    // Once the last human deletes their account the room may be collected.
+    deleteUserAccount(s.db, s.b);
+    expect(s.db.prepare("select id from remote_tables where slug=?").get(s.slug)).toBeUndefined();
+    expect(s.db.pragma("foreign_key_check")).toEqual([]);
   });
 
   it("shares concurrent cold replay rebuilds across services after checking access", async () => {
@@ -4066,5 +4158,138 @@ describe("remote match history and replay", () => {
     const page2 = mergeHistory({ cursor: page1.nextCursor, online: cursor => (expect(cursor).toBe("o2"), last), remote: cursor => s.service.listHistory("g", s.a, { cursor }) });
     expect(page2.duels.map(item => ("remote" in item ? item.slug : item.id))).toEqual([3, remote.slug]);
     expect(page2.nextCursor).toBeNull();
+  });
+});
+
+
+describe("account deletion in live remote rooms", () => {
+  it.each([false,true])("removes a ready lobby guest and registration (creator deletes: %s)", creator => {
+    const {db,service,users}=setup();
+    const table=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount:2},1000);
+    service.join(table.slug,"g",users[1],"Guest",1,1001);
+    registerTestDeck(db,service,table.slug,users[1],1002);
+    service.ready(table.slug,"g",users[0],true,1003);
+    service.ready(table.slug,"g",users[1],true,1004);
+    const deleted=users[creator ? 0 : 1], keeper=users[creator ? 1 : 0];
+    deleteUserAccount(db,deleted);
+    const room=service.get(table.slug,"g",keeper);
+    if (creator) {
+      expect(room).toMatchObject({status:"ended",endReason:"creator-left",createdBy:null});
+      expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:0,action:{type:"table.ended",reason:"creator-left"}});
+      expect(()=>service.join(table.slug,"g",users[2],"Third")).toThrow(/ended/);
+    } else {
+      expect(room.status).toBe("lobby");
+      expect(room.seats.map(seat=>seat.userId)).toEqual([keeper]);
+      expect(room.state.deckChecks.registrations[1]).toBeUndefined();
+      expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:1,action:{type:"seat.left",seat:1,userId:null}});
+      expect(()=>service.start(table.slug,"g",keeper)).toThrow(/all seats must be filled/i);
+      const replacement=service.join(table.slug,"g",users[2],"Third");
+      expect(replacement.seats.find(seat=>seat.userId===users[2])).toMatchObject({seat:1,ready:false});
+    }
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it.each([[2,"duel"],[2,"siding"]] as const)("ends an active %i-seat table during %s and prevents further actions", (seatCount,phase) => {
+    const {db,service,users}=setup();
+    let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount},1000);
+    for(let seat=1;seat<seatCount;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
+    for(let seat=0;seat<seatCount;seat++) service.ready(room.slug,"g",users[seat],true,1002);
+    room=service.start(room.slug,"g",users[0],1003);
+    if (phase === "siding") {
+      room=service.act(room.slug,"g",users[1],{baseSeq:room.lastSeq,action:{type:"player.concede",actorSeat:1,idempotencyKey:"first-game"}},1004);
+      room=service.act(room.slug,"g",users[1],{baseSeq:room.lastSeq,action:{type:"match.continue",actorSeat:1,idempotencyKey:"enter-siding"}},1005);
+      expect(room).toMatchObject({status:"active",state:{match:{phase:"siding"}}});
+    }
+    deleteUserAccount(db,users[1]);
+    room=service.get(room.slug,"g",users[0]);
+    expect(room).toMatchObject({status:"ended",endReason:"account-deleted"});
+    expect(service.listHistory("g",users[0]).items.find(item=>item.slug===room.slug)).toMatchObject({winnerSeat:null,seats:[{result:null},{result:null}]});
+    expect(service.listHistory("g",users[0],{completed:true}).items).toEqual([]);
+    expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:1,action:{type:"table.ended",reason:"account-deleted"}});
+    expect(()=>service.act(room.slug,"g",users[0],{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:0,text:"hello",idempotencyKey:"after-delete"}})).toThrow(/not active/);
+    expect(service.replayFrames(room.slug,"g",users[0]).steps).toHaveLength(room.lastSeq);
+  });
+
+  it.each([[3,1,"duel"],[4,1,"duel"],[3,3,"duel"],[4,3,"duel"],[3,3,"result"],[4,3,"siding"]] as const)("concedes only the deleted FFA seat until one player remains (%i seats, Bo%i, %s)", (seatCount,bestOf,phase) => {
+    const clock=vi.spyOn(Date,"now").mockReturnValue(2000);
+    try {
+      const {db,service,users}=setup();
+      let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount,bestOf},1000);
+      for(let seat=1;seat<seatCount;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
+      for(let seat=0;seat<seatCount;seat++) service.ready(room.slug,"g",users[seat],true,1002);
+      room=service.start(room.slug,"g",users[0],1003);
+      const keeper=users[seatCount-1];
+      const act = (actorSeat:number, action:Record<string,unknown>) => room=service.act(room.slug,"g",users[actorSeat],{baseSeq:room.lastSeq,
+        action:remoteActionSchema.parse({actorSeat,idempotencyKey:`ffa-${room.lastSeq}`, ...action})},Math.max(1004+room.lastSeq,room.state.updatedAt));
+      if(phase!=="duel") {
+        for(let seat=1;seat<seatCount;seat++) act(seat,{type:"player.concede"});
+        if(phase==="siding") act(1,{type:"match.continue"});
+      }
+      const undoDamage=seatCount===3 && bestOf===1;
+      if(undoDamage) act(seatCount-1,{type:"lp.change",seat:0,delta:-8000,reason:"damage"});
+      const damageId=room.events.at(-1)!.id;
+      for(let seat=0;seat<seatCount-1;seat++) {
+        deleteUserAccount(db,users[seat]);
+        room=service.get(room.slug,"g",keeper);
+        expect(room.state.seats[seat].eliminated).toBe(true);
+        expect(room.seats[seat]).toMatchObject({userId:null,displayName:"Deleted player"});
+        expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:seat,action:{type:"player.concede",actorSeat:seat}});
+        if(seat===0 && undoDamage) {
+          act(seatCount-1,{type:"undo",targetActionId:damageId});
+          expect(room.state.seats[0].eliminated).toBe(true);
+        }
+        if(seat===0 && phase!=="duel") {
+          if(phase==="result") act(1,{type:"match.continue"});
+          for(let readySeat=1;readySeat<seatCount;readySeat++) act(readySeat,{type:"side.ready",seat:readySeat});
+          act(1,{type:"match.first",seatGoesFirst:1});
+          expect(room.state.seats[0].eliminated).toBe(true);
+        }
+        if(seat<seatCount-2) {
+          expect(room).toMatchObject({status:"active",state:{ended:false,winnerSeat:null}});
+          room=service.act(room.slug,"g",keeper,{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:seatCount-1,text:"Still playing",idempotencyKey:`after-delete-${seat}`}});
+        }
+      }
+      expect(room).toMatchObject({status:"ended",state:{ended:true,winnerSeat:seatCount-1,match:{phase:"done",winnerSeat:seatCount-1}}});
+      expect(service.replay(room.slug,"g",keeper)).toMatchObject({ended:true,winnerSeat:seatCount-1});
+      expect(service.listHistory("g",keeper).items.find(item=>item.slug===room.slug)?.winnerSeat).toBe(seatCount-1);
+      expect(db.pragma("foreign_key_check")).toEqual([]);
+    } finally {clock.mockRestore();}
+  });
+
+  it.each(["lobby","active"] as const)("captures and anonymizes tournament evidence when a %s player deletes", async status => {
+    const s=await tournamentResultSession();
+    try {
+      let slug=s.room.slug;
+      if (status === "lobby") {
+        s.db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where slug=?").run(Date.now(),slug);
+        const {table}=s.tables.startMatch({guildId:"g",tournamentId:s.tournament.id,tournamentMatchId:s.slot.id,actorUserId:s.two.userId});
+        slug=table.slug;
+        s.remote.join(slug,"g",s.one.userId,"One");
+      }
+      deleteUserAccount(s.db,s.two.userId);
+      expect(s.remote.get(slug,"g",s.one.userId)).toMatchObject({status:"ended",endReason:status === "lobby" ? "creator-left" : "account-deleted"});
+      const evidence=s.db.prepare("select players_json from tournament_remote_evidence where table_slug=?").get(slug) as {players_json:string};
+      expect(JSON.parse(evidence.players_json)).toContainEqual({seat:0,userId:null});
+    } finally {vi.unstubAllEnvs();}
+  });
+
+  it("preserves other players' phone rate limits and scans catalog and suspends the event guard once", () => {
+    const {db,service,users,table}=setup();
+    service.join(table.slug,"g",users[1],"Guest",1,1001);
+    const other=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount:2},1002);
+    service.join(other.slug,"g",users[1],"Guest",1,1003);
+    db.exec("create table remote_phone_attempts(bucket text primary key,slug text,started_at integer,count integer)");
+    db.prepare("insert into remote_phone_attempts values('shared',?,1000,3)").run(table.slug);
+    db.exec("insert into remote_phone_attempts values('legacy',null,1000,4)");
+    const buckets=db.prepare("select * from remote_phone_attempts order by bucket").all();
+    const prepare=vi.spyOn(db,"prepare"), exec=vi.spyOn(db,"exec");
+    try {
+      deleteUserAccount(db,users[0]);
+      expect(db.prepare("select * from remote_phone_attempts order by bucket").all()).toEqual(buckets);
+      expect(prepare.mock.calls.filter(([sql])=>sql==="select name from card_catalog")).toHaveLength(1);
+      expect(exec.mock.calls.filter(([sql])=>/drop trigger remote_events_no_update/i.test(sql))).toHaveLength(1);
+      expect(exec.mock.calls.filter(([sql])=>/create trigger.*remote_events_no_update/i.test(sql))).toHaveLength(1);
+      expect(()=>db.prepare("update remote_events set user_id=null").run()).toThrow(/append.only/);
+    } finally {vi.restoreAllMocks();}
   });
 });

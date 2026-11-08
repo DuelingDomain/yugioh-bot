@@ -4,6 +4,7 @@ import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { createUserService, deleteUserAccount } from "@yugidraft/shared/services";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { settleClerkSync } from "@/lib/clerk-sync";
+import { notifyRemoteChange } from "@/lib/remote-duels";
 import { getDb } from "@/lib/db";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled } from "@/lib/e2e-auth";
 import { requireWebAccess } from "@/lib/web-access";
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    deleteUserAccount(db, access.userId);
+    const summary = deleteUserAccount(db, access.userId);
+    await Promise.all((summary.remoteTables ?? []).map(table => notifyRemoteChange(table.slug, table.guildId)));
   } catch (error) {
     report(error, { userId: access.userId, tags: { operation: "[account-delete] database step failed after Clerk deletion" } });
     return fail("server_error", 500);

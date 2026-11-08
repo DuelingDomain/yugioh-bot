@@ -138,8 +138,12 @@ export function createTournamentRemoteResultService(db: Database.Database) {
       if (!r || state.match.phase !== "done" || state.match.winnerSeat == null) return;
       const s=slot(r.tournament_match_id);
       if (s.tournament_status !== "active" || s.status !== "open") return;
-      const seats=db.prepare(`select rs.seat,p.id as player_id from remote_seats rs join players p on p.user_id=rs.user_id
-        where rs.table_id=? and p.guild_id=?`).all(tableId,s.guild_id) as {seat:number;player_id:number}[];
+      const seats=db.prepare(`select rs.seat,p.id as player_id from remote_seats rs left join players p on p.user_id=rs.user_id and p.guild_id=?
+        where rs.table_id=?`).all(s.guild_id,tableId) as {seat:number;player_id:number|null}[];
+      // Tournament tables have exactly the paired humans. An anonymized seat still represents
+      // the other paired player; do not reattach its deleted account identity to Remote rows.
+      for (const seat of seats) if (seat.player_id === null) seat.player_id =
+        [r.player_one_id,r.player_two_id].find(id=>!seats.some(other=>other.player_id === id)) ?? null;
       const winner=seats.find(seat=>seat.seat === state.match.winnerSeat)?.player_id;
       if (!winner || ![r.player_one_id,r.player_two_id].includes(winner)) fail("Remote winner has no paired player",409,"TOURNAMENT_MATCH_UNAVAILABLE");
       const last=state.match.games.at(-1);

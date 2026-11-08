@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const s = vi.hoisted(() => ({
   db: null as Database.Database | null,
   access: vi.fn(),
+  notifyRemoteChange: vi.fn(),
   deleteUser: vi.fn(),
   getUser: vi.fn(),
   updateUserExternalId: vi.fn(),
@@ -14,6 +15,7 @@ const s = vi.hoisted(() => ({
   useRest: false,
   deleteWaitlistEntriesByEmail: vi.fn(),
 }));
+vi.mock("@/lib/remote-duels", () => ({ notifyRemoteChange: s.notifyRemoteChange }));
 vi.mock("@/lib/db", () => ({ getDb: () => s.db! }));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess: s.access }));
 vi.mock("@yugidraft/shared/clerk", async original => {
@@ -23,6 +25,7 @@ vi.mock("@yugidraft/shared/clerk", async original => {
     createClerkBackend: (...args: unknown[]) => { s.createBackend(...args); if (s.useRest) return actual.createClerkBackend(args[0] as { secretKey: string }); return { deleteWaitlistEntriesByEmail: s.deleteWaitlistEntriesByEmail, deleteUser: s.deleteUser, getUser: s.getUser, updateUserExternalId: s.updateUserExternalId }; },
   };
 });
+import { createRemoteDuelService } from "@yugidraft/shared/services";
 import { POST } from "../app/api/account/delete/route";
 import { syncClerkUser } from "../src/lib/clerk-sync";
 
@@ -89,6 +92,14 @@ it("answers 401 when the signed-in user's row no longer exists", async () => {
 });
 
 it("deletes the Clerk user before it changes the database, then answers 200 with no store", async () => {
+  const remote=createRemoteDuelService(s.db!);
+  const shared=remote.create({guildId:"g",userId:1,displayName:"One",gameId:"ygo",seatCount:2});
+  remote.join(shared.slug,"g",2,"Two",1);
+  const solo=remote.create({guildId:"g",userId:1,displayName:"One",gameId:"ygo",seatCount:2,solo:true});
+  s.notifyRemoteChange.mockImplementation(async () => {
+    expect(s.db!.inTransaction).toBe(false);
+    expect(rowOf(1)?.clerk_user_id).toBeNull();
+  });
   s.deleteUser.mockImplementation(async () => {
     expect(rowOf(1)?.email).toBe("one@example.com"); // the database is still whole when Clerk is called
   });
@@ -103,6 +114,7 @@ it("deletes the Clerk user before it changes the database, then answers 200 with
   expect(s.db!.prepare("select count(*) n from waitlist_signups").get()).toEqual({ n: 0 });
   expect(s.db!.prepare("select player_one_id, winner_id from matches").get()).toEqual({ player_one_id: 1, winner_id: 1 });
   expect(rowOf(2)?.email).toBe("two@example.com");
+  expect(s.notifyRemoteChange.mock.calls).toEqual([[shared.slug,"g"],[solo.slug,"g"]]);
 });
 
 it("removes a user with no history entirely", async () => {

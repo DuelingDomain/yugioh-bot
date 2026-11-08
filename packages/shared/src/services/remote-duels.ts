@@ -7,7 +7,7 @@ import { remoteUndoLabel } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteSpectator, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomInt, randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
-import { applyRemoteFormat, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
+import { applyRemoteFormat, REMOTE_REDUCTION_VERSIONS, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
@@ -32,11 +32,11 @@ export const REMOTE_SPECTATOR_SLOT_MS = 90_000;
 /** After an admin's last tab leaves, the "stopped watching" line waits this long. A reload returns within it and adds no lines. */
 export const REMOTE_ADMIN_WATCH_GRACE_MS = 15_000;
 type TableRow = { tournament_match_id: number | null; id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
-  created_by: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
+  created_by: number | null; privacy_revision: number; best_of: RemoteBestOf | null; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
   last_event_at: number; idle_warning_at: number | null; end_reason: string | null; format_json: string | null; show_cards_set_from_deck: number; visibility: RemoteVisibility; revealed_hand?: RemoteRevealedHand | null };
 type Row = TableRow & { state_json: string };
 // Lists and idle notifications need metadata, never board/undo snapshots or event replay.
-const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
+const tableColumns = "tournament_match_id,id,slug,guild_id,game_id,seat_count,status,solo,created_by,privacy_revision,last_seq,created_at,started_at,ended_at,last_event_at,idle_warning_at,end_reason,format_json,show_cards_set_from_deck,visibility"
   .split(",").map(column => `t.${column}`).join(",") + ",json_extract(t.state_json,'$.match.bestOf') as best_of,json_extract(t.state_json,'$.revealedHand') as revealed_hand";
 const REPLAY_CACHE_SIZE = 6;
 /** One small cache per database: the web makes a new service for each request. */
@@ -188,7 +188,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       remoteAssert(row.status === "ended" && row.started_at != null, "The replay opens when the duel has ended", 409, "REPLAY_NOT_READY");
       const mine = privateSeats(row, userId), spectator = !seated;
       const cache = replayCaches.get(db) ?? replayCaches.set(db, new Map()).get(db)!;
-      const key = `${row.id}:${row.last_seq}:${spectator ? "spectator" : [...mine].join(",")}`;
+      const key = `${row.id}:${row.last_seq}:${row.privacy_revision}:${spectator ? "spectator" : [...mine].join(",")}`;
       const cached = cache.get(key);
       if (cached) { cache.delete(key); cache.set(key, cached); }
       // Authorization above applies to every request, including callers joining an existing rebuild.
@@ -456,7 +456,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         .all(...(slug ? [now - 15 * 60_000, slug] : [now - 15 * 60_000])) as { id: number; slug: string; status: string; visibility: string }[];
       return rows.map(row => ({
         slug: row.slug,
-        seated: (db.prepare("select user_id from remote_seats where table_id=?").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
+        seated: (db.prepare("select user_id from remote_seats where table_id=? and user_id is not null").all(row.id) as { user_id: number }[]).map(seat => seat.user_id),
         slots: row.status === "ended" ? [] : (db.prepare("select user_id from remote_spectators where table_id=? and last_seen_at>?").all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { user_id: number }[]).map(slot => slot.user_id)
           // A private table has slots only for admins.
           .filter(user => row.visibility === "public" || isOwnerUser(user)),
@@ -569,7 +569,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
-        const effects: RemoteReductionContext = {showCardsSetFromDeck:before.showCardsSetFromDeck,undoVersion:1,matchFlowVersion:1,twinPlacementGuard:5,fieldFaceState:1,pileArrivalGuard:2,handKnowledge:1,handReview:1,handCountCorrections:1};
+        const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         if(command.type==='hand.add')effects.privateHandIdentity=command.source==='deck'&&before.showCardsSetFromDeck===false||command.source==='field'&&
           !!before.seats[command.actorSeat].twin.find(c=>(c.cardId??c.passcode)===command.cardId&&['monster','extra-monster','spell-trap','field','pendulum'].includes(c.zone)&&!c.faceUp);
         if(command.type==='deck.count')effects.privateHandIdentity=true;
@@ -712,7 +712,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
       const seated = "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=@viewer)";
       const when = "coalesce(t.ended_at,t.created_at)";
       const where = ["t.guild_id=@guild", "t.status='ended'", "t.started_at is not null", "t.solo=0"];
-      if (options.completed) where.push("coalesce(json_extract(t.state_json,'$.match.winnerSeat'),json_extract(t.state_json,'$.winnerSeat')) is not null");
+      // A Bo3 cut off between games has a game winner, but no match winner.
+      if (options.completed) where.push("(case when json_extract(t.state_json,'$.match.bestOf')=3 then json_extract(t.state_json,'$.match.winnerSeat') else coalesce(json_extract(t.state_json,'$.match.winnerSeat'),json_extract(t.state_json,'$.winnerSeat')) end) is not null");
       if (scope === "mine") where.push(seated);
       else if (!canSeeAll) where.push(`(${seated} or (t.visibility='public' and t.tournament_match_id is null))`);
       const instant = (value: string, field: string) => {
@@ -745,7 +746,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       const iso = (ms: number | null) => ms == null ? null : new Date(ms).toISOString();
       const items = page.map((row): RemoteHistoryItem => {
         const [matchWinner, stateWinner, turn, games] = row.outcome ? JSON.parse(row.outcome) as [number | null, number | null, number | null, { winnerSeat: number | null }[] | null] : [null, null, null, null];
-        const winnerSeat = typeof matchWinner === "number" ? matchWinner : typeof stateWinner === "number" ? stateWinner : null;
+        const winnerSeat = typeof matchWinner === "number" ? matchWinner : row.best_of !== 3 && typeof stateWinner === "number" ? stateWinner : null;
         const wins = Array.from({ length: row.seat_count }, (_, seat) => (games ?? []).filter(game => game.winnerSeat === seat).length);
         const metadata = table(row);
         return { remote: true, slug: row.slug, cursor: Buffer.from(JSON.stringify({ t: row.history_time, id: row.id })).toString("base64url"), name: "Remote Duel", seatCount: row.seat_count, tableType: row.seat_count === 2 ? "1v1" : row.seat_count === 3 ? "ffa3" : "ffa4",

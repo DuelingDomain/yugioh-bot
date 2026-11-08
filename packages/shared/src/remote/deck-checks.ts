@@ -30,7 +30,7 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown, s
     throw error;
   }
 }
-export type RemoteDeckRegistration = { savedDeckId: number; name: string; deck: DuelDeck; validation: DuelDeckValidation };
+export type RemoteDeckRegistration = { savedDeckId: number | null; name: string; deck: DuelDeck; validation: DuelDeckValidation };
 export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra"; type?: number };
 export type RemoteCardFacts = Record<number, RemoteCardFact>;
 export type RemoteCardInstance = {
@@ -47,6 +47,8 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
+  /** Trusted account-deletion concession, persisted for replay. */
+  accountDeletion?: 1;
   /** Preserve pre-review declaration and first-choice rules on historical replay. */
   matchFlowVersion?: 1;
   /** Server-owned solo seats readied with the human; persisted for deterministic replay. */
@@ -76,6 +78,12 @@ export type RemoteReductionContext = {
   /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
   handCountCorrections?: 1;
 };
+/** Persist current reducer semantics for live actions and account-deletion concessions. */
+export const REMOTE_REDUCTION_VERSIONS = {
+  undoVersion: 1, matchFlowVersion: 1, twinPlacementGuard: 5, fieldFaceState: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1,
+} as const satisfies RemoteReductionContext;
+
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
 }
