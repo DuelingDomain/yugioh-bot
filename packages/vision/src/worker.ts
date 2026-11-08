@@ -18,6 +18,7 @@ import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
 import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, DetectOptions, PeekOptions, ReadAllOptions, PrepareOptions, BackendStatus } from './types';
 import type { RGBAImage } from './pixels';
+import {fitMat, type MatFitOptions} from './mat-fit';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
 let detectorSession:ModelSession|undefined,detectorLoading:Promise<ModelSession>|undefined,embedderSession:ModelSession|undefined;
@@ -165,7 +166,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -174,6 +175,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
     const queueMs=performance.now()-receivedAt;
     try {
       if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); reply({ id: message.id, result: null }); }
+      else if(message.type==='fitToMat'){reply({id:message.id,result:fitMat(pixels(message.frame),message.opts)});}
       else {
         if(!configuration)throw new Error('Recognizer has not initialized');
         if (message.type === 'checkWebGpu') {

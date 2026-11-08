@@ -1,11 +1,12 @@
 "use client";
 
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createFieldCalibration, createTwoCardCalibration, fieldMatPoint, hasExtraMonsterZones, shiftFieldCalibrationRows, swapFieldCalibrationRows, type DetectedQuad, type FieldCalibration, type FieldFormat, type FieldOrientation } from '@yugidraft/vision';
-import { fieldGridCells } from '@/lib/remote/zone-grid';
+import { createFieldCalibration, createTwoCardCalibration, fieldMatPoint, hasExtraMonsterZones, shiftFieldCalibrationRows, swapFieldCalibrationRows, type DetectedQuad, type FieldCalibration, type FieldFormat, type FieldOrientation, type PlayerSide } from '@yugidraft/vision';
+import { fieldGridCells, isPlacedCalibration } from '@/lib/remote/zone-grid';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { FieldOrientationControls } from './field-orientation';
+import { FitToMatControl } from './fit-to-mat';
 import { FieldMoveSurface, FieldTransformControls, useFieldTransform } from './field-transform';
 import { ZoneRowDiagram } from './ui/zone-row-diagram';
 import table from './ui/remote-ui.module.css';
@@ -16,7 +17,7 @@ import g from './field-calibration.module.css';
  * Whole-field calibration: move the grid, make it bigger or smaller, wider or narrower, taller or shorter, flip it.
  * The zones keep their fixed shape (card-sized, as on the real mat); no single zone can be moved or resized.
  */
-export function FieldCalibrationControl({video,format='normal',initialCalibration,detectCalibrationCards,large=false,onSave,onCancel}:{video:HTMLVideoElement|null;large?:boolean;format?:FieldFormat;initialCalibration?:FieldCalibration;detectCalibrationCards?:(frame:HTMLCanvasElement)=>Promise<DetectedQuad[]>;onSave(value:FieldCalibration):void;onCancel():void}) {
+export function FieldCalibrationControl({video,format='normal',defaultSide='bottom',initialCalibration,placed=isPlacedCalibration(initialCalibration),detectCalibrationCards,large=false,onSave,onCancel}:{video:HTMLVideoElement|null;large?:boolean;format?:FieldFormat;initialCalibration?:FieldCalibration;defaultSide?:PlayerSide;placed?:boolean;detectCalibrationCards?:(frame:HTMLCanvasElement)=>Promise<DetectedQuad[]>;onSave(value:FieldCalibration):void;onCancel():void}) {
   const dialog=useRef<HTMLDivElement>(null),cancel=useRef(onCancel);
   const description=useId();
   const generation=useRef(0);
@@ -27,6 +28,7 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
     canvas.getContext('2d')!.drawImage(video,0,0,canvas.width,canvas.height);
     return canvas.toDataURL('image/jpeg',.75);
   });
+  useEffect(()=>()=>{if(image.startsWith('blob:'))URL.revokeObjectURL(image);},[image]);
   const tf=useFieldTransform(initialCalibration?.corners,undefined,video?.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:16/9),[error,setError]=useState('');
   cancel.current=onCancel;
   const [orientation,setOrientation]=useState<FieldOrientation|undefined>(initialCalibration?.orientation);
@@ -54,12 +56,12 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
   /** Move the whole grid by rows along the mat (positive = toward you). */
   function shiftRows(rows:number){
     if(!preview)return;
-    try{const grid=shiftFieldCalibrationRows(preview,rows);tf.rebase(grid.corners);setError('');}
+    try{const limits=tf.grab().limits,grid=shiftFieldCalibrationRows(preview,rows,limits);tf.rebase(grid.corners,limits);setError('');}
     catch{setError('The grid cannot move further: it would leave the picture. Make it smaller with Size first.');}
   }
   function swapRows(){
     if(!preview)return;
-    try{const grid=swapFieldCalibrationRows(preview);tf.rebase(grid.corners);setOrientation(grid.orientation);setSwapAsk(false);setError('');}
+    try{const limits=tf.grab().limits,grid=swapFieldCalibrationRows(preview,limits);tf.rebase(grid.corners,limits);setOrientation(grid.orientation);setSwapAsk(false);setError('');}
     catch{setError('The grid cannot be swapped here: it would leave the picture. Make it smaller with Size first.');}
   }
   const cells=fieldGridCells(format);
@@ -91,13 +93,14 @@ export function FieldCalibrationControl({video,format='normal',initialCalibratio
   return createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.backdrop}`} onClick={event=>event.stopPropagation()} onPointerDown={event=>event.stopPropagation()}>
     <div ref={dialog} className={`${s.calibration} ${large?s.calibrationLarge:''}`} data-large={large||undefined} role="dialog" aria-label="Calibrate field zones" aria-modal="true" aria-describedby={description} aria-busy={busy} tabIndex={-1}>
       <h2>Calibrate field zones</h2>
+      <FitToMatControl video={video} auto={!placed} defaultSide={defaultSide} calibration={preview} disabled={locked} onBusy={setBusy} onCapture={frame=>{const request=generation.current;frame.toBlob(blob=>{if(blob&&request===generation.current)setImage(URL.createObjectURL(blob));},'image/jpeg',.75);setGridHeight(1000*frame.height/frame.width);}} onApply={grid=>{tf.rebase(grid.corners);setOrientation(grid.orientation);setCalibrationCards([]);setError('');}}/>
       {detectCalibrationCards?<div className={g.quick}><strong>Quick setup with two cards</strong><p>From your seat, place a MONSTER upright in M1: in the Main Monster row (the row nearer the middle of the table), at the far left. Place a SPELL/TRAP upright in S5: in the Spell &amp; Trap row (the row nearest you), at the far right. Clear the rest of the mat. Keep both cards flat.</p><ZoneRowDiagram/><button type="button" className={table.btn} disabled={!image||busy} onClick={()=>void quickCalibration()}>{busy?'Finding both cards…':'Use cards in M1 and S5'}</button><p>Then tap the monster outline. The two different rows determine your side and mirroring.</p></div>:null}
       <div id={description}>
         <p>Move the field grid over your mat</p>
         <p>Drag the grid over your mat. Drag a corner or edge to resize it; the opposite side stays put. Turn it to any angle with the round handle, or use the quarter-turn buttons. Arrow keys move it. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right.</p>
         <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
       </div>
-      <FieldOrientationControls calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setCalibrationCards([]);}}/>
+      <FieldOrientationControls defaultSide={defaultSide} calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setCalibrationCards([]);}}/>
       <p>{orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
       {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
       {checking&&!calibrationCards.length?<div className={g.check} role="group" aria-label="Check zones" data-testid="calibration-check"><strong>Check zones</strong>
