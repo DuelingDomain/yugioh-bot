@@ -577,7 +577,10 @@ it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Chec
  expect(projectFieldZone({zone:'M2',facts:monster,twins:[token]}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ1',faceDown:true,twins:[token]}).zone).toBe('M1');
  // "Choose another zone" for a face-down card: the player picks from the free cells, and the token's cell is not one.
- expect(freeFieldZones([token],'M')).toEqual(['M1','M3','M4','M5']);
+ expect(freeFieldZones([token],undefined,true).slice(0,4)).toEqual(['M1','M3','M4','M5']);
+ // A known card sees only its own row.
+ expect(freeFieldZones([token],monster)).toEqual(['M1','M3','M4','M5']);
+ expect(freeFieldZones([token],{type:'Normal Trap Card'})).toEqual(['S1','S2','S3','S4','S5']);
 });
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');

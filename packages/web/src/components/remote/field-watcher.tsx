@@ -10,6 +10,7 @@ import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDet
 import {remoteHandReadDecision,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
+import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
 import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
@@ -73,6 +74,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const manual=useRef(new Map<string,{zone:string;slot?:number;position?:string}>());
   const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
+  if(e2eFieldHook&&typeof window!=='undefined')Object.assign(window,{__e2eField:{entries,handle:(e:FieldEvent)=>handle(e),live:()=>live(),watching:()=>!!watch.getSnapshot()}});
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
   const [host,setHost]=useState<HTMLElement|null>(null),[prompts,setPrompts]=useState<FieldEvent[]>([]),[calibrating,setCalibrating]=useState(false);
@@ -112,7 +114,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** Face-down cards on a token's cell: the physical cell maps to the zone the player chose. The token stays. */
   const tokenAway=useRef(new Map<FieldZone,FieldZone>());
   const tokenUndo=useRef<{trackId:string;actionId:string}>(undefined);
-  const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;choosing?:boolean}|null>(null);
+  const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
   /** Monsters out of view during the 2 s departure wait (track id): an Extra Deck summon in that window takes them as materials. */
@@ -284,9 +286,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
   }
   /** True when a token holds the cell: ask the player (one click to remove it, e.g. after a Tribute Summon) and place nothing. */
-  function tokenClash(event:FieldEvent,zone:FieldZone,twins:readonly TwinCard[],name:string|undefined) {
+  function tokenClash(event:FieldEvent,zone:FieldZone,twins:readonly TwinCard[],name:string|undefined,facts?:ReturnType<typeof cardInfo>) {
     const token=tokenInCell(twins,zone);if(!token)return false;
-    setTokenPrompt(prompt=>prompt?.event.track.id===event.track.id&&prompt.token.ref===token.ref?prompt:{event,token,zone,name:name??'the card'});
+    setTokenPrompt(prompt=>prompt?.event.track.id===event.track.id&&prompt.token.ref===token.ref?prompt:{event,token,zone,name:name??'the card',facts});
     return true;
   }
   function abstain(event:FieldEvent,message:string) {
@@ -439,7 +441,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     const projected=projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
-    if(tokenClash(event,projected.zone,twins,entry?.name))return;
+    if(tokenClash(event,projected.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
     const physicalAtSave={zone:track.zone,position:track.position};
     track={...track,zone:projected.zone};location=fieldZoneLocation(projected.zone);
     if(!piles.has(track.zone)&&twins.some(c=>c.ref!==existing?.ref&&!summon?.materialRefs.includes(c.ref)&&c.zone===location.zone&&c.slot===location.slot)) {abstain(event,'This zone is occupied. Choose a free zone.');return;}
@@ -485,7 +487,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
         const target=projectObserved(observed!,twins,card,cardInfo(code),!!existing&&!existing.faceUp);
         if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
-        if(tokenClash(event,target.zone,twins,entry?.name))return;
+        if(tokenClash(event,target.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
       const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&target.card.position===target.position;
@@ -678,7 +680,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         observed=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!observed?.visible||observed.removed||observed.state!=='identified')return;
         const projected=projectObserved(observed,current.current.room.state.seats[seat].twin,card,cardInfo(code));
         if(!projected.zone){setNotice(projected.reason??'Choose a legal zone manually.');return;}
-        if(tokenClash(event,projected.zone,current.current.room.state.seats[seat].twin,card.name))return;
+        if(tokenClash(event,projected.zone,current.current.room.state.seats[seat].twin,card.name,cardInfo(code)))return;
         const location=fieldZoneLocation(projected.zone);
         if(keepsManual(card.ref,location,observed.position))return;
         const under=stackUnder(event.track.id);
@@ -1240,13 +1242,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queue(async act=>{await removePlaceholder(id,act);});}}
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
-        {[...freeFieldZones(room.state.seats[seat].twin,'M'),...freeFieldZones(room.state.seats[seat].twin,'S')].map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(cell,zone);void queue(act=>apply(event,act),event);}}>{zone}</button>)}
+        {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(cell,zone);void queue(act=>apply(event,act),event);}}>{zone}</button>)}
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:false})}>Back</button></span>:tokenPrompt?<span data-testid="token-clash">A token is in {tokenPrompt.zone}. Tribute/remove the token and place {tokenPrompt.name} here?
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queue(async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
-        <button type="button" onClick={()=>{const {event}=tokenPrompt;setTokenPrompt(null);
-          // A face-down card has no card prompt (offer ignores it): the player picks its zone.
-          if(event.track.faceDown){setTokenPrompt({...tokenPrompt,choosing:true});return;}
-          prompted.current.delete(`${event.track.id}:${event.track.revision??0}`);offer({...event,type:'prompt',reason:'uncertain'});}} data-testid="token-clash-other">Choose another zone</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
+        <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span> → {destinations.find(([z])=>z===departure.zone)?.[1]} {destinations.map(([zone,title])=><button type="button" key={zone} disabled={pending||departure.zone===zone} onClick={()=>redirect(zone)}>{title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{const departed=departureRef.current?.ref,chain=undoChain.current.after===undoId?undoChain.current.ids:[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl video={video} initialCalibration={watch.calibration} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
