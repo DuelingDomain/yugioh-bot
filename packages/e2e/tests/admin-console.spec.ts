@@ -11,7 +11,7 @@ import { FLOOR, seedAdminFloor, touchAdminFloor } from "../helpers/admin-floor";
 test.skip(process.env.E2E_ADMIN_CONSOLE !== "1" || process.env.E2E_OWNER_USER_IDS !== "101", "set E2E_ADMIN_CONSOLE=1 and E2E_OWNER_USER_IDS=101");
 test.describe.configure({ mode: "serial" });
 
-const VIEWS = ["Overview", "People", "Duels", "Waitlist", "Creators", "Health", "Insights"] as const;
+const VIEWS = ["Overview", "People", "Duels", "Waitlist", "Creators", "Health", "Insights", "Updates"] as const;
 const menu = (page: Page) => page.getByRole("complementary", { name: "Admin navigation" });
 // Exact: the Health view also holds a "VPS health" region.
 const view = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
@@ -52,7 +52,7 @@ test("Overview: four large numbers, what needs attention, and who is online and 
   } finally { await context.close(); }
 });
 
-test("keys 1 to 7 switch views, / filters people, and each view has its own link", async ({ browser }) => {
+test("keys switch views, / filters people, and each view has its own link", async ({ browser }) => {
   const context = await browser.newContext({ storageState: authFile("p1") });
   try {
     const page = await context.newPage();
@@ -64,7 +64,7 @@ test("keys 1 to 7 switch views, / filters people, and each view has its own link
     await page.keyboard.press("5");
     await expect(page).toHaveURL(/#creators$/);
     await expect(view(page, "Creators")).toBeVisible();
-    await page.keyboard.press("6");
+    await page.keyboard.press("7");
     await expect(page).toHaveURL(/#health$/);
     await page.keyboard.press("/");
     await expect(page).toHaveURL(/#people$/);
@@ -147,9 +147,9 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     // The Overview number links to the list.
     await view(page, "Overview").getByRole("link", { name: /Duels today/ }).click();
     await expect(page).toHaveURL(/#duels-today$/);
-    const list = view(page, "Duels").getByRole("table", { name: "Duels today" });
+    const list = view(page, "Duels").getByRole("table", { name: "Duels, today" });
     await expect(list).toBeInViewport({ ratio: 0.05 });
-    await expect(view(page, "Duels")).toContainText("Since 12:00 AM ET");
+    await expect(view(page, "Duels")).toContainText("midnight to midnight ET");
     const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"], a[href="/admin/watch/duel/${slug}"]`) });
 
     // Tag: partners win together.
@@ -176,7 +176,7 @@ test("Duels today: every duel of the Eastern day with result per player, replay 
     await expect(live.getByRole("link", { name: "Replay" })).toHaveCount(0);
 
     // Filters: Multi hides the 1v1 duels, Ranked keeps only ranked ones.
-    const filters = view(page, "Duels").getByRole("group", { name: "Filter duels of today" });
+    const filters = view(page, "Duels").getByRole("group", { name: "Filter the duels of the range" });
     await filters.getByRole("button", { name: /^Multi/ }).click();
     await expect(row(FLOOR.tag)).toBeVisible();
     await expect(row(FLOOR.draw)).toHaveCount(0);
