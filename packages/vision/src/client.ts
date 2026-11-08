@@ -2,6 +2,31 @@ import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
 import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
+import type {MatFitOptions, MatFitResult} from './mat-fit';
+
+/** One CPU request in an isolated vision worker. No model/index warmup or per-frame inference. */
+export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{signal?:AbortSignal;workerUrl?:string}={}):Promise<MatFitResult> {
+  const {signal,workerUrl,...opts}=options;
+  signal?.throwIfAborted();
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(workerUrl??'/dev/vision-lab/assets/worker.js?v=mat-fit-v1',{type:'module',name:'mat-fit'});
+    const finish=(error?:Error,result?:MatFitResult)=>{
+      clearTimeout(timeout);signal?.removeEventListener('abort',abort);worker.terminate();
+      if(error)reject(error);else resolve(result!);
+    };
+    const abort=()=>finish(new DOMException('Mat fit cancelled','AbortError'));
+    const timeout=setTimeout(()=>finish(new Error('Mat fit timed out')),10_000);
+    signal?.addEventListener('abort',abort,{once:true});
+    worker.onmessage=event=>{
+      if(event.data.id!==1)return;
+      finish(event.data.error?new Error(event.data.error):undefined,event.data.result);
+    };
+    worker.onerror=event=>finish(new Error(event.message||'Mat fit worker failed'));
+    worker.onmessageerror=()=>finish(new Error('Mat fit response could not be read'));
+    try{worker.postMessage({id:1,type:'fitToMat',frame,opts},typeof ImageBitmap!=='undefined'&&frame instanceof ImageBitmap?[frame]:[]);}
+    catch(error){finish(error instanceof Error?error:new Error(String(error)));}
+  });
+}
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
@@ -49,22 +74,21 @@ const WASM_THREADS = (cores: number) => Math.max(1, Math.min(4, Math.floor(cores
  * run while a card is being read. They cost a second ONNX Runtime instance and detector session.
  * Measured (2026-11-03): see packages/vision/REPORT.md, "Split workers".
  */
-const oneCpuWorker = (cores: number) => ({ split: false, threads: Math.min(2, WASM_THREADS(cores)) });
+const oneCpuWorker = (cores: number) => ({ split: false, threads: Math.min(2,WASM_THREADS(cores)) });
 export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number; readThreads?: number }> {
   const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } } }).navigator;
   const cores = nav?.hardwareConcurrency ?? 1;
-  // On a hardware GPU each worker gets half of the one-worker thread budget.
+  // Hardware GPU layouts retain half of the one-worker budget per lane.
   const half = Math.max(1, Math.floor(WASM_THREADS(cores) / 2));
   if (layout === 'single') return { split: false };
-  if (layout === 'split') return { split: true, threads: half };
+  if (layout === 'split') return backend==='wasm'?{split:true,threads:1,readThreads:WASM_THREADS(cores)}:{split:true,threads:half};
   const mobile = nav?.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(nav?.userAgent ?? '');
   const one = oneCpuWorker(cores);
   if (mobile || (nav?.deviceMemory !== undefined && nav.deviceMemory < 4) || cores < 4) return one;
-  // CPU, 8+ cores: detector passes gain little past 2 threads; reads are rare and gain a lot (2026-11-05: 355 ms on 4 threads,
-  // 680 ms on 2). 2+4 threads is more than one worker's 4, but passes and reads seldom overlap and 8 cores hold both.
-  // Below 8 cores, on Safari (iPadOS reports a Mac) and without SharedArrayBuffer, two runtimes are not worth their cost.
+  // CPU, 8+ cores: leave room for outgoing video. Detection uses one thread and reads keep the original budget.
+  // Below 8 cores, on Safari and without SharedArrayBuffer, two runtimes are not worth their cost.
   const safari = /^((?!chrome|chromium|android|edg).)*safari/i.test(nav?.userAgent ?? '');
-  const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 2, readThreads: 4 } : one;
+  const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 1, readThreads: WASM_THREADS(cores) } : one;
   if (backend === 'wasm' || !nav?.gpu) return cpu;
   try {
     const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;

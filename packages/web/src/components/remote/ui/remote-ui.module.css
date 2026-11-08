@@ -44,6 +44,8 @@
 .crumb b{color:var(--ink2);font-weight:600}
 .crumbLink{color:var(--gold-ink);text-decoration:underline;text-underline-offset:3px}
 .crumbLink b{color:inherit}
+.adminBadge,.adminPill{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--gold);background:rgb(232 185 79/.14);border-radius:999px;padding:4px 8px;color:var(--gold-ink);min-width:0;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adminStrip{display:none}
 .cchip{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:13px;color:var(--ink3);border-right:1px solid var(--line)}
@@ -54,6 +56,7 @@
 .tb[aria-pressed=true],.tb[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
 .hdot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px currentColor;color:var(--ok)}
 .hdot.warn{background:var(--warn);color:var(--warn)}.hdot.bad{background:var(--lossd);color:var(--lossd)}
+.tb.tbSurrender{border-color:color-mix(in srgb,var(--lossd) 55%,transparent);color:var(--loss)}.tb.tbSurrender:hover{border-color:var(--lossd);color:var(--loss)}
 .tb.warnc{border-color:rgb(240 178 79/.6);color:var(--warn)}.tb.badc{border-color:rgb(228 90 77/.7);color:var(--loss)}
 .nb{position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);display:none}
 .nb.on{display:block}
@@ -704,6 +707,10 @@
   .shell{display:block;height:auto;padding-bottom:var(--dockh,128px)}
   .top{position:sticky;top:0;gap:8px;padding:0 10px;height:var(--hdr)}
   .crumb,.cchip,.logo b,.tb .lbl{display:none}
+  /* The phone header is full: the badge moves to its own row under it, in the page flow, so it covers nothing. */
+  .adminBadge{display:none}
+  .adminStrip{display:flex;justify-content:center;padding:6px 10px 0}
+  .adminPill{max-width:100%}
   .seg button{padding:6px 10px}
   .tb{padding:0 9px}
   .stage{display:flex;flex-direction:column;padding:var(--gap);gap:10px}
@@ -1028,6 +1035,7 @@
 @media (max-width:700px){.pileOrd button{width:32px;height:32px;font-size:14px}.pileOrd{right:0;top:0;gap:0;flex-direction:column}}
 .zglabels>.zgdbg{transform:translate(0,-100%);pointer-events:auto;cursor:pointer;padding:0 3px;background:rgb(20 0 30/.8);color:#b8ffc8;font:600 9px/12px ui-monospace,monospace;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:none}
 .zglabels>.zgdbg[data-hidden="true"]{color:#e2c6ff}
+.zglabels>.zgdbg[data-wide="true"]{max-width:240px;white-space:normal}
 .zglabels>.zgdbg[data-open="true"]{max-width:260px;white-space:normal;z-index:6}
 .zglabels>.zgdbg.zgraw{transform:none;background:rgb(0 0 0/.75);color:#9be8ff}
 .zglabels>.zgdbg.zgraw[data-bad="true"]{color:#ffb0b0}
@@ -1219,3 +1227,5 @@
 .hprev small{font-size:11px;color:var(--ink3)}
 /* A phone: the open search chip stays in one row at the top (below popovers, drawers and the tray), whatever seat is scrolled to. */
 @media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:calc(var(--hdr) + 46px);z-index:33;flex-wrap:nowrap;overflow-x:auto;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}.hchip>*{flex:none}}
+/* Narrow top bar: after the 900px rules, so these win. Keeps the Surrender flag on screen at 360px. */
+@media (max-width:480px){.top{gap:4px;padding:0 6px}.top .seg button{padding:6px 7px}.top .tb{padding:0 7px;gap:5px}.top .logo{gap:0}.top [data-testid=health-chip]{font-size:12px}.top [data-testid=health-chip] span:last-child{max-width:68px;overflow:hidden;text-overflow:ellipsis}}

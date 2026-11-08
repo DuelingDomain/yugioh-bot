@@ -1,0 +1,26 @@
+/* Remote Duels: the Surrender confirm and the Deck menu. They sit inside the table (.app), so its colour variables apply. */
+.scrim { position: fixed; inset: 0; z-index: 240; display: grid; place-items: center; padding: 16px; background: rgb(6 3 14 / 0.62); }
+.dialog {
+  width: min(380px, 100%); padding: 18px 20px; border: 1px solid color-mix(in srgb, var(--lossd, #e45a4d) 60%, transparent); border-radius: 12px;
+  background: linear-gradient(180deg, #1a1030, #0d0819); color: var(--ink, #efe7d5); box-shadow: 0 24px 70px rgb(0 0 0 / 0.7);
+}
+.kicker { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink2, #b9acd6); }
+.title { margin: 0 0 6px; font-size: 20px; font-weight: 800; }
+.body { margin: 0 0 16px; font-size: 14px; color: var(--ink2, #b9acd6); }
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+.actions button { height: 38px; padding: 0 16px; font-size: 14px; }
+.menu {
+  position: fixed; z-index: 46; display: flex; flex-direction: column; gap: 2px; padding: 5px; border: 1px solid var(--line2, #4a3d6e); border-radius: 10px;
+  background: linear-gradient(180deg, #1a1030, #0d0819); box-shadow: 0 16px 48px rgb(0 0 0 / 0.7);
+}
+.item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--ink, #efe7d5); font-size: 14px; font-weight: 600; text-align: left;
+}
+.item:hover, .item:focus-visible { background: rgb(255 255 255 / 0.08); }
+.item:focus-visible { outline: 2px solid var(--gold-ink, #f4d690); outline-offset: -2px; }
+.item small { color: var(--ink3, #aaa1ba); font-weight: 600; }
+.menu .bad { color: var(--loss, #ff8f84); }
+/* Under the table's `.app button { color: inherit }`, so the parent selector wins. Light on red is about 5:1. */
+.actions .yes { background: var(--lossd, #e45a4d); border-color: var(--lossd, #e45a4d); color: #1b0604; }
+.actions .yes:disabled { opacity: 0.55; }

@@ -39,6 +39,10 @@ it("loads no analytics module with an empty key or on pages outside the page-vie
 });
 
 it("captures anonymous cookieless key-page views across navigation without titles, slugs, or free text", async () => {
+  // Settle the async mock factory first: it attaches the `eventCaptured` listener only after `importOriginal` resolves,
+  // while the component's own `import()` can reach the real SDK sooner and fire the initial $pageview (setTimeout 1ms)
+  // before the listener exists. That dropped the first event whenever the machine was slow.
+  await import("posthog-js");
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "test-project");
   document.title = "Private tournament title";
   window.history.replaceState(null, "", "/access?email=member%40example.test#private-text");
@@ -57,7 +61,7 @@ it("captures anonymous cookieless key-page views across navigation without title
       window.history.pushState(null, "", `${pathname}?title=private-text#private-text`);
       view.rerender(<StrictMode><PageViews /></StrictMode>);
     });
-    expect(state.events).toHaveLength(previousCount + 1);
+    await waitFor(() => expect(state.events).toHaveLength(previousCount + 1));
     expect(state.events.at(-1)!.properties.$pathname).toBe(template);
     expect(state.events.at(-1)!.properties.$current_url).toBe(`http://localhost:3000${template}`);
   }
@@ -77,7 +81,7 @@ it("captures anonymous cookieless key-page views across navigation without title
     window.history.pushState(null, "", "/dashboard");
     view.rerender(<StrictMode><PageViews /></StrictMode>);
   });
-  expect(state.events).toHaveLength(keyPageCount + 1);
+  await waitFor(() => expect(state.events).toHaveLength(keyPageCount + 1));
   const serialized = JSON.stringify(state.events);
   expect(serialized).not.toMatch(/private-title|private-text|member|Private tournament/);
   expect(state.events.every(event => event.event === "$pageview")).toBe(true);

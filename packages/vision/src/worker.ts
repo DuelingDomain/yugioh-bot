@@ -7,6 +7,8 @@ import { embeddingGpuCheck } from './gpu-check';
 import { detect, lastDetectTimings } from './detector/run';
 import { prepareSearch } from './search';
 import { CARD_DETECTOR } from './detector/spec';
+import { ScenePixels } from './scene-pixels';
+import { SceneRefiner } from './scene-refiner';
 import { detectScene, lastShadowPasses } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
@@ -16,6 +18,7 @@ import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
 import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, DetectOptions, PeekOptions, ReadAllOptions, PrepareOptions, BackendStatus } from './types';
 import type { RGBAImage } from './pixels';
+import {fitMat, type MatFitOptions} from './mat-fit';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
 let detectorSession:ModelSession|undefined,detectorLoading:Promise<ModelSession>|undefined,embedderSession:ModelSession|undefined;
@@ -134,6 +137,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     embedderSession=undefined;pipeline=undefined;throw error;
   }
 }
+const sceneRefiner=new SceneRefiner();
 let pixelCanvas:OffscreenCanvas|undefined;
 function pixels(frame: ImageBitmap | ImageData): RGBAImage {
   if ('close' in frame) {
@@ -162,7 +166,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -171,6 +175,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
     const queueMs=performance.now()-receivedAt;
     try {
       if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); reply({ id: message.id, result: null }); }
+      else if(message.type==='fitToMat'){reply({id:message.id,result:fitMat(pixels(message.frame),message.opts)});}
       else {
         if(!configuration)throw new Error('Recognizer has not initialized');
         if (message.type === 'checkWebGpu') {
@@ -188,8 +193,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         }
         if(message.type==='detect') {
           const detectorSession=await ensureDetector();
-          const start=performance.now(),image=pixels(message.frame),pixelsMs=performance.now()-start;
-          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts);
+          const start=performance.now();
+          const source='close' in message.frame?new ScenePixels(message.frame):undefined;
+          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame),pixelsMs=performance.now()-start;
+          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
           const split=last?{shadowPasses:lastShadowPasses(),preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};

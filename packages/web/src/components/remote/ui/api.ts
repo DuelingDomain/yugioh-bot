@@ -4,6 +4,9 @@ let clockSkew = 0;
 /** Best guess of the server time now. Used for the undo window, which the server measures with its own clock. */
 export const serverNow = () => Date.now() + clockSkew;
 
+/** Names this browser tab to the server, so a spectator who closes one tab keeps the slot of the others. */
+export const tabId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `t${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+
 export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
   const signal=AbortSignal.timeout(10_000);
   try {

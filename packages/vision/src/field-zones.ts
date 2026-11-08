@@ -98,7 +98,7 @@ export function fieldZoneBounds(calibration?: Pick<FieldCalibration, 'zoneSpacin
 }
 export type PlayerSide = 'bottom' | 'left' | 'top' | 'right';
 export interface FieldOrientation { playerSide: PlayerSide; mirrored: boolean }
-/** Corners are image-clockwise from image top-left. Missing orientation is legacy/unconfirmed. */
+/** Corners are image-clockwise from image top-left. Fits may extrapolate up to half a frame outside the camera. Missing orientation is legacy/unconfirmed. */
 /** `layout: 3` = made with the current zone layout (7 columns by 3 rows of equal slots). A saved calibration without it lines its zones up differently and must be checked again. */
 export const FIELD_ZONE_LAYOUT = 3;
 export interface FieldCalibration { version: 1; layout?: typeof FIELD_ZONE_LAYOUT; corners: Point[]; orientation?: FieldOrientation; zoneSpacing?: number; zones?: ZoneOverrides }
@@ -132,6 +132,25 @@ export function orientFieldFromHands(calibration:FieldCalibration,left:number,ri
   throw new Error('Choose two adjacent corners along your edge of the mat.');
 }
 
+/**
+ * The same grid moved by whole rows along the mat (positive = toward the player, negative = away). New mat point (x, y) lands where the old (x, y + rows) was.
+ * Throws when the moved grid would leave the picture.
+ */
+export function shiftFieldCalibrationRows(calibration:FieldCalibration, rows:number,limits=fieldQuadEnvelope(calibration.corners)):FieldCalibration {
+  const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION,dy=-rows*FIELD_ROW;
+  const corners=unitCorners.map(u=>{const m=orient(u,orientation,true);return fieldMatPoint({x:m.x,y:m.y-dy},calibration);});
+  if(!inPicture(corners,limits))throw new Error('The grid would leave the picture.');
+  return createFieldCalibration(corners,calibration.orientation,calibration.zoneSpacing,calibration.zones);
+}
+/**
+ * Fix for monster and spell cards placed in swapped rows (monster in S, spell/trap in M): the quick setup then reads a
+ * reflected mat. This reflects the rows (M becomes S and S becomes M) in the same picture plane.
+ */
+export function swapFieldCalibrationRows(calibration:FieldCalibration,limits=fieldQuadEnvelope(calibration.corners)):FieldCalibration {
+  const orientation=calibration.orientation??DEFAULT_FIELD_ORIENTATION;
+  const flipped=createFieldCalibration(calibration.corners,{playerSide:sides[(sides.indexOf(orientation.playerSide)+2)%4],mirrored:!orientation.mirrored},calibration.zoneSpacing,calibration.zones);
+  return shiftFieldCalibrationRows(flipped,-1,limits);
+}
 export const fieldCenter = (card: Pick<DetectedQuad,'quad'>): Point => ({x:card.quad.reduce((s,p)=>s+p.x,0)/4,y:card.quad.reduce((s,p)=>s+p.y,0)/4});
 type Homography=number[];
 const unitCorners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
@@ -159,9 +178,17 @@ export const fieldMatPoint=(point:Point,calibration:FieldCalibration):Point=>pro
 /** Clockwise TL, TR, BR, BL of the owner's mat. Two opposite corners also work. */
 export function createFieldCalibration(points: Point[], orientation?:FieldOrientation,zoneSpacing=1,zones?:ZoneOverrides): FieldCalibration {
   const corners=points.length===2?[points[0],{x:points[1].x,y:points[0].y},points[1],{x:points[0].x,y:points[1].y}]:points;
-  if(corners.length!==4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>1||p.y>1) || polygonArea(corners)<.02) throw new Error('Invalid field calibration: click opposite corners or four clockwise mat corners');
+  if(corners.length!==4 || corners.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<-.5||p.y<-.5||p.x>1.5||p.y>1.5) || polygonArea(corners)<.02) throw new Error('Invalid field calibration: click opposite corners or four clockwise mat corners');
   const crosses=corners.map((a,i)=>{const b=corners[(i+1)%4],c=corners[(i+2)%4];return (b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);});
   if(crosses.some(c=>c<=0))throw new Error('Invalid field calibration: corners must be clockwise from top left');
+  // Convex separating-axis check: even a diagonal quad whose bounding box
+  // touches the image must contain some visible area to be a calibration.
+  const axes=[{x:1,y:0},{x:0,y:1},...corners.map((a,i)=>{const b=corners[(i+1)%4];return {x:a.y-b.y,y:b.x-a.x};})];
+  if(axes.some(axis=>{
+    const project=(p:Point)=>p.x*axis.x+p.y*axis.y,a=corners.map(project),b=unitCorners.map(project);
+    return Math.max(...a)<=Math.min(...b)+1e-10||Math.max(...b)<=Math.min(...a)+1e-10;
+  }))throw new Error('Invalid field calibration: mat must overlap the picture');
+
   if(orientation&&(!sides.includes(orientation.playerSide)||typeof orientation.mirrored!=='boolean'))throw new Error('Invalid field orientation');
   return {version:1,layout:FIELD_ZONE_LAYOUT,corners:corners.map(p=>({...p})),zoneSpacing:normalizeZoneSpacing(zoneSpacing),...(normalizeZones(zones)?{zones:normalizeZones(zones)}:{}),...(orientation?{orientation:{...orientation}}:{})};
 }
@@ -176,21 +203,25 @@ const centreOfQuad = (quad: Point[]): Point => project(fitPlane(unitCorners, qua
 /** The picture point of a mat point (0..1 across the grid), with perspective; used to place the handles. */
 export const fieldQuadPoint = (quad: Point[], at: Point): Point => project(fitPlane(unitCorners, quad), at);
 const TOLERANCE = 1e-6;
-const inPicture = (quad: Point[]) => quad.every(p => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= -TOLERANCE && p.x <= 1 + TOLERANCE && p.y >= -TOLERANCE && p.y <= 1 + TOLERANCE);
+export type FieldQuadEnvelope={minX:number;maxX:number;minY:number;maxY:number};
+const picture:FieldQuadEnvelope={minX:0,maxX:1,minY:0,maxY:1};
+// A printed-mat fit can infer an off-camera EMZ row. Editing must preserve that envelope rather than jump a row.
+export const fieldQuadEnvelope=(quad:Point[]):FieldQuadEnvelope=>({minX:Math.min(0,...quad.map(p=>p.x)),maxX:Math.max(1,...quad.map(p=>p.x)),minY:Math.min(0,...quad.map(p=>p.y)),maxY:Math.max(1,...quad.map(p=>p.y))});
+const inPicture = (quad: Point[],limits:FieldQuadEnvelope=picture) => quad.every(p => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= limits.minX-TOLERANCE && p.x <= limits.maxX+TOLERANCE && p.y >= limits.minY-TOLERANCE && p.y <= limits.maxY+TOLERANCE);
 /** Clamp rounding noise, and refuse a quad the calibration would reject. */
-function valid(quad: Point[]): Point[] | null {
-  if (!inPicture(quad)) return null;
-  const corners = quad.map(p => ({ x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }));
+function valid(quad: Point[],limits:FieldQuadEnvelope=picture): Point[] | null {
+  if (!inPicture(quad,limits)) return null;
+  const corners = quad.map(p => ({ x: Math.max(limits.minX, Math.min(limits.maxX, p.x)), y: Math.max(limits.minY, Math.min(limits.maxY, p.y)) }));
   try { createFieldCalibration(corners); } catch { return null; }
   return corners;
 }
 /** Slide a quad back inside the picture; null when it is bigger than the picture. */
-function shiftInside(quad: Point[]): Point[] | null {
+function shiftInside(quad: Point[],limits:FieldQuadEnvelope=picture): Point[] | null {
   if (quad.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
   const b = boundsOf(quad);
-  if (b.w > 1 + TOLERANCE || b.h > 1 + TOLERANCE) return null;
-  const sx = b.x < 0 ? -b.x : b.x + b.w > 1 ? 1 - (b.x + b.w) : 0, sy = b.y < 0 ? -b.y : b.y + b.h > 1 ? 1 - (b.y + b.h) : 0;
-  return valid(quad.map(p => ({ x: p.x + sx, y: p.y + sy })));
+  if (b.w > limits.maxX-limits.minX + TOLERANCE || b.h > limits.maxY-limits.minY + TOLERANCE) return null;
+  const sx = b.x < limits.minX ? limits.minX-b.x : b.x + b.w > limits.maxX ? limits.maxX - (b.x + b.w) : 0, sy = b.y < limits.minY ? limits.minY-b.y : b.y + b.h > limits.maxY ? limits.maxY - (b.y + b.h) : 0;
+  return valid(quad.map(p => ({ x: p.x + sx, y: p.y + sy })),limits);
 }
 /** Turn a picture point about `centre` by `degrees` clockwise. */
 function turnAbout(p: Point, centre: Point, degrees: number, aspect: number): Point {
@@ -218,28 +249,28 @@ export function fieldQuarterTurn(calibration: { corners: Point[]; orientation?: 
   return sideways !== turned;
 }
 /** Slide the whole grid; it stops at the edge of the picture. */
-export function moveFieldQuad(quad: Point[], dx: number, dy: number): Point[] | null {
-  return shiftInside(quad.map(p => ({ x: p.x + dx, y: p.y + dy })));
+export function moveFieldQuad(quad: Point[], dx: number, dy: number,limits:FieldQuadEnvelope=picture): Point[] | null {
+  return shiftInside(quad.map(p => ({ x: p.x + dx, y: p.y + dy })),limits);
 }
 /**
  * Turn the grid clockwise by `degrees` (any angle) about its centre. A grid that no longer fits gets a little smaller instead of refusing.
  * `restore` is how much smaller the grid is than the owner made it (1 = as made): the turn grows it back as far as it fits, so turning
  * back returns the size. The result carries the new `restore`.
  */
-export function turnFieldQuad(quad: Point[], degrees: number, aspect = 1, restore = 1): { corners: Point[]; restore: number } | null {
+export function turnFieldQuad(quad: Point[], degrees: number, aspect = 1, restore = 1, limits:FieldQuadEnvelope=picture): { corners: Point[]; restore: number } | null {
   if (![degrees, aspect, restore].every(Number.isFinite) || aspect <= 0 || restore < 1) return null;
   const centre = centreOfQuad(quad), turned = quad.map(p => turnAbout(p, centre, degrees, aspect));
   if (turned.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
   for (let attempt = 0, k = restore; attempt < 60; attempt++, k *= .97) {
-    const corners = shiftInside(Math.abs(k - 1) < 1e-12 ? turned : scaleQuad(turned, k));
+    const corners = shiftInside(Math.abs(k - 1) < 1e-12 ? turned : scaleQuad(turned, k),limits);
     if (corners) return { corners, restore: Math.max(1, restore / k) };
   }
   return null;
 }
 /** Pinch: scale about the centre and turn together; whatever does not fit is shrunk away. The new size is the owner's (`restore` 1). */
-export function pinchFieldQuad(quad: Point[], factor: number, degrees: number, aspect = 1): Point[] | null {
+export function pinchFieldQuad(quad: Point[], factor: number, degrees: number, aspect = 1,limits:FieldQuadEnvelope=picture): Point[] | null {
   if (![factor, degrees].every(Number.isFinite) || factor < .1 || factor > 10) return null;
-  const out = turnFieldQuad(scaleQuad(quad, factor), degrees, aspect, 1);
+  const out = turnFieldQuad(scaleQuad(quad, factor), degrees, aspect, 1,limits);
   return out ? out.corners : null;
 }
 /** A handle on the grid: its mat position, 0 / .5 / 1 across (corners have both, edges have one at .5). */
@@ -249,7 +280,7 @@ export type FieldHandle = { x: 0 | .5 | 1; y: 0 | .5 | 1 };
  * height, an edge sets one of them. `keepAspect` (corners) holds the grid's proportions. Dragging past the picture's edge or past the
  * opposite side stops at the last good size. Always computed from the grid as it was when the drag began.
  */
-export function resizeFieldQuad(quad: Point[], handle: FieldHandle, pointer: Point, keepAspect = false): Point[] | null {
+export function resizeFieldQuad(quad: Point[], handle: FieldHandle, pointer: Point, keepAspect = false,limits:FieldQuadEnvelope=picture): Point[] | null {
   if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y) || (handle.x === .5 && handle.y === .5)) return null;
   const to = project(fitPlane(quad, unitCorners), { x: Math.max(0, Math.min(1, pointer.x)), y: Math.max(0, Math.min(1, pointer.y)) });
   const factor = (at: number, along: number) => along === .5 ? 1 : Math.max(.1, (to[at ? 'y' : 'x'] - (1 - along)) / (along - (1 - along)));
@@ -262,12 +293,12 @@ export function resizeFieldQuad(quad: Point[], handle: FieldHandle, pointer: Poi
     return unitCorners.map(u => project(plane, { x: left + u.x * (right - left), y: top + u.y * (bottom - top) }));
   };
   // The largest step toward the pointer that still fits the picture.
-  let best: Point[] | null = valid(quad);
+  let best: Point[] | null = valid(quad,limits);
   for (let lo = 0, hi = 1, i = 0; i < 14; i++) {
-    const mid = (lo + hi) / 2, candidate = valid(build(1 + (fx - 1) * mid, 1 + (fy - 1) * mid));
+    const mid = (lo + hi) / 2, candidate = valid(build(1 + (fx - 1) * mid, 1 + (fy - 1) * mid),limits);
     if (candidate) { best = candidate; lo = mid; } else hi = mid;
   }
-  const full = valid(build(fx, fy));
+  const full = valid(build(fx, fy),limits);
   return full ?? best;
 }
 /**

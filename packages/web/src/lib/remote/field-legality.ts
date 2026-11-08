@@ -78,7 +78,8 @@ type Verdict = { legal:'ok'|'unusual'|'illegal'; reason?:string };
  * (Field Spell → FIELD), Monster → M (Extra Deck / Pendulum also EMZ). Only cards whose facts allow the
  * other row are exceptions: Trap Monsters in M, monsters that are Set as Spells or equip (Artifact,
  * Union, "equip this card", an equip effect on the field), Pendulum scales in S1/S5. An exception card in
- * an odd spot is "unusual" (kept, "Check zone?"); any other wrong row is "illegal" (moved).
+ * an odd spot is "unusual" (kept, "Check zone?"); a face-up monster in S/T is also "unusual" (equipped monsters look like
+ * this, so the camera's zone wins). Any other wrong row is "illegal" (moved).
  */
 function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|undefined,context:ZoneContext):Verdict {
   const {zone:destination,slot:targetSlot}=twinLocation(zone,slot);
@@ -95,7 +96,8 @@ function zoneVerdict(facts:FieldZoneFacts|undefined,zone:string,slot:number|unde
   if(kind.spellTrapText)return {legal:'ok'};
   if(kind.equip||context.equipSource)return context.faceDown?{legal:'unusual',reason:'A face-down monster in a Spell/Trap Zone needs a Set effect.'}:{legal:'ok'};
   if(kind.pendulum)return targetSlot===1||targetSlot===5?{legal:'ok'}:{legal:'unusual',reason:'Pendulum Monsters use Spell/Trap Zones 1 or 5 as scales.'};
-  return illegal('Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.');
+  // The camera wins: a face-up monster seen in S/T is usually equipped or a mat mismatch, so keep it and ask.
+  return {legal:'unusual',reason:'Monsters belong in Monster Zones; this monster has no Equip, Set or Continuous effect for a Spell/Trap Zone.'};
 }
 
 /** "Check zone?": only for an exception card in an unusual zone. Never a reason to move the card. */

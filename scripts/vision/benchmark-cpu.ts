@@ -71,7 +71,7 @@ for (const scene of scenes) {
       await page.waitForTimeout(1500);
       const pass = await measure(() => page.evaluate(n => (window as any).bench.passBench(n), Number(process.env.CPU_PASSES ?? 15)));
       const read = process.env.CPU_READS === '0' ? undefined : await measure(() => page.evaluate(n => (window as any).bench.readBench(n), Number(process.env.CPU_READS ?? 8)));
-      const per = (m: any) => m && ({ wallP50: Number(m.wallP50.toFixed(0)), workerCpuMsPerRun: Number(((m.cpu.workers ?? 0) * m.wall * 1000 / m.n).toFixed(0)), timing: Object.fromEntries(Object.entries(m.timing).map(([k, v]) => [k, Number((v as number).toFixed(1))])), found: m.found, conf: m.conf, top: m.top });
+      const per = (m: any) => m && ({ wallP50: Number(m.wallP50.toFixed(0)), workerCpuMsPerRun: Number(((m.cpu.workers ?? 0) * m.wall * 1000 / m.n).toFixed(0)), timing: Object.fromEntries(Object.entries(m.timing).map(([k, v]) => [k, Number((v as number).toFixed(1))])), found: m.found, outlines: m.outlines, conf: m.conf, top: m.top });
       result = { pass: per(pass), read: per(read), cpu: pass.cpu, coresTotal: pass.coresTotal };
       console.log(JSON.stringify({ label, threads, extra, hc: info.hardwareConcurrency, pass: result.pass, read: result.read }));
     } else if (scene === 'grab') {
@@ -80,7 +80,7 @@ for (const scene of scenes) {
       await page.waitForTimeout(8000);
       result = await measure(() => page.evaluate(spacing => (window as any).bench.active(spacing), 6000));
     } else {
-      if (scene === 'steady') { await page.waitForFunction('window.bench.placedCount() >= 5', undefined, { timeout: 90000 }).catch(() => undefined); await page.waitForTimeout(6000); } else if (scene === 'idle') await page.waitForTimeout(8000); else await page.waitForTimeout(3000);
+      if (scene === 'steady') { await page.waitForFunction('window.bench.settled ? window.bench.settled() : window.bench.placedCount() >= 5', undefined, { timeout: 90000 }); await page.waitForTimeout(6000); } else if (scene === 'idle') await page.waitForTimeout(8000); else await page.waitForTimeout(3000);
       result = await measure(async () => { await page.evaluate(() => (window as any).bench.begin()); await page.waitForTimeout(measureSeconds * 1000); return page.evaluate(() => (window as any).bench.end()); });
     }
     results[scene] = { info, backend: await page.evaluate(() => (window as any).bench.backend()), errors: errors.slice(0, 5), ...result };
