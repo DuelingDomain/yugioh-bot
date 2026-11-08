@@ -169,6 +169,11 @@ export interface HistoryContext {
 
 const MAX_ITEMS = 400;
 
+export interface IngestOptions {
+  /** Rows kept. The live rail keeps 400; a replay passes Infinity to keep the whole duel. */
+  maxItems?: number;
+}
+
 export function emptyHistory(): HistoryState {
   return {
     items: [],
@@ -265,13 +270,14 @@ function targetLabelsPhrase(labels: readonly string[]): string | undefined {
   return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
 }
 
-export function ingestHistory(state: HistoryState, events: readonly DuelEvent[], ctx: HistoryContext): HistoryState {
+export function ingestHistory(state: HistoryState, events: readonly DuelEvent[], ctx: HistoryContext, options: IngestOptions = {}): HistoryState {
+  const maxItems = options.maxItems ?? MAX_ITEMS;
   // Naming notes can arrive after a prompt, refining an event whose id was already ingested. Only the latest
   // announcement on each tile may refresh its labels, including when the chain has since ended.
   const settledTargets = new Map(events.filter((event) => event.kind === "target" && event.targetLabels && event.id <= state.lastId)
     .map((event) => [event.id, event.targetLabels!]));
   let refreshed = false;
-  const refreshedItems = state.items.map((item) => {
+  const refreshedItems = settledTargets.size === 0 ? state.items : state.items.map((item) => {
     if (item.type !== "tile" || item.chain?.targetEventId == null) return item;
     const labels = settledTargets.get(item.chain.targetEventId);
     if (!labels) return item;
@@ -299,7 +305,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
     }
     return {
       ...state,
-      items: grown.length > MAX_ITEMS ? grown.slice(grown.length - MAX_ITEMS) : grown,
+      items: grown.length > maxItems ? grown.slice(grown.length - maxItems) : grown,
       revision: ctx.revision,
       lp,
       healCount,
@@ -313,7 +319,8 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
   let battleKey = state.battleKey;
   let chain = state.chain ? { ...state.chain, keys: { ...state.chain.keys } } : null;
 
-  const indexOf = (key: number) => items.findIndex((item) => item.type === "tile" && item.key === key);
+  // Recent rows are the ones touched, so look from the end: a whole replay keeps every row.
+  const indexOf = (key: number) => items.findLastIndex((item) => item.type === "tile" && item.key === key);
   const patch = (key: number, fn: (tile: HistoryTile) => HistoryTile) => {
     const index = indexOf(key);
     if (index < 0) return;
@@ -539,12 +546,20 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         const last = items[items.length - 1];
         if (!label && last && last.type === "sep" && last.turn == null) items.pop();
         const sep: HistorySeparator = { type: "sep", key: event.id, label: event.text };
+        // The turn's draw comes before Main Phase 1, but it belongs under the new turn's header.
+        const leading: HistoryItem[] = [];
         if (label) {
           const turn = Math.max(1, ctx.turn - mp1After[index]);
           sep.turn = turn;
           sep.turnSeat = seatForTurn(turn);
+          while (items.length > 0) {
+            const tail = items[items.length - 1];
+            if (tail.type !== "tile" || tail.kind !== "move" || tail.move?.reason !== "draw") break;
+            leading.unshift({ ...tail, turn, turnSeat: sep.turnSeat });
+            items.pop();
+          }
         }
-        items.push(sep);
+        items.push(sep, ...leading);
         break;
       }
       case "damage": {
@@ -658,7 +673,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
     healCount += 1;
   }
   return {
-    items: items.length > MAX_ITEMS ? items.slice(items.length - MAX_ITEMS) : items,
+    items: items.length > maxItems ? items.slice(items.length - maxItems) : items,
     lastId,
     revision: ctx.revision,
     animateAfter: isFirst ? lastId : state.animateAfter,

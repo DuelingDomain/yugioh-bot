@@ -1,39 +1,43 @@
 "use client";
 
-// The replay's battle log (Log tab): the live Hearthstone-style history over the whole replay. Rows run oldest first
-// and follow the playhead; a row that has not happened yet is dimmed. A press on a row seeks to it, a hover on a card
-// shows it in the card preview. The raw engine lines sit behind the Details toggle.
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// The replay's battle log (Log tab): the live Hearthstone-style history over the replay. Rows run oldest first and end
+// at the playhead: what happens next stays hidden (it can spoil a Set card or the result) unless "Full log" is on, which
+// shows the rest dimmed. A press on a row seeks to it, a hover on a card shows it in the card preview. The raw engine
+// lines sit behind the Details toggle. The list follows the playhead until the viewer scrolls away from it.
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardHoverInfo } from "./card-interactions";
 import { duelFontClasses } from "./fonts";
 import { historyWho } from "./history-entries";
 import type { HistoryCard } from "./history-model";
 import { EntryRow, PhaseRow, type ThumbHandlers } from "./history-rail";
-import { buildReplayBattleLog, playheadKey, type ReplayBattleLog, type ReplayLogGroup } from "./replay-history";
+import { buildReplayBattleLog, playheadKey, visibleRowCount, type ReplayBattleLog, type ReplayLogGroup } from "./replay-history";
 import type { ReplayTimeline } from "./replay-timeline";
 import { useForkLabels } from "./table/fork-labels";
 import baseStyles from "./history-rail.module.css";
 import styles from "./replay-battle-log.module.css";
 import { useSkinStyles } from "./skin";
 
-const Group = memo(function Group({ group, index, playhead, handlers, onSeek }: {
+const Group = memo(function Group({ group, shown, futureAfter, playhead, handlers, onSeek }: {
   group: ReplayLogGroup;
-  index: number;
+  /** How many rows of the group are drawn (the rows are in frame order). */
+  shown: number;
+  /** Rows after this frame are dimmed. Infinity when nothing ahead is drawn. */
+  futureAfter: number;
   playhead: number | null;
   handlers: ThumbHandlers;
   onSeek: (frame: number) => void;
 }) {
   const history = useSkinStyles(baseStyles, "history");
   return (
-    <li className={history.group} data-future={group.frame > index || undefined}>
+    <li className={history.group} data-future={group.frame > futureAfter || undefined}>
       <h4 className={history.turn} data-turn>{group.label}</h4>
       <ol className={history.rows} role="list">
-        {group.rows.map((row) => row.type === "phase" ? (
+        {group.rows.slice(0, shown).map((row) => row.type === "phase" ? (
           <PhaseRow key={`p${row.phase.key}`} row={row.phase} />
         ) : (
           <EntryRow key={`e${row.entry.key}`} entry={row.entry} latest={false} animate={false} handlers={handlers}
-            playhead={row.entry.key === playhead} future={row.frame > index} onSeek={() => onSeek(row.frame)} />
+            playhead={row.entry.key === playhead} future={row.frame > futureAfter} seekFrame={row.frame} onSeekFrame={onSeek} />
         ))}
       </ol>
     </li>
@@ -55,8 +59,13 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
   const history = useSkinStyles(baseStyles, "history");
   const fork = useForkLabels();
   const [showDetails, setShowDetails] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [away, setAway] = useState(false);
   const [hover, setHover] = useState<{ card: HistoryCard; anchor: HTMLElement } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const awayRef = useRef(false);
+  // A scroll we started ourselves is not the viewer leaving the playhead.
+  const ownScrollUntil = useRef(0);
 
   const who = (seat: number | null) => historyWho(seat, mySeat, playerName, seatCount, fork);
   // Names change the rows; `who` itself changes on every render.
@@ -67,7 +76,24 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
     [timeline, mySeat, names, seatCount],
   );
   const playhead = playheadKey(log, index);
+  // Only the group that holds the playhead row gets it, so a step re-renders one group, not all of them.
+  const groupOfEntry = useMemo(() => {
+    const map = new Map<number, number>();
+    log.groups.forEach((group, at) => group.rows.forEach((row) => { if (row.type === "entry") map.set(row.entry.key, at); }));
+    return map;
+  }, [log]);
+  const playheadGroup = playhead == null ? -1 : (groupOfEntry.get(playhead) ?? -1);
+  const visible = useMemo(() => log.groups.map((group) => (showAll ? group.rows.length : visibleRowCount(group, index))),
+    [log, index, showAll]);
+  const shownRows = visible.reduce((sum, count) => sum + count, 0);
 
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+  const seek = useCallback((frame: number) => {
+    awayRef.current = false;
+    setAway(false);
+    onSeekRef.current(frame);
+  }, []);
   const onInspectRef = useRef(onInspectCard);
   onInspectRef.current = onInspectCard;
   const handlers = useMemo<ThumbHandlers>(() => ({
@@ -76,10 +102,10 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
     onOpen: (card) => onInspectRef.current(card),
   }), []);
 
-  // Follow the playhead inside the list. Only the list scrolls, never the page.
-  useEffect(() => {
+  /** Scrolls the list (never the page) so the playhead row is in view, below the sticky turn header. */
+  const reveal = useCallback((smooth: boolean) => {
     const box = scroller.current;
-    if (!box || showDetails) return;
+    if (!box) return;
     const row = box.querySelector<HTMLElement>("[data-playhead]");
     if (!row) {
       box.scrollTo?.({ top: 0 });
@@ -87,34 +113,71 @@ export function ReplayBattleLog({ timeline, index, mySeat, seatCount, playerName
     }
     const boxRect = box.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
-    // Leave room for the sticky turn header at the top.
     const margin = 36;
     if (rowRect.top >= boxRect.top + margin && rowRect.bottom <= boxRect.bottom) return;
-    const top = rowRect.top - boxRect.top + box.scrollTop - box.clientHeight / 2 + rowRect.height / 2;
-    box.scrollTo?.({ top: Math.max(0, top), behavior: reducedMotion ? "auto" : "smooth" });
-  }, [playhead, showDetails, reducedMotion]);
+    const top = rowRect.top - boxRect.top + box.scrollTop - box.clientHeight * 0.6 + rowRect.height / 2;
+    ownScrollUntil.current = performance.now() + (smooth ? 700 : 100);
+    box.scrollTo?.({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+  }, []);
+
+  // Follow the playhead, unless the viewer scrolled away from it.
+  useEffect(() => {
+    if (showDetails || awayRef.current) return;
+    reveal(!reducedMotion);
+  }, [playhead, shownRows, showDetails, reducedMotion, reveal]);
+
+  const onScroll = () => {
+    const box = scroller.current;
+    if (!box || performance.now() < ownScrollUntil.current) return;
+    const row = box.querySelector<HTMLElement>("[data-playhead]");
+    let gone = false;
+    if (row) {
+      const boxRect = box.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      gone = rowRect.bottom < boxRect.top || rowRect.top > boxRect.bottom;
+    }
+    if (gone !== awayRef.current) {
+      awayRef.current = gone;
+      setAway(gone);
+    }
+  };
+  const backToNow = () => {
+    awayRef.current = false;
+    setAway(false);
+    reveal(!reducedMotion);
+  };
 
   return (
     <section className={`${history.rail} ${styles.log} ${duelFontClasses}`} data-motion={reducedMotion ? "off" : "on"}
       aria-label="Battle log" data-replay-battle-log>
       <div className={styles.head}>
         <h3 className={history.cap}><span>{showDetails ? "Engine details" : "Battle log"}</span></h3>
+        {showDetails ? null : (
+          <button type="button" className={styles.toggle} aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}
+            title="Show what happens after this move (it can give away hidden cards)">
+            Full log
+          </button>
+        )}
         <button type="button" className={styles.toggle} aria-pressed={showDetails} onClick={() => setShowDetails((value) => !value)}>
           Details
         </button>
       </div>
       <div className={styles.body}>
         {showDetails ? <div className={styles.details}>{details}</div> : (
-          <div ref={scroller} className={history.list} tabIndex={0} role="region" aria-label="Battle log events">
-            {log.entries.length === 0 ? <p className={styles.empty}>No events yet.</p> : (
+          <div ref={scroller} className={history.list} tabIndex={0} role="region" aria-label="Battle log events" onScroll={onScroll}>
+            {shownRows === 0 ? <p className={styles.empty}>No events yet.</p> : (
               <ol className={history.groups} role="list">
-                {log.groups.map((group) => (
-                  <Group key={group.key} group={group} index={index} playhead={playhead} handlers={handlers} onSeek={onSeek} />
-                ))}
+                {log.groups.map((group, at) => visible[at] > 0 ? (
+                  <Group key={group.key} group={group} shown={visible[at]} futureAfter={showAll ? index : Infinity}
+                    playhead={at === playheadGroup ? playhead : null} handlers={handlers} onSeek={seek} />
+                ) : null)}
               </ol>
             )}
           </div>
         )}
+        {away && !showDetails ? (
+          <button type="button" className={styles.now} onMouseDown={(event) => event.preventDefault()} onClick={backToNow}>Back to now</button>
+        ) : null}
       </div>
       {hover ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
     </section>

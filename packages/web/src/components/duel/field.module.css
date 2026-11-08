@@ -1377,6 +1377,24 @@
   bottom: auto;
 }
 
+/* "Show all cards" in a replay: a set card shows its art; this small tag keeps it reading as set. */
+.setMark {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 3;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgb(10 10 16 / 0.82);
+  color: var(--muted, #b8b3c9);
+  font-size: calc(var(--n4, 11px) * 0.82 * var(--bs, 1));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 .overlayBadge {
   position: absolute;
   top: 3px;

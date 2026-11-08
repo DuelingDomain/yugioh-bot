@@ -221,8 +221,8 @@ export async function getDuelReplay(slug: string): Promise<DuelReplay> {
  * overrides and reveal flags never travel: the server rejects them for ordinary viewers. A server that
  * does not know version 2 yet answers with the v1 shape, which the replay controller converts.
  */
-export function duelReplayUrl(slug: string, visibility: ReplayVisibility, unchecked = false): string {
-  return `${duelReplayKey(slug)}?version=2&visibility=${visibility}${unchecked ? "&unchecked=1" : ""}`;
+export function duelReplayUrl(slug: string, visibility: ReplayVisibility, unchecked = false, all = false): string {
+  return `${duelReplayKey(slug)}?version=2&visibility=${visibility}${unchecked ? "&unchecked=1" : ""}${all ? "&all=1" : ""}`;
 }
 
 /** `unchecked` asks the server to open a replay it could not check. It is the owner's choice; the server refuses anyone else. */
@@ -231,8 +231,9 @@ export async function getDuelReplayFrames(
   visibility: ReplayVisibility,
   signal?: AbortSignal,
   unchecked = false,
+  all = false,
 ): Promise<DuelReplay | DuelReplayV2> {
-  return parseBody(await fetch(duelReplayUrl(slug, visibility, unchecked), { cache: "no-store", signal }));
+  return parseBody(await fetch(duelReplayUrl(slug, visibility, unchecked, all), { cache: "no-store", signal }));
 }
 
 /** The private views an owner may ask for. `seat` shows that seat's cards; `reveal` fills every hand. */
@@ -242,6 +243,8 @@ export interface OwnerReplayView {
   reveal?: boolean;
   /** Open the replay without the check against the saved final board. */
   unchecked?: boolean;
+  /** Finished duel with every card face-up. */
+  all?: boolean;
 }
 
 export function ownerReplayUrl(slug: string, view: OwnerReplayView): string {
@@ -249,6 +252,7 @@ export function ownerReplayUrl(slug: string, view: OwnerReplayView): string {
   if (view.seat != null) query.set("seat", String(view.seat));
   if (view.reveal) query.set("reveal", "1");
   if (view.unchecked) query.set("unchecked", "1");
+  if (view.all) query.set("all", "1");
   return `/api/admin/duels/${encodeURIComponent(slug)}/replay?${query.toString()}`;
 }
 

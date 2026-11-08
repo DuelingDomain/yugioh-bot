@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import {
@@ -67,6 +68,12 @@ export function NegationMark({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Replay of a finished duel with "Show all cards" on: a set card whose identity the server sent shows its art, with a small
+ * "Set" mark so the board still reads as set. Live duels never provide it, so a face-down card there stays a card back.
+ */
+export const RevealSetCardsContext = createContext(false);
+
 export function CardFace({
   card,
   location,
@@ -88,7 +95,9 @@ export function CardFace({
   const known = card?.code != null;
   const setDown = isFacedown(card?.position);
   const inHand = loc === LOCATION_HAND;
-  const showArt = known && (inHand || reveal || !setDown);
+  const revealSet = useContext(RevealSetCardsContext);
+  const showArt = known && (inHand || reveal || !setDown || revealSet);
+  const setMark = known && setDown && !inHand && !reveal && revealSet;
   const defensePos = isDefenseAt(loc, card?.position);
   const overlays = showArt ? card?.materials?.length ?? 0 : 0;
   // Only a face-up card on the field carries the flag (the server never sets it on a face-down card); the art check keeps it that way here too.
@@ -103,6 +112,7 @@ export function CardFace({
       ) : (
         <CardBack kind={sleeve ?? (loc === LOCATION_EXTRA ? "extra" : "deck")} />
       )}
+      {setMark ? <span className={styles.setMark} data-set-mark>Set</span> : null}
       {negated && !statusRail ? <NegationMark /> : null}
       {overlays > 0 ? (
         <span className={styles.overlayBadge} data-materials-badge={overlays} title={materialsTitle(overlays)}>

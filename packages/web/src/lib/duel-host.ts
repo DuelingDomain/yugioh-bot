@@ -163,6 +163,8 @@ export async function callDuelHost(input: {
   visibility?: "mine" | "public";
   /** Owner replay and fork views: reveal hands/Extra Decks in the selected projection. */
   reveal?: boolean;
+  /** Replay of a finished duel with every hand and set card visible. The host grants it only for an ended, non-fork duel. */
+  all?: boolean;
   /** view only: an eliminated FFA player watches through the public view. */
   spectate?: boolean;
   command?: DuelCommand;
@@ -250,6 +252,7 @@ export async function callDuelHost(input: {
   if (input.version !== undefined) payload.version = input.version;
   if (input.visibility !== undefined) payload.visibility = input.visibility;
   if (input.reveal !== undefined) payload.reveal = input.reveal;
+  if (input.all !== undefined) payload.all = input.all;
   if (input.slug) payload.slug = input.slug;
   if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
@@ -346,22 +349,23 @@ export async function callDuelHost(input: {
 /** Strict query parsing prevents private view flags from reaching the ordinary host operation. */
 export function readReplayQuery(request: Request, privileged = false) {
   const query = new URL(request.url).searchParams;
-  const allowed = privileged ? ["version", "visibility", "seat", "reveal", "unchecked"] : ["version", "visibility", "unchecked"];
+  const allowed = privileged ? ["version", "visibility", "seat", "reveal", "unchecked", "all"] : ["version", "visibility", "unchecked", "all"];
   const invalid = () => ({ ok: false as const, response: NextResponse.json({ error: "Invalid replay request", code: "INVALID_CURSOR" },
     { status: 400, headers: { "cache-control": "private, no-store" } }) });
   if ([...query.keys()].some(key => !allowed.includes(key) || query.getAll(key).length !== 1)) return invalid();
   const version = query.get("version"); const visibility = query.get("visibility");
   const seat = query.get("seat"); const reveal = query.get("reveal");
-  const unchecked = query.get("unchecked");
+  const unchecked = query.get("unchecked"); const all = query.get("all");
   if ((version !== null && (privileged ? version !== "2" : version !== "1" && version !== "2"))
     || (visibility !== null && visibility !== "mine" && visibility !== "public")
     || (seat !== null && !/^[0-3]$/.test(seat)) || (reveal !== null && reveal !== "0" && reveal !== "1")
-    || (unchecked !== null && unchecked !== "1")) return invalid();
+    || (unchecked !== null && unchecked !== "1") || (all !== null && all !== "1")) return invalid();
   return { ok: true as const, input: {
     ...(version !== null ? { version: Number(version) as 1 | 2 } : privileged ? { version: 2 as const } : {}),
     ...(visibility !== null ? { visibility: visibility as "mine" | "public" } : {}),
     ...(seat !== null ? { seat: Number(seat) } : {}), ...(reveal !== null ? { reveal: reveal === "1" } : {}),
     ...(unchecked !== null ? { unchecked: true } : {}),
+    ...(all !== null ? { all: true } : {}),
   } };
 }
 

@@ -112,6 +112,11 @@ export interface ReplayModel {
   frames: ReplayFrameV2[];
   capabilities?: ReplayOwnerCapabilities;
   forkSteps?: ReplayForkStep[];
+  /**
+   * The server built this replay of a finished duel with every hand and face-down card visible. False for a fork and for
+   * an older server. The toggle only shows when the server could do it (see `canRevealAll`).
+   */
+  revealAll: boolean;
 }
 
 /** The card view a request asks for. `seat` and `reveal` exist only in the owner request. */
@@ -121,13 +126,15 @@ export interface ReplayRequestView {
   reveal: boolean;
   /** The owner opened a replay that could not be checked. It is part of the request: a checked answer must not stand in for it. */
   unchecked?: boolean;
+  /** Ask for the finished-duel table with every card face-up. The server grants it only for a finished duel that is not a fork. */
+  all?: boolean;
 }
 
 export const ORDINARY_VIEW: ReplayRequestView = { visibility: "mine", seat: null, reveal: false };
 
 export function replayRequestKey(view: ReplayRequestView, owner: boolean): string {
   const base = owner ? `owner:${view.visibility}:${view.seat ?? "-"}:${view.reveal ? 1 : 0}` : view.visibility;
-  return view.unchecked ? `${base}:unchecked` : base;
+  return `${base}${view.all ? ":all" : ""}${view.unchecked ? ":unchecked" : ""}`;
 }
 
 const VERIFICATIONS: readonly string[] = ["exact", "verified", "unverified"];
@@ -190,6 +197,7 @@ export function normalizeReplay(
       frames,
       capabilities: raw.capabilities,
       forkSteps: raw.capabilities ? raw.forkSteps : undefined,
+      revealAll: raw.revealAll === true,
     };
   }
   const legacy = raw as DuelReplay;
@@ -223,6 +231,7 @@ export function normalizeReplay(
     mySeat: legacy.mySeat,
     dataSeat: legacy.mySeat,
     frames,
+    revealAll: false,
   };
 }
 
@@ -341,6 +350,7 @@ export function useReplayData(
   visibility: ReplayVisibility,
   owner: { enabled: boolean; seat: number | null; reveal: boolean } | null = null,
   unchecked = false,
+  all = false,
 ): ReplayData {
   const [model, setModel] = useState<ReplayModel | null>(null);
   const [failure, setFailure] = useState<{ slug: string; key: string; error: unknown } | null>(null);
@@ -353,7 +363,7 @@ export function useReplayData(
   const ownerOn = owner?.enabled === true;
   const seat = ownerOn ? owner.seat : null;
   const reveal = ownerOn ? owner.reveal : false;
-  const requestKey = replayRequestKey({ visibility, seat, reveal, unchecked }, ownerOn);
+  const requestKey = replayRequestKey({ visibility, seat, reveal, unchecked, all }, ownerOn);
 
   // A new request starts clean: an old failure of the same view must not answer for it.
   const requestId = `${slug}|${requestKey}`;
@@ -371,18 +381,18 @@ export function useReplayData(
     // After a failed switch the page goes back to the view it still holds; that answer is already in state.
     if (!reloaded && held.current && held.current.slug === slug && held.current.requestKey === requestKey) return;
     const abort = new AbortController();
-    const view: ReplayRequestView = { visibility, seat, reveal, unchecked };
+    const view: ReplayRequestView = { visibility, seat, reveal, unchecked, all };
     const load = ownerOn
       ? getOwnerReplayFrames(slug, view, abort.signal).catch((error: unknown) => {
           // The old privileged answer must disappear before an ordinary fallback can load.
           if (isDuelAccessError(error) && mine === generation.current && !abort.signal.aborted) setModel(null);
           if (error instanceof DuelRequestError && error.code === "ACCESS_DENIED" && !abort.signal.aborted) {
             // Never unchecked here: the ordinary route refuses it for everyone who is not the owner.
-            return getDuelReplayFrames(slug, visibility, abort.signal);
+            return getDuelReplayFrames(slug, visibility, abort.signal, false, all);
           }
           throw error;
         })
-      : getDuelReplayFrames(slug, visibility, abort.signal, unchecked);
+      : getDuelReplayFrames(slug, visibility, abort.signal, unchecked, all);
     load
       .then((raw) => {
         if (mine !== generation.current) return;
@@ -396,7 +406,7 @@ export function useReplayData(
         setFailure({ slug, key: requestKey, error });
       });
     return () => abort.abort();
-  }, [slug, visibility, seat, reveal, ownerOn, unchecked, requestKey, nonce]);
+  }, [slug, visibility, seat, reveal, ownerOn, unchecked, all, requestKey, nonce]);
 
   const current = model && model.slug === slug && (ownerOn || !model.requestKey.startsWith("owner:")) ? model : null;
   const error = failure && failure.slug === slug && failure.key === requestKey ? failure.error : null;
@@ -709,6 +719,14 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
     }
   ), [boardRef, reducedMotion]);
   useReplayAutoplay({ playing: playing && enabled, index, last, speed, setIndex: setIndexByUpdate, setPlaying, pace });
+
+  // A hidden tab freezes animations, so the replay would run on without anything to see: stop and wait.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => { if (document.hidden) setPlaying(false); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // Keep the selected frame in the address so a reload comes back to it. Debounced: browsers cap history writes.
   useEffect(() => {

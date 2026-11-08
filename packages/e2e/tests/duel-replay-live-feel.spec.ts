@@ -18,6 +18,7 @@ test("replay keeps a steady board, remembers its speed and offers a clickable ba
   };
   const count = page.locator("[data-replay-counter], span").filter({ hasText: /^Move \d+ \/ \d+$/ }).first();
   const position = async () => Number((await count.textContent())!.match(/Move (\d+)/)![1]);
+  const lastMove = async () => Number((await count.textContent())!.match(/\/ (\d+)/)![1]);
   const first = await sizeOf();
 
   // 1. Stepping through the replay (damage, chains, a result) never changes the board.
@@ -49,18 +50,40 @@ test("replay keeps a steady board, remembers its speed and offers a clickable ba
   await expect(page.getByRole("group", { name: "Replay controls" })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole("button", { name: /^Speed 4/ })).toBeVisible();
 
-  // 4. The battle log shows card images, and a press on a row seeks to it.
-  await page.keyboard.press("Home");
+  // 4. The battle log shows card images, lists only what has happened, and a press on a row seeks to it.
   const log = page.locator("[data-replay-battle-log]");
   await expect(log).toBeVisible();
+  await page.keyboard.press("End");
+  const seek = log.getByRole("button", { name: /^Go to: / });
   const withImage = log.locator("li img");
   await expect(withImage.first()).toBeVisible();
   expect(await withImage.count()).toBeGreaterThan(3);
-  const seek = log.getByRole("button", { name: /^Go to: / });
-  const target = seek.nth(Math.min(8, (await seek.count()) - 1));
-  await target.click();
-  await expect.poll(position).toBeGreaterThan(0);
+  const atEnd = await seek.count();
+  await seek.nth(Math.floor(atEnd / 3)).click();
+  const midPosition = await position();
+  expect(midPosition).toBeGreaterThan(0);
+  expect(midPosition).toBeLessThan(await lastMove());
   await expect(log.locator("[data-playhead]")).toHaveCount(1);
+  // The keys still work right after a click on a row.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(position).toBe(midPosition + 1);
+  // Nothing after the playhead is listed (it could give away a Set card), until the viewer asks for the full log.
+  expect(await seek.count()).toBeLessThan(atEnd);
+  await log.getByRole("button", { name: "Full log" }).click();
+  expect(await seek.count()).toBe(atEnd);
+  await log.getByRole("button", { name: "Full log" }).click();
   expect(await sizeOf()).toBe(first);
+
+  // 5. A finished duel opens with every hand face-up ("Show all cards"); turning it off hides the other hands again.
+  const toggle = page.getByRole("button", { name: "Show all cards" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const opponentArt = page.locator('[data-hand-seat][data-side="opp"] img[src*="/api/cards/"]');
+  await expect(opponentArt.first()).toBeVisible();
+  expect(await opponentArt.count()).toBeGreaterThan(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(opponentArt).toHaveCount(0);
+  await toggle.click();
+  await expect(opponentArt.first()).toBeVisible();
   await context.close();
 });

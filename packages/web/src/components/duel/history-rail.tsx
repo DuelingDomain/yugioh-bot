@@ -241,13 +241,15 @@ type RowProps = {
   handlers: ThumbHandlers;
   tones?: SeatTones;
   /** The replay's battle log: a press on the row moves the replay here. */
-  onSeek?: () => void;
+  /** Replay only: the row is a button that goes to this frame. One shared handler keeps the rows memoised. */
+  seekFrame?: number;
+  onSeekFrame?: (frame: number) => void;
   /** The replay's battle log: the row the replay is on, and a row that has not happened yet. */
   playhead?: boolean;
   future?: boolean;
 };
 
-export const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones, onSeek, playhead, future }: RowProps) {
+export const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones, seekFrame, onSeekFrame, playhead, future }: RowProps) {
   const styles = useSkinStyles(baseStyles, "history");
   const rowTone = toneStyle(tones, entry.seat);
   const attack = entry.icon === "attack" || entry.icon === "direct";
@@ -263,12 +265,15 @@ export const EntryRow = memo(function EntryRow({ entry, latest, animate, handler
       data-summon={summonMethodForIcon(entry.icon) ?? undefined}
       data-latest={latest || undefined}
       data-enter={animate || undefined}
+      data-seekable={onSeekFrame ? "true" : undefined}
       data-playhead={playhead || undefined}
       data-future={future || undefined}
       aria-current={latest || playhead ? "true" : undefined}
     >
-      {onSeek ? (
-        <button type="button" className={styles.seek} onClick={onSeek} aria-label={`Go to: ${entry.sentence}`} />
+      {onSeekFrame && seekFrame != null ? (
+        // A press must not take focus off the transport, or the replay keys stop working (replayKeyAction).
+        <button type="button" className={styles.seek} onClick={() => onSeekFrame(seekFrame)} onMouseDown={(event) => event.preventDefault()}
+          aria-label={`Go to: ${entry.sentence}`} title={entry.sentence} />
       ) : null}
       <span className={styles.mark} aria-hidden="true" />
       <span className={styles.thumbs} data-count={entry.thumbs.length}>
@@ -327,7 +332,8 @@ export const EntryRow = memo(function EntryRow({ entry, latest, animate, handler
   a.animate === b.animate &&
   a.playhead === b.playhead &&
   a.future === b.future &&
-  a.onSeek === b.onSeek &&
+  a.seekFrame === b.seekFrame &&
+  a.onSeekFrame === b.onSeekFrame &&
   a.handlers === b.handlers);
 
 export const PhaseRow = memo(function PhaseRow({ row }: { row: HistoryPhaseRow }) {

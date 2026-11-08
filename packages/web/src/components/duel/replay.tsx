@@ -36,6 +36,8 @@ import {
 } from "./replay-controller";
 import { ReplayOwnerTools, forkTarget, isOwnerModel, useForkStart, type OwnerViewState } from "./replay-fork-button";
 import { useOpenForks } from "./replay-open-forks";
+import { ReplayAllCardsToggle } from "./replay-all-cards";
+import { RevealSetCardsContext } from "./card-face";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { ReplayStatus } from "./replay-status";
@@ -62,6 +64,8 @@ const PHASES = [
   { label: "M2", name: "Main 2" },
   { label: "EP", name: "End" },
 ];
+/** Chain links the overlay lists; a longer chain says how many earlier ones it leaves out. */
+const CHAIN_SHOWN = 4;
 const noActions = () => [];
 const noop = () => undefined;
 
@@ -119,11 +123,11 @@ function ReplayBoard({ table, masterRule, camera, focusSeat, mySeat, playerName 
  * While another card view loads, the table stays mounted (the camera, zoom and open panels belong to it) but is
  * hidden and inert: the old card view is never on screen, and nothing on it can be used.
  */
-function ReplayBusy({ busy, children }: { busy: boolean; children: ReactNode }) {
+function ReplayBusy({ busy, revealSet = false, children }: { busy: boolean; revealSet?: boolean; children: ReactNode }) {
   return (
     <>
       <div className={replayStyles.busyScope} data-replay-busy={busy ? "true" : undefined} aria-busy={busy || undefined} inert={busy}>
-        {children}
+        <RevealSetCardsContext.Provider value={revealSet}>{children}</RevealSetCardsContext.Provider>
       </div>
       {busy ? <div className={replayStyles.busyNote} role="status">Loading replay…</div> : null}
     </>
@@ -138,6 +142,10 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const historyHref = useMatchHistoryHref(viewerId);
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
+  // "Show all cards" (a finished duel with every hand and set card face-up) is on until the viewer turns it off. The toggle
+  // shows once the server has granted it for this duel (it never does for a fork), and stays while it is off.
+  const [showAll, setShowAll] = useState(true);
+  const [allAvailable, setAllAvailable] = useState(false);
   const routed = useSearchParams();
   const [forkStepId, setForkStepId] = useState<string | null>(() => readFrameParam(routed?.toString() ?? ""));
   const [notice, setNotice] = useState<string | null>(null);
@@ -146,8 +154,12 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const uncheckedInUrl = canInspectSource && routed?.get(UNCHECKED_PARAM) === "1";
   const [unchecked, setUnchecked] = useState(uncheckedInUrl);
   const { model, settled, error, reload } = useReplayData(
-    slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null, unchecked,
+    slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null, unchecked, showAll,
   );
+  const revealSet = model?.revealAll === true;
+  useEffect(() => {
+    if (model?.slug === slug && model.revealAll) setAllAvailable(true);
+  }, [model, slug]);
   const preferences = useDuelPreferences();
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<"card" | "log">("log");
@@ -198,6 +210,8 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     setUnchecked(uncheckedInUrl);
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
+    setShowAll(true);
+    setAllAvailable(false);
     setNotice(null);
     setForkStepId(readFrameParam(routed?.toString() ?? ""));
     setInspect(null);
@@ -217,6 +231,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     setNotice(replayFailure(error, "Could not switch the card view.").message);
     setVisibility(model.visibility);
     setOwnerView({ seat: model.requestedView.seat, reveal: model.requestedView.reveal });
+    setShowAll(model.requestedView.all === true);
   }, [error, model]);
 
   const engine = useMemo(() => (timeline && timeline.length > 0 ? timeline.viewAt(index) : null), [timeline, index]);
@@ -238,6 +253,18 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     // The public view and "my cards" have no seat choice.
     setOwnerView((value) => (value.seat == null ? value : { ...value, seat: null }));
   }
+
+  function changeShowAll(next: boolean) {
+    if (next === showAll) return;
+    setInspect(null);
+    setHover(null);
+    setMobileInspect(false);
+    setNotice(null);
+    controller.pause();
+    controller.resetEffects();
+    setShowAll(next);
+  }
+  const allCards = allAvailable ? { on: showAll, onChange: changeShowAll } : undefined;
 
   function changeOwnerView(next: OwnerViewState) {
     if (next.seat === ownerView.seat && next.reveal === ownerView.reveal) return;
@@ -309,9 +336,9 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {
     return (
-      <ReplayBusy busy={awaiting}>
+      <ReplayBusy busy={awaiting} revealSet={revealSet}>
         <ReplayTag slug={slug} viewerId={viewerId} model={model} timeline={timeline} engine={engine} controller={controller}
-          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
+          visibility={visibility} onVisibilityChange={changeVisibility} allCards={allCards} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
   }
@@ -335,9 +362,9 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   // 3-way and 4-way free-for-all tables draw every field in the shared table shell (replay mode).
   if (isFfaFormat(session.format)) {
     return (
-      <ReplayBusy busy={awaiting}>
+      <ReplayBusy busy={awaiting} revealSet={revealSet}>
         <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
-          visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
+          visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} allCards={allCards} notice={notice}
           newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
@@ -379,7 +406,12 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const battleLog = (
     <ReplayBattleLog timeline={timeline} index={index} mySeat={model.mySeat} seatCount={seatCount} playerName={playerName}
       onSeek={controller.seek} reducedMotion={preferences.reducedMotion}
-      onInspectCard={(card) => setInspect("location" in card ? { type: "card", card } : { type: "info", card })}
+      onInspectCard={(card) => {
+        const target: InspectTarget = "location" in card ? { type: "card", card } : { type: "info", card };
+        // On a phone the preview is a sheet (nothing else shows a card); on a wide screen the log stays open.
+        if (window.matchMedia("(max-width: 900px)").matches) showInspector(target, true);
+        else setInspect(target);
+      }}
       details={<LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} playerName={playerName} />} />
   );
   const sideContent = pane === "card" ? inspector : battleLog;
@@ -396,7 +428,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const seats = Array.from({ length: seatCount }, (_, seat) => seat);
 
   return (
-    <ReplayBusy busy={awaiting}>
+    <ReplayBusy busy={awaiting} revealSet={revealSet}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`} data-domain={domain}
       data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility}>
       <header className={styles.header}>
@@ -430,13 +462,15 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
             {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}
             <CoinTossFx events={engine.events} duelKey={`${slug}:replay:${epoch}`} reducedMotion={preferences.reducedMotion} passive />
-            {/* The chain stack is an overlay on the board: a section in the column would push the board up and down. */}
+            {/* The chain stack is an overlay on the board: a section in the column would push the board up and down.
+                Newest link first (it resolves first); a long chain shows its top links and counts the rest. */}
             {engine.chain.length ? (
               <section className={replayStyles.chain} aria-label="Current chain">
-                <strong>Chain · resolves highest link first</strong>
-                <ol>{engine.chain.map((link) => (
+                <strong>Chain {engine.chain.length}</strong>
+                <ol>{engine.chain.slice(-CHAIN_SHOWN).reverse().map((link) => (
                   <li key={link.index}><b>{link.index}</b><span>{link.name ?? "Effect"}<small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small></span></li>
                 ))}</ol>
+                {engine.chain.length > CHAIN_SHOWN ? <em>+{engine.chain.length - CHAIN_SHOWN} earlier</em> : null}
               </section>
             ) : null}
             </MoveSourceBoundary>
@@ -509,16 +543,20 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                     ))}
                   </div>
                 ) : null}
+                {allCards ? <ReplayAllCardsToggle {...allCards} className={replayStyles.segmented} /> : null}
                 {renderOwnerTools(true)}
                 <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
               </div>
-              {/* One reserved row for every note: a note that comes and goes must not change the board height. */}
+              {/* The unchecked warning is a block of its own: it is long and the same for the whole replay. */}
+              {checkNoteOf(model) === "unverified" ? <ReplayVerificationNote verification="unverified" /> : null}
+              {/* A reserved row for the short notes, so switching card view does not change the board height. */}
               <div className={replayStyles.notes}>
-                <ReplayVerificationNote verification={checkNoteOf(model)} />
-                {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
+                {checkNoteOf(model) === "unverified" ? null : <ReplayVerificationNote verification={checkNoteOf(model)} />}
                 {model.mySeat == null || model.visibility === "public"
-                  ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
+                  ? <p className={replayStyles.note} title="Public view — hidden cards stay hidden">Public view — hidden cards stay hidden</p> : null}
               </div>
+              {/* An error appears over the page, not in the column: a message that comes and goes must not move the board. */}
+              {notice ? <p role="alert" className={replayStyles.toast}>{notice}</p> : null}
             </div>
           </div>
         </section>

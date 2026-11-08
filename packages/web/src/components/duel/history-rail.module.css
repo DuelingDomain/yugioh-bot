@@ -178,8 +178,9 @@
 }
 .seek:hover { background: rgb(var(--h-rule-rgb) / 0.08); }
 .seek:focus-visible { outline: 2px solid var(--h-pen); outline-offset: -2px; }
-.row > .thumbs, .row > .text, .row > .lp { position: relative; z-index: 1; pointer-events: none; }
-.row > .thumbs button { pointer-events: auto; }
+/* Only a row that is a seek button: the live rail keeps its own tooltips (the button carries the sentence). */
+.row[data-seekable] > .thumbs, .row[data-seekable] > .text, .row[data-seekable] > .lp { position: relative; z-index: 1; pointer-events: none; }
+.row[data-seekable] > .thumbs button { pointer-events: auto; }
 /* The row the replay is on: the same red edge as the newest live row. Rows still to come are dimmed. */
 .row[data-playhead] {
   background: rgb(228 90 77 / 0.07);

@@ -1,10 +1,10 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CardFace, cardFieldStats, materialsTarget } from "./card-face";
+import { CardFace, RevealSetCardsContext, cardFieldStats, materialsTarget } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
 import { useOnBoardMotionStart } from "./board-input-guard";
 import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
@@ -1127,6 +1127,7 @@ export const SeatField = memo(function SeatField({
   const label = name ?? `Player ${seat + 1}`;
   // A fork names every seat: the one that answers is not the camera seat, so neither is "Your".
   const forkLabels = useForkLabels();
+  const revealAll = useContext(RevealSetCardsContext);
   const owner = viewerSeat === seat && !forkLabels ? "Your" : label;
   const battle = isBattlePhase(engine.phase);
   const eliminated = view?.eliminated === true;
@@ -1256,12 +1257,12 @@ export const SeatField = memo(function SeatField({
           </div>
         ) : null}
         {eliminated ? <span className={styles.sfOut} role="status">Eliminated</span> : null}
-        {hand === "face" && view ? (
+        {(hand === "face" || (hand === "backs" && revealAll && view?.hand.some((card) => card.code != null))) && view ? (
           <div className={styles.sfHand}>
             <HandStrip
               seat={seat}
               cards={view.hand}
-              mine
+              mine={hand === "face"}
               ownerLabel={owner}
               legalKeys={legalKeys}
               selectedKeys={selectedKeys}
@@ -1270,7 +1271,7 @@ export const SeatField = memo(function SeatField({
             />
           </div>
         ) : null}
-        {hand === "backs" && view ? <RivalHand seat={seat} count={view.hand.length} name={label} cards={view.hand} /> : null}
+        {hand === "backs" && !(revealAll && view?.hand.some((card) => card.code != null)) && view ? <RivalHand seat={seat} count={view.hand.length} name={label} cards={view.hand} /> : null}
       </div>
     </EquipLinksContext.Provider>
   );

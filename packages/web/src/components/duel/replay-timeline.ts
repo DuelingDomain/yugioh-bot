@@ -17,6 +17,8 @@ export interface ReplayTimeline<F extends TimelineFrame = TimelineFrame> {
   viewAt(index: number): DuelEngineView;
   /** Log lines that first appear at this frame. */
   newLogAt(index: number): ReplayLogEntry[];
+  /** Like viewAt, but with only the events that first appear at this frame (no copy of the earlier ones). */
+  deltaViewAt(index: number): DuelEngineView;
 }
 
 /**
@@ -52,6 +54,11 @@ export function buildReplayTimeline<F extends TimelineFrame>(frames: readonly F[
         log: window(log, logEnd[i]),
         events: window(events, eventEnd[i]),
       };
+    },
+    deltaViewAt(index) {
+      const i = clamp(index);
+      const { chainMode: _chainMode, ...board } = frames[i].view;
+      return { ...board, prompt: null, prioritySeat: null, log: window(log, logEnd[i]) };
     },
     newLogAt(index) {
       const i = clamp(index);

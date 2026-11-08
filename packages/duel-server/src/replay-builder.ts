@@ -51,6 +51,11 @@ export interface ReplayBuildOptions {
   dataSeat: number | null;
   /** Server-authorized owner projection only; do not accept this option on the normal replay operation. */
   reveal?: boolean;
+  /**
+   * Full-information projection of a FINISHED duel for a viewer who may already open the replay: every seat's hand,
+   * Extra Deck and face-down cards, plus the private log lines and event cards. Host-authorized only, never from a client.
+   */
+  all?: boolean;
   finalView: DuelEngineView | null;
   /** Internal final-state check, before any saved final frame replaces the rebuilt view. */
   verifyFinalViews?: (views: JournalTargetViews) => void;
@@ -75,6 +80,34 @@ export function revealReplayHands(view: DuelEngineView, ownViews: DuelEngineView
     const own = ownViews[seat.seat]?.seats.find(entry => entry.seat === seat.seat);
     return own ? { ...seat, hand: own.hand, extra: own.extra } : seat;
   }) };
+}
+
+/**
+ * The finished-duel table with nothing hidden. Each seat is taken whole from that seat's own view (hand, Extra Deck,
+ * face-down monsters, Spells/Traps and banished cards). Log lines and events are merged by id: the version that names
+ * a card wins, and private lines of any seat are kept in order.
+ */
+export function revealReplayAll(view: DuelEngineView, ownViews: DuelEngineView[]): DuelEngineView {
+  const seats = view.seats.map(seat => ownViews[seat.seat]?.seats.find(entry => entry.seat === seat.seat) ?? seat);
+  const named = (event: DuelEngineView["events"][number]) => (event.card?.code != null ? 1 : 0);
+  const events = view.events.map(base => {
+    const order = [ownViews[base.seat ?? -1], ...ownViews].filter((own): own is DuelEngineView => own != null);
+    let best = base;
+    for (const own of order) {
+      const other = own.events.find(event => event.id === base.id);
+      if (other && named(other) > named(best)) best = other;
+    }
+    return best;
+  });
+  const lines = new Map<number, DuelEngineView["log"][number]>();
+  for (const line of view.log) lines.set(line.id, line);
+  for (const own of ownViews) {
+    for (const line of own.log) {
+      const base = lines.get(line.id);
+      if (!base || (base.text !== line.text && line.text.length > base.text.length)) lines.set(line.id, line);
+    }
+  }
+  return { ...view, seats, events, log: [...lines.values()].sort((a, b) => a.id - b.id) };
 }
 
 /** Internal cache data. Prefix claims are projected to sealed cursors only for owner-capable viewers. */
@@ -181,7 +214,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
       // Whitelist data: buildReplayFrames callers may also carry a codec with functions.
       let result: ReplayWorkerResult;
       try { result = await worker.buildReplay({ source, sourceVersion, dataSeat, resources: options.resources,
-        manualLossAnswersAfter: options.manualLossAnswersAfter, reveal: options.reveal, finalView: options.finalView,
+        manualLossAnswersAfter: options.manualLossAnswersAfter, reveal: options.reveal, all: options.all, finalView: options.finalView,
         maxBytes: options.maxBytes, timeoutMs: options.timeoutMs, retainStepsOnOverflow: options.retainStepsOnOverflow }); }
       catch (error) {
         const failure = replayBuildError(error);
@@ -211,11 +244,11 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         check();
         if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
         if (input && chainModeOf(input.command.promptId) !== null && view.revision === beforeRevision) return;
-        if (options.reveal) {
+        if (options.reveal || options.all) {
           const seats: DuelEngineView[] = [];
           for (let seat = 0; seat < source.decks.length; seat++) seats.push(seat === dataSeat ? view : await worker!.view(seat,
             { logAfter: Number.MAX_SAFE_INTEGER, eventsAfter: Number.MAX_SAFE_INTEGER }));
-          view = revealReplayHands(view, seats);
+          view = options.all ? revealReplayAll(view, seats) : revealReplayHands(view, seats);
         }
         await append(view, view.result ? "result" : prefixCount === 0 ? "opening" : "engine", actorSeat, prefixCount);
       },
@@ -230,7 +263,9 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         ...(session.format === "tag" ? { winnerTeam: session.winnerSeat === null ? null : teamOfSeat("tag", session.winnerSeat) } : {}),
         reason: session.resultReason ?? "Duel ended" } };
       // A saved final snapshot can have a host-only result. Its reveal projection is supplied by the authorized caller.
-      if (options.reveal && !options.finalView) final = revealReplayHands(final, result.views.seats);
+      if ((options.reveal || options.all) && !options.finalView) {
+        final = options.all ? revealReplayAll(final, result.views.seats) : revealReplayHands(final, result.views.seats);
+      }
       await append(final, "result", null, source.commands.length);
     }
     if (oversized) {

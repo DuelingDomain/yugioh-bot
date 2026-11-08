@@ -29,19 +29,23 @@ export interface ReplayBattleLog {
 }
 
 /**
- * The battle log of a whole replay. Cost grows with frames × rows (a few hundred each), so build it once per
- * timeline and view options, not per step.
+ * The battle log of a whole replay: no cap on rows (the live rail keeps 400), and each frame adds only its own events.
+ * Build it once per timeline and view options, not per step.
  */
 export function buildReplayBattleLog(timeline: ReplayTimeline, options: HistoryViewOptions): ReplayBattleLog {
   let state = emptyHistory();
   const firstFrame = new Map<string, number>();
+  let seen = 0;
   for (let frame = 0; frame < timeline.length; frame += 1) {
-    const view = timeline.viewAt(frame);
-    state = ingestHistory(state, view.events, contextFor(view));
-    for (const item of state.items) {
+    const view = timeline.deltaViewAt(frame);
+    state = ingestHistory(state, view.events, contextFor(view), { maxItems: Infinity });
+    // Rows are only added at the end (a turn's draws move behind their header, a few places back).
+    for (let i = Math.max(0, seen - 16); i < state.items.length; i += 1) {
+      const item = state.items[i];
       const id = `${item.type === "tile" ? "e" : "p"}${item.key}`;
       if (!firstFrame.has(id)) firstFrame.set(id, frame);
     }
+    seen = state.items.length;
   }
   const view = buildHistoryView(state.items, options);
   const entries: ReplayBattleLog["entries"] = [];
@@ -49,9 +53,11 @@ export function buildReplayBattleLog(timeline: ReplayTimeline, options: HistoryV
     const rows: ReplayLogRow[] = group.rows.slice().reverse().map((row) => {
       if (row.type === "phase") return { type: "phase", phase: row, frame: firstFrame.get(`p${row.key}`) ?? 0 };
       const frame = firstFrame.get(`e${row.key}`) ?? 0;
-      entries.push({ key: row.key, frame });
       return { type: "entry", entry: row, frame };
     });
+    // Oldest first by the frame a row appeared, so "everything up to this frame" is a prefix of the group.
+    rows.sort((a, b) => a.frame - b.frame);
+    for (const row of rows) if (row.type === "entry") entries.push({ key: row.entry.key, frame: row.frame });
     return { key: group.key, label: group.label, frame: rows[0]?.frame ?? 0, rows };
   });
   return { groups, entries };
@@ -59,9 +65,20 @@ export function buildReplayBattleLog(timeline: ReplayTimeline, options: HistoryV
 
 /** The key of the newest entry that has happened by this frame, or null before the first one. */
 export function playheadKey(log: ReplayBattleLog, frame: number): number | null {
-  let key: number | null = null;
-  for (const entry of log.entries) {
-    if (entry.frame <= frame) key = entry.key;
+  for (let i = log.entries.length - 1; i >= 0; i -= 1) {
+    if (log.entries[i].frame <= frame) return log.entries[i].key;
   }
-  return key;
+  return null;
+}
+
+/** How many rows of a group have happened by this frame (the rows are in frame order). */
+export function visibleRowCount(group: ReplayLogGroup, frame: number): number {
+  let low = 0;
+  let high = group.rows.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (group.rows[mid].frame <= frame) low = mid + 1;
+    else high = mid;
+  }
+  return low;
 }

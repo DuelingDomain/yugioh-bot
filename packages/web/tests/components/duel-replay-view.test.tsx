@@ -166,9 +166,10 @@ describe("DuelReplayView requests and live actions", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "View from seat" }), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
     await screen.findByRole("group", { name: "Replay controls" });
+    // "all" asks for the finished-duel table with every card face-up; the server grants it only for an ended duel, never for a fork.
     for (const call of calls) {
       expect(call.url.pathname).toBe("/api/duels/game-1/replay");
-      expect([...call.url.searchParams.keys()].sort()).toEqual(["version", "visibility"]);
+      expect([...call.url.searchParams.keys()].sort()).toEqual(["all", "version", "visibility"]);
       expect((call.init?.method ?? "GET").toUpperCase()).toBe("GET");
     }
     expect(calls.map((call) => call.url.searchParams.get("visibility"))).toEqual(["mine", "public"]);

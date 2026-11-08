@@ -68,7 +68,7 @@ import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
 import { ReplayJsonEncoder, replayJsonResponse, type ReplayHttpResult } from "./replay-json.js";
-import { buildReplayData, projectReplayFrames, projectReplaySteps, type ReplayBuildData, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache, ReplayBuildError, REPLAY_BUILD_TIMEOUT_MS } from "./replay-builder.js";
+import { buildReplayData, projectReplayFrames, projectReplaySteps, type ReplayBuildData, replayBuildError, replayHasUnsequencedLoss, revealReplayAll, revealReplayHands, ReplayBuildCache, ReplayBuildError, REPLAY_BUILD_TIMEOUT_MS } from "./replay-builder.js";
 import { createReplayCursorCodec, replayPrefixHash, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
 import { createReplayForkLauncher, listActiveReplayForks, REPLAY_FORK_ACTIVE_LIMIT, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
@@ -1988,6 +1988,8 @@ export function createDuelHost(options: {
     visibility: ReplayVisibility;
     dataSeat: number | null;
     reveal?: boolean;
+    /** Finished-duel table with every card face-up. Ordinary (non-owner, non-fork) replay requests only. */
+    all?: boolean;
     ownerUserId?: number;
     ownerPlayerId?: number;
     unchecked?: boolean;
@@ -2074,13 +2076,18 @@ export function createDuelHost(options: {
           }
         }
       }
-      if (projection.reveal && finalView) {
+      // The replay of a fork is a real game with private hands; only the replay of a finished source shows every card.
+      const all = projection.all === true && projection.version === 2 && !isReplayFork(state.session);
+      if ((projection.reveal || all) && finalView) {
         const ownViews = source.session.seats.map(seat => readSaved(seat.seat));
-        if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
+        if (ownViews.every((view): view is DuelEngineView => view !== null)) {
+          finalView = all ? revealReplayAll(finalView, ownViews) : revealReplayHands(finalView, ownViews);
+        }
       }
       const cacheKey = () => createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), verification, projection.visibility, projection.dataSeat, projection.reveal,
         crossVersion ? [verificationKey!.boardStamp, verificationKey!.resourceStamp]
-          : storedBoardStamp(saved, projection.dataSeat, projection.reveal, readSaved, source.session.seats.length)])).digest("hex");
+          : storedBoardStamp(saved, projection.dataSeat, projection.reveal || all, readSaved, source.session.seats.length),
+        ...(all ? ["all"] : [])])).digest("hex");
       const build = () => replayCache.getOrBuild(cacheKey(), () => buildReplayData({ source, sourceVersion,
         ...(isReplayFork(state.session) ? { manualLossAnswersAfter: state.setup!.replayFork!.origin.prefixCount } : {}),
         resources: { ...journalResourcesOf(resources), ...(crossVersion ? { allowVersionMismatch: true } : {}) }, dataSeat: projection.dataSeat,
@@ -2113,7 +2120,7 @@ export function createDuelHost(options: {
           if (!matches) throw new ReplayBuildError("Replay could not be verified.", "REPLAY_UNVERIFIED");
           replayVerifications.set(verificationKey!, null, resources!.identity.coreFamily);
         } : undefined,
-        reveal: projection.reveal, retainStepsOnOverflow: true, finalView: unchecked ? null : finalView,
+        reveal: projection.reveal, ...(all ? { all: true } : {}), retainStepsOnOverflow: true, finalView: unchecked ? null : finalView,
         timeoutMs: Math.max(1, buildDeadline - Date.now()),
         signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: signal => spawn(undefined, { signal, table: slug }) }), alternate !== undefined);
       let built: ReplayBuildData;
@@ -2171,6 +2178,7 @@ export function createDuelHost(options: {
         frames: frames.map(({ step, actorSeat, view }) => ({ step, actorSeat, view })) } };
       return { viewJson, replay: { verification, version: 2, sourceVersion, visibility: projection.visibility,
         ...(projection.reveal !== undefined ? { reveal: projection.reveal } : {}),
+        ...(all ? { revealAll: true as const } : {}),
         session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat,
         frames: projectReplayFrames(frames, replayCursorCodec, canFork),
         ...(built.oversized ? { forkSteps: projectReplaySteps(built.steps, replayCursorCodec, canFork),
@@ -2209,6 +2217,7 @@ export function createDuelHost(options: {
     if ((version !== 1 && version !== 2) || (privileged && version !== 2)
       || (body.visibility !== undefined && body.visibility !== "mine" && body.visibility !== "public")
       || (body.reveal !== undefined && typeof body.reveal !== "boolean")
+      || (body.all !== undefined && (typeof body.all !== "boolean" || version !== 2))
       || (body.unchecked !== undefined && typeof body.unchecked !== "boolean")) {
       throw new RequestError("Invalid replay request", 400, "INVALID_CURSOR");
     }
@@ -2237,6 +2246,7 @@ export function createDuelHost(options: {
     const result = await replay(slug, guildId, room, { version, visibility, dataSeat,
       ...(privileged && body.reveal !== undefined ? { reveal: body.reveal as boolean } : {}),
       unchecked: body.unchecked === true,
+      ...(body.all === true ? { all: true } : {}),
       ...(owner ? { ownerUserId: owner.userId, ownerPlayerId: owner.playerId } : {}) }, signal);
     // Access can be revoked while a detached worker is building a private projection.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);

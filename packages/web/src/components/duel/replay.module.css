@@ -19,20 +19,34 @@
 .resultLines span { color: #c5d0de; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .count { flex: none; min-width: 13ch; text-align: right; font-variant-numeric: tabular-nums; color: #b6c7d9; white-space: nowrap; }
 .notes { height: 1.5em; overflow: hidden; display: flex; gap: 12px; align-items: center; min-width: 0; }
+@media (max-width: 640px) { .notes { height: 3em; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; } }
 .notes > * { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sheetLog { position: relative; height: min(70vh, 560px); }
-/* The chain stack floats over the board; as a block in the column it pushed the board up and down. */
+/* The chain stack floats over the board; as a block in the column it pushed the board up and down.
+   Small, in a corner, and out of every click. A phone puts it on one line per link at the top centre. */
 .chain {
   position: absolute; top: 8px; right: 8px; z-index: 5; pointer-events: none;
-  width: min(260px, 40%); max-height: 45%; overflow: hidden;
-  padding: 6px 8px; border: 1px solid rgb(201 168 96 / 0.45); background: rgb(12 18 28 / 0.88);
-  color: #e7edf6; font-size: 12px;
+  width: min(200px, 24%); overflow: hidden;
+  padding: 5px 8px; border: 1px solid rgb(201 168 96 / 0.45); background: rgb(12 18 28 / 0.9);
+  color: #e7edf6; font-size: 11px; line-height: 1.3;
 }
-.chain strong { display: block; margin-bottom: 4px; color: #ddc389; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-.chain ol { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
-.chain li { display: flex; gap: 6px; align-items: baseline; }
+.chain strong { display: block; margin-bottom: 3px; color: #ddc389; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.chain ol { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.chain li { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.chain li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chain li b { color: #f0d9a0; }
-.chain small { display: block; color: #9db0c4; }
+.chain small { display: block; color: #9db0c4; overflow: hidden; text-overflow: ellipsis; }
+.chain em { display: block; margin-top: 2px; color: #9db0c4; font-style: normal; }
+@media (max-width: 900px) {
+  .chain { top: 4px; right: auto; left: 50%; transform: translateX(-50%); width: min(70%, 240px); }
+  .chain small { display: none; }
+}
+/* An error over the page: it can be as long as it needs to be and never takes room from the board. */
+.toast {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60;
+  max-width: min(92vw, 520px); padding: 8px 12px; border: 1px solid #9a4a52; background: #2a1216; color: #ffb2b9; font-size: 13px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
+}
 .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .buttons { display: flex; align-items: center; gap: 4px; }
 .iconButton {

@@ -1,5 +1,6 @@
 "use client";
 
+import { ReplayAllCardsToggle, type ReplayAllCards } from "./replay-all-cards";
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from "lucide-react";
@@ -68,6 +69,7 @@ interface TransportProps {
   /** Card visibility can be switched (the viewer has a real seat and the server speaks version 2). */
   canSwitchCards: boolean;
   onVisibility: (next: ReplayVisibility) => void;
+  allCards?: ReplayAllCards;
   onCamera: (seat: number) => void;
   notice: string | null;
   verification?: ReplayCheckNote;
@@ -78,7 +80,7 @@ interface TransportProps {
  * from and the card visibility. It sits in the shell's transport slot; it never sends an action.
  */
 export function ReplayTableTransport({
-  slug, controller, seatCount, playerName, caption, newLines, result, visibility, hiddenNote, canSwitchCards, onVisibility, onCamera, notice, verification = "exact",
+  slug, controller, seatCount, playerName, caption, newLines, result, visibility, hiddenNote, canSwitchCards, onVisibility, allCards, onCamera, notice, verification = "exact",
 }: TransportProps) {
   const { index, last, playing, speed, camera } = controller;
   const atEnd = index >= last;
@@ -118,7 +120,7 @@ export function ReplayTableTransport({
           <button type="button" className={icon} aria-label="Last move"
             {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
         </div>
-        <div className={styles.speedField}><ReplaySpeedControl speed={speed} onChange={controller.setSpeed} /></div>
+        <div className={styles.speedField}><ReplaySpeedControl speed={speed} onChange={controller.setSpeed} compact /></div>
       </div>
       <div className={styles.scrub}>
         <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
@@ -145,6 +147,7 @@ export function ReplayTableTransport({
             ))}
           </div>
         ) : null}
+        {allCards ? <ReplayAllCardsToggle {...allCards} className={`${replayStyles.segmented} ${styles.cards}`} /> : null}
       </div>
     </div>
   );
@@ -161,6 +164,7 @@ export interface ReplayFfaProps {
   visibility: ReplayVisibility;
   canSwitchCards: boolean;
   onVisibility: (next: ReplayVisibility) => void;
+  allCards?: ReplayAllCards;
   /** Called before the board is drawn from another seat (the page drops its inspector state). */
   onCamera?: (seat: number) => void;
   notice: string | null;
@@ -178,7 +182,7 @@ export interface ReplayFfaProps {
  * The card visibility was fixed by the server; the camera seat only decides where each field is drawn.
  */
 export function ReplayFfa({
-  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, onCamera, notice, newLines, tools, inputSuspended = false,
+  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, allCards, onCamera, notice, newLines, tools, inputSuspended = false,
 }: ReplayFfaProps) {
   const { index, last, epoch, camera } = controller;
   const session = model.session;
@@ -219,6 +223,7 @@ export function ReplayFfa({
       hiddenNote={model.mySeat == null || model.visibility === "public"}
       canSwitchCards={canSwitchCards}
       onVisibility={onVisibility}
+      allCards={allCards}
       onCamera={(seat) => { onCamera?.(seat); controller.setCamera(seat); }}
       notice={notice}
       verification={checkNoteOf(model)}
