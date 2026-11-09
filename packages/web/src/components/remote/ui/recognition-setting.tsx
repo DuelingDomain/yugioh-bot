@@ -56,7 +56,7 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   const [say, setSay] = useState("");
   useEffect(() => {
     if (!note || announced.has(note)) return;
-    announced.add(note); setSay(note);
+    announced.add(note); setSay("The GPU failed, so card reading uses the CPU (slower). Details: hover the CPU badge or open Debug.");
     const timer = setTimeout(() => setSay(""), 8000);
     return () => clearTimeout(timer);
   }, [note]);
