@@ -880,6 +880,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   /** Drag, keyboard and voice share this: refuse says why, confirm asks once on the dock chip, ok moves with Undo. */
   const tryMove = (seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}, requestId?: string, direct = false): { done: boolean; text: string } => {
     const verdict = direct ? { kind: "ok" as const } : judgeFor(seat, card, land);
+    // A card that enters the Graveyard or the Banished zone is face up, unless the caller asks for face-down.
+    if (extra.faceUp === undefined && (land.zone === "graveyard" || land.zone === "banished") && card.zone !== land.zone) extra = { ...extra, faceUp: true };
     const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
     if (verdict.kind === "refuse") { toast(verdict.message); return { done: false, text: verdict.message }; }
     if (verdict.kind === "same" && extra.faceUp === undefined && !extra.position) return { done: false, text: "Already there" };
@@ -1215,7 +1217,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
         if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
         announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
-        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}) });
+        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...((zone === "graveyard" || zone === "banished") && subjectCard.zone !== zone ? { faceUp: true } : {}) });
       },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },

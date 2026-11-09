@@ -54,9 +54,9 @@ export const PHASE_SHORT: Record<string, string> = { draw: "Draw", standby: "Sta
 export const PHASE_LONG: Record<string, string> = { draw: "Draw Phase", standby: "Standby Phase", main1: "Main Phase 1", battle: "Battle Phase", main2: "Main Phase 2", end: "End Phase" };
 export const phaseIndex = (id: string) => Math.max(0, PHASES.findIndex(p => p.id === id));
 
-/** Zones that do not fit the 7x2 grid. They show in a compact strip under the field. */
+/** Zones that have no cell on the 7x3 grid. They show in a compact strip under the field. */
 export const EXTRA_ZONES = [
-  { id: "extra-monster", label: "EMZ" }, { id: "pendulum", label: "PZ" }, { id: "banished", label: "BAN" },
+  { id: "extra-monster", label: "EMZ" }, { id: "pendulum", label: "PZ" },
   { id: "hand", label: "HAND" }, { id: "hand-reveal", label: "SHOWN" },
 ] as const;
 
