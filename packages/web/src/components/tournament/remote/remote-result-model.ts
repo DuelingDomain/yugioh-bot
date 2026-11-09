@@ -33,6 +33,7 @@ export type RemoteEvidenceRow = {
 type StoredAction =
   | { type: "lp.change"; seat: number; delta: number; reason?: string }
   | { type: "player.concede" }
+  | { type: "player.leave" }
   | { type: "match.declare"; winnerSeat: number | null }
   | { type: "match.confirm"; accept: boolean }
   | { type: "undo" }
@@ -71,6 +72,7 @@ function eventText(action: StoredAction, seatName: (seat: number | null) => stri
   switch (action.type) {
     case "lp.change": return `${seatName(action.seat)} LP ${action.delta > 0 ? "+" : ""}${action.delta}${action.reason ? ` (${action.reason})` : ""}`;
     case "player.concede": return "Conceded";
+    case "player.leave": return "Left the match";
     case "match.declare": return action.winnerSeat === null ? "Declared that there is no winner" : `Declared ${seatName(action.winnerSeat)} the winner`;
     case "match.confirm": return action.accept ? "Accepted the declared result" : "Rejected the declared result";
     case "undo": return "Undid an earlier action";

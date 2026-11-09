@@ -49,8 +49,8 @@ export type RemoteDeckChecks = {
 export type RemoteReductionContext = {
   /** Trusted account-deletion concession, persisted for replay. */
   accountDeletion?: 1;
-  /** Preserve pre-review declaration and first-choice rules on historical replay. */
-  matchFlowVersion?: 1;
+  /** Preserve pre-review declaration and first-choice rules on historical replay. 2 adds the countdown before the next game. */
+  matchFlowVersion?: 1 | 2;
   /** Server-owned solo seats readied with the human; persisted for deterministic replay. */
   soloBotSeats?: number[];
   /** Versioned undo semantics for already accepted event replay. */
@@ -80,7 +80,7 @@ export type RemoteReductionContext = {
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
-  undoVersion: 1, matchFlowVersion: 1, twinPlacementGuard: 5, fieldFaceState: 1,
+  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 5, fieldFaceState: 1,
   pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1,
 } as const satisfies RemoteReductionContext;
 

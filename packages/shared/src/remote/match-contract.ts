@@ -14,6 +14,8 @@ export type RemoteSiding = {
   seatDeadlines?: Record<number, number>;
   /** Set when everyone is ready but the chooser has not picked a first player. */
   firstChoiceDeadline?: number;
+  /** Match flow 2: set while everyone is ready. The next game starts at this time; anyone who un-readies cancels it. */
+  startAt?: number;
   ready: number[]; extendedFor: number[];
 };
 /** The opening die roll of game 1, written once when the table starts. Public: every seat and spectator sees the same dice. */
@@ -48,6 +50,8 @@ export type RemoteMatch = {
 export const REMOTE_SIDE_MS = 180_000;
 export const REMOTE_SIDE_DECK_MS = 300_000;
 export const REMOTE_FIRST_CHOICE_MS = 20_000;
+/** The visible countdown between "everyone is ready" and the next game (match flow 2). */
+export const REMOTE_SIDE_START_MS = 5_000;
 /** How long one round of the opening dice stays on screen. The choice clock starts after the last round. */
 export const REMOTE_OPENING_ROUND_MS = 3_000;
 export const remoteBestOfSchema = z.union([z.literal(1), z.literal(3)]);
@@ -67,4 +71,4 @@ export const remoteMatchActionSchemas = [
 ] as const;
 export const remoteMatchActionSchema = z.discriminatedUnion("type", remoteMatchActionSchemas);
 export type RemoteMatchAction = z.infer<typeof remoteMatchActionSchema>;
-export const REMOTE_MATCH_ACTION_NAMES = ["player.concede", ...remoteMatchActionSchemas.map(schema => schema.shape.type.value)] as const;
+export const REMOTE_MATCH_ACTION_NAMES = ["player.concede", "player.leave", ...remoteMatchActionSchemas.map(schema => schema.shape.type.value)] as const;

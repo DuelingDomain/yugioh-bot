@@ -42,6 +42,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
+    case "player.leave": return { kind: "PH", text: `${who} left the match`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };
     case "admin.watching": return { kind: "PH", text: a.watching ? `Admin ${a.name} started watching` : `Admin ${a.name} stopped watching`, undoable: false };
     case "table.started": {
