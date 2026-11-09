@@ -1356,7 +1356,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if (target.closest("[data-remote-seat]")) { const done = feedMenu.current; feedMenu.current = false; return done; }
     const cell = target.closest<HTMLElement>("[data-zone][data-seat]"); if (!cell) return false;
     const key = cell.dataset.zone as ZoneKey; const seat = Number(cell.dataset.seat);
-    if (key === "gy") { openPile(seat, "graveyard", cell); return true; }
+    if (key === "gy" || key === "ban") { openPile(seat, key === "gy" ? "graveyard" : "banished", cell); return true; }
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });

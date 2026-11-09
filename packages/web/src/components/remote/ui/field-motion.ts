@@ -17,7 +17,7 @@ interface Seen { cell: string; up: boolean; def: boolean; els: HTMLElement[] }
 const rectOf = (el: HTMLElement) => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
 
 /**
- * Motion for cards that change place on one field: they slide between zones (FLIP), turn over, go to the Graveyard and
+ * Motion for cards that change place on one field: they slide between zones (FLIP), turn over, go to the Graveyard or Banished pile and
  * fade out when they leave. Only `translate`, `rotate`, `opacity` and `scale` are animated, so there is no layout work.
  * Positions are layout offsets inside the field (a turned 180 degree field needs no extra maths), read only when the
  * set of cards changed, and only for the cells of cards that moved. Reduced motion and the first picture play nothing.
@@ -52,7 +52,7 @@ export function useFieldMotion(root: RefObject<HTMLElement | null>, twin: readon
       const source = cells.get(from.cell); if (!source) continue;
       const rect = rectOf(source);
       const dest = twin.find(card => card.ref === ref);
-      const gy = dest?.zone === "graveyard" ? cells.get("gy") : null;
+      const gy = dest?.zone === "graveyard" ? cells.get("gy") : dest?.zone === "banished" ? cells.get("ban") : null;
       // The old elements are out of the tree but intact: draw a copy of them where they were.
       const wrap = document.createElement("div");
       wrap.className = `${s.zc} ${from.def ? s.def : ""} ${s.leaving}`;

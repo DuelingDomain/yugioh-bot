@@ -227,21 +227,20 @@
 .field{position:relative;--gp:4px;--cw:min(100cqw / (7 + 6 * var(--gf,.5)),(100cqh - var(--gp)) / 2.92);
   display:grid;grid-template-columns:repeat(7,var(--cw));grid-template-rows:repeat(2,calc(var(--cw) * 1.458));gap:var(--gp) calc(var(--cw) * var(--gf,.5))}
 .zc{position:relative;border:1px solid rgb(167 139 255/.22);border-radius:4px;background:rgb(167 139 255/.05)}
-.zc[data-z=f],.zc[data-z=gy],.zc[data-z=deck],.zc[data-z=ex]{border-style:dashed}
+.zc[data-z=f],.zc[data-z=gy],.zc[data-z=ban],.zc[data-z=deck],.zc[data-z=ex]{border-style:dashed}
 .zc .zl{flex-direction:column;gap:2px;text-align:center}.zc .zl small{display:block;font-size:7px;letter-spacing:.08em;color:#8f82c9;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .zc[data-z=ex]{border-color:rgb(190 150 240/.5)}.zc[data-z=ex] .zl{color:#c9a9ff}
 .zc .pl{position:absolute;left:0;right:0;top:2px;z-index:2;text-align:center;font:700 7px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;color:#e8dcff;text-shadow:0 1px 3px #000;pointer-events:none}
-/* Master Rule 5 field: the two Extra Monster Zones sit in a row above Main Monster Zone 2 and 4 and are shared with the facing seat. */
-.field[data-emz]{--cw:min(100cqw / (7 + 6 * var(--gf,.5)),(100cqh - 2 * var(--gp)) / 4.4);grid-template-rows:repeat(3,calc(var(--cw) * 1.458))}
-.field[data-emz] .zc[data-row="1"]{grid-row:2}.field[data-emz] .zc[data-row="2"]{grid-row:3}
-.field[data-emz] .zc.ez{grid-row:1;border-color:rgb(232 185 79/.4);background:rgb(232 185 79/.06)}
-.field[data-emz] .zc[data-z=e1]{grid-column:3}.field[data-emz] .zc[data-z=e2]{grid-column:5}
+/* Three rows, as on the printed mat. The top row holds the two Extra Monster Zones (Master Rule 5 only, above Main Monster Zone 2 and 4, shared with the facing seat) and the Banished pile above the Graveyard. */
+.field[data-rows]{--cw:min(100cqw / (7 + 6 * var(--gf,.5)),(100cqh - 2 * var(--gp)) / 4.4);grid-template-rows:repeat(3,calc(var(--cw) * 1.458))}
+.field[data-rows] .zc[data-row="1"]{grid-row:2}.field[data-rows] .zc[data-row="2"]{grid-row:3}
+.field[data-rows] .zc.ez{grid-row:1;border-color:rgb(232 185 79/.4);background:rgb(232 185 79/.06)}
+.field[data-rows] .zc[data-z=e1]{grid-column:3}.field[data-rows] .zc[data-z=e2]{grid-column:5}
+.field[data-rows] .zc[data-z=ban]{grid-row:1;grid-column:7;border-color:rgb(240 128 170/.45)}.zc[data-z=ban] .zl{color:#f0a3c0}
 .zc.ez .zl{color:#e8c66a}.zc.ez .zl small{color:#c9a85a}
 .field[data-rotated]{transform:rotate(180deg)}
 /* Text on a turned field stays upright so it can be read. */
-.field[data-rotated] .zl,.field[data-rotated] .cnt,.field[data-rotated] .pl,.field[data-rotated] .plate,.field[data-rotated] .originLabel,.field[data-rotated] .ban{transform:rotate(180deg)}
-.zc .ban{position:absolute;left:2px;top:2px;z-index:3;font:700 8px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:#e8c66a;background:rgb(7 4 14/.9);padding:2px 4px;border-radius:3px;cursor:pointer}
-.zc .ban:hover{background:var(--gold);color:#1b1204}
+.field[data-rotated] .zl,.field[data-rotated] .cnt,.field[data-rotated] .pl,.field[data-rotated] .plate,.field[data-rotated] .originLabel{transform:rotate(180deg)}
 .zc.taken{opacity:.55;border-style:dashed}
 .zc.drg{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
 .zc.dragSrc{opacity:.5}
@@ -335,7 +334,7 @@
   --fcw:max(24px,min((var(--fw) - 18px) / (7 + 6 * var(--gf)),(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
   flex:none;min-height:0;align-self:center;
   width:calc((7 + 6 * var(--gf)) * var(--fcw) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
-.fwrap:has([data-emz]){--fr:3}
+.fwrap:has([data-rows]){--fr:3}
 /* "Scan field" sits left of my virtual board in a wide stacked seat. Otherwise it gets its own row above the board, and --scanh keeps that row out of the board's height. */
 .fboard>.fwrap{flex:none;max-width:100%}
 .fboard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px 10px;min-width:0}
@@ -628,7 +627,7 @@
   .seat[data-view="field"] .feedcol{flex:none}
   .seat[data-view="field"] .feedcol>.cams{width:46%;align-self:flex-start}
   .seat[data-view="field"] .fwrap{height:240px}
-  .app[data-mode] .seat[data-view="field"] .fwrap:has([data-emz]){height:310px}
+  .app[data-mode] .seat[data-view="field"] .fwrap:has([data-rows]){height:310px}
 }
 
 /* Webcam only: the virtual field is hidden and the camera takes its space. LP, the undo button and the rail stay.
@@ -736,7 +735,7 @@
   .fwrap[data-rail]{--scanw:0px}
   .fboard{display:contents}.scanbtn{order:2;align-self:flex-start;height:30px}
   .fwrap{--gf:.2;width:auto;align-self:stretch;height:150px;order:2}
-  .app[data-mode] .fwrap:has([data-emz]){height:215px}
+  .app[data-mode] .fwrap:has([data-rows]){height:215px}
   .lp{display:grid;padding:0 2px}
   .lpmain{display:flex;gap:10px}.lpn{font-size:46px}
   .lpl{display:none}

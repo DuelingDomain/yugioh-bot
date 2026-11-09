@@ -12,13 +12,15 @@ export const COLORS = ["167 139 255", "240 128 170", "121 217 168", "255 160 110
 export const ZK = ["f", "m1", "m2", "m3", "m4", "m5", "gy", "ex", "s1", "s2", "s3", "s4", "s5", "deck"] as const;
 /** The two Extra Monster Zones (Master Rule 5), drawn in their own row above the grid. */
 export const EK = ["e1", "e2"] as const;
-export type ZoneKey = (typeof ZK)[number] | (typeof EK)[number];
+/** The Banished pile, drawn above the Graveyard as on the printed mat. It is a pile like the Graveyard: it has a count and a top card, no slot. */
+export const BK = ["ban"] as const;
+export type ZoneKey = (typeof ZK)[number] | (typeof EK)[number] | (typeof BK)[number];
 export const ZN: Record<ZoneKey, string> = {
-  gy: "Graveyard", m1: "Monster zone 1", m2: "Monster zone 2", m3: "Monster zone 3", m4: "Monster zone 4", m5: "Monster zone 5", ex: "Extra Deck",
+  gy: "Graveyard", ban: "Banished zone", m1: "Monster zone 1", m2: "Monster zone 2", m3: "Monster zone 3", m4: "Monster zone 4", m5: "Monster zone 5", ex: "Extra Deck",
   e1: "Extra Monster zone left", e2: "Extra Monster zone right", f: "Field zone", s1: "Spell and Trap zone 1", s2: "Spell and Trap zone 2", s3: "Spell and Trap zone 3", s4: "Spell and Trap zone 4", s5: "Spell and Trap zone 5", deck: "Deck",
 };
-export const zoneLabel = (z: ZoneKey) => ({ gy: "GY", ex: "EX DECK", f: "FIELD", deck: "DECK", e1: "EMZ", e2: "EMZ" } as Record<string, string>)[z] ?? (z[0] === "m" ? "M" + z[1] : "S" + z[1]);
-export const isPile = (z: ZoneKey) => z === "gy" || z === "ex" || z === "deck";
+export const zoneLabel = (z: ZoneKey) => ({ gy: "GY", ban: "BAN", ex: "EX DECK", f: "FIELD", deck: "DECK", e1: "EMZ", e2: "EMZ" } as Record<string, string>)[z] ?? (z[0] === "m" ? "M" + z[1] : "S" + z[1]);
+export const isPile = (z: ZoneKey) => z === "gy" || z === "ban" || z === "ex" || z === "deck";
 export const isMonsterZone = (z: ZoneKey) => z[0] === "m" || z === "e1" || z === "e2";
 /** Master Rule 5 tables (Advanced, Domain) have Extra Monster Zones and Pendulum Zones on the outer Spell/Trap zones. Genesys formats have neither. */
 export const hasExtraZones = (formatId: string | undefined) => !formatId?.startsWith("genesys");
@@ -39,6 +41,7 @@ export function facingSeat(seat: number, count: number): number | null {
 /** Foundation zone + slot for a cell. */
 export function foundationZone(z: ZoneKey): { zone: string; slot?: number } {
   if (z === "gy") return { zone: "graveyard" };
+  if (z === "ban") return { zone: "banished" };
   if (z === "ex") return { zone: "extra" };
   if (z === "e1" || z === "e2") return { zone: "extra-monster", slot: Number(z[1]) };
   if (z === "f") return { zone: "field" };
@@ -60,11 +63,12 @@ export const EXTRA_ZONES = [
 export type Cell = { card?: TwinCard; count: number };
 /** Puts twin cards into grid cells. Cards without a slot take the first free slot of their row. */
 export function cellsFor(twin: readonly TwinCard[], extraZones = false): Record<ZoneKey, Cell> {
-  const cells = Object.fromEntries([...ZK, ...EK].map(k => [k, { count: 0 }])) as Record<ZoneKey, Cell>;
+  const cells = Object.fromEntries([...ZK, ...EK, ...BK].map(k => [k, { count: 0 }])) as Record<ZoneKey, Cell>;
   const rows: Record<string, { prefix: string; slots: number; list: TwinCard[] }> = { monster: { prefix: "m", slots: 5, list: [] }, "spell-trap": { prefix: "s", slots: 5, list: [] } };
   const emz: TwinCard[] = []; const pendulum: TwinCard[] = [];
   for (const card of twin) {
     if (card.zone === "graveyard") cells.gy.count++;
+    else if (card.zone === "banished") cells.ban.count++;
     else if (card.zone === "extra") cells.ex.count++;
     else if (card.zone === "deck") cells.deck.count++;
     else if (card.zone === "field") { cells.f.card = card; cells.f.count = 1; }
