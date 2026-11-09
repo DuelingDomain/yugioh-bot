@@ -5,6 +5,26 @@ import { useEffect, useRef, useState } from "react";
 const ACTIVITY_BATCH_MS = 15_000;
 
 /**
+ * Whether the room of `slug` has a waiting deadline (the room view says so). For a page that has no room view of its own,
+ * such as the deck editor opened from a room. False until the answer arrives, so no beat is sent for a room that has none.
+ */
+export function useRoomHasWaitingDeadline(slug: string | null): boolean {
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    setHas(false);
+    if (!slug) return;
+    const controller = new AbortController();
+    void fetch(`/api/duels/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then((body: unknown) => {
+        if (body && typeof body === "object" && "hasWaitingDeadline" in body && body.hasWaitingDeadline === true) setHas(true);
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [slug]);
+  return has;
+}
+
+/**
  * Retain a waiting seat during actual room/editor input. A passive tab cannot renew it.
  * Returns the time (ms since 1970) the room closes if nobody acts, or null while it is not known.
  * `waiting` is false once the room has left its waiting state (the duel started): the server answers 409 then,

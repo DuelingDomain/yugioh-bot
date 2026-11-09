@@ -676,6 +676,8 @@ export interface DuelRoom {
   opening?: DuelOpeningView | null;
   /** The host is starting this lobby's engine. Transient, absent after activation or failure. */
   starting?: true;
+  /** The waiting room has an idle deadline, so the client may send activity beats. Absent for openings, presets, test duels, tournament games and later series games. */
+  hasWaitingDeadline?: true;
   /** Only for the authorized replay-fork creator. mySeat remains the stored identity seat. */
   fork?: ReplayForkControl;
 }
