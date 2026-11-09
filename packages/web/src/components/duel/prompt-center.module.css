@@ -977,7 +977,11 @@
     border-width: 0 0 1px;
     border-radius: 0 0 12px 12px;
   }
-  /* The Confirm / Pass row stays in view when a long list scrolls. */
+  /* A card strip needs room for its cards (main gave a chain response 62% as a bottom sheet). */
+  .panel[data-strip="true"] { max-height: 70%; }
+  /* The panel scrolls when it must; no row (the cards, the buttons) shrinks into the next one. */
+  .panel[data-strip="true"] > * { flex-shrink: 0; }
+  /* The Confirm / Pass row stays in view when a long list scrolls. A strip panel has room for its cards and its row (70% of the board), so only a very short screen scrolls it. */
   .panel > .foot {
     position: sticky;
     bottom: -8px;
@@ -986,9 +990,61 @@
     padding: 6px 10px 8px;
     background: var(--pc-surface);
   }
+  /* The dense host (the 4-way grid) pads the panel by 12 and 10 units: the footer reaches the same edges. */
+  :global([data-prompt-dense]) .panel > .foot {
+    bottom: calc(-10 * var(--duel-unit, 1px));
+    margin: 0 calc(-12 * var(--duel-unit, 1px)) calc(-10 * var(--duel-unit, 1px));
+    padding-inline: calc(12 * var(--duel-unit, 1px));
+  }
   .titles h2 { font-size: var(--pc-title); }
   .titles p { margin-top: 1px; }
   .pill { inset: 8px 0 auto 0; }
+}
+
+/* A phone on its side: the board box is only ~180px high, so a top sheet would cover the whole field. The panel is a side sheet instead:
+   about half the board wide, the full board high, on the right edge. The handle drags it sideways to the other edge. The ask text is
+   hidden, and a card strip uses smaller cards (card-strip.module.css), so the first card shows whole. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .panel,
+  .panel[data-tone],
+  .panel[data-wide="true"],
+  .panel[data-strip="true"] {
+    inset: 0 0 0 auto;
+    width: 52%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border-width: 0 0 0 1px;
+    border-radius: 12px 0 0 12px;
+  }
+  .panel .titles h2 { font-size: 13px; line-height: 1.2; }
+  .panel .titles p { display: none; }
+  /* A card strip: the cards sit in the left column and the Back / Pass buttons stack in a narrow right column, so the cards keep the height. */
+  .panel[data-strip="true"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    column-gap: 8px;
+    row-gap: 6px;
+    align-content: start;
+  }
+  .panel[data-strip="true"] > * { grid-column: 1 / -1; min-width: 0; }
+  .panel[data-strip="true"] > .chainStrip { display: none; }
+  .panel[data-strip="true"] > :not(.foot):not(.head):not(.chainStrip):not([data-drag-grip]) { grid-column: 1; grid-row: 3; align-self: stretch; }
+  .panel[data-strip="true"] > .foot {
+    grid-column: 2;
+    grid-row: 3;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: none;
+  }
+  .panel[data-strip="true"] > .foot .spacer { display: none; }
 }
 
 /* A touch screen keeps the 40px buttons, compact or not. */

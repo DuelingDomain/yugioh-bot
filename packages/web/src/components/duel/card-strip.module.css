@@ -266,6 +266,30 @@
 @media (pointer: coarse) {
   .hint { display: none; }
 }
+/* A phone upright: the prompt is a top sheet, so the cards are a little smaller and keep less room above them. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .wrap {
+    --cs-w: calc(76 * var(--cs-u));
+    --cs-pad-top: 14px;
+    --cs-pad-bottom: 6px;
+  }
+  /* The count line above the cards has no room on a sheet that must also show the buttons. */
+  .caption { display: none; }
+}
+/* A phone on its side: the prompt is a side sheet about as high as the board (prompt-center.module.css), so the cards are small enough to show whole. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .wrap {
+    --cs-w: 48px;
+    --cs-gap: 6px;
+    --cs-pad-x: 10px;
+    --cs-pad-top: 12px;
+    --cs-pad-bottom: 4px;
+  }
+  /* The names are in the card inspector (hover or tap a card); the sheet has no height for a label line. */
+  .name,
+  .detail,
+  .caption { display: none; }
+}
 
 /* A dense host (the 4-way grid, `data-prompt-dense` on its prompt slot): smaller cards and less room round them, so
    the card pick keeps to a small part of your pair. */
