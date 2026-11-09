@@ -152,7 +152,9 @@ it("adjusts cores from real sampled quantities while preserving grounded depende
   expect(master.ready).toBe(false);expect(master.gaps.join(" ")).toMatch(/Deck Master/);
   const missing={...graph,capabilities:graph.capabilities.filter(row=>row.card.name!=="Ashtra Divine Domain")};
   expect(observedEngineCore(deriveEngineCore(missing,engine,format),missing,engine,format).gaps.join(" ")).toMatch(/Ashtra Divine Domain/);
-  expect(observedEngineCore(grounded,graph,engine,format,"tcg")).toBe(grounded);
+  // A format without an Ashtra sample keeps the grounded plan (the real TCG sample can grow with each staples refresh).
+  const noTcg={...artifact,formats:{...artifact.formats,tcg:undefined}} as typeof artifact;
+  expect(observedEngineCore(grounded,graph,engine,format,"tcg",noTcg)).toBe(grounded);
 });
 
 it("builds an unreviewed proposal from prevalent members while keeping readiness provisional", () => {
