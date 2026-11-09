@@ -142,6 +142,20 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Narrow screens fold the three long option groups; wide screens ignore this state.
+  const [openFolds, setOpenFolds] = useState<Record<string, boolean>>({});
+  const foldProps = (id: string) => ({ "data-fold": "", "data-open": openFolds[id] ? "true" : "false" });
+  const foldToggle = (id: string) => (
+    <button
+      type="button"
+      className={styles.foldToggle}
+      aria-expanded={openFolds[id] === true}
+      aria-controls={`creator-${id}-fields`}
+      onClick={() => setOpenFolds((prev) => ({ ...prev, [id]: !prev[id] }))}
+    >
+      {openFolds[id] ? "Hide options" : "Show options"}
+    </button>
+  );
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const creationRequest = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -176,6 +190,24 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const cap = parseGenesysCap(capText);
   const capInvalid = genesys != null && !cap.ok && (!remote || remoteGenesys);
   const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
+  // One short line under a folded heading: the current values, and a warning when the table has an unusual rule.
+  const foldSummary = (text: string, warn = false) => (
+    <p className={cx(styles.foldSummary, warn && styles.foldWarn)} data-testid="fold-summary">
+      {warn ? <AlertTriangle size={14} strokeWidth={1.6} aria-hidden /> : null}
+      <span>{text}</span>
+    </p>
+  );
+  const banlistName = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
+  const rulesSummary = [genesys ? "No Forbidden & Limited list" : banlistName, CARD_POOLS.find((choice) => choice.value === settings.cardPool)?.label,
+    `${settings.startingHand} in hand`, `${settings.drawPerTurn} per draw`].filter(Boolean).join(" · ");
+  const clockSummary = [`${settings.startingLP.toLocaleString("en-US")} LP`,
+    ranked ? "Ranked 3-minute bank" : settings.turnSeconds > 0
+      ? `${TURN_TIMER_CHOICES.find((choice) => choice.value === settings.turnSeconds)?.label ?? `${settings.turnSeconds} s`}, ${settings.timeout === "loss" ? "lose on timeout" : "play on"}`
+      : "No clock"].join(" · ");
+  const deckWarn = !settings.validateDeck || (mode === "domain" && customDomain);
+  const deckSummary = [settings.validateDeck ? "Invalid decks forbidden" : "Invalid decks allowed: format and copy-limit checks are off",
+    genesys ? `Genesys, ${genesys.pointCap} point cap` : null,
+    mode === "domain" && customDomain ? "Custom Domain overrides" : null].filter(Boolean).join(" · ");
   // Domain is offered only where its core exists (see multiDomainBlockReason).
   const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
@@ -380,8 +412,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <RemoteSetupSection formatControls={formatControls(false)} seats={remoteSeats} onSeats={setRemoteSeats} solo={remoteSolo} onSolo={setRemoteSolo}
                 deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks}
                 visibility={<div className={styles.wide}>
-                  <SheetSegmented label="Visibility" value={remoteVisibility} choices={VISIBILITY} onChange={setRemoteVisibility} full />
-                  <p className={cx(ui.hint, styles.below)} data-testid="remote-visibility-hint">{remoteVisibility === "private" ? "Only people you invite can enter. No spectators." : "Everyone with Remote Duels access can watch: both cameras and the public table, no hand or Set cards."}</p>
+                  <SheetSegmented label="Visibility" value={remoteSolo ? "private" : remoteVisibility} choices={VISIBILITY} onChange={setRemoteVisibility} disabled={remoteSolo} full />
+                  <p className={cx(ui.hint, styles.below)} data-testid="remote-visibility-hint">{remoteSolo ? "A solo test table is always private." : remoteVisibility === "private" ? "Only people you invite can enter. No spectators." : "Everyone with Remote Duels access can watch: both cameras and the public table, no hand or Set cards."}</p>
                 </div>} />
             ) : <>
 
@@ -476,16 +508,17 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 ) : null}
                 {formatControls(true)}
                 <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
-                <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-rules">
+            <section className={styles.section} aria-labelledby="creator-rules" {...foldProps("rules")}>
               <div className={styles.side}>
                 <h2 id="creator-rules" className={ui.sectionTitle}>Rules</h2>
+                {foldToggle("rules")}
+                {foldSummary(rulesSummary)}
                 <p className={ui.hint}>Card legality and how the duel opens.</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-rules-fields">
                 <SheetSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} disabled={genesys != null} />
                 <SheetSegmented label="Card pool" value={settings.cardPool} choices={CARD_POOLS} onChange={(value) => update("cardPool", value)} full />
                 <SheetSelect label="Starting hand" value={settings.startingHand} choices={OPENING_HANDS} onChange={(value) => update("startingHand", value)} />
@@ -501,12 +534,14 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-clock">
+            <section className={styles.section} aria-labelledby="creator-clock" {...foldProps("clock")}>
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
+                {foldToggle("clock")}
+                {foldSummary(clockSummary)}
                 <p className={ui.hint}>Pace of the duel and where duelists start.{multiplayerTables ? " In Tag this is per duelist; a team shares double." : ""}</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-clock-fields">
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
                 {ranked ? (
                   <p className={ui.hint}>Ranked clock: fixed 3-minute bank. Lose on timeout.</p>
@@ -524,12 +559,14 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-deck">
+            <section className={styles.section} aria-labelledby="creator-deck" {...foldProps("deck")}>
               <div className={styles.side}>
                 <h2 id="creator-deck" className={ui.sectionTitle}>Deck rules</h2>
+                {foldToggle("deck")}
+                {foldSummary(deckSummary, deckWarn)}
                 <p className={ui.hint}>What players may bring to the table.</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-deck-fields">
                 <div className={styles.wide}>
                   <SheetSegmented label="Deck validation" value={settings.validateDeck} choices={VALIDATION} onChange={(value) => update("validateDeck", value)} />
                 </div>
@@ -591,7 +628,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <dl className={styles.rows}>
                   {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormatKey)], ...(genesys && remoteGenesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []), ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
                     ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"], ["Visibility", remoteSolo || remoteVisibility === "private" ? "Invite only" : "Public"],
-                    ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : "Open to others"],
+                    ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : remoteVisibility === "private" ? "You and invited players" : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "No deck"]] as [string, string][]).map(([label, value]) => (
                     <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
                   ))}

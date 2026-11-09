@@ -62,6 +62,24 @@
   .card { padding: 18px; }
 }
 
+/* Rules, clock and deck rules fold on narrow screens so the form is not three screens of selects. */
+.foldToggle, .foldSummary { display: none; }
+@media (max-width: 1000px) {
+  .section[data-fold] { padding: 16px 0; }
+  .section[data-fold] .side { position: relative; padding-right: 120px; }
+  .foldToggle {
+    display: inline-flex; align-items: center; position: absolute; top: -4px; right: 0; min-height: 36px; padding: 0 12px;
+    border: 1px solid var(--duel-rule); border-radius: 8px; background: transparent; color: var(--duel-ink-2, var(--duel-ink)); font-size: 13px; cursor: pointer;
+  }
+  .foldToggle:hover { background: var(--duel-pen-soft); }
+  .foldToggle:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+  .section[data-fold][data-open="false"] .side > p:not(.foldSummary),
+  .section[data-fold][data-open="false"] .fields { display: none; }
+  .section[data-fold][data-open="false"] .foldSummary { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--duel-ink-3); font-size: 13px; line-height: 1.45; }
+  .section[data-fold][data-open="false"] .foldSummary > svg { flex: none; margin-top: 2px; }
+  .section[data-fold][data-open="false"] .foldWarn { color: var(--duel-chain-ink); }
+}
+
 /* ---------- match: opponent, length, ranked ---------- */
 .picker { display: grid; gap: 8px; }
 .picked { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

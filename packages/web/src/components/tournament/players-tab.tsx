@@ -114,12 +114,12 @@ export function PlayersTab({
                 />
                 <span className="font-body font-medium">{p.displayName}</span>
                 {isHostAndYou && (
-                  <span className="rounded-sm bg-accent-gold/20 px-1 py-px font-mono text-[10px] uppercase tracking-wider text-accent-gold">
+                  <span className="rounded-sm bg-accent-gold/20 px-1 py-px font-mono text-[11px] uppercase tracking-wider text-accent-gold">
                     Host
                   </span>
                 )}
                 {isYou && !isHostAndYou && (
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-text-secondary">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-text-secondary">
                     You
                   </span>
                 )}

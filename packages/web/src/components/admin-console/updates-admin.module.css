@@ -36,7 +36,7 @@ textarea.area { height: auto; min-height: 0; padding: 10px 12px; line-height: 1.
 .hl { list-style: none; margin: 0 0 6px; padding: 0; border-top: 1px solid var(--line); }
 .hl li, .secRead li { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; color: var(--t1); line-height: 1.45; }
 .secRead { margin-top: 22px; }
-.secRead h4 { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); font-weight: 400; display: flex; gap: 8px; margin-bottom: 8px; }
+.secRead h4 { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); font-weight: 400; display: flex; gap: 8px; margin-bottom: 8px; }
 .secRead h4 span { color: var(--t4); }
 .secRead ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .secRead li { color: var(--t2); }
@@ -44,7 +44,7 @@ textarea.area { height: auto; min-height: 0; padding: 10px 12px; line-height: 1.
 /* preview numbers */
 .counts { display: grid; gap: 12px; }
 .counts dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; }
-.counts dt { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); }
+.counts dt { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); }
 .counts dd { font-size: 22px; font-weight: 600; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .total { font-size: 14.5px; color: var(--t2); padding-top: 12px; border-top: 1px solid var(--line); }
 .total b { color: var(--t1); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }

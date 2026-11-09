@@ -47,7 +47,7 @@ import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { useBridgesEnabled, useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
-import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
+import { useDuelRoomActivity, useRoomHasWaitingDeadline } from "@/lib/hooks/use-duel-room-activity";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, prepareDeckTextImport, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
@@ -215,7 +215,8 @@ function EditorState({ pool, backHref, children }: { pool: boolean; backHref: st
 }
 
 export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string; viewerId?: number | string }) {
-  useDuelRoomActivity(!pool && roomSlug ? roomSlug : null);
+  const activitySlug = !pool && roomSlug ? roomSlug : null;
+  useDuelRoomActivity(activitySlug, useRoomHasWaitingDeadline(activitySlug));
   const router = useRouter();
   const pathname = usePathname();
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));
