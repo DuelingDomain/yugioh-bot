@@ -3,7 +3,7 @@ import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
 import { initializeRemoteHandCounts } from "./hand.js";
-import { REMOTE_FIRST_CHOICE_MS, REMOTE_OPENING_ROUND_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteBestOfSchema, remoteMatchActionSchema,
+import { REMOTE_FIRST_CHOICE_MS, REMOTE_OPENING_ROUND_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, REMOTE_SIDE_START_MS, remoteBestOfSchema, remoteMatchActionSchema,
   type RemoteGameResult, type RemoteMatch, type RemoteOpening, type RemoteSiding } from "./match-contract.js";
 import type { GameModule, RemoteState } from "./types.js";
 
@@ -106,6 +106,7 @@ export function remoteSideTimeoutDue(state: Pick<RemoteState, "match" | "seatCou
   const siding = state.match?.phase === "siding" ? state.match.siding : undefined;
   return !!siding && (at >= siding.deadline ||
     siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline ||
+    siding.startAt !== undefined && at >= siding.startAt ||
     Array.from({ length: state.seatCount }, (_, seat) => seat).some(seat => !siding.ready.includes(seat) && at >= remoteSideDeadline(siding, seat)));
 }
 
@@ -125,13 +126,30 @@ export function validateRemoteSideChange(before: DuelDeck, after: DuelDeck): voi
     "A sided deck must use the same cards", 409, "DECK_INVALID");
 }
 
-function advance(state: RemoteState, at: number, initialState: GameModule["initialState"], legacyReplay: boolean): RemoteState {
+/** Match flow 2: a seat that left while the others were already ready starts the countdown (or cancels it). */
+export function syncRemoteSideStart(state: RemoteState, at: number): void {
+  const siding = state.match.siding;
+  if (!siding) return;
+  if (state.seats.every(s => siding.ready.includes(s.seat))) siding.startAt ??= Math.min(siding.deadline, at + REMOTE_SIDE_START_MS);
+  else delete siding.startAt;
+}
+
+function advance(state: RemoteState, at: number, initialState: GameModule["initialState"], legacyReplay: boolean, countdown: boolean): RemoteState {
   const match = state.match, siding = match.siding!;
   const allReady = state.seats.every(s => siding.ready.includes(s.seat));
-  if (!legacyReplay && allReady && match.firstSeat === undefined) siding.firstChoiceDeadline ??= Math.min(siding.deadline, at + REMOTE_FIRST_CHOICE_MS);
-  else delete siding.firstChoiceDeadline;
-  const choiceDue = siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline;
-  if (at < siding.deadline && !(allReady && (match.firstSeat !== undefined || choiceDue))) return state;
+  let startDue: boolean;
+  if (countdown) {
+    // Everyone ready starts a short visible countdown. Un-ready or a side change removes it. The chooser may still pick during it.
+    delete siding.firstChoiceDeadline;
+    if (allReady) siding.startAt ??= Math.min(siding.deadline, at + REMOTE_SIDE_START_MS); else delete siding.startAt;
+    startDue = allReady && siding.startAt !== undefined && at >= siding.startAt;
+  } else {
+    if (!legacyReplay && allReady && match.firstSeat === undefined) siding.firstChoiceDeadline ??= Math.min(siding.deadline, at + REMOTE_FIRST_CHOICE_MS);
+    else delete siding.firstChoiceDeadline;
+    const choiceDue = siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline;
+    startDue = allReady && (match.firstSeat !== undefined || choiceDue);
+  }
+  if (at < siding.deadline && !startDue) return state;
   const chosen = match.firstSeat ?? match.firstChooser ?? 0;
   const firstSeat = state.seats[chosen].accountDeleted ? state.seats.find(s=>!s.accountDeleted)!.seat : chosen;
   const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf, tournament: state.tournament });
@@ -156,7 +174,8 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   const parsed = remoteMatchActionSchema.safeParse(input);
   remoteAssert(parsed.success, "Invalid match action");
   const action = parsed.data, at = action.at ?? state.updatedAt;
-  const legacyReplay = !!context?.replay && context.matchFlowVersion !== 1;
+  const legacyReplay = !!context?.replay && !context.matchFlowVersion;
+  const countdown = context?.matchFlowVersion === 2;
   if (action.type === "side.timeout" && !remoteSideTimeoutDue(state, at)) return state;
   const next = cloneRemoteCurrent(state);
   next.updatedAt = at;
@@ -220,9 +239,9 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   const siding = match.siding;
   if (action.type === "side.timeout") {
     for (const seat of next.seats) if (at >= remoteSideDeadline(siding, seat.seat) && !siding.ready.includes(seat.seat)) siding.ready.push(seat.seat);
-    return advance(next, at, initialState, legacyReplay);
+    return advance(next, at, initialState, legacyReplay, countdown);
   }
-  remoteAssert(at < Math.min(siding.firstChoiceDeadline ?? Infinity,
+  remoteAssert(at < Math.min(siding.firstChoiceDeadline ?? Infinity, siding.startAt ?? Infinity,
     action.type === "match.first" ? siding.deadline : remoteSideDeadline(siding, action.actorSeat)), "Your siding deadline has elapsed", 409);
   switch (action.type) {
     case "match.first":
@@ -253,5 +272,5 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
       break;
     }
   }
-  return advance(next, at, initialState, legacyReplay);
+  return advance(next, at, initialState, legacyReplay, countdown);
 }

@@ -107,11 +107,13 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
       deck: { main, extra, side: [], ...(format.includes("domain") ? { deckMaster: 100 } : {}) } });
   const select = (id: number | null, seat = 0) => room = service.selectDeck(room.slug, "g", users[0], { savedDeckId: id, seat }, 2001);
   const start = () => { service.ready(room.slug, "g", users[0], true, 2002); room = service.start(room.slug, "g", users[0], 2003); };
-  let n = 0;
+  let n = 0, shift = 0;
   const act = (input: Record<string, unknown>) => room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq,
-    action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "check-" + (++n), ...input }) }, 2100 + n);
+    action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "check-" + (++n), ...input }) }, 2100 + n + shift);
   const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, anotherCopy:true,copyProof:{simultaneousQuads:Math.max(2,room.state.seats[0].twin.length+1),at:room.state.updatedAt},card: { ref, cardId, slot } });
-  return { db, users, service, save, select, start, act, place, get room() { return room; } };
+  /** Moves the server clock: the sweep handles any timer that is due, like the 5-second countdown before the next game. */
+  const wait = (at: number) => { shift = Math.max(shift, at - 2100 - n); service.sweepIdle(at); room = service.get(room.slug, "g", users[0]); };
+  return { db, users, service, save, select, start, act, place, wait, get room() { return room; } };
 }
 
 it('requires the seat owner to confirm tournament LP zero and keeps pending results undoable', () => {
@@ -393,6 +395,7 @@ it('preserves detection modes through siding and the next game in live state and
   expect(s.room.state.detection).toEqual(detection);
   s.act({type:'match.first',actorSeat:1,seatGoesFirst:1});
   s.act({type:'side.ready',seat:0});
+  s.wait(s.room.state.match.siding!.startAt!);
   expect(s.room.state.match).toMatchObject({phase:'duel',games:[{winnerSeat:0}]});
   expect(s.room.state.ended).toBe(false);
   expect(s.room.state.detection).toEqual(detection);
@@ -1471,10 +1474,10 @@ describe("remote foundation", () => {
     soloAct({ type: "player.concede", actorSeat: 1, idempotencyKey: "solo-game" }, 3000);
     soloAct({ type: "match.continue", actorSeat: 0, idempotencyKey: "solo-side" }, 3000);
     soloAct({ type: "side.ready", actorSeat: 0, seat: 0, idempotencyKey: "solo-ready" }, 3000);
-    expect(solo.state.match.siding).toMatchObject({ ready: [0, 1], firstChoiceDeadline: 23000 });
+    expect(solo.state.match.siding).toMatchObject({ ready: [0, 1], startAt: 8000 });
     expect(service.replay(solo.slug, "g", users[0])).toEqual(solo.state);
-    expect(service.sweepIdle(22999).map(t => t.slug)).not.toContain(solo.slug);
-    expect(service.sweepIdle(23000).map(t => t.slug)).toContain(solo.slug);
+    expect(service.sweepIdle(7999).map(t => t.slug)).not.toContain(solo.slug);
+    expect(service.sweepIdle(8000).map(t => t.slug)).toContain(solo.slug);
     solo = service.get(solo.slug, "g", users[0]);
     expect(solo.state).toMatchObject({ turnSeat: 1, ended: false, match: { phase: "duel" } });
     expect(service.replay(solo.slug, "g", users[0])).toEqual(solo.state);
@@ -1527,31 +1530,35 @@ describe("remote foundation", () => {
     expect(room.lastEventAt).toBe(unchangedAt);
     act({ type: "match.first", actorSeat: 1, seatGoesFirst: 0 }, 183012);
     act({ type: "side.ready", seat: 0 }, 183013);
+    expect(room.state.match.siding).toMatchObject({ ready: [1, 0], startAt: 188013 });
+    expect(service.sweepIdle(188012).map(t => t.slug)).not.toContain(room.slug);
+    expect(service.sweepIdle(188013).map(t => t.slug)).toContain(room.slug);
+    room = service.get(room.slug, "g", users[0]);
     expect(room.state).toMatchObject({ phase: "draw", turn: 1, turnSeat: 0, attack: null, identified: null, ended: false });
     expect(room.state.seats.every(s => !s.eliminated && !s.twin.length && s.resources.lp === 8000)).toBe(true);
     expect(room.state.deckChecks.instances).toEqual([]);
     expect(room.state.deckChecks.flags).toEqual([]);
     expect(room.state.deckChecks.registrations[0]!.deck).toEqual(deckChanges);
-    expect(() => act({ type: "undo", targetActionId: concessionId }, 183014)).toThrow(/undo/i);
+    expect(() => act({ type: "undo", targetActionId: concessionId }, 188014)).toThrow(/undo/i);
     expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
-    act({ type: "match.declare", winnerSeat: null }, 183015);
-    act({ type: "match.confirm", actorSeat: 1, declarationId: room.state.match.pendingResult!.id, accept: true }, 183016);
-    act({ type: "match.continue" }, 183017);
+    act({ type: "match.declare", winnerSeat: null }, 188015);
+    act({ type: "match.confirm", actorSeat: 1, declarationId: room.state.match.pendingResult!.id, accept: true }, 188016);
+    act({ type: "match.continue" }, 188017);
     const staleSeq = room.lastSeq;
-    room = service.act(room.slug, "g", users[0], { baseSeq: 0, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "stale-timeout-due" } }, 483017);
+    room = service.act(room.slug, "g", users[0], { baseSeq: 0, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "stale-timeout-due" } }, 488017);
     expect(room.lastSeq).toBe(staleSeq + 1);
-    room = service.act(room.slug, "g", users[0], { baseSeq: staleSeq, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "duplicate-timeout" } }, 483017);
+    room = service.act(room.slug, "g", users[0], { baseSeq: staleSeq, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "duplicate-timeout" } }, 488017);
     expect(room.lastSeq).toBe(staleSeq + 1);
-    expect(service.sweepIdle(483017).map(t => t.slug)).not.toContain(room.slug);
+    expect(service.sweepIdle(488017).map(t => t.slug)).not.toContain(room.slug);
     room = service.get(room.slug, "g", users[0]);
     expect(room.state).toMatchObject({ turnSeat: 0, ended: false, match: { phase: "duel" } });
     expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
-    act({ type: "player.concede", actorSeat: 1 }, 483018);
+    act({ type: "player.concede", actorSeat: 1 }, 488018);
     expect(room.status).toBe("ended");
     expect(room.state.match).toMatchObject({ phase: "done", winnerSeat: 0 });
     expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
     const endedSeq = room.lastSeq;
-    room = service.act(room.slug, "g", users[0], { baseSeq: 0, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "ended-timeout" } }, 483019);
+    room = service.act(room.slug, "g", users[0], { baseSeq: 0, action: { type: "side.timeout", actorSeat: 0, idempotencyKey: "ended-timeout" } }, 488019);
     expect(room.lastSeq).toBe(endedSeq);
     expect(service.list("g", users[0]).find(t => t.slug === room.slug)?.bestOf).toBe(3);
     const physical = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 3 }, 500000);
@@ -3552,7 +3559,7 @@ it('keeps history and replay indefinitely, prunes transient data, and supports a
 
 
 // B3 result lifecycle, using the real reducer, slot advancement and scoring service.
-async function tournamentResultSession(format: "single_elim" | "round_robin" = "single_elim") {
+async function tournamentResultSession(format: "single_elim" | "round_robin" = "single_elim", bestOf: 1 | 3 = 1) {
   const { createTournamentService } = await import("../../src/services/tournaments.js");
   const { createTournamentRemoteService } = await import("../../src/services/tournament-remote.js");
   const { createTournamentRemoteResultService } = await import("../../src/services/tournament-remote-results.js");
@@ -3560,7 +3567,7 @@ async function tournamentResultSession(format: "single_elim" | "round_robin" = "
   const actors = Array.from({length:4}, (_, i) => seedIdentity(db, {name:`Remote ${i}`}));
   vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("REMOTE_DUELS_USERS", "*");
   const tournaments = createTournamentService(db);
-  const tournament = tournaments.create("g", "Result cup", format, actors[0].userId, {duelType:"remote", bestOf:1});
+  const tournament = tournaments.create("g", "Result cup", format, actors[0].userId, {duelType:"remote", bestOf});
   for (const actor of actors) tournaments.join(tournament.id, actor.playerId);
   tournaments.start(tournament.id);
   const slot = tournaments.matches(tournament.id).find(m => m.playerTwoId !== null)!;
@@ -3609,6 +3616,19 @@ it("rebuilds tournament rules from table.created before an opponent changes LP t
     expect(s.results.get(s.input)).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"lp"});
     s.results.confirm(s.input);
     expect(s.results.confirm({...s.input,actorUserId:s.two.userId}).status).toBe("final");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("a quit between games of a tournament match is a forfeit that finalizes by itself, without a game score", async () => {
+  const s = await tournamentResultSession("single_elim", 3);
+  try {
+    s.act(1,{type:"player.concede"}); s.act(1,{type:"match.continue"});
+    s.act(0,{type:"player.leave"});
+    expect(s.refresh()).toMatchObject({status:"ended",endReason:"forfeit",state:{match:{phase:"done",winnerSeat:1}}});
+    const proposed = s.results.get(s.input);
+    expect(proposed).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"concede",score:null});
+    s.results.finalizeDue(proposed!.confirmDeadlineAt!);
+    expect(s.results.get(s.input)).toMatchObject({status:"final",winnerPlayerId:s.one.playerId});
   } finally {vi.unstubAllEnvs();}
 });
 
@@ -3792,6 +3812,8 @@ it.each(['tap','manual'] as const)('keeps only tournament result evidence throug
     act({type:'match.first', seatGoesFirst:0}, 1);
     act({type:'side.ready', seat:0});
     act({type:'side.ready', seat:1}, 1);
+    // The next game starts after the 5-second countdown.
+    service.sweepIdle(13000); room = service.get(room.slug, 'g', actors[0].userId);
     act({type:'twin.place', seat:0, zone:'monster', card:{ref:'public', cardId:1, slot:1}});
     act({type:'twin.place', seat:0, zone:'monster', card:{ref:'unknown', slot:2}});
     act({type:'twin.place', seat:0, zone:'spell-trap', card:{ref:'secret-set', cardId:2, slot:1, faceUp:false}});
@@ -4208,6 +4230,58 @@ describe("account deletion in live remote rooms", () => {
     expect(room.events.at(-1)).toMatchObject({userId:null,actorSeat:1,action:{type:"table.ended",reason:"account-deleted"}});
     expect(()=>service.act(room.slug,"g",users[0],{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:0,text:"hello",idempotencyKey:"after-delete"}})).toThrow(/not active/);
     expect(service.replayFrames(room.slug,"g",users[0]).steps).toHaveLength(room.lastSeq);
+
+    // Quitting forfeits the match: the opponent wins, the table ends as a forfeit, and nothing can undo it.
+    const quit=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount,bestOf:3},3000);
+    service.join(quit.slug,"g",users[2],"Guest",1,3001);
+    for(let seat=0;seat<seatCount;seat++) service.ready(quit.slug,"g",(seat?users[2]:users[0]),true,3002);
+    let table=service.start(quit.slug,"g",users[0],3003);
+    const step=(seat:number,action:Record<string,unknown>,at:number)=>table=service.act(table.slug,"g",(seat?users[2]:users[0]),{baseSeq:table.lastSeq,action:remoteActionSchema.parse({actorSeat:seat,idempotencyKey:`quit-${at}`,...action})},at);
+    if(phase==="siding") {
+      step(1,{type:"player.concede"},3004); step(1,{type:"match.continue"},3005);
+      step(0,{type:"side.ready",seat:0},3006); step(1,{type:"side.ready",seat:1},3007);
+      // All ready: the next game starts after 5 seconds. An un-ready cancels it, a new ready restarts it.
+      expect(table.state.match.siding).toMatchObject({ready:[0,1],startAt:8007});
+      step(1,{type:"side.unready",seat:1},3008);
+      expect(table.state.match.siding!.startAt).toBeUndefined();
+      step(1,{type:"side.ready",seat:1},3009);
+      expect(table.state.match.siding).toMatchObject({startAt:8009});
+    }
+    step(1,{type:"player.leave"},3010);
+    expect(table).toMatchObject({status:"ended",endReason:"forfeit",state:{ended:true,winnerSeat:0,match:{phase:"done",winnerSeat:0}}});
+    expect(table.state.seats[1]).toMatchObject({eliminated:true,accountDeleted:true});
+    expect(table.state.undo ?? null).toBeNull();
+    expect(()=>step(0,{type:"undo",targetActionId:table.events.at(-1)!.id},3011)).toThrow(/not active/);
+    expect(service.replay(table.slug,"g",users[0])).toEqual(table.state);
+
+    // A table that nobody swept yet closes the moment a move arrives, and the player gets the ended table instead of a refused move.
+    const idle=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount,bestOf:3},4000);
+    service.join(idle.slug,"g",users[2],"Guest",1,4001);
+    for(let seat=0;seat<seatCount;seat++) service.ready(idle.slug,"g",(seat?users[2]:users[0]),true,4002);
+    let late=service.start(idle.slug,"g",users[0],4003);
+    const note=(at:number)=>late=service.act(late.slug,"g",users[0],{baseSeq:late.lastSeq,action:{type:"log.note",actorSeat:0,text:"hi",idempotencyKey:`late-${at}`}},at);
+    db.prepare("update remote_tables set last_event_at=1 where slug=?").run(late.slug);
+    expect(note(5000).status).toBe("active");
+    note(4003+601_000);
+    expect(late).toMatchObject({status:"ended",endReason:"idle"});
+  });
+
+  it("a quit in an FFA Bo3 game ends only that seat: the match goes on, and the seat that left cannot touch the match flow", () => {
+    const {service,users}=setup();
+    let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount:3,bestOf:3},1000);
+    for(let seat=1;seat<3;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
+    for(let seat=0;seat<3;seat++) service.ready(room.slug,"g",users[seat],true,1002);
+    room=service.start(room.slug,"g",users[0],1003);
+    const act=(seat:number,action:Record<string,unknown>)=>room=service.act(room.slug,"g",users[seat],{baseSeq:room.lastSeq,action:remoteActionSchema.parse({actorSeat:seat,idempotencyKey:`ffa-quit-${room.lastSeq}-${seat}`,...action})},2000+room.lastSeq);
+    act(0,{type:"lp.change",seat:2,delta:-8000,reason:"damage"});
+    expect(room.state.seats[2].eliminated).toBe(true);
+    // Seat 2 is out of the game by Life Points and seat 1 quits: seat 0 wins game 1, and seat 2 still plays on in the match.
+    act(1,{type:"player.leave"});
+    expect(room).toMatchObject({status:"active",state:{match:{phase:"result",games:[{winnerSeat:0}]}}});
+    for(const action of [{type:"match.continue"},{type:"side.ready",seat:1}]) expect(()=>act(1,action)).toThrow(/left this match/);
+    // A quit does not wait for another action in flight: the stale sequence is not a reason to refuse it.
+    expect(()=>service.act(room.slug,"g",users[2],{baseSeq:room.lastSeq-1,action:remoteActionSchema.parse({type:"player.leave",actorSeat:2,idempotencyKey:"ffa-quit-stale"})},9000)).not.toThrow();
+    expect(room).toBeDefined();
   });
 
   it.each([[3,1,"duel"],[4,1,"duel"],[3,3,"duel"],[4,3,"duel"],[3,3,"result"],[4,3,"siding"]] as const)("concedes only the deleted FFA seat until one player remains (%i seats, Bo%i, %s)", (seatCount,bestOf,phase) => {
@@ -4242,6 +4316,9 @@ describe("account deletion in live remote rooms", () => {
           if(phase==="result") act(1,{type:"match.continue"});
           for(let readySeat=1;readySeat<seatCount;readySeat++) act(readySeat,{type:"side.ready",seat:readySeat});
           act(1,{type:"match.first",seatGoesFirst:1});
+          // Everyone left is ready: the next game starts when the countdown ends.
+          const startAt=room.state.match.siding!.startAt!; service.sweepIdle(startAt); clock.mockReturnValue(startAt); room=service.get(room.slug,"g",keeper);
+          expect(room.state.match.phase).toBe("duel");
           expect(room.state.seats[0].eliminated).toBe(true);
         }
         if(seat<seatCount-2) {

@@ -275,9 +275,17 @@ export function createRemoteDuelService(db: Database.Database, options: {
       "Tournament match is unavailable", 409, "TOURNAMENT_MATCH_UNAVAILABLE");
     remoteAssert(requestedSeat === undefined || requestedSeat === (userId === row.created_by ? 0 : 1), "Seat is unavailable", 409, "SEAT_UNAVAILABLE");
   }
+  /** One rule for "closed for inactivity", shared by the sweep and every request: a table that started less than the close time ago is never idle. */
+  const idleExpired = (row: { last_event_at: number; started_at: number | null }, now: number) =>
+    now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS && !(row.started_at !== null && now - row.started_at < REMOTE_IDLE_CLOSE_MS);
+  function closeIdle(row: TableRow, now: number) {
+    append(row, { type: "table.ended", reason: "idle" }, now, null, null, false);
+    db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where id=?").run(now, row.id);
+    captureRemoteTournamentEvidence(db, row.id, now);
+  }
   function assertOpen(row: Row, now: number) {
     remoteAssert(row.status !== "ended", "Remote table has ended", 409, "TABLE_ENDED");
-    remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS, "Remote table expired from inactivity", 409, "TABLE_IDLE");
+    remoteAssert(!idleExpired(row, now), "Remote table expired from inactivity", 409, "TABLE_IDLE");
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
@@ -565,8 +573,11 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
         // An admin who starts or stops watching adds a log line. That is not a game change, so it never makes a player's move stale.
-        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
-        remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
+        // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
+        if (row.status === "active" && idleExpired(row, now) && command.type !== "player.leave") { closeIdle(row, now); return room(load(slug, guildId), userId); }
+        remoteAssert(row.status === "active" || (row.end_reason === "game" && command.type === "undo"), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
@@ -657,8 +668,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         syncDecks(row, state);
         const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
-          .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? "game" : null, row.id);
-        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now);
+          .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? command.type === "player.leave" ? "forfeit" : "game" : null, row.id);
+        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now,command.type === "player.leave");
         else if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
         else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);
         return room(load(slug, guildId), userId, undefined, state);
@@ -828,7 +839,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
           const row = load(candidate.slug, candidate.guild_id);
           const before = readState(row);
           const action: RemoteAction = { type: "side.timeout", actorSeat: 0, idempotencyKey: `sys:${randomUUID()}`, at: now };
-          const effects: RemoteReductionContext = { matchFlowVersion: 1 };
+          const effects: RemoteReductionContext = { matchFlowVersion: REMOTE_REDUCTION_VERSIONS.matchFlowVersion };
           const state = getRemoteGame(row.game_id).reduce(before, action, effects);
           append(row, action, now, null, null, true, effects);
           db.prepare("update remote_tables set state_json=? where id=?").run(writeRemoteState(db,row.id,state), row.id);
@@ -837,12 +848,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const due = db.prepare(`select ${tableColumns} from remote_tables t where t.status!='ended' and t.last_event_at<=?`).all(now - REMOTE_IDLE_WARNING_MS) as TableRow[];
         for (const row of due) {
           // A table that started less than the close time ago is never closed as idle, whatever its last event says.
-          const startedRecently = row.started_at !== null && now - row.started_at < REMOTE_IDLE_CLOSE_MS;
-          if (now - row.last_event_at >= REMOTE_IDLE_CLOSE_MS && !startedRecently) {
-            append(row, { type: "table.ended", reason: "idle" }, now, null, null, false);
-            db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='idle' where id=?").run(now, row.id);
-            captureRemoteTournamentEvidence(db, row.id, now);
-          } else if (row.idle_warning_at === null) {
+          if (idleExpired(row, now)) closeIdle(row, now);
+          else if (row.idle_warning_at === null) {
             append(row, { type: "idle.warning", closesAt: row.last_event_at + REMOTE_IDLE_CLOSE_MS }, now, null, null, false);
             db.prepare("update remote_tables set idle_warning_at=? where id=?").run(now, row.id);
           } else continue;

@@ -1,7 +1,7 @@
 import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
-import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending } from "../match.js";
+import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -119,17 +119,23 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     if (action.reason === "start" && state.detection?.[action.actorSeat]?.mode === action.mode) return state;
     return { ...cloneRemoteCurrent(state), detection: { ...state.detection, [action.actorSeat]: { mode: action.mode, at } }, updatedAt: at };
   }
-  if (action.type === "player.concede" && context?.accountDeletion === 1) {
+  // A seat that left cannot touch the match flow (Ready, Not ready, a first-choice pick, Continue) or stall a countdown. The clock check stays open to everyone.
+  if (state.seats[action.actorSeat].accountDeleted && action.type !== "side.timeout" && /^(match|side)\./.test(action.type)) remoteAssert(false, "You left this match", 403, "LEFT_MATCH");
+  if (action.type === "player.leave") remoteAssert(!state.seats[action.actorSeat].accountDeleted, "You already left this match", 409, "ALREADY_LEFT");
+  if (action.type === "player.leave" || action.type === "player.concede" && context?.accountDeletion === 1) {
     // A departed FFA seat cannot return in a later game, including a deletion during siding.
+    // Quitting is the same departure as an account deletion: a live game is conceded first, then the seat leaves the match.
     const playing = !state.ended && !state.seats[action.actorSeat].eliminated;
-    const next = playing ? reduce(state,action,{...context,accountDeletion:undefined}) : {...cloneRemoteCurrent(state),updatedAt:at};
+    const next = playing ? reduce(state,{...action,type:"player.concede"},{...context,accountDeletion:undefined}) : {...cloneRemoteCurrent(state),updatedAt:at};
+    // A quit is final: nothing before it can be undone, and it cannot be undone itself.
+    if (action.type === "player.leave") { next.undo = null; delete next.undoHistory; }
     const seat = next.seats[action.actorSeat];
     seat.accountDeleted = true; seat.eliminated = true; seat.twin = []; seat.knownHand = [];
     delete next.match.pendingResult;
     const remaining = next.seats.filter(s => !s.accountDeleted);
-    const living = next.seats.filter(s => !s.eliminated);
-    if ((!state.ended && living.length <= 1) || remaining.length <= 1) {
-      const winner = (!state.ended ? living[0] : remaining[0])?.seat ?? null;
+    // The match ends only when one player is left. A live game that this departure decided was already finished by the concession above (Bo1 ends the match, Bo3 goes on to the result).
+    if (remaining.length <= 1) {
+      const winner = remaining[0]?.seat ?? null;
       next.ended = true; next.winnerSeat = winner; next.attack = null;
       next.match.phase = "done"; next.match.winnerSeat = winner;
       delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat;
@@ -137,6 +143,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (next.match.firstChooser != null && next.seats[next.match.firstChooser].accountDeleted) next.match.firstChooser = remaining[0].seat;
       if (next.match.firstSeat != null && next.seats[next.match.firstSeat].accountDeleted) delete next.match.firstSeat;
       if (next.match.siding && !next.match.siding.ready.includes(seat.seat)) next.match.siding.ready.push(seat.seat);
+      if (context?.matchFlowVersion === 2) syncRemoteSideStart(next, at);
     }
     return next;
   }

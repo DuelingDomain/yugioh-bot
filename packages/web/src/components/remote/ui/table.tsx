@@ -48,7 +48,7 @@ import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
 import { OpeningRollScreen } from "./opening-roll";
 import { matchOf } from "./match-model";
-import { DeckMenu, SurrenderConfirm } from "./surrender";
+import { DeckMenu, LeaveDock, SurrenderConfirm } from "./surrender";
 import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import { PhonePairing } from "../phone/pairing";
@@ -131,6 +131,7 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
   if (room.endReason === "creator-left") return "The host left the lobby.";
   if (room.endReason === "account-deleted") return "A player deleted their account.";
+  if (room.endReason === "forfeit") return winner ? `A player left the match. ${winner} won.` : "A player left the match.";
   return winner ? `${winner} won.` : "The game is over.";
 }
 
@@ -309,16 +310,25 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   // Surrender: a seated, living player in a live game. A solo test table has no other player, so the seat whose turn it is gives up.
   // Not during the opening die roll and first-player choice. On a solo table the Deck menu gives up the seat whose Deck was clicked.
   const openingPending = turnShown < 0;
-  const surrenderable = (seat: number) => live && !openingPending && !!state.seats[seat] && !state.seats[seat].eliminated;
+  // The die roll still allows it: the game is live from the first moment.
+  const surrenderable = (seat: number) => live && !!state.seats[seat] && !state.seats[seat].eliminated;
   const [deckAt, setDeckAt] = useState<{ seat: number; rect: Rect } | null>(null);
   const [surrenderPick, setSurrenderPick] = useState<number | null>(null);
   const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
   const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
   const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
+  // Quit the match: a seated player of a live match, in any phase (game, die roll, between games). A solo test table has nobody to forfeit to.
+  const canQuit = !solo && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
+  // A seat that left the match watches the rest of it: it cannot ready, continue or choose.
+  const leftMatch = mySeat >= 0 && !!state.seats[mySeat]?.accountDeleted;
+  const [leaveMode, setLeaveMode] = useState<"game" | "match">("game");
+  const quit = () => { void act({ type: "player.leave", actorSeat: mySeat }).then(done => { if (done) router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels"); }); };
+  const openingShown = match.phase === "duel" && !!match.opening && (match.opening.chosenSeat === undefined || !!match.opening.auto) && !state.ended && room.status === "active";
+  const openLeave = (mode: "game" | "match", el: HTMLElement) => { setSurrenderPick(null); setLeaveMode(mode); layers.toggle("surrender", el); };
   // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
-  useEffect(() => { if (layers.layer !== "surrender") setSurrenderPick(null); }, [layers.layer]);
-  // The game ended, I am out, or the opening started: drop a surrender question that is no longer true.
-  useEffect(() => { if (!canSurrender && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, layers]);
+  useEffect(() => { if (layers.layer !== "surrender") { setSurrenderPick(null); setLeaveMode("game"); } }, [layers.layer]);
+  // The question no longer applies (the game ended, I left, the table ended): close it.
+  useEffect(() => { if (!(layers.layer === "surrender" && leaveMode === "match" ? canQuit : canSurrender) && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, canQuit, leaveMode, layers]);
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
   const nextSeat = (() => { if (turnShown < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
   const players: Player[] = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
@@ -1370,7 +1380,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
-        onSurrender={canSurrender ? el => { setSurrenderPick(null); layers.toggle("surrender", el); } : undefined} surrenderOpen={layers.layer === "surrender"}
+        onSurrender={canSurrender ? el => openLeave("game", el) : undefined} surrenderOpen={layers.layer === "surrender" && leaveMode === "game"}
+        onQuit={canQuit ? el => openLeave("match", el) : undefined}
         webcamOnly={webcamOnly} onView={setWebcamOnly} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
@@ -1440,8 +1451,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       onClose={() => layers.close("flag")} />
     <DeckMenu open={layers.layer === "deck" && !!deckAt && surrenderable(deckAt.seat)} anchor={deckAt?.rect ?? null} deckCards={deckAt ? state.seats[deckAt.seat]?.twin.filter(card => card.zone === "deck").length ?? 0 : 0}
       onView={() => { if (deckAt) openPile(deckAt.seat, "deck", null); }} onSurrender={() => { setSurrenderPick(deckAt?.seat ?? null); layers.open("surrender"); }} />
-    <SurrenderConfirm open={layers.layer === "surrender" && canSurrender} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} name={name(surrenderSeat)} busy={matchBusy}
-      onConfirm={() => { layers.close(); surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
+    <SurrenderConfirm open={layers.layer === "surrender" && (leaveMode === "match" ? canQuit : canSurrender)} mode={leaveMode} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} name={name(surrenderSeat)} busy={matchBusy}
+      onConfirm={() => { layers.close(); if (leaveMode === "match") quit(); else surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
@@ -1478,15 +1489,18 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     {live ? <DeclarePending match={match} mySeat={mySeat} seats={seatIds} name={name} /> : null}
     <DeclareConfirm match={match} mySeat={mySeat} name={name} busy={matchBusy} onAnswer={(declarationId, accept) => matchStep({ type: "match.confirm", actorSeat: mySeat, declarationId, accept })} />
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
-    {match.phase === "result" || (match.phase === "done" && !boardView)
-      ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+    {(match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView)
+      ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
-      : match.phase === "siding" && match.siding
-        ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+      : match.phase === "siding" && match.siding && room.status === "active"
+        ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
       ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
+    {room.status === "active" && (openingShown || match.phase === "result" || (match.phase === "siding" && match.siding))
+      ? <LeaveDock onSurrender={openingShown && canSurrender ? () => { setSurrenderPick(null); setLeaveMode("game"); layers.open("surrender"); } : undefined}
+        onQuit={canQuit ? () => { setLeaveMode("match"); layers.open("surrender"); } : undefined} /> : null}
     <Peek peek={peek} />
     {tokens.node}
     {control.node}

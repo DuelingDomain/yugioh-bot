@@ -24,3 +24,10 @@
 /* Under the table's `.app button { color: inherit }`, so the parent selector wins. Light on red is about 5:1. */
 .actions .yes { background: var(--lossd, #e45a4d); border-color: var(--lossd, #e45a4d); color: #1b0604; }
 .actions .yes:disabled { opacity: 0.55; }
+
+/* Over the full-screen die roll, result and siding screens (z-index 150 to 200), under the confirm (240). It sits in the middle of the
+   header row, the same place as the top bar group, so the buttons do not move when a screen covers the header (on a phone: right corner). */
+.dock { position: fixed; z-index: 230; top: 0; left: 50%; transform: translateX(-50%); height: var(--hdr, 48px); display: flex; align-items: center; gap: 8px; }
+.dock .dockBtn { height: 34px; padding: 0 15px; font-size: 14px; font-weight: 700; white-space: nowrap; color: var(--loss, #ff8f84); background: rgb(13 8 25 / 0.88); border-color: color-mix(in srgb, var(--lossd, #e45a4d) 70%, transparent); }
+/* On a phone the opening, result and siding headers use the middle of the top row for the title, so the dock moves to the right corner. */
+@media (max-width: 900px) { .dock { left: auto; right: 12px; top: 8px; transform: none; height: auto; } .dock .dockBtn { height: 38px; } }

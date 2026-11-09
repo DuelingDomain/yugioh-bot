@@ -81,7 +81,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
       let resultAction: object | undefined;
       switch (action.type) {
         case 'lp.change': resultAction={type:action.type,seat:action.seat,delta:action.delta,reason:action.reason}; break;
-        case 'player.concede': resultAction={type:action.type}; break;
+        case 'player.concede': case 'player.leave': resultAction={type:action.type}; break;
         case 'match.declare': resultAction={type:action.type,winnerSeat:action.winnerSeat}; break;
         case 'match.confirm': resultAction={type:action.type,declarationSeq:sequences.get(action.declarationId) ?? null,accept:action.accept}; break;
         case 'undo': resultAction={type:action.type,targetSeq:sequences.get(action.targetActionId) ?? null}; break;

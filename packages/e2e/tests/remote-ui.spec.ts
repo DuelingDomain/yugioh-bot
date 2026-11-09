@@ -203,11 +203,18 @@ test.describe("remote duels screen, solo", () => {
       for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
       await shot(a, "surrender-1-button");
       if (SHOTS) {
-        for (const [w, h] of [[1366, 768], [390, 844], [375, 812], [360, 740]]) {
+        for (const [w, h] of [[1366, 768], [1024, 768], [390, 844], [375, 812], [360, 740]]) {
           await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
           await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
           // The flag sits fully inside the screen.
           expect(await a.getByTestId("surrender-button").evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+          // The leave group sits inside the screen and covers no other header item.
+          expect(await a.getByTestId("leave-group").evaluate(el => {
+            const r = el.getBoundingClientRect(); const header = el.parentElement!;
+            const hit = Array.from(header.children).filter(c => c !== el && c.getBoundingClientRect().width > 0 && getComputedStyle(c).display !== "none").some(c => { const o = c.getBoundingClientRect(); return o.left < r.right - 0.5 && o.right > r.left + 0.5 && o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5; });
+            return !hit && r.left >= 0 && r.right <= window.innerWidth;
+          })).toBe(true);
+          await expect(a.getByTestId("quit-button")).toBeVisible(); await a.getByTestId("quit-button").click(); await shot(a, `quit-confirm-${w}`); await a.getByTestId("surrender-no").click();
           await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
           await a.locator('[data-zone="deck"][data-seat="0"]').click(); await shot(a, `surrender-3-deck-menu-${w}`); await a.keyboard.press("Escape");
         }
@@ -233,6 +240,20 @@ test.describe("remote duels screen, solo", () => {
       await expect(b.getByTestId("match-reason")).toContainText("conceded");
       await shot(a, "surrender-4-end-loser"); await shot(b, "surrender-5-end-winner");
       await expect(a.getByTestId("surrender-button")).toHaveCount(0);
+      if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(400); await expect(a.getByTestId("dock-quit")).toBeVisible(); await shot(a, `quit-result-${w}`); }
+      await a.setViewportSize({ width: 1920, height: 1080 });
+      // Between games, in side decking with nobody ready, the loser quits the match: it asks first, the other player wins and the table ends.
+      // The fixture cards have no art. Their image requests never end, and a browser runs only a few requests at once, so they would hold back the Quit request.
+      for (const page of [a, b]) await page.route("**/api/cards/*/image*", route => route.abort());
+      await a.getByTestId("match-continue").click();
+      await expect(a.getByTestId("siding")).toBeVisible({ timeout: 15_000 });
+      if (SHOTS) for (const [w, h] of [[1920, 1080], [1366, 768], [390, 844], [360, 740]]) { await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(400); await expect(a.getByTestId("dock-quit")).toBeVisible(); await shot(a, `quit-siding-${w}`); }
+      await a.setViewportSize({ width: 1920, height: 1080 });
+      await a.getByTestId("dock-quit").click();
+      await expect(a.getByTestId("quit-yes")).toBeVisible();
+      await a.getByTestId("quit-yes").click();
+      await expect(b.getByTestId("match-kicker")).toHaveText("Match over", { timeout: 15_000 });
+      await expect(b.getByTestId("table-ended")).toContainText("left the match");
     } finally { await alice.close(); await bob.close(); }
     // A solo test table: the same button ends the game. Setting a seat to 0 LP ends a game on a table that is not in a tournament.
     const solo = await soloTable(context.request, 2);
