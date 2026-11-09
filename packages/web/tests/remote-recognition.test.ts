@@ -163,7 +163,7 @@ it("sends a Rescan request to one seat, answers off or started, and keeps one re
   expect(await channels[0].request(0)).toBe("unavailable");      // not yourself
   now += 15_000; answer = "off";
   expect(await channels[0].request(1)).toBe("off"); expect(started).toEqual([0]);
-  now += 15_000; answer = "paused";                              // the other client waits on a prompt, the sync hold or calibration
+  now += 15_000; answer = "paused";                              // the other client waits on the sync hold or calibration
   expect(await channels[0].request(1)).toBe("paused");
   const lonely = new RescanChannel(0, async () => undefined, () => "started", () => now, 50);
   expect(await lonely.request(2)).toBe("unavailable");           // no answer in time

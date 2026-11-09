@@ -181,12 +181,24 @@ test('uncertain results prompt with five alternatives, require confirmation and 
   r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
 test('a read that never resolves (soft frames under a colour cast) falls back to the prompt within 8 s, never Identifying for ever',async()=>{
-  const r=fieldRig('not sure');r.detail=20;await r.tick(100);r.detail=8;
+  const r=fieldRig('not sure');r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
   for(let i=0;i<30;i++)await r.tick(200);
   assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate','still waiting before the deadline');assert.equal(r.events.length,0);
   for(let i=0;i<40;i++)await r.tick(200);
   const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].state,'prompt');
-  assert.ok(prompts[0].result?.candidates.length,'the read candidates are offered');assert.equal(r.reads,1);r.watcher.dispose();
+  assert.ok(prompts[0].result?.candidates.length,'the read candidates are offered');assert.equal(r.reads,1);
+  // The player dismisses it: automatic (gentle) scans keep that quiet; only a manual Scan field asks again, once.
+  r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);r.detail=20;r.watcher.scanNow({gentle:true});await r.tick(100);r.detail=8;
+  for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,1,'a gentle scan does not re-ask');
+  r.detail=20;r.watcher.scanNow();await r.tick(100);r.detail=8;for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,2,'a manual scan asks once more');
+  r.watcher.dispose();
+});
+test('the deadline prompt still asks for a look that has a remembered name, and offers that name first',async()=>{
+  const gallery=createFieldIdentityGallery();gallery.remember({space:'art-box',values:[1,0]},'A');
+  const r=fieldRig('not sure',20,gallery);r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
+  for(let i=0;i<100;i++)await r.tick(200);
+  const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1,'asked, not silently dismissed');
+  assert.equal(prompts[0].result?.candidates[0].cardId,'A','the remembered name comes first');r.watcher.dispose();
 });
 test('one-shot owner prompts: best matches settle normally, bound moves stay quiet and dismissal is final',async()=>{
   const r=fieldRig('not sure');r.decklist=[];r.embedding=[1,0];
@@ -352,6 +364,18 @@ test('departure needs repeated clear mat samples, never motion, stationary hands
     if(obstacle==='cpu')q.busy=true;
     for(let i=0;i<24;i++)await q.tick(300);
     assert.equal(q.events.filter(e=>e.type==='removed').length,0,obstacle);q.watcher.dispose();
+  }
+});
+
+test('a kept low-score outline over a spot that no longer shows the card does not hold it on the board',async()=>{
+  // The detector's hysteresis keeps a weak box where a card sat; the card is gone, the pixels show the mat.
+  for(const case_ of ['card-gone','card-still-there','card-other-look','hand-over-spot'] as const){
+    const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+    r.outlines=[{...card(.3,.3),confidence:.4,kept:true}];
+    if(case_==='card-other-look')r.appearance=Array.from({length:12},(_,i)=>i%3?.9:.4);else if(case_!=='card-still-there')r.appearance=Array(12).fill(.2);
+    if(case_==='hand-over-spot')r.touchedAt=()=>.3;
+    for(let i=0;i<14;i++)await r.tick(300);
+    assert.equal(r.events.filter(e=>e.type==='removed').length,case_==='card-gone'?1:0,case_);r.watcher.dispose();
   }
 });
 

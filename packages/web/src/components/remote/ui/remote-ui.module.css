@@ -235,7 +235,10 @@
 .field[data-rows] .zc[data-row="1"]{grid-row:2}.field[data-rows] .zc[data-row="2"]{grid-row:3}
 .field[data-rows] .zc.ez{grid-row:1;border-color:rgb(232 185 79/.4);background:rgb(232 185 79/.06)}
 .field[data-rows] .zc[data-z=e1]{grid-column:3}.field[data-rows] .zc[data-z=e2]{grid-column:5}
-.field[data-rows] .zc[data-z=ban]{grid-row:1;grid-column:7;border-color:rgb(240 128 170/.45)}.zc[data-z=ban] .zl{color:#f0a3c0}
+/* The Banished zone is a landscape cell (players lay banished cards sideways): as wide as a card is tall, at the right end of the top row, level with the Graveyard below it. Its top card is turned 90 degrees to fit. */
+.field[data-rows] .zc[data-z=ban]{grid-row:1;grid-column:7;width:calc(var(--cw) * 1.458);height:var(--cw);justify-self:end;align-self:end;border-color:rgb(240 128 170/.45)}.zc[data-z=ban] .zl{color:#f0a3c0}
+.field[data-rows] .zc[data-z=ban]>.cd{inset:auto;left:50%;top:50%;width:var(--cw);height:calc(var(--cw) * 1.458);transform:translate(-50%,-50%) rotate(90deg)}
+.field[data-rows] .zc[data-z=ban] .pl{text-align:left;padding-left:4px}
 .zc.ez .zl{color:#e8c66a}.zc.ez .zl small{color:#c9a85a}
 .field[data-rotated]{transform:rotate(180deg)}
 /* Text on a turned field stays upright so it can be read. */

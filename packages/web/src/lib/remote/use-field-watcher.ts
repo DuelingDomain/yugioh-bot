@@ -168,5 +168,5 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     resetBaselines:useCallback(()=>watcher.current?.resetBaselines(),[]),
     /** Live watcher snapshot (the React `snapshot` can be one render behind). */
     getSnapshot:useCallback(()=>watcher.current?.getSnapshot(),[]),
-    scanNow:useCallback(()=>watcher.current?.scanNow(),[])};
+    scanNow:useCallback((options?:{gentle?:boolean})=>watcher.current?.scanNow(options),[])};
 }

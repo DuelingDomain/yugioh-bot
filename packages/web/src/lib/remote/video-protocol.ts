@@ -104,7 +104,7 @@ export class RecognitionChannel {
 export const RESCAN_TOPIC = "remote.rescan.v1";
 /** One Rescan request per requester seat per this long, checked by both sides. */
 export const RESCAN_EVERY_MS = 15_000;
-/** What the other client did: ran a Scan field, Auto-detect is off, a scan already runs (busy), or it waits on its player (paused: a prompt, the sync hold, calibration or a tournament table). */
+/** What the other client did: ran a Scan field, Auto-detect is off, a scan already runs (busy), or it waits on its player (paused: the sync hold, calibration or a tournament table). */
 export type RescanReply = "started" | "off" | "busy" | "paused";
 /** How the other side answered. `limited`/`unavailable` come from the requester's own checks or the reply. */
 export type RescanResult = RescanReply | "limited" | "unavailable";

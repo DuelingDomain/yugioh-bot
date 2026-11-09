@@ -893,7 +893,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     // The Banished pile is a zone of its own right above the Graveyard (as on the printed mat): count, top card, click opens its tab.
     const ban = field.locator('[data-zone="ban"]'); await expect(ban).toBeVisible(); await expect(ban).toContainText("1");
     const [banBox, gyBox] = [(await ban.boundingBox())!, (await gy.boundingBox())!];
-    expect(Math.abs(banBox.x - gyBox.x)).toBeLessThan(2); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1);
+    expect(Math.abs(banBox.x + banBox.width - (gyBox.x + gyBox.width))).toBeLessThan(2); expect(banBox.width).toBeGreaterThan(banBox.height); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1); // landscape, right edges level
     await ban.click(); await expect(page.getByTestId("pile-tab-banished")).toHaveAttribute("aria-pressed", "true"); expect(await refs()).toEqual(["mst"]);
     await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
     for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 700]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `banish-zone-${w}`); }
