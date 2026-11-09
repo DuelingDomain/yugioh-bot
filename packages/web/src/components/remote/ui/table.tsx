@@ -12,7 +12,7 @@ import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
 import { DeckFlagPopover } from "./deck-flag";
-import { Banner, HealthPopover, IdleBanner, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
+import { Banner, HealthPopover, IdleBanner, type HealthExtra, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Rect, Tier } from "./popup";
 import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
@@ -37,6 +37,7 @@ import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
+import { useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
@@ -64,7 +65,7 @@ import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
@@ -1300,8 +1301,18 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   // ---- health ----
   const healthRows = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], health: hub.health(seat) }));
   const humans = healthRows.filter(row => !room.seats.find(item => item.seat === row.seat)?.bot);
-  const worst = humans.some(row => row.health.q === "bad") ? "bad" : humans.some(row => row.health.q === "warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
-  const healthText = worst === "good" ? "All feeds ok" : worst === "off" ? "Cameras off" : `${humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length} feed${humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length === 1 ? "" : "s"} weak`;
+  // The summary shows the real worst state: a weak feed, a table video error, a card watcher that did not start, a reader that fell back to the CPU.
+  const reader = useRecognitionBackend(), watcherError = useFieldWatcherError();
+  const extras: HealthExtra[] = [
+    ...(hub.error ? [{ key: "video", name: "Camera and table video", health: { q: "bad" as const, label: "Problem", detail: hub.error } }] : []),
+    ...(watcherError ? [{ key: "watcher", name: "Auto-detect", health: { q: "bad" as const, label: "Watcher unavailable", detail: "The card reader did not start. Reload the page or use Tap to identify." } }] : []),
+    ...(reader.note ? [{ key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU · GPU failed", detail: "Cards are read more slowly. Change it in the camera menu." } }] : []),
+  ];
+  const weakFeeds = humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length;
+  const all = [...humans.map(row => row.health.q), ...extras.map(item => item.health.q)];
+  const worst = all.includes("bad") ? "bad" : all.includes("warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
+  const issues = [...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...extras.map(item => item.health.label)];
+  const healthText = issues.length ? `${issues[0]}${issues.length > 1 ? ` +${issues.length - 1}` : ""}` : worst === "off" ? "Cameras off" : "All feeds ok";
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
@@ -1477,7 +1488,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       onView={() => { if (deckAt) openPile(deckAt.seat, "deck", null); }} onSurrender={() => { setSurrenderPick(deckAt?.seat ?? null); layers.open("surrender"); }} />
     <SurrenderConfirm open={layers.layer === "surrender" && (leaveMode === "match" ? canQuit : canSurrender)} mode={leaveMode} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} endsMatch={surrenderEndsMatch} name={name(surrenderSeat)} busy={matchBusy}
       onConfirm={() => { layers.close(); if (leaveMode === "match") quit(); else surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
-    <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
+    <HealthPopover open={layers.layer === "health"} rows={healthRows} extras={extras} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={webcamOnly && !needsBoard(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}

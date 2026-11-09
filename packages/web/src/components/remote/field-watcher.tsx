@@ -1162,15 +1162,22 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return()=>clearInterval(timer);
   },[room.slug,seat,recognition.backend]);
   // "Scan field": force two fresh full detector passes and the watcher's sweep (5 s at most on a slow CPU), then re-sync once.
-  const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined);
-  useEffect(()=>()=>clearInterval(scanTimer.current),[]);
+  const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined),scanGuard=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+  const watcherError=watch.snapshot.status==='error'?watch.snapshot.error||'Card watcher unavailable':'';
+  useEffect(()=>()=>{clearInterval(scanTimer.current);clearTimeout(scanGuard.current);},[]);
+  // The guard has done its job as soon as the scan has ended.
+  useEffect(()=>{if(!scanning)clearTimeout(scanGuard.current);},[scanning]);
   /** `manual` is the player's own press. `auto` and `remote` (a Rescan request) never end the sync hold and are silent unless they change the board. Returns false when it did not start. */
   const scanField=useCallback((origin:'manual'|'auto'|'remote'='manual'):boolean=>{
     const gentle=origin==='auto'||origin==='remote';
     if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice('Board check already running');return false;}
+    if(watcherError){if(!gentle)setNotice('Scan field cannot run: the card reader did not start. Reload the page or use Tap to identify.');return false;}
     if(gentle&&(syncHoldRef.current||calibrationBusy.current))return false;
     if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
     setScanning(true);const asked=performance.now();watch.scanNow?.({gentle});
+    // A hard end: whatever stalls the sweep or the board write, the button never stays on Scanning… for longer than this.
+    clearTimeout(scanGuard.current);
+    scanGuard.current=setTimeout(()=>{clearInterval(scanTimer.current);scanTimer.current=undefined;resyncing.current=false;setScanning(false);if(!gentle)setNotice('Scan took too long. Check that the camera sees the mat, then try again.');},15000);
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
       if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true,gentle);
@@ -1181,8 +1188,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }
     },100);
     return true;
-  },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold]);
-  useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection]);
+  },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold,watcherError]);
+  useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection,error:watcherError});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection,watcherError]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Auto resync: when the board has been still for 3 s and the camera disagrees with it (a board card whose cell shows nothing, or a resting
   // card inside a zone that no track follows), run a gentle Scan field once by itself, at most every 20 s. Never with the sync hold
