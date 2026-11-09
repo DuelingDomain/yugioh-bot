@@ -2,7 +2,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { ZoneKey } from "./model";
-import { cardArt, isLinkInfo, isMonsterInfo, useCardStatus, type CardInfo } from "./catalog";
+import { cardArt, hasBattleStats, isLinkInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
 import s from "./remote-ui.module.css";
@@ -33,7 +33,7 @@ function Art({ id }: { id: number }) {
 }
 
 function Stats({ info }: { info: CardInfo | undefined }) {
-  if (!isMonsterInfo(info)) return null;
+  if (!hasBattleStats(info)) return null;
   return <div className={`${s.dstat} ${s.num}`}><span><small>ATK</small>{info?.atk ?? "?"}</span>{isLinkInfo(info) ? null : <span><small>DEF</small>{info?.def ?? "?"}</span>}</div>;
 }
 /** Full type from the shared card-facts resolver ("Field Spell", "Link-2 Monster"); Level only for non-Link monsters. */
@@ -54,6 +54,8 @@ export type CardEdit = {
   faceUp: boolean; zone: string; extraZones?: boolean;
   /** The slot in its zone and a move to another cell of the same row, for when the board is hidden. */ slot?: number; onCell: (key: ZoneKey) => void;
   onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void;
+  /** Battle position of a face-up card in a Monster Zone (any card there, a Trap Monster too). Absent elsewhere. */
+  position?: { defense: boolean; onTurn: () => void };
   /** "Equipped to": link a face-up Spell/Trap Zone card to the monster it equips. Keys are `seat:ref`. */
   equip?: { current?: string; options: { key: string; label: string }[]; onEquip: (key: string | null) => void };
 };
@@ -130,6 +132,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
     {edit ? <MoveGroup edit={edit} /> : null}
     <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
+      {edit?.position ? <button type="button" className={BTN} onClick={edit.position.onTurn} data-testid="card-position">{edit.position.defense ? "Change to Attack" : "Change to Defense"}</button> : null}
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
       {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}

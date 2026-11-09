@@ -72,7 +72,7 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
 }
 export function fieldDepartureProposal(card:TwinCard,seat:number,destination:'deck'|'extra'|undefined=undefined):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
-  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination||['graveyard','banished'].includes(card.zone)?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{})};
+  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:destination??'hand',...(destination||['graveyard','banished'].includes(card.zone)?{faceUp:false}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
 }
 
 /** Queue delays must not attach an old read to replacement pixels. */

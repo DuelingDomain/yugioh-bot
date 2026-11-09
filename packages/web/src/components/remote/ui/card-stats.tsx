@@ -1,6 +1,6 @@
 "use client";
 
-import { isLinkInfo, isMonsterInfo, type CardInfo } from "./catalog";
+import { hasBattleStats, isLinkInfo, type CardInfo } from "./catalog";
 import { cardCode, type TwinCard } from "./model";
 import t from "./stats-tokens.module.css";
 
@@ -17,7 +17,7 @@ const FIELD_ZONES = new Set(["monster", "extra-monster"]);
 export function statsOf(card: TwinCard, info: CardInfo | undefined): CardStats | null {
   if (!card.faceUp || !FIELD_ZONES.has(card.zone)) return null;
   if (card.token) return { atk: show(card.token.atk), def: show(card.token.def) };
-  if (!cardCode(card) || !info || !isMonsterInfo(info)) return null;
+  if (!cardCode(card) || !info || !hasBattleStats(info)) return null;
   return isLinkInfo(info) ? { atk: show(info.atk), ...(info.level ? { rating: `L${info.level}` } : {}) } : { atk: show(info.atk), def: show(info.def) };
 }
 
