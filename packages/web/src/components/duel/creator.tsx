@@ -142,6 +142,20 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Narrow screens fold the three long option groups; wide screens ignore this state.
+  const [openFolds, setOpenFolds] = useState<Record<string, boolean>>({});
+  const foldProps = (id: string) => ({ "data-fold": "", "data-open": openFolds[id] ? "true" : "false" });
+  const foldToggle = (id: string) => (
+    <button
+      type="button"
+      className={styles.foldToggle}
+      aria-expanded={openFolds[id] === true}
+      aria-controls={`creator-${id}-fields`}
+      onClick={() => setOpenFolds((prev) => ({ ...prev, [id]: !prev[id] }))}
+    >
+      {openFolds[id] ? "Hide options" : "Show options"}
+    </button>
+  );
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const creationRequest = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -479,12 +493,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-rules">
+            <section className={styles.section} aria-labelledby="creator-rules" {...foldProps("rules")}>
               <div className={styles.side}>
                 <h2 id="creator-rules" className={ui.sectionTitle}>Rules</h2>
+                {foldToggle("rules")}
                 <p className={ui.hint}>Card legality and how the duel opens.</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-rules-fields">
                 <SheetSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} disabled={genesys != null} />
                 <SheetSegmented label="Card pool" value={settings.cardPool} choices={CARD_POOLS} onChange={(value) => update("cardPool", value)} full />
                 <SheetSelect label="Starting hand" value={settings.startingHand} choices={OPENING_HANDS} onChange={(value) => update("startingHand", value)} />
@@ -500,12 +515,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-clock">
+            <section className={styles.section} aria-labelledby="creator-clock" {...foldProps("clock")}>
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
+                {foldToggle("clock")}
                 <p className={ui.hint}>Pace of the duel and where duelists start.{multiplayerTables ? " In Tag this is per duelist; a team shares double." : ""}</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-clock-fields">
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
                 {ranked ? (
                   <p className={ui.hint}>Ranked clock: fixed 3-minute bank. Lose on timeout.</p>
@@ -523,12 +539,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
             </section>
 
-            <section className={styles.section} aria-labelledby="creator-deck">
+            <section className={styles.section} aria-labelledby="creator-deck" {...foldProps("deck")}>
               <div className={styles.side}>
                 <h2 id="creator-deck" className={ui.sectionTitle}>Deck rules</h2>
+                {foldToggle("deck")}
                 <p className={ui.hint}>What players may bring to the table.</p>
               </div>
-              <div className={styles.fields}>
+              <div className={styles.fields} id="creator-deck-fields">
                 <div className={styles.wide}>
                   <SheetSegmented label="Deck validation" value={settings.validateDeck} choices={VALIDATION} onChange={(value) => update("validateDeck", value)} />
                 </div>
