@@ -242,7 +242,7 @@
   top: auto;
   left: 0.5%;
   bottom: 12%;
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   width: 19%;
   min-width: 142px;
   max-width: 260px;
@@ -272,7 +272,7 @@
 .board[data-panel-room][data-panel-room] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])),
 .board[data-panel-room][data-panel-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
   inset: auto auto calc(100% - var(--room-y) - var(--room-h)) var(--room-x);
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   margin: 0;
   width: var(--room-w);
   min-width: 0;
@@ -339,7 +339,7 @@
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy) auto auto var(--pr-cx);
-  translate: -50% -50%;
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--drag-y, 0px));
   width: max-content;
   min-width: 0;
   max-width: min(max(460px, calc(480 * var(--duel-unit))), calc(var(--pr-w) - 24px));
@@ -348,7 +348,7 @@
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
   inset: var(--pr-cy) auto auto var(--pr-cx);
-  translate: -50% -50%;
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--drag-y, 0px));
   margin: 0;
   width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w) - 24px));
   max-height: min(calc(var(--pr-h) + 40px), calc(100% - 24px));
@@ -358,7 +358,7 @@
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
   inset: var(--pr-cy) auto auto var(--pr-cx);
-  translate: -50% -50%;
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--drag-y, 0px));
   margin: 0;
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-strip="true"]:not([data-precheck])) {
@@ -402,7 +402,7 @@
   --pc-title: calc(18px * var(--tt, 1));
   --pc-sub: calc(14px * var(--tt, 1));
   inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   margin: auto 0;
   width: var(--sr-w);
   min-width: 0;
@@ -454,7 +454,7 @@
 .board[data-portrait] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])),
 .board[data-portrait] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
   inset: auto 6px 40px;
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   margin: 0;
   width: calc(100% - 12px);
   min-width: 0;

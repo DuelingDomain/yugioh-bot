@@ -201,7 +201,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% calc(-50% + var(--pr-dy, 0px));
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--pr-dy, 0px) + var(--drag-y, 0px));
   width: max-content;
   min-width: 0;
   max-width: min(max(460px, calc(480 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
@@ -211,7 +211,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% calc(-50% + var(--pr-dy, 0px));
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--pr-dy, 0px) + var(--drag-y, 0px));
   margin: 0;
   width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
@@ -223,7 +223,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% calc(-50% + var(--pr-dy, 0px));
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--pr-dy, 0px) + var(--drag-y, 0px));
   margin: 0;
 }
 
@@ -271,7 +271,7 @@
   --pc-title: calc(18px * var(--tt, 1));
   --pc-sub: calc(14px * var(--tt, 1));
   inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   margin: auto 0;
   width: var(--sr-w);
   min-width: 0;

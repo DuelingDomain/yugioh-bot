@@ -68,6 +68,7 @@
   width: min(560px, calc(100% - 24px));
   height: fit-content;
   max-height: calc(100% - 24px);
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   display: flex;
   flex-direction: column;
   gap: calc(10 * var(--duel-unit, 1px));
@@ -735,7 +736,8 @@
 .bar {
   position: absolute;
   left: 50%;
-  translate: -50% -50%;
+  /* A dragged bar adds --drag-x/--drag-y (prompt-drag.tsx) to the centring. */
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--drag-y, 0px));
   box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
@@ -755,7 +757,7 @@
   animation: settle 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both, beckon 2.4s ease-in-out 0.5s infinite;
 }
 .bar[data-ready="true"] { animation-name: settle; }
-.bar[data-place="top"] { translate: -50% 0; }
+.bar[data-place="top"] { translate: calc(-50% + var(--drag-x, 0px)) var(--drag-y, 0px); }
 @media (prefers-reduced-motion: no-preference) {
   .bar[data-place="top"][data-reduced="false"] { animation-name: fall, beckon; }
   .bar[data-place="top"][data-reduced="false"][data-ready="true"] { animation-name: fall; }
@@ -863,14 +865,14 @@
 .bar[data-place="dock"] {
   left: auto;
   top: auto;
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   min-width: 0;
   max-width: min(var(--bar-fit, 380px), calc(100% - 16px));
   padding: 10px 12px;
   gap: 8px 12px;
 }
 .bar[data-place="dock"][data-dock="above"] { right: 12px; }
-.bar[data-place="dock"][data-dock="center"] { left: 50%; translate: -50% 0; }
+.bar[data-place="dock"][data-dock="center"] { left: 50%; translate: calc(-50% + var(--drag-x, 0px)) var(--drag-y, 0px); }
 .bar[data-place="dock"][data-dock="full"] { left: 8px; right: 8px; width: auto; max-width: none; }
 .bar[data-place="dock"] .barThumb { width: 24px; }
 .bar[data-place="dock"] .barMain { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
@@ -939,6 +941,127 @@
 @media (pointer: coarse) {
   .hint { display: none; }
   .bar .btn { min-height: 40px; }
+}
+
+/* ---------- compact: a phone, or a short window ----------
+   The prompt is a small card the player can drag by its handle (prompt-drag.tsx): tighter padding, a smaller title and ask line, a slim
+   count chip and slim buttons. A response or card panel is a sheet on the TOP edge, not the bottom one, so the player's own field and hand
+   stay in view; the select bar picks a free row of the board itself (select-bar-place.ts, `compact`). */
+@media (max-width: 600px), (max-height: 500px) {
+  .layer {
+    --pc-radius: 11px;
+    --pc-pad-y: 8px;
+    --pc-pad-x: 10px;
+    --pc-title: 14px;
+    --pc-sub: 12px;
+    --pc-btn-h: 34px;
+    --pc-btn-radius: 7px;
+  }
+  .bar { gap: 4px 10px; }
+  .bar[data-place="dock"] { padding: 6px 10px; gap: 4px 10px; }
+  .barMain { gap: 8px; }
+  .barThumb { width: 22px; }
+  .barText { gap: 2px; }
+  .barCount { padding: 0 7px; line-height: 1.4; }
+  .bar .btn,
+  .bar[data-place="dock"] .btn { min-width: 52px; min-height: var(--pc-btn-h); padding: 0 10px; }
+  .panel,
+  .panel[data-tone],
+  .panel[data-wide="true"],
+  .panel[data-strip="true"] {
+    inset: 0 0 auto 0;
+    /* A short board box (a phone on its side) still gets room for the ask line and the buttons. */
+    max-height: max(46%, min(100%, 170px));
+    gap: 6px;
+    padding: 8px 10px;
+    border-width: 0 0 1px;
+    border-radius: 0 0 12px 12px;
+  }
+  /* A card strip needs room for its cards (main gave a chain response 62% as a bottom sheet). */
+  .panel[data-strip="true"] { max-height: 70%; }
+  /* The panel scrolls when it must; no row (the cards, the buttons) shrinks into the next one. */
+  .panel[data-strip="true"] > * { flex-shrink: 0; }
+  /* The Confirm / Pass row stays in view when a long list scrolls. A strip panel has room for its cards and its row (70% of the board), so only a very short screen scrolls it. */
+  .panel > .foot {
+    position: sticky;
+    bottom: -8px;
+    z-index: 1;
+    margin: 0 -10px -8px;
+    padding: 6px 10px 8px;
+    background: var(--pc-surface);
+  }
+  /* The dense host (the 4-way grid) pads the panel by 12 and 10 units: the footer reaches the same edges. */
+  :global([data-prompt-dense]) .panel > .foot {
+    bottom: calc(-10 * var(--duel-unit, 1px));
+    margin: 0 calc(-12 * var(--duel-unit, 1px)) calc(-10 * var(--duel-unit, 1px));
+    padding-inline: calc(12 * var(--duel-unit, 1px));
+  }
+  .titles h2 { font-size: var(--pc-title); }
+  .titles p { margin-top: 1px; }
+  .pill { inset: 8px 0 auto 0; }
+}
+
+/* A phone on its side: the board box is only ~180px high, so a top sheet would cover the whole field. In the classic room (the layer has no table slot
+   around it, `data-prompt-host="room"`) the panel is a side sheet instead: about half the board wide, the full board high, on the right edge. The handle drags it
+   sideways to the other edge. A card strip uses smaller cards (card-strip.module.css), so the first card shows whole. The Tag and
+   free-for-all hosts place their prompt themselves (grid-stage.module.css, table-stage.module.css) and keep their own sheet. */
+@media (max-height: 500px) and (orientation: landscape) {
+  :global([data-prompt-host="room"]) .panel,
+  :global([data-prompt-host="room"]) .panel[data-tone],
+  :global([data-prompt-host="room"]) .panel[data-wide="true"],
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] {
+    inset: 0 0 0 auto;
+    width: 52%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border-width: 0 0 0 1px;
+    border-radius: 12px 0 0 12px;
+  }
+  :global([data-prompt-host="room"]) .panel .titles h2 { font-size: 13px; line-height: 1.2; }
+  /* The ask line stays (a pick count, the source card, the engine question); it takes at most two lines. */
+  :global([data-prompt-host="room"]) .panel .titles p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  /* A card strip: the cards sit in the left column and the Back / Pass buttons stack in a narrow right column, so the cards keep the height.
+     Every other row (the step line, the chain order chips, the effect text) flows full width above them. */
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-rows: auto;
+    column-gap: 8px;
+    row-gap: 4px;
+    align-content: start;
+    padding-block: 10px 0;
+  }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > * { grid-column: 1 / -1; min-width: 0; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .chainStrip { display: none; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > [data-strip-wrap] { grid-column: 1; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .foot {
+    grid-column: 2;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    position: static;
+    margin: 0;
+    padding: 0;
+    gap: 4px;
+    background: none;
+  }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .foot .spacer { display: none; }
+}
+
+/* A touch screen keeps the 40px buttons, compact or not. */
+@media (max-width: 600px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+  .layer { --pc-btn-h: 40px; }
 }
 
 /* ---------- dense host (the 4-way grid) ----------

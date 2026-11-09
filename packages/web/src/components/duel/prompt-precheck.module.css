@@ -18,7 +18,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  translate: -50% -50%;
+  /* A dragged bar adds --drag-x/--drag-y (prompt-drag.tsx) to the centring. */
+  translate: calc(-50% + var(--drag-x, 0px)) calc(-50% + var(--drag-y, 0px));
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -134,6 +135,30 @@
   .btn { flex: 1 1 0; }
 }
 @media (pointer: coarse) {
+  .btn { min-height: 40px; }
+}
+
+/* Compact (a phone, or a short window): a smaller bar on the top edge of the board, so the player's own field and hand stay in view.
+   It can be dragged by its handle (prompt-drag.tsx). */
+@media (max-width: 600px), (max-height: 500px) {
+  .bar {
+    top: 8px;
+    translate: calc(-50% + var(--drag-x, 0px)) var(--drag-y, 0px);
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    min-width: min(240px, calc(100% - 16px));
+    max-width: calc(100% - 16px);
+    padding: 8px 10px;
+    border-radius: 11px;
+  }
+  .thumb { width: 22px; margin-left: -8px; }
+  .text { gap: 1px; }
+  .text b { font-size: 14px; }
+  .name, .context { font-size: 12px; }
+  .btns { flex: 1 1 100%; gap: 6px; }
+  .btn { flex: 1 1 0; min-width: 0; min-height: 34px; padding: 0 10px; border-radius: 7px; font-size: 12px; }
+}
+@media (max-width: 600px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
   .btn { min-height: 40px; }
 }
 

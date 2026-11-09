@@ -1465,7 +1465,7 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   --pc-title: calc(18px * var(--tt, 1));
   --pc-sub: calc(14px * var(--tt, 1));
   inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
-  translate: none;
+  translate: var(--drag-x, 0px) var(--drag-y, 0px);
   margin: auto 0;
   width: var(--sr-w);
   min-width: 0;

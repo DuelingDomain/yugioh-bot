@@ -42,6 +42,7 @@ import { isMaterialOption, materialHostNotes, type MaterialViewer } from "./mate
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
+import { DragGrip, PROMPT_COMPACT_QUERY } from "./prompt-drag";
 import { clampBarShift, sameShift, type BarShift } from "./bar-clamp";
 import { BAR_MAX_WIDTH, BAR_ROW_FIT, placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
 import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
@@ -1251,6 +1252,7 @@ function pickStatus(prompt: DuelPrompt, chosen: number, confirm: boolean): strin
 const noInspect = () => {};
 
 function MaterialPicker({
+  dragKey,
   prompt,
   draft,
   busy,
@@ -1262,6 +1264,7 @@ function MaterialPicker({
   onInspectCard,
   onHoverCard,
 }: {
+  dragKey: string;
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
@@ -1285,6 +1288,7 @@ function MaterialPicker({
   const title = fillPlaceholders(prompt.title, promptSource(prompt)?.name);
   return (
     <PileViewer
+      dragKey={dragKey}
       title={title}
       cards={cards}
       owner={owner}
@@ -1577,6 +1581,11 @@ export function PromptCenter(props: PromptCenterProps) {
   const boardToggle = baseKind === "response" && isBoardTogglePrompt(prompt);
 
   const layerRef = useRef<HTMLDivElement>(null);
+  // The CSS tells the classic room (the layer sits in the board) from a table stage (the stage puts the prompt in its own slot).
+  useLayoutEffect(() => {
+    const layer = layerRef.current;
+    layer?.setAttribute("data-prompt-host", layer.closest('[data-slot="prompt"]') ? "slot" : "room");
+  });
   const panelRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [onBoard, setOnBoard] = useState<boolean | null>(null);
@@ -1586,6 +1595,10 @@ export function PromptCenter(props: PromptCenterProps) {
   const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
   // The bar as drawn is kept inside the board whatever its planned room says (a stacked bar is taller than a row): a move in px.
   const [barShift, setBarShift] = useState<BarShift>({ dx: 0, dy: 0 });
+  // A phone or a short window: a smaller bar that plans a smaller room (select-bar-place.ts).
+  const compact = useMedia(PROMPT_COMPACT_QUERY);
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
   const barNode = useRef<HTMLDivElement | null>(null);
   const [dockPlace, setDockPlace] = useState<DockPlace>({ mode: "center", left: null, top: null, bottom: 12, width: null });
 
@@ -1659,6 +1672,8 @@ export function PromptCenter(props: PromptCenterProps) {
 
   const promptId = prompt?.id;
   useEffect(() => setCollapsed(false), [promptId]);
+  // Where a dragged prompt stays: the same title and kind (each pick of a one-by-one choice is a new engine prompt).
+  const dragKey = prompt ? `${prompt.kind}:${prompt.title}` : "";
 
   // Seat rows of an out or leaving duelist stay listed but cannot be picked, by click or by key.
   const outRows = outSeatOptionIds(kind === "response" ? prompt : null, props.outSeats);
@@ -1731,6 +1746,7 @@ export function PromptCenter(props: PromptCenterProps) {
       // The bar is always centred on the middle of my field across and only moves up or down, off every legal card and zone.
       field: ownFieldRect(board, mySeatRef.current),
       targets: Array.from(board.querySelectorAll<HTMLElement>('[data-legal="true"]')).map(rectOf),
+      compact: compactRef.current,
     });
     setBarPlace((current) => (samePlace(current, next) ? current : next));
   }, []);
@@ -1748,7 +1764,7 @@ export function PromptCenter(props: PromptCenterProps) {
       observer.disconnect();
       mutations?.disconnect();
     };
-  }, [kind, onBoard, placeBar, revision, promptId]);
+  }, [kind, onBoard, placeBar, revision, promptId, compact]);
 
   // The planned room is a guess at the bar's size: a stacked bar or a long title is taller than it. Measure the bar as drawn and move it
   // inside the board, so no edge cuts it off. The camera is never touched.
@@ -1983,6 +1999,7 @@ export function PromptCenter(props: PromptCenterProps) {
         role="group"
         aria-label={copy.full}
       >
+        <DragGrip memoryKey={dragKey} />
         <div className={styles.barMain} title={copy.tooltip}>
           {source ? (
             <img src={cardArtUrl(source.code, "small")} alt="" className={styles.barThumb} draggable={false} />
@@ -2049,7 +2066,7 @@ export function PromptCenter(props: PromptCenterProps) {
       </div>
     );
     return (
-      <div ref={layerRef} className={styles.layer}>
+      <div ref={layerRef} className={styles.layer} data-prompt-layer="">
         {body}
       </div>
     );
@@ -2069,6 +2086,7 @@ export function PromptCenter(props: PromptCenterProps) {
             tone={tone}
             busy={busy}
             reducedMotion={reducedMotion}
+            dragKey={dragKey}
             onYes={answerYes}
             onNo={answerNo}
             onInspectCard={onInspectCard}
@@ -2116,7 +2134,7 @@ export function PromptCenter(props: PromptCenterProps) {
   if (isMaterialPickPrompt(prompt) && !aim) {
     return (
       <div ref={layerRef} className={`${styles.layer} ${styles.layerFront}`}>
-        <MaterialPicker prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} nameOf={props.seatTones ? props.nameOf : undefined}
+        <MaterialPicker dragKey={dragKey} prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} nameOf={props.seatTones ? props.nameOf : undefined}
           reducedMotion={reducedMotion} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
           onInspectCard={onInspectCard} onHoverCard={props.onHoverCard} />
       </div>
@@ -2142,6 +2160,7 @@ export function PromptCenter(props: PromptCenterProps) {
         aria-label={title}
         aria-live={prompt.kind === "announce-card" ? undefined : "polite"}
       >
+        <DragGrip memoryKey={dragKey} variant="panel" />
         <header className={styles.head} data-source={source ? "true" : "false"}>
           {source ? (
             <img src={cardArtUrl(source.code, "small")} alt="" className={styles.sourceArt} draggable={false} />
@@ -2186,6 +2205,7 @@ export function PromptCenter(props: PromptCenterProps) {
         role="group"
         aria-label={fillPlaceholders(prompt.title, promptSource(prompt)?.name)}
       >
+        <DragGrip memoryKey={dragKey} variant="panel" />
         {stepLine ? <div className={styles.stepRow}>{stepLine}</div> : null}
         <GridPicker prompt={prompt} draft={draft} busy={busy} offline={offline} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
           onInspectCard={onInspectCard} who={{ mySeat, nameOf: props.seatTones ? props.nameOf : undefined }} />
