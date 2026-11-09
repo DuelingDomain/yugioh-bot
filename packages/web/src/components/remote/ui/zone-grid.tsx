@@ -78,7 +78,8 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
     {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
     {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
       <FieldOrientationSelect calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration} onPointerEnter={onControlsEnter}/>
-      {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
+      {/* Saved zones are not asked for again here. The bar under the feed keeps Recalibrate for a new setup. */}
+      {grid.calibrate&&!calibrated?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>Default grid · Calibrate</button>:null}
     </div>:null}
   </>;
 }
