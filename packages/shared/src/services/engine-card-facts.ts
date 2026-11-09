@@ -40,7 +40,7 @@ export function applyEngineCardFacts<T extends CardTypeFields>(card: T, engine: 
   }
   if (bits & TYPE.trap) {
     const race = bits & TYPE.continuous ? "Continuous" : bits & TYPE.counter ? "Counter" : "Normal";
-    return { ...card, race, ...(/trap/i.test(card.type) ? {} : { type: "Trap Card" }), ...(stars > 0 ? { level: stars, atk: engine.atk < 0 ? null : engine.atk, def: engine.def < 0 ? null : engine.def } : {}) };
+    return { ...card, race, ...(/trap/i.test(card.type) ? {} : { type: "Trap Card" }), ...(stars > 0 ? { level: stars, atk: engine.atk == null || engine.atk < 0 ? null : engine.atk, def: engine.def == null || engine.def < 0 ? null : engine.def } : {}) };
   }
   if (bits & TYPE.link) return { ...card, frameType: "link", ...(/link/i.test(card.type) ? {} : { type: "Link Monster" }), level: card.level ?? stars };
   return card;
