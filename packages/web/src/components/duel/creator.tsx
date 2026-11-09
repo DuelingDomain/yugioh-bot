@@ -190,6 +190,24 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const cap = parseGenesysCap(capText);
   const capInvalid = genesys != null && !cap.ok && (!remote || remoteGenesys);
   const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
+  // One short line under a folded heading: the current values, and a warning when the table has an unusual rule.
+  const foldSummary = (text: string, warn = false) => (
+    <p className={cx(styles.foldSummary, warn && styles.foldWarn)} data-testid="fold-summary">
+      {warn ? <AlertTriangle size={14} strokeWidth={1.6} aria-hidden /> : null}
+      <span>{text}</span>
+    </p>
+  );
+  const banlistName = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
+  const rulesSummary = [genesys ? "No Forbidden & Limited list" : banlistName, CARD_POOLS.find((choice) => choice.value === settings.cardPool)?.label,
+    `${settings.startingHand} in hand`, `${settings.drawPerTurn} per draw`].filter(Boolean).join(" · ");
+  const clockSummary = [`${settings.startingLP.toLocaleString("en-US")} LP`,
+    ranked ? "Ranked 3-minute bank" : settings.turnSeconds > 0
+      ? `${TURN_TIMER_CHOICES.find((choice) => choice.value === settings.turnSeconds)?.label ?? `${settings.turnSeconds} s`}, ${settings.timeout === "loss" ? "lose on timeout" : "play on"}`
+      : "No clock"].join(" · ");
+  const deckWarn = !settings.validateDeck || (mode === "domain" && customDomain);
+  const deckSummary = [settings.validateDeck ? "Invalid decks forbidden" : "Invalid decks allowed: format and copy-limit checks are off",
+    genesys ? `Genesys, ${genesys.pointCap} point cap` : null,
+    mode === "domain" && customDomain ? "Custom Domain overrides" : null].filter(Boolean).join(" · ");
   // Domain is offered only where its core exists (see multiDomainBlockReason).
   const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
@@ -497,6 +515,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <div className={styles.side}>
                 <h2 id="creator-rules" className={ui.sectionTitle}>Rules</h2>
                 {foldToggle("rules")}
+                {foldSummary(rulesSummary)}
                 <p className={ui.hint}>Card legality and how the duel opens.</p>
               </div>
               <div className={styles.fields} id="creator-rules-fields">
@@ -519,6 +538,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
                 {foldToggle("clock")}
+                {foldSummary(clockSummary)}
                 <p className={ui.hint}>Pace of the duel and where duelists start.{multiplayerTables ? " In Tag this is per duelist; a team shares double." : ""}</p>
               </div>
               <div className={styles.fields} id="creator-clock-fields">
@@ -543,6 +563,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <div className={styles.side}>
                 <h2 id="creator-deck" className={ui.sectionTitle}>Deck rules</h2>
                 {foldToggle("deck")}
+                {foldSummary(deckSummary, deckWarn)}
                 <p className={ui.hint}>What players may bring to the table.</p>
               </div>
               <div className={styles.fields} id="creator-deck-fields">
