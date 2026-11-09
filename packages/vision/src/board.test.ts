@@ -195,8 +195,11 @@ test('a read that never resolves (soft frames under a colour cast) falls back to
 });
 test('a soft camera (crops below 12, above the floor) still gets an automatic read; a crop below the floor, or a blurred frame, does not',async()=>{
   const soft=fieldRig();soft.outlines=[card(.1,.3),card(.35,.3),card(.6,.3)];soft.watcher.setCalibration(zones.createFieldCalibration([{x:.05,y:.05},{x:.95,y:.95}]));soft.detail=8;for(let i=0;i<30;i++)await soft.tick();
-  assert.ok(soft.reads>=1,'a still card is read');assert.ok(soft.events.some(e=>e.type==='placed'));
+  // 3 cards, 4 reads: the middle card's first read is dropped by one detector pass that misses its outline, then it is read again (not a loop).
+  assert.equal(soft.reads,4,'one read per card plus the one a missed outline dropped');assert.ok(soft.events.some(e=>e.type==='placed'));
   assert.equal(soft.watcher.getSnapshot().blur?.limit,5,'three cards teach the limit down to the floor');soft.watcher.dispose();
+  const first=fieldRig();first.detail=8;for(let i=0;i<8;i++)await first.tick();
+  assert.equal(first.reads,1,'a first soft card is read on its own stillness (before any limit is learned)');first.watcher.dispose();
   const blank=fieldRig();blank.detail=3;for(let i=0;i<40;i++)await blank.tick();
   assert.equal(blank.reads,0,'almost no detail is never read');assert.equal(blank.watcher.getSnapshot().blur?.limit,12);blank.watcher.dispose();
   const blur=fieldRig();blur.detail=8;blur.frameSharpness=100;await blur.tick();blur.frameSharpness=20;for(let i=0;i<5;i++)await blur.tick();

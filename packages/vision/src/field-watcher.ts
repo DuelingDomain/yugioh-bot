@@ -1566,6 +1566,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.view.faceDown){t.needsRead=false;t.best=undefined;continue;}
         if(!t.best)continue;
         const best=t.best;
+        t.lastSharp=best.score;
         await startRead(t,best.frame,best.card,best.crop,sample.at,generation);t.best=undefined;
       }
       // A card never stays on Identifying. A new card that showed the reading cue (or began a read) and still has no name after
