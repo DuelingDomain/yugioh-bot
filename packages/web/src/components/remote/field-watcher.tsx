@@ -15,7 +15,7 @@ import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,f
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
-import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone} from '@/lib/remote/field-legality';
+import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone,fieldZoneLabel} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
@@ -1175,8 +1175,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
       if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true,gentle);
         // A card on a zone the camera only half sees cannot be checked: say so instead of leaving it on the board silently.
+        // Shown after the re-sync has had time to post its own notices, so they do not overwrite it.
         const offFrame=gentle?[]:watch.getSnapshot?.()?.lastScanOffFrame??[];
-        if(offFrame.length)setNotice(`${offFrame.join(', ')} ${offFrame.length===1?'is':'are'} partly out of view, so ${offFrame.length===1?'its':'their'} card${offFrame.length===1?'':'s'} cannot be checked. Move the camera or mat so the zone fits.`);
+        if(offFrame.length){const names=offFrame.map(fieldZoneLabel).join(', '),one=offFrame.length===1;setTimeout(()=>setNotice(`${names} ${one?'is':'are'} partly out of view, so ${one?'its card':'their cards'} cannot be checked. Move the camera or mat so ${one?'it fits':'they fit'}.`),1500);}
       }
     },100);
     return true;
