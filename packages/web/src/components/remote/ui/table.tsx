@@ -37,7 +37,7 @@ import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
-import { useRecognitionBackend } from "./recognition-backend";
+import { gpuLossReason, useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
@@ -1304,14 +1304,18 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   // The summary shows the real worst state: a weak feed, a table video error, a card watcher that did not start, a reader that fell back to the CPU.
   const reader = useRecognitionBackend(), watcherError = useFieldWatcherError();
   const extras: HealthExtra[] = [
-    ...(hub.error ? [{ key: "video", name: "Camera and table video", health: { q: "bad" as const, label: "Problem", detail: hub.error } }] : []),
-    ...(watcherError ? [{ key: "watcher", name: "Auto-detect", health: { q: "bad" as const, label: "Watcher unavailable", detail: "The card reader did not start. Reload the page or use Tap to identify." } }] : []),
-    ...(reader.note ? [{ key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU · GPU failed", detail: "Cards are read more slowly. Change it in the camera menu." } }] : []),
+    ...(hub.error ? [{ key: "video", name: "Camera and table video", health: { q: "bad" as const, label: "Video error", detail: hub.error } }] : []),
+    ...(watcherError ? [{ key: "watcher", name: "Auto-detect", health: { q: "bad" as const, label: "Reader off", detail: "The card reader is not running. Reload the page or use Tap to identify." } }] : []),
+    // Auto mode on a browser without WebGPU always reads on the CPU: that is information, not a fault. Only a GPU that failed during this session warns.
+    ...(reader.backend === "wasm" && reader.note ? [gpuLossReason()
+      ? { key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU reader", detail: "The GPU failed, so cards are read on the CPU. This is slower." }, tag: "Weak" }
+      : { key: "reader", name: "Card reader", health: { q: "off" as const, label: "CPU reader", detail: "This browser reads cards on the CPU. It is a little slower." }, tag: "Info" }] : []),
   ];
   const weakFeeds = humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length;
-  const all = [...humans.map(row => row.health.q), ...extras.map(item => item.health.q)];
+  const counted = extras.filter(item => item.health.q === "bad" || item.health.q === "warn");
+  const all = [...humans.map(row => row.health.q), ...counted.map(item => item.health.q)];
   const worst = all.includes("bad") ? "bad" : all.includes("warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
-  const issues = [...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...extras.map(item => item.health.label)];
+  const issues = [...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label)];
   const healthText = issues.length ? `${issues[0]}${issues.length > 1 ? ` +${issues.length - 1}` : ""}` : worst === "off" ? "Cameras off" : "All feeds ok";
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;

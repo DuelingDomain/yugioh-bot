@@ -80,7 +80,7 @@ export function InspectorDrawer({ open, onClose, children }: { open: boolean; on
 
 export type HealthRow = { seat: number; name: string; color: string; health: Health };
 /** A problem that is not one seat's feed: table video, the card watcher, the card reader. */
-export type HealthExtra = { key: string; name: string; health: Health };
+export type HealthExtra = { key: string; name: string; health: Health; /** Status word at the right; defaults to Failed or Weak. */ tag?: string };
 export function HealthPopover({ open, rows, extras = [], onClose }: { open: boolean; rows: HealthRow[]; extras?: HealthExtra[]; onClose: () => void }) {
   return <div className={`${s.pop} ${s.hpop} ${open ? s.show : ""}`} data-layer="health" role="dialog" aria-label="Feed health" data-testid="health-popover" inert={!open}>
     <h2 className={s.cap} style={{ margin: "0 0 6px" }}>Feed health</h2>
@@ -92,7 +92,7 @@ export function HealthPopover({ open, rows, extras = [], onClose }: { open: bool
     {extras.map(item => <div className={s.hrow} key={item.key} data-testid="health-extra">
       <span className={s.pip} style={{ "--c": "currentColor" } as CSSProperties} />
       <span><b>{item.name}</b><br /><small>{item.health.label}{item.health.detail ? ` · ${item.health.detail}` : ""}</small></span>
-      <span className={`${s.hl} ${s[item.health.q] ?? ""}`}><span className={s.sig}><i /><i /><i /><i /></span> {item.health.q === "bad" ? "Failed" : "Weak"}</span>
+      <span className={`${s.hl} ${s[item.health.q] ?? ""}`}><span className={s.sig}><i /><i /><i /><i /></span> {item.tag ?? (item.health.q === "bad" ? "Failed" : "Weak")}</span>
     </div>)}
     <p>Weak feeds lower card-reading accuracy. Cards are read again when a feed recovers.</p>
     <div style={{ marginTop: 10 }}><button type="button" className={`${s.btn} ${s.sm}`} onClick={onClose}>Close</button></div>
