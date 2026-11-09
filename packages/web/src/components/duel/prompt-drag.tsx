@@ -34,9 +34,11 @@ export function clampDragOffset(rect: ClampRect, offset: DragOffset, target: Dra
     bottom: rect.bottom + target.y - offset.y,
   };
   const fix = clampBarShift(moved, { dx: 0, dy: 0 }, area, edge);
-  // A surface as wide as its area (the compact top sheet) only moves up and down: a sideways clamp would make it jump.
-  const full = rect.right - rect.left > area.right - area.left - 2 * edge;
-  return { x: full ? offset.x : target.x + fix.dx, y: target.y + fix.dy };
+  // A surface as wide as its area (the compact top sheet) only moves up and down, and one as high (the landscape side sheet) only
+  // sideways: a clamp on that axis would make it jump.
+  const fullX = rect.right - rect.left > area.right - area.left - 2 * edge;
+  const fullY = rect.bottom - rect.top > area.bottom - area.top - 2 * edge;
+  return { x: fullX ? offset.x : target.x + fix.dx, y: fullY ? offset.y : target.y + fix.dy };
 }
 
 /**
