@@ -3627,7 +3627,7 @@ it("a quit between games of a tournament match is a forfeit that finalizes by it
     expect(s.refresh()).toMatchObject({status:"ended",endReason:"forfeit",state:{match:{phase:"done",winnerSeat:1}}});
     const proposed = s.results.get(s.input);
     expect(proposed).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"concede",score:null});
-    s.results.finalizeDue(proposed.confirmDeadlineAt!);
+    s.results.finalizeDue(proposed!.confirmDeadlineAt!);
     expect(s.results.get(s.input)).toMatchObject({status:"final",winnerPlayerId:s.one.playerId});
   } finally {vi.unstubAllEnvs();}
 });
