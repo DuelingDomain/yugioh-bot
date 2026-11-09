@@ -380,8 +380,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <RemoteSetupSection formatControls={formatControls(false)} seats={remoteSeats} onSeats={setRemoteSeats} solo={remoteSolo} onSolo={setRemoteSolo}
                 deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks}
                 visibility={<div className={styles.wide}>
-                  <SheetSegmented label="Visibility" value={remoteVisibility} choices={VISIBILITY} onChange={setRemoteVisibility} full />
-                  <p className={cx(ui.hint, styles.below)} data-testid="remote-visibility-hint">{remoteVisibility === "private" ? "Only people you invite can enter. No spectators." : "Everyone with Remote Duels access can watch: both cameras and the public table, no hand or Set cards."}</p>
+                  <SheetSegmented label="Visibility" value={remoteSolo ? "private" : remoteVisibility} choices={VISIBILITY} onChange={setRemoteVisibility} disabled={remoteSolo} full />
+                  <p className={cx(ui.hint, styles.below)} data-testid="remote-visibility-hint">{remoteSolo ? "A solo test table is always private." : remoteVisibility === "private" ? "Only people you invite can enter. No spectators." : "Everyone with Remote Duels access can watch: both cameras and the public table, no hand or Set cards."}</p>
                 </div>} />
             ) : <>
 
@@ -590,7 +590,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <dl className={styles.rows}>
                   {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormatKey)], ...(genesys && remoteGenesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []), ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
                     ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"], ["Visibility", remoteSolo || remoteVisibility === "private" ? "Invite only" : "Public"],
-                    ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : "Open to others"],
+                    ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : remoteVisibility === "private" ? "You and invited players" : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "No deck"]] as [string, string][]).map(([label, value]) => (
                     <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
                   ))}

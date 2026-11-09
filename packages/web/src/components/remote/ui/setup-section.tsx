@@ -39,7 +39,7 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
           <SheetSegmented label="Seats" value={seats} choices={REMOTE_SEAT_CHOICES} onChange={onSeats} full />
           <p className={cx(ui.hint, styles.below)}>{seats === 2 ? "One against one." : "Free for all."} Others join with the link of the room.</p>
         </div>
-        {solo ? null : visibility}
+        {visibility}
         <div className={styles.wide}>
           <label className={styles.toggle}>
             <input type="checkbox" checked={solo} onChange={(event) => onSolo(event.target.checked)} data-testid="create-solo" />
