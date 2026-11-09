@@ -1,7 +1,10 @@
 import type { GameProfile, IndexMeta } from './types';
 /** Change when pixel preprocessing changes. Embedded in metadata to reject incompatible indexes. */
 export function layoutKey(profile: GameProfile): string {
-  const { thresholds: _thresholds, maxBatch: _maxBatch, webgpu: _webgpu, ...embedding } = profile.embedding;
+  // Allowlist vector identity/preprocessing fields so runtime options cannot invalidate indexes.
+  // Keep this order stable: published metadata compares the serialized key byte for byte.
+  const { id, url, sha256, inputSize, dim, inputName, outputName, pooling, mean, std } = profile.embedding;
+  const embedding = { id, url, sha256, inputSize, dim, inputName, outputName, pooling, mean, std };
   return JSON.stringify({ version: 'triangle-rgb-chw-v1', card: profile.card, artWindow: profile.artWindow, alternate: profile.alternateArtWindows, embedding });
 }
 export function validateIndexProfile(meta: IndexMeta, profile: GameProfile): void {
