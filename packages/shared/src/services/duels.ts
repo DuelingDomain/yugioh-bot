@@ -1865,7 +1865,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       room.series = linked ? series.summarize(linked) : null;
       const opening = !isReplayFork(row) && row.status === "lobby" ? parseOpening(row.opening_json) : null;
       room.opening = opening ? openingView(opening, mySeat, Date.now()) : null;
-      if (!isReplayFork(row) && waitingDeadline(row) !== null) room.hasWaitingDeadline = true;
+      room.hasWaitingDeadline = !isReplayFork(row) && waitingDeadline(row) !== null;
       room.mySide = null;
       if (linked && seated && series.playerIndex(linked, playerId) !== null) {
         const own = ownDeck(row.id, playerId);

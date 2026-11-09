@@ -6,7 +6,7 @@ const ACTIVITY_BATCH_MS = 15_000;
 
 /**
  * Whether the room of `slug` has a waiting deadline (the room view says so). For a page that has no room view of its own,
- * such as the deck editor opened from a room. False until the answer arrives, so no beat is sent for a room that has none.
+ * such as the deck editor opened from a room. False until the answer arrives; an explicit false from the server keeps it false.
  */
 export function useRoomHasWaitingDeadline(slug: string | null): boolean {
   const [has, setHas] = useState(false);
@@ -17,7 +17,8 @@ export function useRoomHasWaitingDeadline(slug: string | null): boolean {
     void fetch(`/api/duels/${encodeURIComponent(slug)}`, { signal: controller.signal })
       .then(response => (response.ok ? response.json() : null))
       .then((body: unknown) => {
-        if (body && typeof body === "object" && "hasWaitingDeadline" in body && body.hasWaitingDeadline === true) setHas(true);
+        // An older duel server sends no flag: treat that as "has a deadline" (old behaviour), only an explicit false stops the beats.
+        if (body && typeof body === "object" && !("hasWaitingDeadline" in body && body.hasWaitingDeadline === false)) setHas(true);
       }).catch(() => undefined);
     return () => controller.abort();
   }, [slug]);
