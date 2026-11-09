@@ -37,7 +37,7 @@ import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
-import { takeCameraReady } from "./camera-choice";
+import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
 import { SpectatorScreen } from "./spectator-table";
@@ -119,7 +119,7 @@ function CameraControl({room}: {room:RemoteRoom}) {
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
     {hub.sendFailed ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} data-testid="retry-video" onClick={() => hub.retryVideo()}>Retry video</button> : null}
     <CameraSettingsMore lock={hub.cameraLock} />
-    {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => void hub.disableCamera()}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
+    {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => { rememberCameraWanted(room.slug, false); void hub.disableCamera(); }}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
   </div>;
 }
 
@@ -202,9 +202,13 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   useEffect(() => {
     if (handoff.current || !live || !hub.rosterReady) return;
     handoff.current = true;
-    if (!takeCameraReady(room.slug) || hub.manual(mySeat) || hub.phones.some(item => item.seat === mySeat) || hub.cameraOn) return;
-    void hub.enableCamera();
+    const fromLobby = takeCameraReady(room.slug);
+    if (!(fromLobby || cameraWanted(room.slug)) || hub.manual(mySeat) || hub.phones.some(item => item.seat === mySeat) || hub.cameraOn) return;
+    if (fromLobby) { void hub.enableCamera(); return; }
+    // A reload: the camera was on in this tab, so it comes back by itself when the browser already allows it. Otherwise the Turn camera on button stays.
+    void cameraPermissionGranted().then(granted => { if (granted) void hub.enableCamera(); });
   }, [live, hub, room.slug, mySeat]);
+  useEffect(() => { if (hub.cameraOn) rememberCameraWanted(room.slug, true); }, [hub.cameraOn, room.slug]);
 
   // Nobody has the turn until the opening die roll is decided: no turn glow, tag or banner before that.
   const turnShown = match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined ? -1 : state.turnSeat;
@@ -1441,7 +1445,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
             hand={handOf(seat)}
             cameraControl={seat === mySeat ? <><CameraControl room={room} />{tokens.trigger(seat)}</> : tokens.trigger(seat)}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
-            emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
+            emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
