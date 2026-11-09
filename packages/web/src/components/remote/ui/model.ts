@@ -23,6 +23,8 @@ export const zoneLabel = (z: ZoneKey) => ({ gy: "GY", ban: "BAN", ex: "EX DECK",
 export const isPile = (z: ZoneKey) => z === "gy" || z === "ban" || z === "ex" || z === "deck";
 export const isMonsterZone = (z: ZoneKey) => z[0] === "m" || z === "e1" || z === "e2";
 /** Master Rule 5 tables (Advanced, Domain) have Extra Monster Zones and Pendulum Zones on the outer Spell/Trap zones. Genesys formats have neither. */
+/** A card that enters the Graveyard is face up. One that is banished is too, except from the Deck or Extra Deck (face up would show its identity to the opponents). */
+export const entersPileFaceUp = (from: string, to: string) => from !== to && (to === "graveyard" || (to === "banished" && from !== "deck" && from !== "extra"));
 export const hasExtraZones = (formatId: string | undefined) => !formatId?.startsWith("genesys");
 /** Pendulum Zone 1 and 2 sit on Spell/Trap zone 1 and 5. */
 export const PENDULUM_CELLS = { 1: "s1", 2: "s5" } as const;
