@@ -11,10 +11,11 @@ import r from "./lobby-room.module.css";
 /**
  * The deck list step of the setup room. A saved deck can be picked in the select above; this step takes a pasted list
  * or a .ydk file instead. It runs the same preview and save as the deck import page, then seats the new saved deck.
- * Skippable: the table works without a list, and the card reads are only faster and more exact with one.
+ * The default path: the paste box starts open while the seat has no deck. Skip for now closes it; the table works without a list,
+ * and the card reads are only faster and more exact with one.
  */
 export function LobbyDeckList({ disabled, onSeat, mode = "standard", seated }: { disabled?: boolean; onSeat: (savedDeckId: number) => Promise<unknown>; mode?: ImportMode; seated?: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!seated);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -44,8 +45,8 @@ export function LobbyDeckList({ disabled, onSeat, mode = "standard", seated }: {
 
   return <div className={r.deckList} data-testid="deck-list-step">
     <div className={r.deckListHead}>
-      <span className={r.deckListText}><b>{seated ? "Replace with a list" : "Add deck list"}</b><span> · or pick a saved deck above.</span></span>
-      <SheetButton size="sm" kind="quiet" disabled={disabled || busy} onClick={() => setOpen(value => !value)} aria-expanded={open} data-testid="deck-list-toggle"><ListPlus size={14} strokeWidth={1.7} aria-hidden />{open ? "Hide" : "Paste or upload"}</SheetButton>
+      <span className={r.deckListText}><b>{seated ? "Replace with a list" : "Add your deck list"}</b><span> · or pick a saved deck above.</span></span>
+      <SheetButton size="sm" kind="quiet" disabled={disabled || busy} onClick={() => setOpen(value => !value)} aria-expanded={open} data-testid="deck-list-toggle"><ListPlus size={14} strokeWidth={1.7} aria-hidden />{open ? (seated ? "Hide" : "Skip for now") : "Paste or upload"}</SheetButton>
     </div>
     {open ? <div className={r.deckListBody}>
       <textarea className={cx(ui.textarea)} rows={5} value={text} onChange={event => setText(event.target.value)} disabled={disabled || busy}

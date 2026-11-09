@@ -370,7 +370,8 @@ test.describe("remote duels screen, solo", () => {
     await expect(grid).toBeVisible();
     await expect(grid).toHaveAttribute("data-calibrated", "false");
     for (const zone of ["FIELD", "M1", "M5", "GY", "EXTRA", "S3", "DECK", "EMZ1", "EMZ2"]) await expect(grid.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
-    const calibrate = page.locator('[data-testid="feed-0"]').getByRole("button", { name: "Default grid · Calibrate" }); await expect(calibrate).toBeVisible();
+    // One Calibrate zones button, in the bar under the feed: the feed itself carries no second one.
+    const calibrate = page.getByRole("button", { name: "Calibrate zones", exact: true }); await expect(calibrate).toHaveCount(1); await expect(page.locator('[data-testid="feed-0"]').getByRole("button", { name: "Default grid · Calibrate" })).toHaveCount(0);
     // The grid sits exactly on the video, before and after the camera and the field swap places.
     const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
     expect(await gap()).toBeLessThan(6); await shot(page, "zone-grid-default");
@@ -382,7 +383,7 @@ test.describe("remote duels screen, solo", () => {
     await page.getByTestId("view-toggle-0").click();
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
     await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
-    // The Calibrate link opens the calibration, which draws the same zones to drag into place.
+    // The Calibrate zones button opens the calibration, which draws the same zones to drag into place.
     await calibrate.click();
     await expect(dialog).toBeVisible();
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
@@ -659,7 +660,7 @@ test.describe("remote lobby camera step", () => {
     await expect(page.getByTestId("remote-table")).toBeVisible();
     const status = page.getByTestId("field-watcher-status");
     // Only a state after the record was read with the camera on can show a missing calibration.
-    await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Watcher unavailable|Paused · busy)$/, { timeout: 30_000 });
+    await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Reader off|Paused · busy)$/, { timeout: 30_000 });
     // With the zones calibrated, the grid shows only when the player turns it on.
     await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-toggle").first().click();
     const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
@@ -1054,7 +1055,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.getByTestId("create-room").click();
     await expect(page).toHaveURL(/\/duels\/remote\/[^/]+$/);
     await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
-    // The deck list step is offered but optional: the paste box opens on request and the room stays usable without it.
+    // The deck list step is the default path: the paste box is open, and Skip for now closes it so the room stays usable without a list.
+    await expect(page.getByTestId("deck-list-text")).toBeVisible();
+    await page.getByTestId("deck-list-toggle").click();
+    await expect(page.getByTestId("deck-list-text")).toBeHidden();
     await page.getByTestId("deck-list-toggle").click();
     await expect(page.getByTestId("deck-list-text")).toBeVisible();
     await shot(page, "created-room-1920");
