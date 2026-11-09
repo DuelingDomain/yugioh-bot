@@ -19,7 +19,6 @@
 .out { color: var(--duel-loss-ink); font-size: 12px; margin-left: 6px; }
 .counts { color: var(--duel-ink-3); font-size: 12px; }
 .grid { display: grid; grid-template-columns: repeat(7, var(--cell-w)); justify-content: center; gap: 4px; }
-.emz { display: grid; grid-template-columns: repeat(2, var(--cell-w)); justify-content: center; gap: 4px; }
 .cell { position: relative; width: var(--cell-w); height: calc(var(--cell-w) * 86 / 59); border: 1px dashed var(--duel-rule-lo); border-radius: 4px; overflow: hidden; display: grid; place-items: center; font-size: 10px; color: var(--duel-ink-4); text-align: center; background: var(--duel-panel-2); }
 .cell[data-filled="true"] { border-style: solid; border-color: var(--duel-rule); color: var(--duel-ink-2); }
 .cell img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

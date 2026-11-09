@@ -19,7 +19,7 @@ import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceInten
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -868,7 +868,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const moveCard = useCallback((seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}) => {
     const { room: now } = R.current;
     announceManualMove({ slug: now.slug, seat, ref: card.ref });
-    const label = card.faceUp ? card.name ?? cardInfo(cardCode(card))?.name : undefined;
+    const label = card.faceUp && extra.faceUp !== false ? card.name ?? cardInfo(cardCode(card))?.name : undefined;
     return act({ type: "twin.move", actorSeat: now.solo ? seat : now.mySeat, seat, zone: land.zone, cardRef: card.ref, ...(land.slot ? { slot: land.slot } : {}),
       ...(extra.position ? { position: extra.position } : {}), ...(extra.faceUp !== undefined ? { faceUp: extra.faceUp } : {}), ...(label ? { name: label } : {}) });
   }, [act]);
@@ -880,6 +880,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   /** Drag, keyboard and voice share this: refuse says why, confirm asks once on the dock chip, ok moves with Undo. */
   const tryMove = (seat: number, card: TwinCard, land: Landing, extra: { faceUp?: boolean; position?: "attack" | "defense" } = {}, requestId?: string, direct = false): { done: boolean; text: string } => {
     const verdict = direct ? { kind: "ok" as const } : judgeFor(seat, card, land);
+    // A card that enters a pile takes the face the rules give it (face down from the Deck or Extra Deck into Banished), unless the caller asks for one.
+    const face = pileEntryFace(card.zone, land.zone);
+    if (extra.faceUp === undefined && face !== undefined) extra = { ...extra, faceUp: face };
     const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
     if (verdict.kind === "refuse") { toast(verdict.message); return { done: false, text: verdict.message }; }
     if (verdict.kind === "same" && extra.faceUp === undefined && !extra.position) return { done: false, text: "Already there" };
@@ -1215,7 +1218,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
         if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
         announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
-        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}) });
+        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...(pileEntryFace(subjectCard.zone, zone) !== undefined ? { faceUp: pileEntryFace(subjectCard.zone, zone) } : {}) });
       },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
@@ -1356,7 +1359,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if (target.closest("[data-remote-seat]")) { const done = feedMenu.current; feedMenu.current = false; return done; }
     const cell = target.closest<HTMLElement>("[data-zone][data-seat]"); if (!cell) return false;
     const key = cell.dataset.zone as ZoneKey; const seat = Number(cell.dataset.seat);
-    if (key === "gy") { openPile(seat, "graveyard", cell); return true; }
+    if (key === "gy" || key === "ban") { openPile(seat, key === "gy" ? "graveyard" : "banished", cell); return true; }
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });

@@ -890,6 +890,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await shot(page, "pile-viewer");
     for (const [w, h] of SHOTS ? [[1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `pile-viewer-${w}`); }
     await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
+    // The Banished pile is a zone of its own right above the Graveyard (as on the printed mat): count, top card, click opens its tab.
+    const ban = field.locator('[data-zone="ban"]'); await expect(ban).toBeVisible(); await expect(ban).toContainText("1");
+    const [banBox, gyBox] = [(await ban.boundingBox())!, (await gy.boundingBox())!];
+    expect(Math.abs(banBox.x - gyBox.x)).toBeLessThan(2); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1);
+    await ban.click(); await expect(page.getByTestId("pile-tab-banished")).toHaveAttribute("aria-pressed", "true"); expect(await refs()).toEqual(["mst"]);
+    await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
+    for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 700]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `banish-zone-${w}`); }
   });
 
   test("one card seen twice: 2x badges and a banner; Two copies hides them, Merge keeps one card with a log line and Undo", async ({ page, context }) => {
