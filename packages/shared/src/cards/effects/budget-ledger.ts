@@ -113,7 +113,8 @@ export class GithubLedgerStore implements LedgerStore {
   private api(path: string, method?: string, body?: unknown): any {
     const args = ["api", `repos/${this.repository}/${path}`];
     if (method) args.push("--method", method, "--input", "-");
-    return JSON.parse(execFileSync("gh", args, { encoding: "utf8", input: body === undefined ? undefined : JSON.stringify(body), stdio: ["pipe", "pipe", "pipe"] }));
+    // The ledger blob arrives base64 inside JSON; Node's 1 MiB default overflowed (ENOBUFS) once it grew past ~750 KB.
+    return JSON.parse(execFileSync("gh", args, { encoding: "utf8", input: body === undefined ? undefined : JSON.stringify(body), maxBuffer: 64_000_000, stdio: ["pipe", "pipe", "pipe"] }));
   }
   async read(): Promise<LedgerSnapshot | undefined> {
     let ref;
