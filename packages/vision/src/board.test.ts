@@ -347,6 +347,18 @@ test('departure needs repeated clear mat samples, never motion, stationary hands
   }
 });
 
+test('a kept low-score outline over a spot that no longer shows the card does not hold it on the board',async()=>{
+  // The detector's hysteresis keeps a weak box where a card sat; the card is gone, the pixels show the mat.
+  for(const case_ of ['card-gone','card-still-there','card-other-look','hand-over-spot'] as const){
+    const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+    r.outlines=[{...card(.3,.3),confidence:.4,kept:true}];
+    if(case_==='card-other-look')r.appearance=Array.from({length:12},(_,i)=>i%3?.9:.4);else if(case_!=='card-still-there')r.appearance=Array(12).fill(.2);
+    if(case_==='hand-over-spot')r.touchedAt=()=>.3;
+    for(let i=0;i<14;i++)await r.tick(300);
+    assert.equal(r.events.filter(e=>e.type==='removed').length,case_==='card-gone'?1:0,case_);r.watcher.dispose();
+  }
+});
+
 test('still skin-coloured print on a still front (locked camera colour) is not a hand: the card is placed in about 1 s',async()=>{
   // Owner 2026-11-04: Man with the Mark seen clearly (front .81) stayed "cand · hid" under the first camera lock.
   const r=fieldRig();r.occludedAt=()=>true;r.touchedAt=()=>.3;
