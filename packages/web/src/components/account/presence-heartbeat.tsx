@@ -29,13 +29,31 @@ function writeLastBeat(beat: Beat): void {
   try { localStorage.setItem(LAST_BEAT_KEY, JSON.stringify(beat)); } catch { /* Best effort. */ }
 }
 
-/** Milliseconds until the server accepts a beat for `route`. */
+function gapFor(last: Beat, route: string): number {
+  return last.route === route ? SAME_ROUTE_GAP_MS : ROUTE_CHANGE_GAP_MS;
+}
+
+/**
+ * Milliseconds until the server accepts a beat for `route`. Never more than the same-route gap: a stored time in the future
+ * (the clock moved back) must not block the beat and the 60 s interval.
+ */
 function waitBeforeBeat(route: string): number {
   const last = readLastBeat();
   if (!last) return 0;
-  const gap = last.route === route ? SAME_ROUTE_GAP_MS : ROUTE_CHANGE_GAP_MS;
-  return Math.max(0, last.at + gap - Date.now());
+  return Math.min(SAME_ROUTE_GAP_MS, Math.max(0, last.at + gapFor(last, route) - Date.now()));
 }
+
+/** True when another window of this browser reported this user a moment ago, so a beat now would only earn a 429. */
+function reportedRecently(route: string): boolean {
+  const last = readLastBeat();
+  if (!last) return false;
+  const age = Date.now() - last.at;
+  return age >= 0 && age < gapFor(last, route);
+}
+
+// Two windows of one duel (the room and its own window) read the same stored beat and wake at the same moment.
+// A small random spread lets the first one write the beat before the second one checks it.
+const JITTER_MS = 3_000;
 
 /**
  * One small request per visible minute, and one when the page changes. No IDs or URL details leave the browser.
@@ -52,12 +70,14 @@ export function PresenceHeartbeat() {
     function send() {
       if (closed || busy || wait !== undefined || document.visibilityState !== "visible") return;
       const delay = waitBeforeBeat(route);
-      if (delay > 0) { wait = setTimeout(() => { wait = undefined; void post(); }, delay); return; }
+      if (delay > 0) { wait = setTimeout(() => { wait = undefined; void post(); }, delay + Math.random() * JITTER_MS); return; }
       void post();
     }
     let retried = false;
     async function post() {
       if (closed || busy || document.visibilityState !== "visible") return;
+      // Read the stored beat again: another window may have reported this user while this one waited. No retry then.
+      if (reportedRecently(route)) return;
       busy = true;
       writeLastBeat({ at: Date.now(), route });
       try {
@@ -71,7 +91,9 @@ export function PresenceHeartbeat() {
     function leave() {
       if (!TABLE_PRESENCE_ROUTES.includes(route)) return;
       // The server swaps the table route for "/app", so the next page may beat after the shorter route-change gap.
-      if (lastBeat?.route === route) writeLastBeat({ at: lastBeat.at, route: "/app" });
+      // Read the stored beat first: another tab may have written a newer one.
+      const last = readLastBeat();
+      if (last?.route === route) writeLastBeat({ at: last.at, route: "/app" });
       try {
         void fetch("/api/presence", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ route, leave: true }) }).catch(() => undefined);
