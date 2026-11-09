@@ -476,7 +476,6 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 ) : null}
                 {formatControls(true)}
                 <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
-                <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
             </section>
 
