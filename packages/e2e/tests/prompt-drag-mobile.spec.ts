@@ -87,4 +87,14 @@ test("phone: the chain response strip shows its cards and buttons, upright and o
   const side = await panel.boundingBox();
   expect(side!.width).toBeLessThan(740 * 0.55);
   expect(side!.x).toBeGreaterThan(740 * 0.4);
+  // Touch has no hover, so the card keeps a visible one-line name under it, inside the panel.
+  const name = await panel.locator("[data-card-strip] button").first().evaluate((button) => {
+    const text = [...button.querySelectorAll("span")].find((el) => (el.textContent ?? "").trim() && getComputedStyle(el).display !== "none");
+    const rect = text?.getBoundingClientRect();
+    return rect ? { text: text!.textContent, top: rect.top, bottom: rect.bottom, height: rect.height } : null;
+  });
+  expect(name).not.toBeNull();
+  expect(name!.height).toBeGreaterThan(0);
+  expect(name!.top).toBeGreaterThanOrEqual(side!.y);
+  expect(name!.bottom).toBeLessThanOrEqual(side!.y + side!.height + 1);
 });
