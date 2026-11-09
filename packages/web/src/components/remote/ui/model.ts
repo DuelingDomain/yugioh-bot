@@ -24,6 +24,8 @@ export const isPile = (z: ZoneKey) => z === "gy" || z === "ban" || z === "ex" ||
 export const isMonsterZone = (z: ZoneKey) => z[0] === "m" || z === "e1" || z === "e2";
 /** Master Rule 5 tables (Advanced, Domain) have Extra Monster Zones and Pendulum Zones on the outer Spell/Trap zones. Genesys formats have neither. */
 /** The face a card takes when it enters a pile: Graveyard face up; Banished face up, but face down from the Deck or Extra Deck (face up would show its identity to the opponents). undefined = no change. */
+/** A card that leaves the Monster Zones starts in Attack again: a Trap Monster sent back to a Spell & Trap Zone must not stay turned. */
+export const leavePosition = (card: { position?: string }, to: string): { position?: "attack" } => card.position === "defense" && to !== "monster" && to !== "extra-monster" ? { position: "attack" } : {};
 export const pileEntryFace = (from: string, to: string): boolean | undefined => from === to ? undefined : to === "graveyard" ? true : to === "banished" ? !(from === "deck" || from === "extra") : undefined;
 export const hasExtraZones = (formatId: string | undefined) => !formatId?.startsWith("genesys");
 /** Pendulum Zone 1 and 2 sit on Spell/Trap zone 1 and 5. */

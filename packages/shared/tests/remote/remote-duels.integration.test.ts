@@ -1947,6 +1947,10 @@ describe("tolerant voice attack resolution", () => {
     const summoned = act(b.state, { type: "twin.move", cardRef: "apophis", zone: "monster", slot: 3, trapMonster: true });
     expect(summoned.seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
     expect(() => act(summoned, { type: "twin.place", zone: "spell-trap", card: { ref: "late", slot: 3, cardId: 2 } })).toThrow(/occupied/i);
+    // A Trap Monster has a battle position like any monster; sent back to the Spell & Trap Zone it starts in Attack again.
+    const defended = act(summoned, { type: "twin.flip", cardRef: "apophis", faceUp: true, position: "defense" });
+    expect(defended.seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, position: "defense", trapZone: 3 });
+    expect(act(defended, { type: "twin.move", cardRef: "apophis", zone: "spell-trap", slot: 3, position: "attack" }).seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "spell-trap", position: "attack" });
     // Equip link: an Equip Card in S2 equips the Trap Monster; both links end when the monster leaves the field.
     const equip = act(act(summoned, { type: "twin.place", zone: "spell-trap", card: { ref: "axe", slot: 2, cardId: 40619825 } }), { type: "twin.equip", cardRef: "axe", target: { seat: 0, ref: "apophis" } });
     expect(equip.seats[0].twin.find(c => c.ref === "axe")?.equippedTo).toEqual({ seat: 0, ref: "apophis" });

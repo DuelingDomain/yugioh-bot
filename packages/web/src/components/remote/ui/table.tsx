@@ -4,7 +4,7 @@ import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
-import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
+import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
@@ -19,7 +19,7 @@ import { interpret, suggestCommands, trySaying, type MoveIntent, type VoiceInten
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -63,7 +63,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
-import {fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
+import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
 import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
@@ -499,7 +499,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       let updated:RemoteRoom|null=null;
       const witnesses=verifiedWitnesses?.filter(w=>sameObservedCard(w,{cardId:pick.cardId,name:pick.name})&&current.state.seats[seat].twin.some(c=>c.ref===w.ref&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)))??[];
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
-      if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),...(at.bestMatch?{bestMatch:true}:{}),faceUp:true,position:'attack'}});
+      if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),...(at.bestMatch?{bestMatch:true}:{}),faceUp:true,position:physical&&spot.row==='monster'&&at.quad?.length===4&&zoneGrid.calibration?fieldOrientation({quad:at.quad,kind:'face-up',confidence:1,partial:false},1,1,zoneGrid.calibration):'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(at.bestMatch?{bestMatch:true}:{}),...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
       if(updated&&reading&&spot&&(reading.zone!==spot.row||reading.slot!==spot.slot))updated=await apply({type:'twin.move',actorSeat:current.solo?seat:current.mySeat,seat,cardRef:reading.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})});
       const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
@@ -870,7 +870,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     announceManualMove({ slug: now.slug, seat, ref: card.ref });
     const label = card.faceUp && extra.faceUp !== false ? card.name ?? cardInfo(cardCode(card))?.name : undefined;
     return act({ type: "twin.move", actorSeat: now.solo ? seat : now.mySeat, seat, zone: land.zone, cardRef: card.ref, ...(land.slot ? { slot: land.slot } : {}),
-      ...(extra.position ? { position: extra.position } : {}), ...(extra.faceUp !== undefined ? { faceUp: extra.faceUp } : {}), ...(label ? { name: label } : {}) });
+      ...(extra.position ? { position: extra.position } : leavePosition(card, land.zone)), ...(extra.faceUp !== undefined ? { faceUp: extra.faceUp } : {}), ...(label ? { name: label } : {}) });
   }, [act]);
   const judgeFor = (seat: number, card: TwinCard, land: Landing) => {
     const { state: cur, room: now } = R.current; const other = facingSeat(seat, now.seatCount);
@@ -1218,9 +1218,13 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
         if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
         announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
-        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...(pileEntryFace(subjectCard.zone, zone) !== undefined ? { faceUp: pileEntryFace(subjectCard.zone, zone) } : {}) });
+        void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...(pileEntryFace(subjectCard.zone, zone) !== undefined ? { faceUp: pileEntryFace(subjectCard.zone, zone) } : {}), ...leavePosition(subjectCard, zone) });
       },
       onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
+      // Any face-up card in a Monster Zone has a battle position, a Trap Monster too (Link monsters stay in Attack).
+      ...(subjectCard.faceUp !== false && (subjectCard.zone === "monster" || subjectCard.zone === "extra-monster") && !isLinkInfo(info(cardCode(subjectCard))) ? { position: {
+        defense: subjectCard.position === "defense",
+        onTurn: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: true, position: subjectCard.position === "defense" ? "attack" : "defense" }) } } : {}),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
       ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
