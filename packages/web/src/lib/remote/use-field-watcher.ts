@@ -104,6 +104,9 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const placedRef=useRef(placed);placedRef.current=placed;
   const gridRef=useRef(calibration);gridRef.current=calibration;
   const [snapshot,setSnapshot]=useState<FieldSnapshot>(initial);
+  /** The badge only says "Watcher unavailable": log each distinct reason once. */
+  const warned=useRef(new Set<string>());
+  const warnError=useCallback((message:string|undefined,cause?:unknown)=>{if(!message||warned.current.has(message))return;warned.current.add(message);console.warn('[remote field] watcher error:',message,...(cause===undefined?[]:[cause]));},[]);
   const storageKey=fieldCalibrationKey(options.seatKey,options.deviceKey);
   const hasCalibration=!!calibration?.orientation;
   // Ready = a side is saved AND the zones were placed on the mat (the lobby reads the same rule).
@@ -133,7 +136,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     {const fake=e2eFieldHook?(window as unknown as {__e2eFieldWatcher?:FieldWatcher}).__e2eFieldWatcher:undefined;if(fake){watcher.current=fake;return()=>{if(watcher.current===fake)watcher.current=null;};}}
     void latest.current.create().then(async config=>{
       if(cancelled)return;
-      if(!config){setSnapshot({...initial,status:'error',error:'Card reader assets are unavailable on this deployment.'});return;}
+      if(!config){warnError('Card reader assets are unavailable on this deployment.');setSnapshot({...initial,status:'error',error:'Card reader assets are unavailable on this deployment.'});return;}
       if(gallery.current?.key!==galleryKey){
         let saved:unknown=[];try{saved=JSON.parse(sessionStorage.getItem(galleryKey)??'[]');}catch{/* Memory-only in private mode. */}
         const value=createFieldIdentityGallery(saved,()=>{try{sessionStorage.setItem(galleryKey,JSON.stringify(value.entries()));}catch{/* Memory-only fallback. */}});
@@ -153,9 +156,9 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
         if(cancelled)return;
         const next=reader!.getSnapshot(),key=fieldSnapshotKey(next),at=performance.now();
         if(key===lastKey&&at-lastAt<1000&&!fieldDebugEnabled()&&!next.tracks.some(t=>t.state==='candidate'))return;
-        lastKey=key;lastAt=at;setSnapshot(next);
+        lastKey=key;lastAt=at;if(next.error)warnError(next.error);setSnapshot(next);
       });reader.start();
-    }).catch(error=>{if(!cancelled)setSnapshot({...initial,status:'error',error:error instanceof Error?error.message:'Card watcher unavailable'});});
+    }).catch(error=>{if(!cancelled){warnError(error instanceof Error?error.message:'Card watcher unavailable',error);setSnapshot({...initial,status:'error',error:error instanceof Error?error.message:'Card watcher unavailable'});}});
     return()=>{cancelled=true;reader?.dispose();if(watcher.current===reader)watcher.current=null;};
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps

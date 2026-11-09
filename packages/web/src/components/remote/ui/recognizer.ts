@@ -312,6 +312,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     return read;
   } catch (error) {
     if (signal.aborted) throw error;
+    console.warn("[remote read] failed", error);
     if (reportGpuFailure(error)) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }

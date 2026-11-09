@@ -1013,7 +1013,7 @@
 /* Automatic card detection shares the feed status and existing control overlay. */
 .feedTagRow{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;min-width:0;pointer-events:none}
 .feedTagRow .ctag{position:static;flex:none}
-.watcherStatusSlot{display:block;min-width:0;max-width:300px}
+.watcherStatusSlot{display:block;min-width:0;max-width:300px;pointer-events:auto}
 .watcherControlsSlot{display:flex;flex:none}
 @container feed (max-width:280px){.ctagText{display:none}.watcherStatusSlot{max-width:calc(100cqw - 54px)}}
 .cams:has(.camq) .feedTagRow{right:110px}

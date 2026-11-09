@@ -192,6 +192,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const metrics:FieldMetrics={detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0};
   // Detector budget (see field-pacer.ts): both backends follow the frame's scene evidence.
   const pacer=createFieldPacer(fieldPacerDevice(),now(),()=>options.recognizer.detectorBackend);let pacing=false,pacedStill=false,lastShadowPassAt=-Infinity,budgetWaitAt=-Infinity,lastSceneChangeAt=-Infinity,forcePass=false;
+  /** One console warning per distinct failure, with its cause: the badge only shows "Watcher unavailable". */
+  const warned=new Set<string>();
+  const warnOnce=(where:string,message:string,cause:unknown)=>{const key=`${where}:${message}`;if(warned.has(key))return;warned.add(key);console.warn(`[field watcher] ${where} failed:`,message,cause);};
   let status:FieldSnapshot['status']='stopped',error:string|undefined,active=false,disposed=false,inFlight=false,wakeQueued=false,wakeAfterRead=false,epoch=0,serial=0,previousAt=-Infinity,lastFrameAt=-Infinity,lastDetectionAt=-Infinity;
   let timer:ReturnType<typeof setTimeout>|undefined,ema=0,calibration=options.calibration,reading:Promise<void>|undefined,lastReadHeld=false;
   /** Scan field: full passes still to run before the sweep, the pile outlines they saw, and when the last sweep finished. */
@@ -1532,7 +1535,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       for(const t of retired.filter((t,i)=>i>=maxTracks||sample.at-t.view.lastSeen>30000))tracks.splice(tracks.indexOf(t),1);
       pruneFrames();
     } catch(cause) {
-      if(generation===epoch&&!disposed){error=cause instanceof Error?cause.message:String(cause);if(error.includes('Waiting for a camera frame')){status='starting';error=undefined;}else{status='error';metrics.errors++;}interruptWindow();}
+      if(generation===epoch&&!disposed){error=cause instanceof Error?cause.message:String(cause);if(/Waiting for (a camera frame|the own camera buffer)/.test(error)){status='starting';error=undefined;}else{status='error';metrics.errors++;warnOnce('tick',error,cause);}interruptWindow();}
     } finally {
       if(detectFrame)closeFieldFrame(detectFrame);if(current)closeFieldFrame(current);
       const elapsed=Math.max(0,now()-start);
@@ -1562,7 +1565,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(active||disposed)return;active=true;status=options.recognizer.prepare?'starting':'watching';notify();
       if(options.recognizer.prepare) {
         const generation=epoch;
-        void options.recognizer.prepare(preparation()).then(()=>{if(generation===epoch&&!disposed&&active){status='watching';schedule();notify();}}).catch(cause=>{if(generation===epoch&&!disposed){active=false;status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;notify();}});
+        void options.recognizer.prepare(preparation()).then(()=>{if(generation===epoch&&!disposed&&active){status='watching';schedule();notify();}}).catch(cause=>{if(generation===epoch&&!disposed){active=false;status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;warnOnce('prepare',error,cause);notify();}});
       }else schedule();
     },
     stop,
