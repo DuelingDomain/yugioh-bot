@@ -24,6 +24,9 @@
 .cell img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cell[data-pos="defense"] img { transform: rotate(90deg) scale(.68); }
 .cell[data-down="true"] img { filter: brightness(.35); }
+/* The Banished cell is landscape; its top card lies on its side. */
+.cell[data-wide="true"] { width: calc(var(--cell-w) * 86 / 59); height: var(--cell-w); }
+.cell[data-wide="true"] img { inset: auto; left: 50%; top: 50%; width: var(--cell-w); height: calc(var(--cell-w) * 86 / 59); transform: translate(-50%, -50%) rotate(90deg); }
 .tag { position: relative; z-index: 1; padding: 2px; background: rgb(7 11 21 / .78); width: 100%; line-height: 1.15; overflow: hidden; }
 .pile { position: absolute; right: 2px; bottom: 2px; z-index: 1; background: rgb(7 11 21 / .85); padding: 0 4px; border-radius: 3px; font-size: 11px; color: var(--duel-ink); }
 .zl { position: absolute; left: 2px; top: 1px; z-index: 1; font-size: 9px; color: var(--duel-ink-3); }
