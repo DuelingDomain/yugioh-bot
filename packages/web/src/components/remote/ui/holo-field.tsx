@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { cardArt, isMonsterInfo, type CardInfo } from "./catalog";
+import { cardArt, hasBattleStats, isMonsterInfo, type CardInfo } from "./catalog";
 import { BK, cardCode, cardName, cellsFor, EK, EXTRA_ZONES, frameOf, hueOf, isMonsterZone, isPendulumCell, isPile, mirrorEmz, ZK, ZN, zoneLabel, type FrameKind, type TwinCard, type ZoneKey } from "./model";
 import type { Verdict } from "./placement";
 import {useFieldBacks} from './video-hub';
@@ -225,8 +225,9 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const cardInfo = card ? info(cardCode(card)) : undefined;
         const unknown = !!card && card.faceUp && !cardCode(card) && !card.token;
         const down = !!card && !card.faceUp;
-        const defense = (!!card && card.position === "defense" && !pile) || ghost?.position === "defense";
         const monsterZone = isMonsterZone(key); const emzCell = key === "e1" || key === "e2";
+        // Only a card in a Monster Zone lies in Defense; a stale position never turns a Spell/Trap Zone card.
+        const defense = (!!card && card.position === "defense" && !pile && monsterZone) || ghost?.position === "defense";
         const taken = emzCell && !card ? facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(Number(key[1]))) : undefined;
         const carriedHere = !!carried && rv === key;
         const trapHolder = !card && /^s[1-5]$/.test(key) ? twin.find(other => other.trapZone === Number(key[1]) && (other.zone === "monster" || other.zone === "extra-monster")) : undefined;
@@ -263,7 +264,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         }
         else if (card) {
           const stats = statsOf(card, cardInfo);
-          desc = cardName(card, cardInfo) + (card.token ? " (token)" : "") + (isMonsterInfo(cardInfo) || card.token ? (defense ? ", defense position" : ", attack position") : "") + (stats ? `, ${statsText(stats)}` : "");
+          desc = cardName(card, cardInfo) + (card.token ? " (token)" : "") + (hasBattleStats(cardInfo) || card.token ? (defense ? ", defense position" : ", attack position") : "") + (stats ? `, ${statsText(stats)}` : "");
           inner = <><CardFace card={card} info={cardInfo} stats="none" />{stats ? <StatPlate stats={stats} turned={rotated} /> : null}</>; }
         else if (trapHolder) inner = <div className={z.held} data-testid="trap-zone-held"><small>{zoneLabel(key)} · TRAP MONSTER</small><b>{nameOf(trapHolder)}</b></div>;
         if (card && zoneCheck) desc += `. Check zone: ${zoneCheck}`;
