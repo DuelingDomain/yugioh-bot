@@ -970,7 +970,8 @@
   .panel[data-wide="true"],
   .panel[data-strip="true"] {
     inset: 0 0 auto 0;
-    max-height: 46%;
+    /* A short board box (a phone on its side) still gets room for the ask line and the buttons. */
+    max-height: max(46%, min(100%, 170px));
     gap: 6px;
     padding: 8px 10px;
     border-width: 0 0 1px;
