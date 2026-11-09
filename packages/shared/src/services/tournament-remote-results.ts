@@ -133,7 +133,8 @@ export function createTournamentRemoteResultService(db: Database.Database) {
       return {...mapResult(r),tableOpen};
     },
     /** Called in the same transaction as the terminal reducer action. Idle/creator-left never call this. */
-    propose(tableId:number, state:RemoteState, now=Date.now()): void {
+    /** `forfeit`: a player quit the match. It is a concession (it finalizes without a confirm) and carries no game score. */
+    propose(tableId:number, state:RemoteState, now=Date.now(), forfeit=false): void {
       const r=db.prepare("select * from tournament_remote_matches where table_id=? and status='playing'").get(tableId) as ResultRow | undefined;
       if (!r || state.match.phase !== "done" || state.match.winnerSeat == null) return;
       const s=slot(r.tournament_match_id);
@@ -147,11 +148,11 @@ export function createTournamentRemoteResultService(db: Database.Database) {
       const winner=seats.find(seat=>seat.seat === state.match.winnerSeat)?.player_id;
       if (!winner || ![r.player_one_id,r.player_two_id].includes(winner)) fail("Remote winner has no paired player",409,"TOURNAMENT_MATCH_UNAVAILABLE");
       const last=state.match.games.at(-1);
-      if (!last || !["lp","concede","declared"].includes(last.reason)) fail("Remote result has no valid source",409,"REMOTE_RESULT_NOT_PROPOSED");
+      if (!forfeit && (!last || !["lp","concede","declared"].includes(last.reason))) fail("Remote result has no valid source",409,"REMOTE_RESULT_NOT_PROPOSED");
       const wins=(playerId:number) => state.match.games.filter(game=>game.winnerSeat != null && seats.find(seat=>seat.seat === game.winnerSeat)?.player_id === playerId).length;
       db.prepare(`update tournament_remote_matches set status='proposed',winner_player_id=?,player_one_wins=?,player_two_wins=?,
         result_source=?,proposed_at=?,confirm_deadline_at=?,updated_at=? where tournament_match_id=? and status='playing'`)
-        .run(winner,wins(r.player_one_id),wins(r.player_two_id),last.reason,now,now+REMOTE_RESULT_CONFIRM_MS,now,r.tournament_match_id);
+        .run(winner,forfeit?null:wins(r.player_one_id),forfeit?null:wins(r.player_two_id),forfeit?"concede":last!.reason,now,now+REMOTE_RESULT_CONFIRM_MS,now,r.tournament_match_id);
       captureRemoteTournamentEvidence(db,tableId,now);
     },
     /** A successful terminal Undo invalidates the proposal and every report of that outcome. */

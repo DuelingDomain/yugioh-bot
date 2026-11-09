@@ -573,9 +573,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
         // An admin who starts or stops watching adds a log line. That is not a game change, so it never makes a player's move stale.
-        if (command.type !== "side.timeout") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
-        if (row.status === "active" && idleExpired(row, now)) { closeIdle(row, now); return room(load(slug, guildId), userId); }
+        if (row.status === "active" && idleExpired(row, now) && command.type !== "player.leave") { closeIdle(row, now); return room(load(slug, guildId), userId); }
         remoteAssert(row.status === "active" || (row.end_reason === "game" && command.type === "undo"), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
@@ -668,7 +669,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const matchDone = state.match.phase === "done";
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
           .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? command.type === "player.leave" ? "forfeit" : "game" : null, row.id);
-        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now);
+        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now,command.type === "player.leave");
         else if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
         else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);
         return room(load(slug, guildId), userId, undefined, state);

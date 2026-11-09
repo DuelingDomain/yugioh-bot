@@ -3559,7 +3559,7 @@ it('keeps history and replay indefinitely, prunes transient data, and supports a
 
 
 // B3 result lifecycle, using the real reducer, slot advancement and scoring service.
-async function tournamentResultSession(format: "single_elim" | "round_robin" = "single_elim") {
+async function tournamentResultSession(format: "single_elim" | "round_robin" = "single_elim", bestOf: 1 | 3 = 1) {
   const { createTournamentService } = await import("../../src/services/tournaments.js");
   const { createTournamentRemoteService } = await import("../../src/services/tournament-remote.js");
   const { createTournamentRemoteResultService } = await import("../../src/services/tournament-remote-results.js");
@@ -3567,7 +3567,7 @@ async function tournamentResultSession(format: "single_elim" | "round_robin" = "
   const actors = Array.from({length:4}, (_, i) => seedIdentity(db, {name:`Remote ${i}`}));
   vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("REMOTE_DUELS_USERS", "*");
   const tournaments = createTournamentService(db);
-  const tournament = tournaments.create("g", "Result cup", format, actors[0].userId, {duelType:"remote", bestOf:1});
+  const tournament = tournaments.create("g", "Result cup", format, actors[0].userId, {duelType:"remote", bestOf});
   for (const actor of actors) tournaments.join(tournament.id, actor.playerId);
   tournaments.start(tournament.id);
   const slot = tournaments.matches(tournament.id).find(m => m.playerTwoId !== null)!;
@@ -3616,6 +3616,19 @@ it("rebuilds tournament rules from table.created before an opponent changes LP t
     expect(s.results.get(s.input)).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"lp"});
     s.results.confirm(s.input);
     expect(s.results.confirm({...s.input,actorUserId:s.two.userId}).status).toBe("final");
+  } finally {vi.unstubAllEnvs();}
+});
+
+it("a quit between games of a tournament match is a forfeit that finalizes by itself, without a game score", async () => {
+  const s = await tournamentResultSession("single_elim", 3);
+  try {
+    s.act(1,{type:"player.concede"}); s.act(1,{type:"match.continue"});
+    s.act(0,{type:"player.leave"});
+    expect(s.refresh()).toMatchObject({status:"ended",endReason:"forfeit",state:{match:{phase:"done",winnerSeat:1}}});
+    const proposed = s.results.get(s.input);
+    expect(proposed).toMatchObject({status:"proposed",winnerPlayerId:s.one.playerId,source:"concede",score:null});
+    s.results.finalizeDue(proposed.confirmDeadlineAt!);
+    expect(s.results.get(s.input)).toMatchObject({status:"final",winnerPlayerId:s.one.playerId});
   } finally {vi.unstubAllEnvs();}
 });
 
@@ -4251,6 +4264,24 @@ describe("account deletion in live remote rooms", () => {
     expect(note(5000).status).toBe("active");
     note(4003+601_000);
     expect(late).toMatchObject({status:"ended",endReason:"idle"});
+  });
+
+  it("a quit in an FFA Bo3 game ends only that seat: the match goes on, and the seat that left cannot touch the match flow", () => {
+    const {service,users}=setup();
+    let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount:3,bestOf:3},1000);
+    for(let seat=1;seat<3;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
+    for(let seat=0;seat<3;seat++) service.ready(room.slug,"g",users[seat],true,1002);
+    room=service.start(room.slug,"g",users[0],1003);
+    const act=(seat:number,action:Record<string,unknown>)=>room=service.act(room.slug,"g",users[seat],{baseSeq:room.lastSeq,action:remoteActionSchema.parse({actorSeat:seat,idempotencyKey:`ffa-quit-${room.lastSeq}-${seat}`,...action})},2000+room.lastSeq);
+    act(0,{type:"lp.change",seat:2,delta:-8000,reason:"damage"});
+    expect(room.state.seats[2].eliminated).toBe(true);
+    // Seat 2 is out of the game by Life Points and seat 1 quits: seat 0 wins game 1, and seat 2 still plays on in the match.
+    act(1,{type:"player.leave"});
+    expect(room).toMatchObject({status:"active",state:{match:{phase:"result",games:[{winnerSeat:0}]}}});
+    for(const action of [{type:"match.continue"},{type:"side.ready",seat:1}]) expect(()=>act(1,action)).toThrow(/left this match/);
+    // A quit does not wait for another action in flight: the stale sequence is not a reason to refuse it.
+    expect(()=>service.act(room.slug,"g",users[2],{baseSeq:room.lastSeq-1,action:remoteActionSchema.parse({type:"player.leave",actorSeat:2,idempotencyKey:"ffa-quit-stale"})},9000)).not.toThrow();
+    expect(room).toBeDefined();
   });
 
   it.each([[3,1,"duel"],[4,1,"duel"],[3,3,"duel"],[4,3,"duel"],[3,3,"result"],[4,3,"siding"]] as const)("concedes only the deleted FFA seat until one player remains (%i seats, Bo%i, %s)", (seatCount,bestOf,phase) => {
