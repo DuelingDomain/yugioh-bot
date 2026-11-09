@@ -1015,7 +1015,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // changed. Each fix is its own undoable action and is tried once per board state.
   // A card the player moved or undid stays until the camera shows a new change.
   const missingSince=useRef(new Map<string,number>());
-  const [scanning,setScanning]=useState(false),resyncing=useRef(false),resynced=useRef(new Map<string,{board:string;fails:number}>());
+  const [scanning,setScanning]=useState(false),resyncing=useRef(false),resyncStarted=useRef(0),resynced=useRef(new Map<string,{board:string;fails:number}>());
   useEffect(()=>{resynced.current.clear();},[room.slug,seat]);
   const boardState=()=>{let h=0;for(const c of current.current.room.state.seats[seat].twin)for(const ch of `${c.ref}|${c.zone}|${c.slot??''}|${c.position??''}|${c.faceUp?1:0};`)h=(h*31+ch.charCodeAt(0))|0;return String(h);};
   /** False when this fix was already tried on this board state. A failed write may try again (3 times) next cycle. */
@@ -1056,7 +1056,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   function resync(manualScan=false,gentle=false) {
     const strict=manualScan&&!gentle;
     if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);if(strict){setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
-    resyncing.current=true;
+    resyncing.current=true;resyncStarted.current=performance.now();
     void queue(async act=>{
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
       if(!snap||!live()||fullAt===undefined)return;
@@ -1163,17 +1163,30 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[room.slug,seat,recognition.backend]);
   // "Scan field": force two fresh full detector passes and the watcher's sweep (5 s at most on a slow CPU), then re-sync once.
   const scanTimer=useRef<ReturnType<typeof setInterval>|undefined>(undefined),scanGuard=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
-  // One failed tick sets the error and the next good tick clears it. It counts as a fault only after it has lasted 3 s.
-  const rawWatcherError=watch.snapshot.status==='error',[errorLasted,setErrorLasted]=useState(false);
-  useEffect(()=>{if(!rawWatcherError){setErrorLasted(false);return;}const t=setTimeout(()=>setErrorLasted(true),3000);return()=>clearTimeout(t);},[rawWatcherError]);
-  const watcherError=rawWatcherError&&errorLasted?watch.snapshot.error||'Card watcher unavailable':'';
+  // One failed tick sets the error and the next good tick clears it. It counts as a fault once it has lasted 3 s, and stops counting only after
+  // 3 s without any error, so a reader that fails again and again between good ticks still shows as off.
+  const rawWatcherError=watch.snapshot.status==='error',[errorLasted,setErrorLasted]=useState(false),lastWatcherError=useRef(''),errorNow=useRef(false),errorOnsets=useRef(0);
+  const errorStart=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),errorClear=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+  useEffect(()=>{
+    const wasError=errorNow.current;errorNow.current=rawWatcherError;
+    if(rawWatcherError){
+      lastWatcherError.current=watch.snapshot.error||'Card watcher unavailable';
+      if(!wasError)errorOnsets.current++;
+      clearTimeout(errorClear.current);errorClear.current=undefined;
+      if(errorStart.current===undefined)errorStart.current=setTimeout(()=>{errorStart.current=undefined;if(errorNow.current||errorOnsets.current>=3)setErrorLasted(true);},3000);
+    }else if(errorClear.current===undefined&&(errorOnsets.current>0||errorLasted)){
+      errorClear.current=setTimeout(()=>{errorClear.current=undefined;errorOnsets.current=0;setErrorLasted(false);},3000);
+    }
+  },[rawWatcherError,watch.snapshot.error,errorLasted]);
+  useEffect(()=>()=>{clearTimeout(errorStart.current);clearTimeout(errorClear.current);},[]);
+  const watcherError=errorLasted?(rawWatcherError?watch.snapshot.error:'')||lastWatcherError.current||'Card watcher unavailable':'';
   useEffect(()=>()=>{clearInterval(scanTimer.current);clearTimeout(scanGuard.current);},[]);
   // The guard has done its job as soon as the scan has ended.
   useEffect(()=>{if(!scanning)clearTimeout(scanGuard.current);},[scanning]);
   /** `manual` is the player's own press. `auto` and `remote` (a Rescan request) never end the sync hold and are silent unless they change the board. Returns false when it did not start. */
   const scanField=useCallback((origin:'manual'|'auto'|'remote'='manual'):boolean=>{
     const gentle=origin==='auto'||origin==='remote';
-    if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice('Board check already running');return false;}
+    if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice(resyncing.current&&performance.now()-resyncStarted.current>15000?'Board check is stuck. Reload the page.':'Board check already running');return false;}
     if(watcherError){if(!gentle)setNotice('Scan field cannot run: the card reader is not running. Reload the page or use Tap to identify.');return false;}
     if(gentle&&(syncHoldRef.current||calibrationBusy.current))return false;
     if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
@@ -1253,7 +1266,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   });
   // What waits for the player must never be silent: the chip says it, and a click opens the Card notices dock (or resumes a sync hold).
   const waiting=syncHold?0:promptViews.length,attention=watch.enabled&&(syncHold||waiting>0);
-  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':rawWatcherError&&errorLasted?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
