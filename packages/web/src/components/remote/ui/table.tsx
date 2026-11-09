@@ -319,13 +319,15 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
   // Quit the match: a seated player of a live match, in any phase (game, die roll, between games). A solo test table has nobody to forfeit to.
   const canQuit = !solo && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
+  // A seat that left the match watches the rest of it: it cannot ready, continue or choose.
+  const leftMatch = mySeat >= 0 && !!state.seats[mySeat]?.accountDeleted;
   const [leaveMode, setLeaveMode] = useState<"game" | "match">("game");
   const quit = () => { void act({ type: "player.leave", actorSeat: mySeat }).then(done => { if (done) router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels"); }); };
   const openingShown = match.phase === "duel" && !!match.opening && (match.opening.chosenSeat === undefined || !!match.opening.auto) && !state.ended && room.status === "active";
   const openLeave = (mode: "game" | "match", el: HTMLElement) => { setSurrenderPick(null); setLeaveMode(mode); layers.toggle("surrender", el); };
   // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
   useEffect(() => { if (layers.layer !== "surrender") { setSurrenderPick(null); setLeaveMode("game"); } }, [layers.layer]);
-  // The game ended, I am out, or the opening started: drop a surrender question that is no longer true.
+  // The question no longer applies (the game ended, I left, the table ended): close it.
   useEffect(() => { if (!(layers.layer === "surrender" && leaveMode === "match" ? canQuit : canSurrender) && (layers.layer === "surrender" || layers.layer === "deck")) layers.close(); }, [canSurrender, canQuit, leaveMode, layers]);
   const changeLp = (seat: number, delta: number, reason = "Manual adjustment") => { if (live && delta) return act({ type: "lp.change", actorSeat: mySeat, seat, delta, reason }); return Promise.resolve(null); };
   const nextSeat = (() => { if (turnShown < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (state.turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return state.turnSeat; })();
@@ -1488,12 +1490,12 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     <DeclareConfirm match={match} mySeat={mySeat} name={name} busy={matchBusy} onAnswer={(declarationId, accept) => matchStep({ type: "match.confirm", actorSeat: mySeat, declarationId, accept })} />
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
     {(match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView)
-      ? <MatchResultScreen room={room} match={match} mySeat={mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+      ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding && room.status === "active"
-        ? <SidingScreen room={room} match={match} mySeat={mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+        ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
       ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
     {room.status === "active" && (openingShown || match.phase === "result" || (match.phase === "siding" && match.siding))

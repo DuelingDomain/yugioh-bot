@@ -90,8 +90,6 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [sureLeave, setSureLeave] = useState(false);
-  useEffect(() => { if (!sureLeave) return undefined; const timer = window.setTimeout(() => setSureLeave(false), 4000); return () => window.clearTimeout(timer); }, [sureLeave]);
   const reduced = useReducedMotion();
   const [timedOut, setTimedOut] = useState(false);
   const [skipped, setSkipped] = useState(false);
@@ -111,7 +109,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
     : reasonLine(game, name, mySeat, game?.winnerSeat ?? null);
   const titleId = "match-result-title";
   const seats = room.seats.map(seat => seat.seat);
-  const leave = () => { if (final || sureLeave) onLeave(); else setSureLeave(true); };
+  const leave = () => onLeave();
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="match-result" data-final={final || undefined} data-outcome={outcome === "spectator" ? "ended" : outcome} data-title={outcome === "win" ? "win" : outcome === "lose" ? "lose" : "calm"}
     data-phase={settled ? "settled" : "play"} data-reduced={reduced ? "true" : "false"} onClick={() => { if (!settled) setSkipped(true); }}>
@@ -149,14 +147,12 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
 
       {tournamentResult}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
-      <div className={resultStyles.actions} data-count={final ? 2 : undo ? 3 : 2}>
+      <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
         {final
           ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={leave} data-testid="match-leave">Leave</button>
           : <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={onContinue} data-testid="match-continue">Continue to side decking</button>}
         {undo ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={undo.onUndo} title={undo.label} data-testid="match-undo">Undo last action</button> : null}
-        {final
-          ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button>
-          : <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={leave} data-testid="match-leave">{sureLeave ? "Leave? Press again" : "Leave"}</button>}
+        {final ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button> : null}
       </div>
     </div></div>
   </div>;
@@ -341,7 +337,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     ? <div className={seriesStyles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
       <p className={seriesStyles.firstHead}>{iChoose ? chooserWhy : `${name(chooser as number)} chooses who goes first`}</p>
       {iChoose ? <div className={seriesStyles.firstRow}>
-        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0 || (choiceLeft !== null && choiceLeft <= 0)}
+        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0 || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)}
           data-testid={`first-choice-${seat === mySeat ? "me" : seat}`} onClick={() => void first(seat)}>{seat === mySeat ? "I go first" : `${name(seat)} first`}</button>)}
       </div> : null}
       <p className={seriesStyles.firstNote}>{match.firstSeat !== undefined ? `${name(match.firstSeat)} goes first.` : fallbackNote}</p>
@@ -349,7 +345,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
 
   const buttons = <div className={s.buttons}>
     {imReady
-      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
+      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
       : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
   </div>;
   const waitingFirst = everyoneReady && match.firstSeat === undefined && chooser !== null;

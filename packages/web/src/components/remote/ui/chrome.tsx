@@ -27,6 +27,13 @@ export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], hea
     <span className={s.cchip}>{chip}</span>
     {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}
     <span className={s.sp} />
+    {onSurrender || onQuit ? <div className={s.leaveGrp} role="group" aria-label="Leave the game or the match" data-testid="leave-group">
+    {onSurrender ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" aria-expanded={surrenderOpen} aria-label="Surrender this game" title="Surrender this game" data-layer-opener data-testid="surrender-button" onClick={e => onSurrender(e.currentTarget)}>
+      <Icon name="flag" /><span>Surrender</span></button> : null}
+    {onQuit ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" aria-label="Quit the match" title="Quit the match" data-layer-opener data-testid="quit-button" onClick={e => onQuit(e.currentTarget)}>
+      <Icon name="x" /><span>Quit match</span></button> : null}
+    </div> : null}
+    <span className={s.sp} />
     <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">
       <button type="button" aria-pressed={!webcamOnly} data-testid="view-both" aria-label="Both: show cameras and virtual fields, beta" onClick={() => onView(false)} title="Show the cameras and the virtual fields, beta (W)">Both <span className={s.vbeta}>Beta</span></button>
       <button type="button" aria-pressed={webcamOnly} data-testid="view-webcam" aria-label="Webcam only: hide the virtual fields" onClick={() => onView(true)} title="Hide the virtual fields. The cameras get the space (W).">Webcam<span className={s.vlong}> only</span></button>
@@ -37,10 +44,6 @@ export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], hea
       <Icon name="card" /><span className={s.lbl}>Card</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>
       <Icon name="log" /><span className={s.lbl}>Log</span><span className={`${s.nb} ${logDot ? s.on : ""}`} /></button>
-    {onSurrender ? <button type="button" className={`${s.tb} ${s.tbSurrender}`} aria-haspopup="dialog" aria-expanded={surrenderOpen} aria-label="Surrender this game" title="Surrender this game" data-layer-opener data-testid="surrender-button" onClick={e => onSurrender(e.currentTarget)}>
-      <Icon name="flag" /><span className={s.lbl}>Surrender</span></button> : null}
-    {onQuit ? <button type="button" className={`${s.tb} ${s.tbSurrender}`} aria-haspopup="dialog" aria-label="Quit the match" title="Quit the match" data-layer-opener data-testid="quit-button" onClick={e => onQuit(e.currentTarget)}>
-      <Icon name="x" /><span className={s.lbl}>Quit match</span></button> : null}
   </header>;
 }
 

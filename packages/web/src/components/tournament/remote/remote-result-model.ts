@@ -88,7 +88,7 @@ function boardOf(seat: number, cards: StoredCard[]): EvidenceBoard {
 
 export const REMOTE_NOTE_MAX = 280;
 export const SOURCE_TEXT: Record<NonNullable<RemoteResult["source"]>, string> = { concede: "a concede", declared: "a declared result", lp: "LP 0" };
-export const END_TEXT: Record<string, string> = { game: "Match finished", concede: "Concede", declared: "Declared and confirmed", lp: "LP 0", timeout: "Time ran out", idle: "Table idle", "creator-left": "Creator left", "account-deleted": "Player account deleted" };
+export const END_TEXT: Record<string, string> = { game: "Match finished", concede: "Concede", declared: "Declared and confirmed", lp: "LP 0", timeout: "Time ran out", idle: "Table idle", "creator-left": "Creator left", "account-deleted": "Player account deleted", forfeit: "Player left the match" };
 
 /** A short date and time, in the viewer's locale. */
 export const when = (at: number | null | undefined) => at ? new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";

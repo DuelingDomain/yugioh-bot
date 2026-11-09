@@ -57,6 +57,9 @@
 .hdot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px currentColor;color:var(--ok)}
 .hdot.warn{background:var(--warn);color:var(--warn)}.hdot.bad{background:var(--lossd);color:var(--lossd)}
 .tb.tbSurrender{border-color:color-mix(in srgb,var(--lossd) 55%,transparent);color:var(--loss)}.tb.tbSurrender:hover{border-color:var(--lossd);color:var(--loss)}
+.leaveGrp{display:flex;align-items:center;gap:8px;flex:none}
+.tb.leaveBtn{height:34px;padding:0 15px;font-size:14px;font-weight:700;border-color:color-mix(in srgb,var(--lossd) 70%,transparent);background:color-mix(in srgb,var(--lossd) 14%,var(--p0));color:var(--loss)}
+.tb.leaveBtn:hover{border-color:var(--lossd);color:var(--loss);background:color-mix(in srgb,var(--lossd) 26%,var(--p0))}
 .tb.warnc{border-color:rgb(240 178 79/.6);color:var(--warn)}.tb.badc{border-color:rgb(228 90 77/.7);color:var(--loss)}
 .nb{position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);display:none}
 .nb.on{display:block}
@@ -703,6 +706,11 @@
   .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
   .shell{display:block;height:auto;padding-bottom:var(--dockh,128px)}
   .top{position:sticky;top:0;gap:8px;padding:0 10px;height:var(--hdr)}
+  /* The phone header is full: Surrender and Quit match get their own full-width row in it, so they stay in view and large. */
+  .app:has(.leaveGrp){--hdr:98px}
+  .top:has(.leaveGrp){flex-wrap:wrap;align-content:center;row-gap:6px}
+  .top .leaveGrp{order:9;flex:1 0 100%}
+  .tb.leaveBtn{flex:1;justify-content:center;height:38px}
   .crumb,.cchip,.logo b,.tb .lbl{display:none}
   /* The phone header is full: the badge moves to its own row under it, in the page flow, so it covers nothing. */
   .adminBadge{display:none}
