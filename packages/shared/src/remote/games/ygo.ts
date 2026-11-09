@@ -122,6 +122,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   // A seat that left cannot touch the match flow (Ready, Not ready, a first-choice pick, Continue) or stall a countdown. The clock check stays open to everyone.
   if (state.seats[action.actorSeat].accountDeleted && action.type !== "side.timeout" && /^(match|side)\./.test(action.type)) remoteAssert(false, "You left this match", 403, "LEFT_MATCH");
   if (action.type === "player.leave") remoteAssert(!state.seats[action.actorSeat].accountDeleted, "You already left this match", 409, "ALREADY_LEFT");
+  // Quitting during a live game only concedes that game: leaving the whole match is possible between games. Historic events keep the old meaning.
+  if (action.type === "player.leave" && !state.ended && !state.seats[action.actorSeat].eliminated && (!context?.replay || context.quitGameOnly === 1))
+    return reduce(state, { ...action, type: "player.concede" }, context);
   if (action.type === "player.leave" || action.type === "player.concede" && context?.accountDeletion === 1) {
     // A departed FFA seat cannot return in a later game, including a deletion during siding.
     // Quitting is the same departure as an account deletion: a live game is conceded first, then the seat leaves the match.

@@ -5,9 +5,9 @@ import s from "./remote-ui.module.css";
 import x from "./surrender.module.css";
 
 /** "Surrender this game?" The Cancel button has the focus, so Enter never gives the game up by accident. */
-export function SurrenderConfirm({ open, mode = "game", game, bestOf, seatCount, solo, name, busy, onConfirm, onCancel }: {
+export function SurrenderConfirm({ open, mode = "game", game, bestOf, seatCount, solo, endsMatch = false, name, busy, onConfirm, onCancel }: {
   open: boolean; /** "game": lose this game. "match": quit the whole match, which cannot be undone. */ mode?: "game" | "match"; /** The game in progress: 1, 2 or 3. */ game: number; bestOf: number; seatCount: number;
-  /** A solo table: the seat whose turn it is gives up, to end the test game. */ solo: boolean; /** Who gives up. */ name: string;
+  /** A solo table: the seat whose turn it is gives up, to end the test game. */ solo: boolean; /** Best of 3: losing this game also loses the match. */ endsMatch?: boolean; /** Who gives up. */ name: string;
   busy: boolean; onConfirm: () => void; onCancel: () => void;
 }) {
   if (!open) return null;
@@ -15,7 +15,8 @@ export function SurrenderConfirm({ open, mode = "game", game, bestOf, seatCount,
   const body = quit ? (seatCount > 2 ? "You leave the match for good. The others play on without you. This cannot be undone." : "You lose the whole match and your opponent wins. This cannot be undone.")
     : solo ? `${name} gives up. The test game ends right away.`
     : seatCount > 2 ? "You are out of this game right away. The others play on."
-      : "You lose this game right away.";
+      : bestOf === 3 ? endsMatch ? "You lose this game and the match. Your opponent wins." : "You lose this game. Side decking starts next."
+        : "You lose this game right away.";
   return <div className={x.scrim} data-testid="surrender-scrim">
     <div className={x.dialog} data-layer="surrender" role="alertdialog" aria-modal="true" aria-labelledby="surrender-q" aria-describedby="surrender-d" data-testid="surrender-confirm">
       {bestOf === 3 && !quit ? <p className={x.kicker} data-testid="surrender-game">Game {game} of 3</p> : null}

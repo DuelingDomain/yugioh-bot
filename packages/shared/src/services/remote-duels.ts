@@ -667,9 +667,11 @@ export function createRemoteDuelService(db: Database.Database, options: {
         append(row, action, now, userId, command.actorSeat, true, effects, messages);
         syncDecks(row, state);
         const matchDone = state.match.phase === "done";
+        // A forfeit is a quit between games. A quit during a live game was a conceded game, with a normal game result.
+        const left = command.type === "player.leave" && !!state.seats[command.actorSeat]?.accountDeleted;
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
-          .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? command.type === "player.leave" ? "forfeit" : "game" : null, row.id);
-        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now,command.type === "player.leave");
+          .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? left ? "forfeit" : "game" : null, row.id);
+        if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now,left);
         else if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
         else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);
         return room(load(slug, guildId), userId, undefined, state);
