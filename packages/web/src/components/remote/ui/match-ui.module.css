@@ -100,3 +100,8 @@
   .sidingRoot .panel > .sticky { margin: 8px 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { .pendingDot { animation: none; } }
+
+/* "Next game starts in 5": shown while everyone is ready. */
+.startCount { display: flex; align-items: baseline; justify-content: center; gap: 10px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--duel-gold, #d9b45a); background: rgb(217 180 90 / 0.1); color: var(--duel-gold-ink, #f4d690); }
+.startCount span { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.startCount b { font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1; }

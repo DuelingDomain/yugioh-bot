@@ -24,3 +24,7 @@
 /* Under the table's `.app button { color: inherit }`, so the parent selector wins. Light on red is about 5:1. */
 .actions .yes { background: var(--lossd, #e45a4d); border-color: var(--lossd, #e45a4d); color: #1b0604; }
 .actions .yes:disabled { opacity: 0.55; }
+
+/* Over the full-screen die roll, result and siding screens (z-index 150 to 200), under the confirm (240). */
+.dock { position: fixed; z-index: 230; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 6px; }
+.dockBtn { color: var(--loss, #ff8f84); background: rgb(13 8 25 / 0.82); border-color: color-mix(in srgb, var(--lossd, #e45a4d) 55%, transparent); }
