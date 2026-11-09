@@ -85,7 +85,7 @@
 .t1 svg { color: var(--gold); width: 18px; height: 18px; }
 .newtag {
   display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px;
-  background: rgb(255 84 72 / 0.14); color: #ffb3ab; font: 700 10.5px/1 var(--f-ui); letter-spacing: 0.06em; text-transform: uppercase;
+  background: rgb(255 84 72 / 0.14); color: #ffb3ab; font: 700 11px/1 var(--f-ui); letter-spacing: 0.06em; text-transform: uppercase;
 }
 .opening { animation: popIn 0.26s var(--ease-out); }
 .closing { animation: popOut 0.18s ease-in forwards; pointer-events: none; }

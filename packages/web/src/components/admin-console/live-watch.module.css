@@ -34,12 +34,12 @@
   border: 1px solid rgb(255 255 255 / 0.14); background: rgb(255 255 255 / 0.04); color: #cfd0da; cursor: pointer;
 }
 .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 6px var(--tone); }
-.chip small { color: #8e8fa0; font-size: 10px; }
+.chip small { color: #8e8fa0; font-size: 12px; }
 .chipName { font-weight: 600; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip:hover { border-color: var(--tone); color: #fff; }
 .chip[data-active] { border-color: var(--tone); background: color-mix(in srgb, var(--tone) 22%, transparent); color: #fff; }
 .chip:focus-visible, .back:focus-visible { outline: 2px solid #e4c77a; outline-offset: 2px; }
-.turnMark, .actMark { font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 4px; border-radius: 4px; }
+.turnMark, .actMark { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 4px; border-radius: 4px; }
 .turnMark { background: rgb(255 255 255 / 0.14); color: #fff; }
 .actMark { background: #e4b64f; color: #1a1306; }
 .status { white-space: nowrap; color: #a4a4b5; }
