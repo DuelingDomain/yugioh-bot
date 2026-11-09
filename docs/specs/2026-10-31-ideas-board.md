@@ -1,6 +1,6 @@
 # Ideas board: spec
 
-**Status: draft for owner review (2026-10-31).** Direction A, The Ladder, from the workshop in `docs/design/feedback-board/` (PR #497). The owner's nine answers are in that folder's README. Where the A mock draws something, the mock is the spec; this file covers what it doesn't.
+**Status: approved by the owner (2026-10-31).** Direction A, The Ladder, from the workshop in `docs/design/feedback-board/` (PR #497). The owner's nine answers are in that folder's README. Where the A mock draws something, the mock is the spec; this file covers what it doesn't.
 
 ## What it is
 

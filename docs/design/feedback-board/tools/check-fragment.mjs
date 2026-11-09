@@ -1,13 +1,13 @@
 // Checks one approach fragment for the rules that keep three fragments from breaking each other on one page.
-// Usage: node check-fragment.mjs <a|b|c>   (reads ../approach-<x>.html). Exit 1 on errors.
+// Usage: node check-fragment.mjs <a|b|c|f>   (reads ../approach-<x>.html; f reads ../final.html). Exit 1 on errors.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const x = (process.argv[2] || "").toLowerCase();
-if (!/^[abc]$/.test(x)) { console.error("usage: node check-fragment.mjs <a|b|c>"); process.exit(2); }
-const path = join(dirname(fileURLToPath(import.meta.url)), "..", `approach-${x}.html`);
+if (!/^[abcf]$/.test(x)) { console.error("usage: node check-fragment.mjs <a|b|c|f>"); process.exit(2); }
+const path = join(dirname(fileURLToPath(import.meta.url)), "..", x === "f" ? "final.html" : `approach-${x}.html`);
 const src = readFileSync(path, "utf8");
 const errors = [], warns = [];
 const err = (m) => errors.push(m), warn = (m) => warns.push(m);

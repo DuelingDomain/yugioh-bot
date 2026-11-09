@@ -1,6 +1,6 @@
 # Feedback board design workshop
 
-**Status: direction chosen (2026-10-31): A · The Ladder. All nine open questions answered.** Next: spec, implementation plan, then the build on its own branch off main.
+**Status (2026-11-09): direction chosen (A · The Ladder), all nine questions answered, spec approved. The build is paused.** See [How to continue](#how-to-continue).
 
 Players need a place in the web app to suggest features and vote on them, with the owner approving ideas and showing what's in progress and done. This folder holds the workshop page that compares three approaches, its sources, and the research behind it.
 
@@ -60,7 +60,7 @@ Recommendation on the page: A's ladder as the board, plus B's one-card pick as t
   - Each chapter is self-contained and scoped: CSS under `.ap-x`, ids `apx-`, and one IIFE script.
 - `compare.html`, `questions.html`: the comparison table and the open questions.
 - `round-1/workshop.html`: round one (Next Turn, Set list, The Floor), kept as history. The owner rejected it as too complex. Round one's 29-artboard design canvas is https://claude.ai/artifact/Y2oAJAi4vJWXgwVVGQrrMD (private).
-- `briefs/`: the designer briefs. Round 2 overrides round 1 where they differ.
+- `briefs/`: the designer briefs. Round 2 overrides round 1 where they differ; `agent-brief-final.md` (the final mock pass) overrides both.
 - `research/product-brief.md`: product context, seed ideas and visual system for the mocks.
   - Seed content: the rank system's six parts, team seeds, player samples and the real shipped log.
   - The round 2 brief overrides its seed statuses.
@@ -75,7 +75,47 @@ node tools/check-fragment.mjs a          # scoping, ids, controls, banned names;
 node tools/assemble.mjs                  # writes workshop.html
 node tools/smoke.mjs workshop.html       # jsdom: clicks every button, reports script errors, duplicate ids, dead links
 node tools/assemble.mjs shots/b.html --only b --focus apb-s4   # one chapter, one screen
-sh tools/shot.sh "$PWD/shots/b.html" "$PWD/shots/b.png" 1440 1300   # headless Chrome (macOS path); widths under 500 use an iframe
+sh tools/shot.sh "$PWD/shots/b.html" "$PWD/shots/b.png" 1440 1300   # headless Chrome ($CHROME, else macOS, else /usr/bin/google-chrome); widths under 500 use an iframe
+node tools/assemble.mjs --final         # final mock page: final.html only, writes final-workshop.html (also takes --focus)
 ```
 
 `shots/` is scratch output; do not commit it. Mock data uses invented handles and sample vote counts. The shipped lines come from real merged pull requests.
+
+## How to continue
+
+The owner paused the build on 2026-10-31. Nothing is merged. Pick up in this order.
+
+**Where things are**
+
+| What | Where | State |
+|---|---|---|
+| Workshop, owner answers, spec | this folder and `docs/specs/2026-10-31-ideas-board.md`, on `design/feedback-board-workshop` (PR #497) | Done. The spec is approved. |
+| Final mock tooling | `tools/assemble.mjs --final`, `tools/check-fragment.mjs f`, the `shot.sh` Chrome fallback | Done. |
+| Final mock | `final.html` (not written yet) | Stopped before it started. The brief is `briefs/agent-brief-final.md`. |
+| Backend | branch `feat/ideas-board`, one commit on top of this branch | Written by Codex and read by Opus against the spec. The full test suites and typechecks have not been run yet. |
+| UI build | | Not started. |
+
+The backend is the schema (`ideas`, `idea_votes`, `idea_notices`, `user_permissions`, `users.ideas_prompt_at`), `createIdeaService` in `packages/shared/src/services/ideas.ts`, the routes under `packages/web/app/api/ideas/` and `packages/web/app/api/admin/console/ideas/`, the merge, fold and deletion updates, and the `ideas-seed` owner CLI. The API contract is `docs/api/ideas.md`, and the plan Codex followed is `docs/superpowers/plans/2026-10-31-ideas-backend.md`.
+
+**Next steps**
+
+1. **Final mock.** Give `briefs/agent-brief-final.md` to the Sonnet `ui-designer` agent. It writes `final.html` (screens `apf-s1` to `apf-s8`). Opus reviews the shots at 1440 and 390, then the owner reviews `final-workshop.html`.
+2. **Verify the backend** on `feat/ideas-board`, with Node 22 and outside the Codex sandbox:
+   ```bash
+   export PATH=$HOME/.nvm/versions/node/v22.23.2/bin:$PATH
+   npm ci && npm run build --workspace=packages/shared
+   npm test --workspace=packages/shared && npm test --workspace=packages/worker && npm test --workspace=packages/web
+   npm run typecheck
+   ```
+   Two small edge cases are open: after an account merge, the survivor can hold a vote on their own idea; the service loads every idea of the guild on each read (fine at this size).
+3. **Build the UI** on `feat/ideas-board`, after the owner approves the final mock. Sonnet builds it on the API in `docs/api/ideas.md`:
+   - the `/ideas` page with its two tabs;
+   - the Ideas nav item with the notice dot;
+   - the post form;
+   - the Ideas section in the admin console;
+   - the after-game row on the duel result, the draft finale and the tournament closed view.
+
+   Opus reviews every diff and the screenshots at 1440 and 390.
+4. **Ship.** Run the full test, typecheck and build. Open a PR from `feat/ideas-board` to `main`, and merge only on the owner's go. After deploy, the owner runs the seed once: `node packages/worker/dist/ops/cli.js ideas-seed`, which is a dry run, then again with `--apply`.
+
+**Rules for this work.** Sonnet (`ui-designer`) does UI, and Codex does backend. Opus reviews every return and does all git writes. No merge without the owner's go.
