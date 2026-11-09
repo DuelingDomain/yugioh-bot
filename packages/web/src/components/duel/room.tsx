@@ -286,8 +286,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // keep the default.
       dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
-  const idleDeadline = useDuelRoomActivity(!readOnly && rawData?.session.kind === "play" && rawData.session.status === "lobby"
-    && rawData.mySeat != null && rawData.opening == null ? slug : null);
+  const idleDeadline = useDuelRoomActivity(slug, !readOnly && rawData?.session.kind === "play" && rawData.session.status === "lobby"
+    && rawData.mySeat != null && rawData.opening == null);
   const kicked = kickedSlug === slug || (error instanceof DuelRequestError && error.code === "DUEL_KICKED");
   useEffect(() => {
     if (!kicked) return;
