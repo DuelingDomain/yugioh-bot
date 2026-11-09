@@ -327,6 +327,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const [leaveMode, setLeaveMode] = useState<"game" | "match">("game");
   const quit = () => { void act({ type: "player.leave", actorSeat: mySeat }).then(done => { if (done) router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels"); }); };
   const openingShown = match.phase === "duel" && !!match.opening && (match.opening.chosenSeat === undefined || !!match.opening.auto) && !state.ended && room.status === "active";
+  // The opening screen can end by itself (a bot roll) while `openingShown` stays true. Its dock then must go, or two Surrender buttons overlap.
+  const [openingCovers, setOpeningCovers] = useState(false);
   const openLeave = (mode: "game" | "match", el: HTMLElement) => { setSurrenderPick(null); setLeaveMode(mode); layers.toggle("surrender", el); };
   // Any way the question closes (Cancel, Escape, a press outside) forgets which seat was picked.
   useEffect(() => { if (layers.layer !== "surrender") { setSurrenderPick(null); setLeaveMode("game"); } }, [layers.layer]);
@@ -1515,9 +1517,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       : match.phase === "siding" && match.siding && room.status === "active"
         ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
     {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
-      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} /> : null}
-    {room.status === "active" && (openingShown || match.phase === "result" || (match.phase === "siding" && match.siding))
-      ? <LeaveDock onSurrender={openingShown && canSurrender ? () => { setSurrenderPick(null); setLeaveMode("game"); layers.open("surrender"); } : undefined}
+      ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} onCover={setOpeningCovers} /> : null}
+    {room.status === "active" && ((openingShown && openingCovers) || match.phase === "result" || (match.phase === "siding" && match.siding))
+      ? <LeaveDock onSurrender={openingShown && openingCovers && canSurrender ? () => { setSurrenderPick(null); setLeaveMode("game"); layers.open("surrender"); } : undefined}
         onQuit={canQuit ? () => { setLeaveMode("match"); layers.open("surrender"); } : undefined} /> : null}
     <Peek peek={peek} />
     {tokens.node}
