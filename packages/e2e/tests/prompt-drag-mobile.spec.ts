@@ -1,4 +1,18 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+/** The share (0 to 1) of the first strip card that shows inside the panel box, after the panel's own clip. */
+async function firstCardShare(page: Page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector("[data-prompt-panel]:not([data-precheck])");
+    const card = panel?.querySelector("[data-card-strip] button");
+    if (!panel || !card) return -1;
+    const p = panel.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const w = Math.min(c.right, p.right) - Math.max(c.left, p.left);
+    const h = Math.min(c.bottom, p.bottom) - Math.max(c.top, p.top);
+    return Math.max(0, w) * Math.max(0, h) / (c.width * c.height);
+  });
+}
 
 test("phone: the centre prompt can be dragged and stays inside the board", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 700 });
@@ -53,4 +67,24 @@ test("phone: a panel drags by its handle, and its Hide button and header stay cl
   const after = await panel.boundingBox();
   expect(after!.y).toBeGreaterThan(before!.y + 60);
   expect(after!.y + after!.height).toBeLessThanOrEqual(700);
+});
+
+test("phone: the chain response strip shows its cards and buttons, upright and on its side", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 700 });
+  await page.goto("/dev/table-preview/classic?state=chains&reduced=1");
+  await page.getByRole("button", { name: "Yes", exact: true }).first().click();
+  const panel = page.locator("[data-prompt-panel]:not([data-precheck])").first();
+  await expect(panel.locator("[data-card-strip] button").first()).toBeVisible();
+  expect(await firstCardShare(page)).toBeGreaterThanOrEqual(0.9);
+  const box = await panel.boundingBox();
+  const pass = await page.getByRole("button", { name: "Pass", exact: true }).boundingBox();
+  expect(pass!.y + pass!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+
+  // On its side the board box is about 180px high: the panel is a side sheet that leaves the left half of the board open.
+  await page.setViewportSize({ width: 740, height: 360 });
+  await expect(panel.locator("[data-card-strip] button").first()).toBeVisible();
+  expect(await firstCardShare(page)).toBeGreaterThanOrEqual(0.9);
+  const side = await panel.boundingBox();
+  expect(side!.width).toBeLessThan(740 * 0.55);
+  expect(side!.x).toBeGreaterThan(740 * 0.4);
 });
