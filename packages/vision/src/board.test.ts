@@ -181,21 +181,33 @@ test('uncertain results prompt with five alternatives, require confirmation and 
   r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
 test('a read that never resolves (soft frames under a colour cast) falls back to the prompt within 8 s, never Identifying for ever',async()=>{
-  const r=fieldRig('not sure');r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
+  const r=fieldRig('not sure');r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=3;
   for(let i=0;i<30;i++)await r.tick(200);
   assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate','still waiting before the deadline');assert.equal(r.events.length,0);
   for(let i=0;i<40;i++)await r.tick(200);
   const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].state,'prompt');
   assert.ok(prompts[0].result?.candidates.length,'the read candidates are offered');assert.equal(r.reads,1);
   // The player dismisses it: automatic (gentle) scans keep that quiet; only a manual Scan field asks again, once.
-  r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);r.detail=20;r.watcher.scanNow({gentle:true});await r.tick(100);r.detail=8;
+  r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);r.detail=20;r.watcher.scanNow({gentle:true});await r.tick(100);r.detail=3;
   for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,1,'a gentle scan does not re-ask');
-  r.detail=20;r.watcher.scanNow();await r.tick(100);r.detail=8;for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,2,'a manual scan asks once more');
+  r.detail=20;r.watcher.scanNow();await r.tick(100);r.detail=3;for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,2,'a manual scan asks once more');
   r.watcher.dispose();
+});
+test('a soft camera (crops below 12, above the floor) still gets an automatic read; a crop below the floor, or a blurred frame, does not',async()=>{
+  const soft=fieldRig();soft.outlines=[card(.1,.3),card(.35,.3),card(.6,.3)];soft.watcher.setCalibration(zones.createFieldCalibration([{x:.05,y:.05},{x:.95,y:.95}]));soft.detail=8;for(let i=0;i<30;i++)await soft.tick();
+  // 3 cards, 4 reads: the middle card's first read is dropped by one detector pass that misses its outline, then it is read again (not a loop).
+  assert.equal(soft.reads,4,'one read per card plus the one a missed outline dropped');assert.ok(soft.events.some(e=>e.type==='placed'));
+  assert.equal(soft.watcher.getSnapshot().blur?.limit,5,'three cards teach the limit down to the floor');soft.watcher.dispose();
+  const first=fieldRig();first.detail=8;for(let i=0;i<8;i++)await first.tick();
+  assert.equal(first.reads,1,'a first soft card is read on its own stillness (before any limit is learned)');first.watcher.dispose();
+  const blank=fieldRig();blank.detail=3;for(let i=0;i<40;i++)await blank.tick();
+  assert.equal(blank.reads,0,'almost no detail is never read');assert.equal(blank.watcher.getSnapshot().blur?.limit,12);blank.watcher.dispose();
+  const blur=fieldRig();blur.detail=8;blur.frameSharpness=100;await blur.tick();blur.frameSharpness=20;for(let i=0;i<5;i++)await blur.tick();
+  assert.equal(blur.watcher.getSnapshot().blur?.hold,true);assert.equal(blur.reads,0,'a blurred frame does not read soft crops');blur.watcher.dispose();
 });
 test('the deadline prompt still asks for a look that has a remembered name, and offers that name first',async()=>{
   const gallery=createFieldIdentityGallery();gallery.remember({space:'art-box',values:[1,0]},'A');
-  const r=fieldRig('not sure',20,gallery);r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
+  const r=fieldRig('not sure',20,gallery);r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=3;
   for(let i=0;i<100;i++)await r.tick(200);
   const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1,'asked, not silently dismissed');
   assert.equal(prompts[0].result?.candidates[0].cardId,'A','the remembered name comes first');r.watcher.dispose();

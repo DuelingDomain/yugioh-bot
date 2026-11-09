@@ -97,7 +97,7 @@ export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 /** What the watcher saw on its last sample, for the owner's debug overlay. Local only, never sent. */
 export interface FieldDebug { at:number; path:string; full:boolean; region?:FractionalBox; detections:{quad:DetectedQuad['quad'];kind:DetectedQuad['kind'];confidence:number;zone:FieldZone;use:string; /** The box centre lies between two zone cells (zone shown is the nearest). */ gap?:boolean}[]; reasons:Record<string,string>; /** Best raw detector score inside the calibrated Deck/Extra cell this full pass (null: no outline at or above the decode floor .2). */ pileScores?:Partial<Record<'DECK'|'EXTRA',number|null>> }
-export interface FieldSnapshot { held?:HeldCardTrack[]; /** Frame sharpness vs its recent baseline (ratio) and whether removals hold for blur (debug line). */ blur?:{sharpness:number;ratio:number;hold:boolean}; /** Shadow over the mat (share 0..1) and whether removals wait for it to settle (debug line). */ shadow?:{share:number;hold:boolean}; /** Field twin refs whose zone showed no outline in 2 full scans (no hand, no moving shadow): the re-sync removes them. */ missingTwins?:string[]; /** Pile zones with no stack outline in 2 full scans in a row (no hand over them). */ missingPiles?:FieldZone[]; /** Last time a hand moved over the GY / banished pile (watcher clock). */ pileTouchedAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Since when the GY / banished cell shows the empty mat on sharp frames with no hand over it (watcher clock). */ pileClearSince?:Partial<Record<'GY'|'BANISHED',number>>; /** Sample time of the last full detector pass (watcher clock). */ lastFullAt?:number; /** Sample time when the last Scan field sweep (two fresh full passes) finished (watcher clock). */ lastScanAt?:number; /** Field zones with a card on the board that the sweep could not judge: the spot lies mostly outside the frame. */ lastScanOffFrame?:FieldZone[]; /** Field zones where that sweep saw a back resting on the mat (weak boxes count), over no front that still looks like itself. */ lastScanBacks?:FieldZone[]; status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; piles?:{zone:'DECK'|'EXTRA';card:DetectedQuad}[]; metrics:FieldMetrics; error?:string; debug?:FieldDebug; /** Resting cards whose centres fall in a gap between cells or outside the grid, seen in several full passes in a row: the grid is probably shifted (Recalibrate). */ gridShift?:{gap:number;outside:number;suspect:boolean}; /** Watcher clock time of the last sample that showed motion on the mat. */ lastMotionAt?:number; /** Resting cards inside a zone in the last full pass that no track follows and that nothing skipped, so the board may miss them. */ untracked?:number }
+export interface FieldSnapshot { held?:HeldCardTrack[]; /** Frame sharpness vs its recent baseline (ratio) and whether removals hold for blur (debug line). */ blur?:{sharpness:number;ratio:number;hold:boolean;/** Crop sharpness a card needs to be read now (12 on a good camera, lower on a soft one). */limit:number}; /** Shadow over the mat (share 0..1) and whether removals wait for it to settle (debug line). */ shadow?:{share:number;hold:boolean}; /** Field twin refs whose zone showed no outline in 2 full scans (no hand, no moving shadow): the re-sync removes them. */ missingTwins?:string[]; /** Pile zones with no stack outline in 2 full scans in a row (no hand over them). */ missingPiles?:FieldZone[]; /** Last time a hand moved over the GY / banished pile (watcher clock). */ pileTouchedAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Since when the GY / banished cell shows the empty mat on sharp frames with no hand over it (watcher clock). */ pileClearSince?:Partial<Record<'GY'|'BANISHED',number>>; /** Sample time of the last full detector pass (watcher clock). */ lastFullAt?:number; /** Sample time when the last Scan field sweep (two fresh full passes) finished (watcher clock). */ lastScanAt?:number; /** Field zones with a card on the board that the sweep could not judge: the spot lies mostly outside the frame. */ lastScanOffFrame?:FieldZone[]; /** Field zones where that sweep saw a back resting on the mat (weak boxes count), over no front that still looks like itself. */ lastScanBacks?:FieldZone[]; status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; piles?:{zone:'DECK'|'EXTRA';card:DetectedQuad}[]; metrics:FieldMetrics; error?:string; debug?:FieldDebug; /** Resting cards whose centres fall in a gap between cells or outside the grid, seen in several full passes in a row: the grid is probably shifted (Recalibrate). */ gridShift?:{gap:number;outside:number;suspect:boolean}; /** Watcher clock time of the last sample that showed motion on the mat. */ lastMotionAt?:number; /** Resting cards inside a zone in the last full pass that no track follows and that nothing skipped, so the board may miss them. */ untracked?:number }
 export interface FieldBuffer { sample(options?:{maxAgeMs?:number}):Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone|'HAND'; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
@@ -109,7 +109,7 @@ export interface FieldWatcherOptions {
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
   analyze?:((frame:FieldFrame)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
-interface PendingRead { crop?:RGBAImage; at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
+interface PendingRead { /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
 /** One sample's verdict on whether an outline lies on the mat plane (size, shape, cells). `hard`: certainly not on the mat (held well above it). */
 export interface PlaneVerdict { ok:boolean; hard:boolean; text:string; size?:number }
@@ -117,7 +117,7 @@ interface RestState { samples:number; since?:number; ok:boolean; text:string; /*
 interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[];at:number;cleanAt?:number;samples:number}
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { sample?:{look:number[];card:DetectedQuad;observation:FaceStateResult;reference?:FaceStateOptions['reference']}; setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
-interface InternalTrack { /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { /** Best crop sharpness since this outline last settled (see sharpOk), the last checked one, and whether this settle already fed the baseline. */ sharpPeak?:number; lastSharp?:number; sharpLearned?:boolean; /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 // Periodic full scans backstop scene-change pacing. Busy/hidden ticks skip inference.
 // The art window of a card quad (portrait corner order): reads and their
 // stillness use it, so a hand at the card's edge does not delay or cancel a read.
@@ -144,6 +144,10 @@ const DISMISSED_EXPIRE_MS=3000,MAX_REARMS=3;
 const RETURN_MS=10_000;
 /** Blur gate: a frame below this share of the recent sharpness baseline is blurred; removals hold until BLUR_SETTLE_MS after. */
 const BLUR_RATIO=.55,BLUR_SETTLE_MS=500,BLUR_RELEARN_MS=1500;
+/** Card read gate: a crop is read from this sharpness (a good camera). A soft camera or a dim room learns a lower limit (SHARP_SHARE of the
+ *  crop sharpness seen on still front cards), never below SHARP_FLOOR (a crop with almost no detail is never read) and never above SHARP_LIMIT.
+ *  A card still and clean for SHARP_STILL_MS that scores near its own best may be read from the floor: it will not get sharper. */
+const SHARP_LIMIT=12,SHARP_FLOOR=5,SHARP_SHARE=.6,SHARP_LEARN_MIN=3,SHARP_STILL_MS=1200,SHARP_PEAK_SHARE=.7;
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
@@ -213,6 +217,22 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let shadowShare=0,shadowMovedAt=-Infinity,shadowHold=false,scanFollowUp=false;
   // Blur (autofocus hunting, motion blur): a blurred frame is never "no outline" evidence.
   let sharpBase=0,sharpNow=0,blurredAt=-Infinity,blurHold=false,blurSince:number|undefined,blurRef=0;
+  /** Slow baseline of crop sharpness on still, clean, face-up cards with no hand (follows sharper crops fast, softer ones slowly), and its sample count. */
+  let cropBase=0,cropSamples=0;
+  const learnCropSharpness=(score:number)=>{
+    if(score<SHARP_FLOOR)return;
+    cropBase=cropBase<=0?score:score>cropBase?cropBase*.7+score*.3:cropBase*.95+score*.05;cropSamples++;
+  };
+  /** The card read limit now: 12 until a few still fronts were seen, then SHARP_SHARE of their baseline, between the floor and 12. */
+  const sharpLimit=()=>cropSamples<SHARP_LEARN_MIN?SHARP_LIMIT:Math.min(SHARP_LIMIT,Math.max(SHARP_FLOOR,SHARP_SHARE*cropBase));
+  /** May this crop sharpness be read? Above the limit, or (still and clean for SHARP_STILL_MS, near its own best, above the floor) because it will not get sharper. */
+  const sharpOk=(t:InternalTrack,score:number,at:number)=>{
+    if(score>(t.sharpPeak??0))t.sharpPeak=score;t.lastSharp=score;
+    // A blurred frame (focus hunting) lowers every crop for a moment: never read below the full limit then.
+    if(blurHold)return score>=SHARP_LIMIT;
+    if(score<SHARP_FLOOR)return false;
+    return score>=sharpLimit()||Number.isFinite(t.stableSince)&&at-t.stableSince>=SHARP_STILL_MS&&score>=SHARP_PEAK_SHARE*(t.sharpPeak??score);
+  };
   /** Per shadow-grid cell: last time a shadow moved there (watcher clock). */
   let shadowCells:{gx:number;gy:number;at:Float64Array}|undefined,shadowAt=0;
   /** A moving shadow holds only the removals it lies over (its own cell and a ring around it), never the whole frame. */
@@ -455,7 +475,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // embed of card plus fingers is rarely sure and costs a second read.
     if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&handBlocks(t,latestEvidence?.touched?.(card)))return;
     t.handWaitAt=undefined;
-    const pending:PendingRead={at,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
+    const pending:PendingRead={sharp:t.lastSharp,at,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
     t.read=pending;t.needsRead=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
     if(generation!==epoch||disposed||t.read!==pending||!tracks.includes(t)){closeFieldFrame(input);return;}
@@ -800,7 +820,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!reading)for(const t of tracks.filter(t=>!held.cards.some(c=>quadIou(c,t.view.card)>.3))){
         const c=t.view.card,pixels=evidence.appearance?.(c);
         if(!t.previewEligible||t.view.state!=='candidate'||!restOk(t)||t.view.removed||t.promptOnly||sample.at-t.view.lastSeen>500||c.confidence<.7||c.partial||c.covered||
-          (evidence.motion(c)>.025||evidence.occluded?.(c)||!sameFieldAppearance(t.appearance,pixels))&&!artStill(t,c)||evidence.sharpness(c)<12)continue;
+          (evidence.motion(c)>.025||evidence.occluded?.(c)||!sameFieldAppearance(t.appearance,pixels))&&!artStill(t,c)||!sharpOk(t,evidence.sharpness(c),sample.at))continue;
         const crop=evidence.crop?.(c);if(!crop)continue;
         const observation=classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined});
         if(observation.state!=='up')continue;
@@ -1220,21 +1240,21 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.prompted&&observation.state==='down'&&!t.view.faceDown&&t.view.state==='prompt'){t.view.state='dismissed';t.view.revision=(t.view.revision??0)+1;t.read=undefined;t.needsRead=false;}
         // Publish geometry before identity inference; never invent an identity
         // or a public front while face-state evidence is still ambiguous.
-        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&restOk(t)&&faceClean&&observation.state==='up'&&evidence.sharpness(c)>=12&&
+        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&restOk(t)&&faceClean&&observation.state==='up'&&sharpOk(t,evidence.sharpness(c),sample.at)&&
           !['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)) {
           t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.view.visible=true;t.halo=evidence.halo?.(c);
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
         // Speculate on the first sharp front while the face gate settles. Any
         // subsequent motion invalidates the result without restarting the worker.
-        if(faceClean&&observation.state==='up'&&evidence.sharpness(c)>=12&&(t.needsRead||t.view.faceDown)&&!t.read&&!reading&&!(t.view.state==='candidate'&&t.rest?.hard)) {
+        if(faceClean&&observation.state==='up'&&sharpOk(t,evidence.sharpness(c),sample.at)&&(t.needsRead||t.view.faceDown)&&!t.read&&!reading&&!(t.view.state==='candidate'&&t.rest?.hard)) {
           t.needsRead=true;t.appearance=pixels;t.halo=evidence.halo?.(c);
           await startRead(t,current,c,crop,sample.at,generation);
         }
         // A finished early read that is not sure, while the card pixels changed
         // since (a hand left its edge): read the fresh still front at once.
         if(t.read?.result&&t.read.result.tier!=='sure'&&!t.rereadEarly&&t.view.state==='candidate'&&!t.promptOnly&&t.read.appearance?.length&&
-          !sameFieldAppearance(t.read.appearance,pixels)&&faceClean&&observation.state==='up'&&evidence.sharpness(c)>=12&&!reading){
+          !sameFieldAppearance(t.read.appearance,pixels)&&faceClean&&observation.state==='up'&&sharpOk(t,evidence.sharpness(c),sample.at)&&!reading){
           t.rereadEarly=true;t.read=undefined;t.needsRead=true;t.appearance=pixels;note(t,'early read not sure; reading again');
           await startRead(t,current,c,crop,sample.at,generation);
         }
@@ -1333,7 +1353,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const still=quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012&&t.kind===c.kind&&t.position===position;
         if(!clean||!still||!Number.isFinite(t.stableSince)) {
           if((!clean||!still)&&!readHolds(t,c))invalidateRead(t);
-          t.anchor=c;t.stableSince=clean?sample.at:NaN;t.observations=0;t.best=undefined;t.kind=c.kind;t.position=position;
+          t.anchor=c;t.stableSince=clean?sample.at:NaN;if(!still){t.sharpPeak=undefined;t.sharpLearned=false;}t.observations=0;t.best=undefined;t.kind=c.kind;t.position=position;
         }
         // Show earlier: a sure first read whose art pixels still hold names the
         // card now, while a hand or the outline still settles. A confirm read
@@ -1343,10 +1363,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!clean&&!earlyNow){note(t,t.read?'read waits for a still, clean outline':'outline not still/clean');continue;}
         if(clean&&t.early&&t.view.state==='identified'&&!t.read&&!reading&&t.observations>=1&&still){t.early=undefined;t.confirming=true;t.needsRead=true;}
         t.observations++;
-        const score=evidence.sharpness(c);
+        const score=evidence.sharpness(c),scoreOk=sharpOk(t,score,sample.at);
+        // One sample per card per settle, never in a blurred frame or while the card moves.
+        if(clean&&!blurHold&&still&&!t.sharpLearned&&c.kind==='face-up'&&observation.state==='up'&&!handNear(evidence,c)){t.sharpLearned=true;learnCropSharpness(score);}
         if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&c.kind==='face-up'&&handBlocks(t,evidence.touched?.(c))))t.best={frame:current,card:structuredClone(c),score,crop};
         const movingKnown=t.view.state==='identified'&&!t.needsRead&&t.view.faceDown===(c.kind==='face-down');
-        if(movingKnown?(t.observations<2||sample.at-t.stableSince<100):score<12)continue;
+        if(movingKnown?(t.observations<2||sample.at-t.stableSince<100):!scoreOk)continue;
         const wasFaceDown=t.view.faceDown;
         t.view.faceDown=c.kind==='face-down';t.view.position=position;
         if(t.reappeared&&t.rest?.planeOk!==false){if(t.view.state==='identified')emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.reappeared=false;}
@@ -1402,6 +1424,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               emit('prompt',t,{result,reason:'changed',latencyMs:metrics.latencyMs});continue;
             }
             t.identityCheck=undefined;t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;t.identityAppearance=pixels;t.view.visible=true;
+            // A read that is not sure and came from a soft crop (below the full limit) never replaces a known name: ask the player.
+            if(result?.tier!=='sure'&&(pending.sharp??SHARP_LIMIT)<SHARP_LIMIT){t.view.state='prompt';emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:'changed'});continue;}
             if(winner&&!['DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
             if(result&&result.tier!=='low match'){t.view.state='dismissed';continue;}
             t.view.state='prompt';
@@ -1542,6 +1566,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.view.faceDown){t.needsRead=false;t.best=undefined;continue;}
         if(!t.best)continue;
         const best=t.best;
+        t.lastSharp=best.score;
         await startRead(t,best.frame,best.card,best.crop,sample.at,generation);t.best=undefined;
       }
       // A card never stays on Identifying. A new card that showed the reading cue (or began a read) and still has no name after
@@ -1611,11 +1636,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     frameSharpness(){return {value:sharpNow,baseline:sharpBase,ratio:sharpBase>0?sharpNow/sharpBase:1};},
     isBlurred(){return blurHold;},
     /** The camera lock, anti-glare or exposure changed: learn the sharpness and shadow baselines again from the next frames. */
-    resetBaselines(){emptyLooks.clear();pileClear.clear();shadowCells=undefined;sharpBase=0;sharpNow=0;blurredAt=-Infinity;blurHold=false;blurSince=undefined;shadowMovedAt=-Infinity;shadowHold=false;shadowShare=0;analyze.reset?.();notify();},
+    resetBaselines(){emptyLooks.clear();pileClear.clear();shadowCells=undefined;sharpBase=0;cropBase=0;cropSamples=0;for(const t of tracks){t.sharpPeak=undefined;t.sharpLearned=false;}sharpNow=0;blurredAt=-Infinity;blurHold=false;blurSince=undefined;shadowMovedAt=-Infinity;shadowHold=false;shadowShare=0;analyze.reset?.();notify();},
     dispose(){stop();disposed=true;for(const t of tracks){t.best=undefined;t.face=undefined;}pruneFrames();listeners.clear();updates.clear();},
     subscribe(listener:(event:FieldEvent)=>void){listeners.add(listener);return()=>{listeners.delete(listener);};},
     subscribeState(listener:()=>void){updates.add(listener);return()=>{updates.delete(listener);};},
-    getSnapshot():FieldSnapshot{return {held:heldReader.snapshot(),...(lastMotionAt!==undefined?{lastMotionAt}:{}),...(untracked?{untracked}:{}),...(gridShift?{gridShift:{...gridShift}}:{}),blur:{sharpness:sharpNow,ratio:sharpBase>0?sharpNow/sharpBase:1,hold:blurHold},shadow:{share:shadowShare,hold:shadowHold},missingTwins:[...missingTwins],missingPiles:[...pilePresence].flatMap(([zone,p])=>p.present?[]:[zone]),pileTouchedAt:Object.fromEntries([...pileTouches].filter(([zone])=>publicPile(zone))),pileClearSince:Object.fromEntries(pileClear),lastFullAt:Number.isFinite(lastFullDetectionAt)?lastFullDetectionAt:undefined,...(Number.isFinite(lastScanAt)?{lastScanAt,lastScanBacks:[...lastScanBacks],lastScanOffFrame:[...lastScanOffFrame]}:{}),status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.keptAt<=PILE_GONE_MS?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
+    getSnapshot():FieldSnapshot{return {held:heldReader.snapshot(),...(lastMotionAt!==undefined?{lastMotionAt}:{}),...(untracked?{untracked}:{}),...(gridShift?{gridShift:{...gridShift}}:{}),blur:{sharpness:sharpNow,ratio:sharpBase>0?sharpNow/sharpBase:1,hold:blurHold,limit:sharpLimit()},shadow:{share:shadowShare,hold:shadowHold},missingTwins:[...missingTwins],missingPiles:[...pilePresence].flatMap(([zone,p])=>p.present?[]:[zone]),pileTouchedAt:Object.fromEntries([...pileTouches].filter(([zone])=>publicPile(zone))),pileClearSince:Object.fromEntries(pileClear),lastFullAt:Number.isFinite(lastFullDetectionAt)?lastFullDetectionAt:undefined,...(Number.isFinite(lastScanAt)?{lastScanAt,lastScanBacks:[...lastScanBacks],lastScanOffFrame:[...lastScanOffFrame]}:{}),status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.keptAt<=PILE_GONE_MS?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
       debug:{at:debugAt,path:debugTick,full:debug?.full??false,region:debug?.region,detections:debug?.detections??[],...(debug?.pileScores?{pileScores:debug.pileScores}:{}),reasons:Object.fromEntries(tracks.map(t=>[t.view.id,`${t.rest?.text?`${t.rest.text} · `:''}${t.read?'reading identity · ':''}${t.promptOnly?`prompt only (${t.promptOnly}) · `:''}${t.reason??''}${t.lastResult?.prior?` · prior: ${t.lastResult.prior}`:''}`]))}};},
     setCalibration(value?:FieldCalibration){calibration=value;gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();pileClear.clear();restSize=undefined;for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
     confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
