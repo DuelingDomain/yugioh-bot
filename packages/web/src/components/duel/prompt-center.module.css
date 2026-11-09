@@ -1001,14 +1001,15 @@
   .pill { inset: 8px 0 auto 0; }
 }
 
-/* A phone on its side: the board box is only ~180px high, so a top sheet would cover the whole field. The panel is a side sheet instead:
-   about half the board wide, the full board high, on the right edge. The handle drags it sideways to the other edge. The ask text is
-   hidden, and a card strip uses smaller cards (card-strip.module.css), so the first card shows whole. */
+/* A phone on its side: the board box is only ~180px high, so a top sheet would cover the whole field. In the classic room (the layer has no table slot
+   around it, `data-prompt-host="room"`) the panel is a side sheet instead: about half the board wide, the full board high, on the right edge. The handle drags it
+   sideways to the other edge. A card strip uses smaller cards (card-strip.module.css), so the first card shows whole. The Tag and
+   free-for-all hosts place their prompt themselves (grid-stage.module.css, table-stage.module.css) and keep their own sheet. */
 @media (max-height: 500px) and (orientation: landscape) {
-  .panel,
-  .panel[data-tone],
-  .panel[data-wide="true"],
-  .panel[data-strip="true"] {
+  :global([data-prompt-host="room"]) .panel,
+  :global([data-prompt-host="room"]) .panel[data-tone],
+  :global([data-prompt-host="room"]) .panel[data-wide="true"],
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] {
     inset: 0 0 0 auto;
     width: 52%;
     min-width: 0;
@@ -1018,23 +1019,33 @@
     border-width: 0 0 0 1px;
     border-radius: 12px 0 0 12px;
   }
-  .panel .titles h2 { font-size: 13px; line-height: 1.2; }
-  .panel .titles p { display: none; }
-  /* A card strip: the cards sit in the left column and the Back / Pass buttons stack in a narrow right column, so the cards keep the height. */
-  .panel[data-strip="true"] {
+  :global([data-prompt-host="room"]) .panel .titles h2 { font-size: 13px; line-height: 1.2; }
+  /* The ask line stays (a pick count, the source card, the engine question); it takes at most two lines. */
+  :global([data-prompt-host="room"]) .panel .titles p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  /* A card strip: the cards sit in the left column and the Back / Pass buttons stack in a narrow right column, so the cards keep the height.
+     Every other row (the step line, the chain order chips, the effect text) flows full width above them. */
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-auto-rows: auto;
     column-gap: 8px;
-    row-gap: 6px;
+    row-gap: 4px;
     align-content: start;
+    padding-block: 10px 0;
   }
-  .panel[data-strip="true"] > * { grid-column: 1 / -1; min-width: 0; }
-  .panel[data-strip="true"] > .chainStrip { display: none; }
-  .panel[data-strip="true"] > :not(.foot):not(.head):not(.chainStrip):not([data-drag-grip]) { grid-column: 1; grid-row: 3; align-self: stretch; }
-  .panel[data-strip="true"] > .foot {
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > * { grid-column: 1 / -1; min-width: 0; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .chainStrip { display: none; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > [data-strip-wrap] { grid-column: 1; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .foot {
     grid-column: 2;
-    grid-row: 3;
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-end;
@@ -1042,9 +1053,10 @@
     position: static;
     margin: 0;
     padding: 0;
+    gap: 4px;
     background: none;
   }
-  .panel[data-strip="true"] > .foot .spacer { display: none; }
+  :global([data-prompt-host="room"]) .panel[data-strip="true"] > .foot .spacer { display: none; }
 }
 
 /* A touch screen keeps the 40px buttons, compact or not. */

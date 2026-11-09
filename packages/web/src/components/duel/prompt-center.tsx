@@ -1581,6 +1581,11 @@ export function PromptCenter(props: PromptCenterProps) {
   const boardToggle = baseKind === "response" && isBoardTogglePrompt(prompt);
 
   const layerRef = useRef<HTMLDivElement>(null);
+  // The CSS tells the classic room (the layer sits in the board) from a table stage (the stage puts the prompt in its own slot).
+  useLayoutEffect(() => {
+    const layer = layerRef.current;
+    layer?.setAttribute("data-prompt-host", layer.closest('[data-slot="prompt"]') ? "slot" : "room");
+  });
   const panelRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [onBoard, setOnBoard] = useState<boolean | null>(null);

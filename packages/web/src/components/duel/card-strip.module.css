@@ -276,19 +276,27 @@
   /* The count line above the cards has no room on a sheet that must also show the buttons. */
   .caption { display: none; }
 }
-/* A phone on its side: the prompt is a side sheet about as high as the board (prompt-center.module.css), so the cards are small enough to show whole. */
+/* A phone on its side: the prompt is a side sheet about as high as the board (prompt-center.module.css, classic room only), so the cards are small enough to show whole.
+   A tap on a card answers a one-tap prompt and touch has no hover, so each card keeps a one-line name (and its note) under it. */
 @media (max-height: 500px) and (orientation: landscape) {
-  .wrap {
+  :global([data-prompt-host="room"]) .wrap {
     --cs-w: 48px;
     --cs-gap: 6px;
     --cs-pad-x: 10px;
-    --cs-pad-top: 12px;
-    --cs-pad-bottom: 4px;
+    --cs-pad-top: 8px;
+    --cs-pad-bottom: 0;
   }
-  /* The names are in the card inspector (hover or tap a card); the sheet has no height for a label line. */
-  .name,
-  .detail,
-  .caption { display: none; }
+  :global([data-prompt-host="room"]) .name {
+    -webkit-line-clamp: 1;
+    font-size: 11px;
+    line-height: 1.25;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global([data-prompt-host="room"]) .strip[data-notes] .name { min-height: 0; }
+  :global([data-prompt-host="room"]) .detail { font-size: 10px; line-height: 1.2; }
+  :global([data-prompt-host="room"]) .caption { display: none; }
 }
 
 /* A dense host (the 4-way grid, `data-prompt-dense` on its prompt slot): smaller cards and less room round them, so
