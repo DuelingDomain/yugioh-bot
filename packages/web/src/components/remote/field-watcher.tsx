@@ -128,8 +128,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // probably shifted by one row. One hint per table and seat.
   // 'placed' events seen while auto-placement was off: held by the sync hold (placed when it ends), or dropped (debug line).
   const syncHoldRef=useRef(false),heldPlaced=useRef({deferred:0,dropped:0});
-  /** Prompts waiting for a choice (set each render) and the time of the last automatic Scan field. */
-  const promptCount=useRef(0),autoScanAt=useRef(-Infinity);
+  /** The time of the last automatic Scan field. */
+  const autoScanAt=useRef(-Infinity);
   const rowFixes=useRef(new Map<string,number>()),[shiftHint,setShiftHint]=useState(false),shiftHinted=useRef(false);
   useEffect(()=>{rowFixes.current.clear();shiftHinted.current=false;setShiftHint(false);rowKept.current.clear();setRowPrompts([]);},[room.slug,seat]);
   const noteRowFix=(ref:string)=>{
@@ -1168,9 +1168,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const scanField=useCallback((origin:'manual'|'auto'|'remote'='manual'):boolean=>{
     const gentle=origin==='auto'||origin==='remote';
     if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice('Board check already running');return false;}
-    if(gentle&&(syncHoldRef.current||promptCount.current>0||calibrationBusy.current))return false;
+    if(gentle&&(syncHoldRef.current||calibrationBusy.current))return false;
     if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
-    setScanning(true);const asked=performance.now();watch.scanNow?.();
+    setScanning(true);const asked=performance.now();watch.scanNow?.({gentle});
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
       if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true,gentle);
@@ -1185,14 +1185,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
   // Auto resync: when the board has been still for 3 s and the camera disagrees with it (a board card whose cell shows nothing, or a resting
-  // card inside a zone that no track follows), run a gentle Scan field once by itself, at most every 20 s. Never with a prompt or the sync hold
-  // waiting. Cards the player brought back with Undo or moved by hand do not count. The same mismatch with no motion in between is not scanned again.
+  // card inside a zone that no track follows), run a gentle Scan field once by itself, at most every 20 s. Never with the sync hold
+  // waiting; open prompts stay answerable and never pause it. Cards the player brought back with Undo or moved by hand do not count. The same mismatch with no motion in between is not scanned again.
   const scanFieldRef=useRef(scanField);scanFieldRef.current=scanField;
   const autoSeen=useRef('');
   useEffect(()=>{autoSeen.current='';},[room.slug,seat]);
   useEffect(()=>{
     const timer=setInterval(()=>{
-      if(document.hidden||!live()||syncHoldRef.current||promptCount.current>0||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
+      if(document.hidden||!live()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
       const now=performance.now(),snap=watch.getSnapshot?.();
       if(now-autoScanAt.current<20_000||!snap||snap.status!=='watching'||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
       if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return;
@@ -1206,11 +1206,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.slug,seat,watch.getSnapshot]);
   // Rescan from another seat: run my own gentle Scan field on my full-resolution camera and the normal placement flow. It never ends my sync hold,
-  // and waits while a prompt or calibration is open. The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
+  // and waits while calibration is open (open prompts do not pause it). The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
   const rescanRef=useRef<(from:number)=>RescanReply>(()=>'off');
   rescanRef.current=from=>{
     if(!current.current.active||!watch.enabled)return 'off';
-    if(tournament||document.hidden||!live()||syncHoldRef.current||promptCount.current>0||calibrationBusy.current)return 'paused';
+    if(tournament||document.hidden||!live()||syncHoldRef.current||calibrationBusy.current)return 'paused';
     if(scanTimer.current!==undefined||resyncing.current||!scanFieldRef.current('remote'))return 'busy';
     const who=room.seats.find(item=>item.seat===from)?.displayName??`Seat ${from+1}`;
     setNotice(`Rescan requested by ${who}`);
@@ -1227,7 +1227,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0);});
-  promptCount.current=activePrompts.length;
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;

@@ -180,6 +180,26 @@ test('uncertain results prompt with five alternatives, require confirmation and 
   assert.equal(r.events.filter(e=>e.type==='placed').length,0);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.reads,1);
   r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
+test('a read that never resolves (soft frames under a colour cast) falls back to the prompt within 8 s, never Identifying for ever',async()=>{
+  const r=fieldRig('not sure');r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
+  for(let i=0;i<30;i++)await r.tick(200);
+  assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate','still waiting before the deadline');assert.equal(r.events.length,0);
+  for(let i=0;i<40;i++)await r.tick(200);
+  const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].state,'prompt');
+  assert.ok(prompts[0].result?.candidates.length,'the read candidates are offered');assert.equal(r.reads,1);
+  // The player dismisses it: automatic (gentle) scans keep that quiet; only a manual Scan field asks again, once.
+  r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);r.detail=20;r.watcher.scanNow({gentle:true});await r.tick(100);r.detail=8;
+  for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,1,'a gentle scan does not re-ask');
+  r.detail=20;r.watcher.scanNow();await r.tick(100);r.detail=8;for(let i=0;i<100;i++)await r.tick(200);assert.equal(r.events.filter(e=>e.type==='prompt').length,2,'a manual scan asks once more');
+  r.watcher.dispose();
+});
+test('the deadline prompt still asks for a look that has a remembered name, and offers that name first',async()=>{
+  const gallery=createFieldIdentityGallery();gallery.remember({space:'art-box',values:[1,0]},'A');
+  const r=fieldRig('not sure',20,gallery);r.embedding=[1,0];r.detail=20;await r.tick(100);r.detail=8;
+  for(let i=0;i<100;i++)await r.tick(200);
+  const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1,'asked, not silently dismissed');
+  assert.equal(prompts[0].result?.candidates[0].cardId,'A','the remembered name comes first');r.watcher.dispose();
+});
 test('one-shot owner prompts: best matches settle normally, bound moves stay quiet and dismissal is final',async()=>{
   const r=fieldRig('not sure');r.decklist=[];r.embedding=[1,0];
   for(let i=0;i<8;i++)await r.tick();
