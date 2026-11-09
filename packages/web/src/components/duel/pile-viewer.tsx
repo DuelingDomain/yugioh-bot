@@ -265,9 +265,12 @@ export function PileViewer({
     if (!open || !root || !panel) return;
     const place = () => {
       const box = root.getBoundingClientRect();
-      const dx = Math.round(window.innerWidth / 2 - (box.left + box.width / 2));
-      const dy = Math.round(window.innerHeight / 2 - (box.top + box.height / 2));
-      panel.style.translate = dx === 0 && dy === 0 ? "" : `${dx}px ${dy}px`;
+      // A pick on a phone stays in its board box (the phase bar and the dock below must stay clear); a drag moves it from there.
+      const inBox = root.dataset.pick === "true" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 600px), (max-height: 500px)").matches;
+      const dx = inBox ? 0 : Math.round(window.innerWidth / 2 - (box.left + box.width / 2));
+      const dy = inBox ? 0 : Math.round(window.innerHeight / 2 - (box.top + box.height / 2));
+      panel.style.setProperty("--pv-place-x", `${dx}px`);
+      panel.style.setProperty("--pv-place-y", `${dy}px`);
     };
     place();
     // jsdom (the unit tests) has no ResizeObserver; the window resize listener still places the panel there.
