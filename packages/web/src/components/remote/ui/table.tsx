@@ -317,9 +317,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
   const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
   const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
-  // Quit the match: a seated player between games only (side decking, a result). During a game Surrender is the way out, and it only loses that game.
+  // Quit the match: a seated player between games (side decking, a result), or an FFA seat already out of this game. During a game Surrender is the way out, and it only loses that game.
   // A solo test table has nobody to forfeit to.
-  const canQuit = !solo && !live && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
+  const canQuit = !solo && (!live || !!state.seats[mySeat]?.eliminated) && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
   // Best of 3, two players: this surrender decides the match when the other player already has the game wins that are left to take.
   const surrenderEndsMatch = !solo && seatCount === 2 && match.bestOf === 3 && match.games.some(game => game.winnerSeat != null && game.winnerSeat !== surrenderSeat);
   // A seat that left the match watches the rest of it: it cannot ready, continue or choose.
