@@ -1,5 +1,504 @@
 [
   {
+    "date": "2026-11-09T20:24:01.582Z",
+    "label": "Project Ignis 2026-11-09",
+    "pullRequest": {
+      "number": 572,
+      "url": "https://github.com/DuelingDomain/yugioh-bot/pull/572"
+    },
+    "counts": {
+      "newCards": 68,
+      "changedCards": 1,
+      "removedCards": 0,
+      "changedScripts": 57,
+      "newSetCodes": 2
+    },
+    "setCodes": [
+      "IMPH",
+      "RV02"
+    ],
+    "newCards": [
+      {
+        "name": "Amazoness Chain Master - Brink of Death Chain Dance",
+        "passcode": 101403005,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Amazoness Dramatic Rescue",
+        "passcode": 101403074,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Amazoness Fighter - Instant Kill Dance",
+        "passcode": 101403006,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Amazoness Spellcaster - Forbidden Spell Dance",
+        "passcode": 101403007,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Amazoness Swordmaster",
+        "passcode": 101403032,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Ashtrama Yoami",
+        "passcode": 101403039,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Ashtrata Tamayori",
+        "passcode": 101403018,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Castle of Vampire",
+        "passcode": 101403070,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Chaos Barian's Change",
+        "passcode": 101403065,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Codaedalus",
+        "passcode": 101403049,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Elegant Tri-Mirror",
+        "passcode": 101403053,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Eyelluring Mirror Wall",
+        "passcode": 101403075,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Harpie & Amazoness Rakshasa Formation",
+        "passcode": 101403054,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Harpie Lady - Alluring Dance",
+        "passcode": 101403008,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Invincible Rocket Warrior",
+        "passcode": 101403017,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Necromancer of Dragon Magic",
+        "passcode": 101403050,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Nightmare Twinkle",
+        "passcode": 101403022,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Number 96: Dark Manipulator",
+        "passcode": 101403043,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Power of the Duelist",
+        "passcode": 101403067,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Primrose the Twin Rikka Fairy",
+        "passcode": 101403015,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Rampant Wings of Atlantis",
+        "passcode": 101403019,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Rikka Black Princess",
+        "passcode": 101403016,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Rikka Empress Strenna",
+        "passcode": 101403042,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Rikka June Moon",
+        "passcode": 101403064,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Teardrop the Rikka Empress",
+        "passcode": 101403041,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "The Legendary Insect Queen",
+        "passcode": 101403036,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Triangle Ecstasy Harpie Lady Sisters",
+        "passcode": 101403033,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "B.L.A.C.K. Parfait",
+        "passcode": 100200299,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Cubic Defense",
+        "passcode": 100460007,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Cubic Dimension",
+        "passcode": 100460005,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Ghostrick Art",
+        "passcode": 100460054,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Ghostrick Garden",
+        "passcode": 100460053,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Ghostrick Lich",
+        "passcode": 100460050,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Ghostrick Master Alucard",
+        "passcode": 100460052,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Ghostrick Yoko",
+        "passcode": 100460051,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Amazoness Call",
+        "passcode": 57312334,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Astellar of the White Forest",
+        "passcode": 25592144,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Borrelend Dragon",
+        "passcode": 98630721,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Chaos Angel",
+        "passcode": 22850703,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Chimeratech Megafleet Dragon",
+        "passcode": 87116929,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Crimson Nova Trinity the Dark Cubic Lord",
+        "passcode": 72664876,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Dominus Impulse",
+        "passcode": 40366668,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Dominus Purge",
+        "passcode": 97045738,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Dragon Master Magia",
+        "passcode": 12381101,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Elzette of the White Forest",
+        "passcode": 61980242,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Firewall Dragon Singularity",
+        "passcode": 21637211,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Ghostrick Festival",
+        "passcode": 35871959,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Kurikara Divincarnate",
+        "passcode": 35405756,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Lemon Magician Girl",
+        "passcode": 34318087,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Marincess Great Bubble Reef",
+        "passcode": 47910941,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Mirrorjade the Iceblade Dragon",
+        "passcode": 44146296,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Number 62: Galaxy-Eyes Prime Photon Dragon",
+        "passcode": 31801518,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Number 99: Utopia Dragonar",
+        "passcode": 95134949,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Obelisk the Tormentor",
+        "passcode": 10000003,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Odd-Eyes Arcray Dragon",
+        "passcode": 6218705,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Red Supernova Dragon",
+        "passcode": 99585851,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Red-Eyes Dark Dragoon",
+        "passcode": 37818795,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Shooting Quasar Dragon",
+        "passcode": 35952885,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Sky Striker Mecha - Widow Anchor",
+        "passcode": 98338153,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Sky Striker Mobilize - Linkage!",
+        "passcode": 9726841,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Slifer the Sky Dragon",
+        "passcode": 10000023,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Spirit Charmers",
+        "passcode": 91530237,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Super Polymerization",
+        "passcode": 48130398,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Supreme King Z-ARC",
+        "passcode": 13331640,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "The Winged Dragon of Ra",
+        "passcode": 10000013,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "The Winged Dragon of Ra - Immortal Phoenix",
+        "passcode": 10000091,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Underworld Goddess of the Closed World",
+        "passcode": 98127547,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "Wake Up Your Elemental HERO",
+        "passcode": 32828467,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      }
+    ],
+    "cardListAvailable": true,
+    "note": "Card counts compare loaded database rows. The card list follows the report and excludes blocked pre-release cards and graduations. Set codes are known sets of listed new cards."
+  },
+  {
     "date": "2026-10-22T10:47:28.079Z",
     "label": "Project Ignis 2026-10-22",
     "pullRequest": {
