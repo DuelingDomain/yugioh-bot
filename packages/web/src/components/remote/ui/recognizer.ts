@@ -375,7 +375,7 @@ export function attachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo === video) return;
   ownBuffer?.stop(); ownBuffer = null; ownVideo = video;
   void prepareOwnReader().catch(()=>undefined);
-  void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(() => undefined);
+  void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(error => { console.warn("[remote field] own camera buffer failed", error); });
 }
 
 /** Shared by the table and its lobby preview; the resident worker warms once. */
