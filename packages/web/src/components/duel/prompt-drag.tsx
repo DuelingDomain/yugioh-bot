@@ -60,28 +60,8 @@ function setOffset(surface: HTMLElement, offset: DragOffset) {
   surface.style.setProperty("--drag-y", `${offset.y}px`);
 }
 
-/** The board box of a prompt layer: the table stage marks itself `data-prompt-scope`, else it is the layer's parent (as `boardOf` in prompt-center.tsx). */
-function boardRect(layer: HTMLElement): ClampRect | null {
-  let board: HTMLElement | null = layer.closest<HTMLElement>("[data-prompt-scope]");
-  if (!board) {
-    board = layer.parentElement;
-    while (board && board.style.display === "contents" && board.parentElement) board = board.parentElement;
-  }
-  if (!board) return null;
-  const { left, right, top, bottom } = board.getBoundingClientRect();
-  return { left, right, top, bottom };
-}
-
-/**
- * The box the surface moves in: the element it is positioned against (the prompt layer). The Materials window is fixed to the screen
- * on a phone, so it moves in the board box instead and never goes under the HUD.
- */
+/** The box the surface moves in: the element it is positioned against (the prompt layer, or the board box for the Materials window). */
 function areaOf(surface: HTMLElement): ClampRect | null {
-  if (surface.hasAttribute("data-drag-surface")) {
-    const layer = surface.closest<HTMLElement>("[data-prompt-layer]");
-    const board = layer ? boardRect(layer) : null;
-    if (board) return board;
-  }
   const parent = surface.offsetParent;
   if (!parent) return null;
   const { left, right, top, bottom } = parent.getBoundingClientRect();
