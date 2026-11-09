@@ -233,6 +233,12 @@ test.describe("remote duels screen, solo", () => {
       await expect(b.getByTestId("match-reason")).toContainText("conceded");
       await shot(a, "surrender-4-end-loser"); await shot(b, "surrender-5-end-winner");
       await expect(a.getByTestId("surrender-button")).toHaveCount(0);
+      // Between games the loser quits the match: it asks first, the other player wins and the table ends.
+      await a.getByTestId("dock-quit").click();
+      await expect(a.getByTestId("quit-yes")).toBeVisible();
+      await a.getByTestId("quit-yes").click();
+      await expect(b.getByTestId("match-kicker")).toHaveText("Match over", { timeout: 15_000 });
+      await expect(b.getByTestId("table-ended")).toContainText("left the match");
     } finally { await alice.close(); await bob.close(); }
     // A solo test table: the same button ends the game. Setting a seat to 0 LP ends a game on a table that is not in a tournament.
     const solo = await soloTable(context.request, 2);
