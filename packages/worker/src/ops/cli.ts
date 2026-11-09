@@ -5,11 +5,13 @@ import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@yugidraft/shared/db";
 import { createClerkBackend, type ClerkBackend } from "@yugidraft/shared/clerk";
+import { ownerUserIds } from "@yugidraft/shared/access/owner-access";
 import { runSeason } from "./season.js";
 import { mergeUsers } from "./merge-users.js";
 import { precreateUsers } from "./clerk-precreate-users.js";
 import { reconcileWaitlist } from "./clerk-reconcile-waitlist.js";
 import { deleteUser } from "./delete-user.js";
+import { seedIdeas } from "./ideas-seed.js";
 import { defaultReportPath, openReport, OpsError, type OpsContext } from "./report.js";
 
 const help = `Owner operations (dry-run by default; --apply enables writes)
@@ -18,10 +20,12 @@ const help = `Owner operations (dry-run by default; --apply enables writes)
   clerk-precreate-users [--skip-legal-checks] [--check-remote]
   clerk-reconcile-waitlist [--notify | --no-notify] [--check-remote]
   delete-user --user-id <usersId> [--skip-clerk]
+  ideas-seed
 
 All commands: --apply, --report <path>, --help
 DATABASE_PATH must be absolute and name an existing database.
-season uses DISCORD_GUILD_ID; remote checks/apply require CLERK_SECRET_KEY.
+season and ideas-seed use DISCORD_GUILD_ID; ideas-seed uses the first OWNER_USER_IDS user.
+Remote checks/apply require CLERK_SECRET_KEY for Clerk commands.
 Plain dry-run is offline. --check-remote allows reads, never remote writes.
 Reports are created with mode 0600; existing reports are never overwritten.
 Default: /app/data/ops-reports/<command>-<utc>.json when that directory exists;
@@ -31,7 +35,7 @@ delete-user deletes the Clerk user first (404 counts as done), then anonymises o
 transaction; it is safe to rerun. --skip-clerk leaves Clerk alone (the user is already gone there).
 `;
 
-const COMMANDS = ["season", "merge-users", "clerk-precreate-users", "clerk-reconcile-waitlist", "delete-user"] as const;
+const COMMANDS = ["season", "merge-users", "clerk-precreate-users", "clerk-reconcile-waitlist", "delete-user", "ideas-seed"] as const;
 type Command = (typeof COMMANDS)[number];
 function positiveId(value: string | undefined): number {
   if (!value || !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new OpsError("IDs must be positive safe integers");
@@ -99,6 +103,7 @@ export async function runCli(argv: string[], opts: {
     const ctx: OpsContext = { db, ...parsed, guildId: env.DISCORD_GUILD_ID, backend };
     let report: object & { status: string };
     if (command === "season") report = runSeason(ctx, parsed.action, { actor: parsed.actor, name: parsed.name });
+    else if (command === "ideas-seed") report = seedIdeas(ctx, ownerUserIds(env.OWNER_USER_IDS ?? ""));
     else if (command === "merge-users") {
       out("Stop writers and revoke the source's Clerk sessions before applying this merge");
       report = mergeUsers(ctx, parsed.source!, parsed.target!);

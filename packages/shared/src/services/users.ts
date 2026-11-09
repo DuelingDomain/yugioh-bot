@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { ClerkProfile } from "../clerk/profile.js";
 import { safeAvatarUrl } from "../admin/avatar.js";
 import { hasHistory } from "./user-history.js";
+import { transferIdeaAccount } from "./idea-accounts.js";
 
 export const USER_SYNC_MAX_AGE_MS = 5 * 60_000;
 export type LinkConflict = "discord_claimed" | "both_have_history";
@@ -126,6 +127,7 @@ export function createUserService(db: Database.Database): UserService {
     if (b.clerk_user_id !== null) return outcome(a.id, "discord_claimed");
     if (!hasHistory(db, a.id)) {
       moveInviteGrants(a.id, b.id);
+      transferIdeaAccount(db, a.id, b.id);
       foldAnalytics(a.id, b.id);
       db.prepare("delete from players where user_id=?").run(a.id);
       db.prepare("update users set clerk_user_id=null where id=?").run(a.id);
@@ -136,6 +138,7 @@ export function createUserService(db: Database.Database): UserService {
     }
     if (!hasHistory(db, b.id)) {
       moveInviteGrants(b.id, a.id);
+      transferIdeaAccount(db, b.id, a.id);
       foldAnalytics(b.id, a.id);
       db.prepare("delete from players where user_id=?").run(b.id);
       db.prepare("update users set discord_user_id=null where id=?").run(b.id);

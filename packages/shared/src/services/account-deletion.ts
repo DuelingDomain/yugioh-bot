@@ -35,7 +35,8 @@ type PlayerRow = { id: number; display_name: string };
 
 /**
  * What a deletion would do, without writing. Saved decks are deleted first by the real run, so they do not
- * count as history here either: a user whose only data is saved decks is removed, not anonymised.
+ * count as history here either. Ideas data also does not require a retained user: private rows are deleted
+ * and approved ideas keep no author. Users with only saved decks or Ideas data are removed.
  */
 export function previewUserDeletion(db: Database.Database, userId: number): AccountDeletionPreview {
   const user = db.prepare<[number], UserRow>("select id, clerk_user_id, email from users where id = ?").get(userId);
@@ -120,6 +121,15 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("creator_grants", deleteCreatorGrantsForUser(db, userId, user.email));
     note("creators", db.prepare("update creators set user_id = null where user_id = ?").run(userId).changes);
 
+    // Clear these explicitly even when gameplay history means the user row must stay.
+    note("idea_votes", db.prepare("delete from idea_votes where user_id = ?").run(userId).changes);
+    note("idea_notices", db.prepare("delete from idea_notices where user_id = ?").run(userId).changes);
+    note("user_permissions", db.prepare("delete from user_permissions where user_id = ?").run(userId).changes);
+    note("ideas_deleted", db.prepare("delete from ideas where author_user_id = ? and state in ('waiting','declined')").run(userId).changes);
+    note("ideas_author", db.prepare("update ideas set author_user_id = null where author_user_id = ?").run(userId).changes);
+    note("ideas_decided_by", db.prepare("update ideas set decided_by_user_id = null where decided_by_user_id = ?").run(userId).changes);
+    note("user_permissions_granted_by", db.prepare("update user_permissions set granted_by_user_id = null where granted_by_user_id = ?").run(userId).changes);
+
     const owned = "(select id from players where user_id = ?)";
     if (Object.keys(userHistory(db, userId)).length === 0) {
       note("players", db.prepare("delete from players where user_id = ?").run(userId).changes);
@@ -170,10 +180,11 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       update users set clerk_user_id = null, email = null, email_verified = 0, discord_user_id = null,
         last_seen_at = null, last_route = null, online_since = null, image_url = null,
         heard_from = null, heard_from_detail = null, creator_id = null,
+        ideas_prompt_at = null,
         username = ?, display_name = ?, synced_at = null, updated_at = current_timestamp
       where id = ? and (clerk_user_id is not null or email is not null or email_verified <> 0 or discord_user_id is not null
         or username <> ? or display_name <> ? or synced_at is not null or last_seen_at is not null or last_route is not null or online_since is not null or image_url is not null
-        or heard_from is not null or heard_from_detail is not null or creator_id is not null)
+        or heard_from is not null or heard_from_detail is not null or creator_id is not null or ideas_prompt_at is not null)
     `).run(deletedUsername(userId), DELETED_PLAYER_NAME, userId, deletedUsername(userId), DELETED_PLAYER_NAME).changes);
     if (counts.users) {
       db.prepare("delete from product_events where user_id=?").run(userId);

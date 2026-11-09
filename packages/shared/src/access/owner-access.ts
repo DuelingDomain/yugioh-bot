@@ -3,9 +3,9 @@ import { DEFAULT_DUEL_KIND, isDuelKind, isDuelKindSetup, isReplayFork, type Duel
 import { REPLAY_SOURCE_SLUG_MAX_LENGTH, type ReplayForkSetup } from "../duels/replay-fork.js";
 
 /** Application users.id values. Read at authorization time; an empty list grants no access. */
-export function ownerUserIds(): Set<number> {
+export function ownerUserIds(configured = process.env.OWNER_USER_IDS ?? ""): Set<number> {
   const ids = new Set<number>();
-  for (const part of (process.env.OWNER_USER_IDS ?? "").split(",")) {
+  for (const part of configured.split(",")) {
     const value = part.trim();
     if (!/^[1-9]\d*$/.test(value)) continue;
     const id = Number(value);

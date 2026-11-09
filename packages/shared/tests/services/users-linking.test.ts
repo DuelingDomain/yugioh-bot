@@ -164,3 +164,50 @@ it.each(["keep-imported", "keep-clerk"])("combines draft and tournament grants b
     ]);
   }
 });
+
+it.each(["keep-imported", "keep-clerk"])("preserves Ideas data and survivor choices when folding: %s", branch => {
+  const a = users.resolveClerkProfile(profile, now).user;
+  const b = users.ensureDiscord({ discordUserId: discord, displayName: "Imported" });
+  const keeper = branch === "keep-imported" ? b : a;
+  const folded = branch === "keep-imported" ? a : b;
+  // Ideas alone must not stop the first branch folding two otherwise empty accounts.
+  if (branch === "keep-clerk") history(keeper.id);
+  const other = users.createNonLogin("Other");
+  db.prepare(`insert into ideas(id,guild_id,title,area,author_user_id,state,decided_by_user_id)
+    values(1,'g','Source idea','App',?,'waiting',?),
+          (2,'g','Other idea','App',?,'open',?)`).run(folded.id, folded.id, other.id, folded.id);
+  db.prepare(`insert into idea_votes(idea_id,user_id,value,created_at,updated_at)
+    values(1,?,1,'source-created','source-updated'),(2,?,-1,'source-created','source-updated'),
+          (2,?,1,'kept-created','kept-updated')`).run(folded.id, folded.id, keeper.id);
+  db.prepare(`insert into idea_notices(user_id,idea_id,kind,note,created_at,read_at)
+    values(?,1,'declined','source','source-created',null),
+          (?,2,'done','source','source-created',null),
+          (?,2,'done','kept','kept-created','kept-read')`).run(folded.id, folded.id, keeper.id);
+  db.prepare(`insert into user_permissions(user_id,permission,granted_at,granted_by_user_id)
+    values(?,'ideas_team','source',?), (?,'ideas_team','kept',?), (?,'ideas_team','other',?)`)
+    .run(folded.id, folded.id, keeper.id, other.id, other.id, folded.id);
+  db.prepare("update users set ideas_prompt_at=? where id=?").run(branch === "keep-imported" ? 200 : 100, folded.id);
+  db.prepare("update users set ideas_prompt_at=? where id=?").run(branch === "keep-imported" ? 100 : 200, keeper.id);
+
+  expect(users.resolveClerkProfile({ ...profile, discordUserId: discord }, now)).toMatchObject({
+    user: { id: keeper.id }, foldedUserId: folded.id, conflict: null,
+  });
+  expect(users.findById(folded.id)).toBeUndefined();
+  expect(db.prepare("select id,author_user_id,decided_by_user_id from ideas order by id").all()).toEqual([
+    { id: 1, author_user_id: keeper.id, decided_by_user_id: keeper.id },
+    { id: 2, author_user_id: other.id, decided_by_user_id: keeper.id },
+  ]);
+  expect(db.prepare("select idea_id,user_id,value,created_at,updated_at from idea_votes order by idea_id").all()).toEqual([
+    { idea_id: 1, user_id: keeper.id, value: 1, created_at: "source-created", updated_at: "source-updated" },
+    { idea_id: 2, user_id: keeper.id, value: 1, created_at: "kept-created", updated_at: "kept-updated" },
+  ]);
+  expect(db.prepare("select user_id,idea_id,kind,note,created_at,read_at from idea_notices order by idea_id").all()).toEqual([
+    { user_id: keeper.id, idea_id: 1, kind: "declined", note: "source", created_at: "source-created", read_at: null },
+    { user_id: keeper.id, idea_id: 2, kind: "done", note: "kept", created_at: "kept-created", read_at: "kept-read" },
+  ]);
+  expect(db.prepare("select granted_at,granted_by_user_id from user_permissions where user_id=?").get(keeper.id))
+    .toEqual({ granted_at: "kept", granted_by_user_id: other.id });
+  expect(db.prepare("select granted_by_user_id from user_permissions where user_id=?").get(other.id))
+    .toEqual({ granted_by_user_id: keeper.id });
+  expect(db.prepare("select ideas_prompt_at from users where id=?").get(keeper.id)).toEqual({ ideas_prompt_at: 200 });
+});

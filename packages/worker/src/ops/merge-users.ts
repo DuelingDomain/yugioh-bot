@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createUserService, ownershipReferences, playerReferences, userHistory } from "@yugidraft/shared/services";
+import { createUserService, ownershipReferences, playerReferences, transferIdeaAccount, userHistory } from "@yugidraft/shared/services";
 import { OpsError, type OpsContext } from "./report.js";
 
 type Player = { id: number; guild_id: string; user_id: number };
@@ -88,12 +88,18 @@ export function mergeUsers(ctx: OpsContext, sourceId: number, targetId: number) 
       const survivor = targetPlayers.find(other => other.guild_id === player.guild_id);
       return survivor ? [{ source: player.id, target: survivor.id }] : [];
     });
+    const promptAt = ctx.db.prepare<[number], { ideas_prompt_at: number | null }>("select ideas_prompt_at from users where id=?");
+    const sourcePromptAt = promptAt.get(sourceId)!.ideas_prompt_at;
+    const targetPromptAt = promptAt.get(targetId)!.ideas_prompt_at;
+    const resultPromptAt = sourcePromptAt === null ? targetPromptAt
+      : targetPromptAt === null ? sourcePromptAt : Math.max(sourcePromptAt, targetPromptAt);
     const report = {
       status: ctx.apply ? "applied" : "dry-run",
       message: "Stop writers and revoke the source's Clerk sessions before applying this merge",
       source: { id: source.id, hasClerk: source.clerkUserId !== null, hasDiscord: source.discordUserId !== null },
       target: { id: target.id, hasClerk: target.clerkUserId !== null, hasDiscord: target.discordUserId !== null },
       sourceHistory: userHistory(ctx.db, sourceId), targetHistory: userHistory(ctx.db, targetId),
+      ideasPromptAt: { source: sourcePromptAt, target: targetPromptAt, result: resultPromptAt },
       affectedRows: [] as Affected[], playerMappings: mappings,
       conflicts: [] as Conflict[], manualReview: manualReferences(ctx.db, sourcePlayers),
       foreignKeyViolations: [] as unknown[],
@@ -105,6 +111,23 @@ export function mergeUsers(ctx: OpsContext, sourceId: number, targetId: number) 
         `select rowid as id from ${table} where user_id=? order by rowid`,
       ).all(sourceId).map(row => row.id);
       if (grantRowIds.length) report.affectedRows.push({ table, column: "user_id", rowIds: grantRowIds });
+    }
+    // Ideas do not block identity folds. Their overlapping account keys are combined with the
+    // survivor's rows winning, so report these references without unique-conflict preflight.
+    for (const [table, refs] of [
+      ["ideas", ["author_user_id", "decided_by_user_id"]],
+      ["idea_votes", ["user_id"]], ["idea_notices", ["user_id"]],
+      ["user_permissions", ["user_id", "granted_by_user_id"]],
+    ] as const) {
+      for (const column of refs) {
+        const rowIds = ctx.db.prepare<[number], { id: number }>(
+          `select rowid as id from ${table} where ${column}=? order by rowid`,
+        ).all(sourceId).map(row => row.id);
+        if (rowIds.length) report.affectedRows.push({ table, column, rowIds });
+      }
+    }
+    if (resultPromptAt !== targetPromptAt) {
+      report.affectedRows.push({ table: "users", column: "ideas_prompt_at", rowIds: [targetId] });
     }
     const transformations = new Map<string, Map<string, string>>();
     for (const [references, ownership] of [[ownershipReferences, true], [playerReferences, false]] as const) {
@@ -161,6 +184,7 @@ export function mergeUsers(ctx: OpsContext, sourceId: number, targetId: number) 
           select ${column},?,created_at from ${table} where user_id=?`).run(targetId, sourceId);
         ctx.db.prepare(`delete from ${table} where user_id=?`).run(sourceId);
       }
+      transferIdeaAccount(ctx.db, sourceId, targetId);
       const clerk = target.clerkUserId ?? source.clerkUserId;
       ctx.db.prepare("update users set clerk_user_id=null,discord_user_id=null where id=?").run(sourceId);
       ctx.db.prepare("update users set clerk_user_id=?,discord_user_id=?,updated_at=current_timestamp,synced_at=null where id=?").run(clerk, discord, targetId);

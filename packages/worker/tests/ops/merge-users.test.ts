@@ -5,6 +5,71 @@ let f: ReturnType<typeof fixture>;
 afterEach(() => f?.close());
 function setup() { f = fixture(); f.user(1, { clerk: "source_clerk", discord: "123" }); f.user(2); f.player(11, 1); }
 function draft(id: number) { f.db.prepare("insert into drafts(id,guild_id,name,status,created_by_user_id,config_json) values(?,'guild',?,'complete',1,?)").run(id, `Draft ${id}`, '{"themeAssignments":{"11":"theme"}}'); }
+
+it("reports and merges overlapping Ideas records without treating survivor choices as conflicts", () => {
+  setup(); f.user(3);
+  f.db.exec(`insert into ideas(id,guild_id,title,area,author_user_id,state,decided_by_user_id)
+      values(1,'guild','Source idea','App',1,'waiting',1),(2,'guild','Other idea','App',3,'open',1);
+    insert into idea_votes(idea_id,user_id,value,created_at,updated_at) values
+      (1,1,1,'source','source-updated'),(2,1,-1,'source','source-updated'),(2,2,1,'kept','kept-updated');
+    insert into idea_notices(user_id,idea_id,kind,note,created_at,read_at) values
+      (1,1,'declined','source','source',null),(1,2,'done','source','source',null),(2,2,'done','kept','kept','read');
+    insert into user_permissions(user_id,permission,granted_at,granted_by_user_id) values
+      (1,'ideas_team','source',1),(2,'ideas_team','kept',3),(3,'ideas_team','other',1);
+    update users set ideas_prompt_at=200 where id=1;
+    update users set ideas_prompt_at=100 where id=2;`);
+  const before = f.checksum();
+  const dry = mergeUsers({ db: f.db, apply: false }, 1, 2);
+  expect(dry).toMatchObject({ conflicts: [], sourceHistory: {}, targetHistory: {},
+    ideasPromptAt: { source: 200, target: 100, result: 200 } });
+  expect(dry.affectedRows).toEqual(expect.arrayContaining([
+    { table: "ideas", column: "author_user_id", rowIds: [1] },
+    { table: "ideas", column: "decided_by_user_id", rowIds: [1, 2] },
+    { table: "idea_votes", column: "user_id", rowIds: [1, 2] },
+    { table: "idea_notices", column: "user_id", rowIds: [1, 2] },
+    { table: "user_permissions", column: "user_id", rowIds: [1] },
+    { table: "user_permissions", column: "granted_by_user_id", rowIds: [1, 3] },
+    { table: "users", column: "ideas_prompt_at", rowIds: [2] },
+  ]));
+  expect(f.checksum()).toBe(before);
+
+  const applied = mergeUsers({ db: f.db, apply: true }, 1, 2);
+  expect(applied.conflicts).toEqual([]);
+  expect(f.db.prepare("select id,author_user_id,decided_by_user_id from ideas order by id").all()).toEqual([
+    { id: 1, author_user_id: 2, decided_by_user_id: 2 }, { id: 2, author_user_id: 3, decided_by_user_id: 2 },
+  ]);
+  expect(f.db.prepare("select idea_id,user_id,value,created_at,updated_at from idea_votes order by idea_id").all()).toEqual([
+    { idea_id: 1, user_id: 2, value: 1, created_at: "source", updated_at: "source-updated" },
+    { idea_id: 2, user_id: 2, value: 1, created_at: "kept", updated_at: "kept-updated" },
+  ]);
+  expect(f.db.prepare("select user_id,idea_id,kind,note,created_at,read_at from idea_notices order by idea_id").all()).toEqual([
+    { user_id: 2, idea_id: 1, kind: "declined", note: "source", created_at: "source", read_at: null },
+    { user_id: 2, idea_id: 2, kind: "done", note: "kept", created_at: "kept", read_at: "read" },
+  ]);
+  expect(f.db.prepare("select user_id,granted_at,granted_by_user_id from user_permissions order by user_id").all()).toEqual([
+    { user_id: 2, granted_at: "kept", granted_by_user_id: 3 }, { user_id: 3, granted_at: "other", granted_by_user_id: 2 },
+  ]);
+  expect(f.db.prepare("select ideas_prompt_at from users where id=2").get()).toEqual({ ideas_prompt_at: 200 });
+  expect(f.db.prepare("select id from users where id=1").get()).toBeUndefined();
+  expect(f.db.pragma("foreign_key_check")).toEqual([]);
+});
+
+it.each([
+  { source: null, target: null, result: null },
+  { source: 100, target: null, result: 100 },
+  { source: null, target: 200, result: 200 },
+  { source: 100, target: 200, result: 200 },
+])("transfers a sole Team permission and keeps prompt time $result for $source/$target", ({ source, target, result }) => {
+  setup();
+  f.db.prepare("update users set ideas_prompt_at=? where id=1").run(source);
+  f.db.prepare("update users set ideas_prompt_at=? where id=2").run(target);
+  f.db.exec("insert into user_permissions(user_id,permission,granted_at,granted_by_user_id) values(1,'ideas_team','original',1)");
+  expect(mergeUsers({ db: f.db, apply: false }, 1, 2)).toMatchObject({ ideasPromptAt: { source, target, result } });
+  mergeUsers({ db: f.db, apply: true }, 1, 2);
+  expect(f.db.prepare("select ideas_prompt_at from users where id=2").get()).toEqual({ ideas_prompt_at: result });
+  expect(f.db.prepare("select user_id,granted_at,granted_by_user_id from user_permissions").all())
+    .toEqual([{ user_id: 2, granted_at: "original", granted_by_user_id: 2 }]);
+});
 it("moves source grants and keeps an existing target grant on the same draft", () => {
   setup(); draft(1); draft(2); draft(3);
   f.db.exec(`insert into draft_invite_grants(draft_id,user_id,created_at) values

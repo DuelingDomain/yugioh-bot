@@ -1346,6 +1346,7 @@ export function migrate(db: Database.Database) {
   }
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
+  migrateIdeas(db);
   // Latest presence only: no browsing history, IDs, full URLs or query strings.
   addColumnIfMissing(db, "users", "last_seen_at", "integer");
   addColumnIfMissing(db, "users", "last_route", "text");
@@ -1552,6 +1553,63 @@ export function migrate(db: Database.Database) {
         on drafts(guild_id, created_by_user_id, name) where status in ('pending', 'active');
     `);
   }).immediate();
+}
+
+function migrateIdeas(db: Database.Database): void {
+  addColumnIfMissing(db, "users", "ideas_prompt_at", "integer");
+  db.exec(`
+    create table if not exists ideas (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      title text not null check (length(trim(title)) between 1 and 80 or (shipped_before_board = 1 and length(trim(title)) between 1 and 140)),
+      pitch text check (pitch is null or length(pitch) <= 140),
+      area text not null check (area in ('Ranked','Duels','Drafts','Tournaments','Decks & cubes','Replays & watching','Community','App')),
+      author_user_id integer references users(id) on delete set null,
+      show_author integer not null default 0 check (show_author in (0,1)),
+      team integer not null default 0 check (team in (0,1)),
+      state text not null check (state in ('waiting','open','in_progress','done','declined')),
+      decline_reason text,
+      done_note text check (done_note is null or length(done_note) <= 140),
+      shipped_before_board integer not null default 0 check (shipped_before_board in (0,1)),
+      shipped_week text,
+      created_at text not null default current_timestamp,
+      approved_at text,
+      started_at text,
+      done_at text,
+      decided_by_user_id integer references users(id) on delete set null,
+      seed_key text,
+      unique (guild_id, seed_key)
+    );
+    create index if not exists ideas_guild_state_idx on ideas(guild_id,state);
+    create index if not exists ideas_author_created_idx on ideas(author_user_id,created_at);
+    create table if not exists idea_votes (
+      idea_id integer not null references ideas(id) on delete cascade,
+      user_id integer not null references users(id) on delete cascade,
+      value integer not null check (value in (-1,1)),
+      created_at text not null default current_timestamp,
+      updated_at text not null default current_timestamp,
+      primary key (idea_id,user_id)
+    );
+    create index if not exists idea_votes_user_idx on idea_votes(user_id);
+    create table if not exists idea_notices (
+      id integer primary key autoincrement,
+      user_id integer not null references users(id) on delete cascade,
+      idea_id integer not null references ideas(id) on delete cascade,
+      kind text not null check (kind in ('done','declined')),
+      note text,
+      created_at text not null default current_timestamp,
+      read_at text,
+      unique (user_id,idea_id,kind)
+    );
+    create index if not exists idea_notices_unread_user_idx on idea_notices(user_id) where read_at is null;
+    create table if not exists user_permissions (
+      user_id integer not null references users(id) on delete cascade,
+      permission text not null check (permission = 'ideas_team'),
+      granted_at text not null default current_timestamp,
+      granted_by_user_id integer references users(id) on delete set null,
+      primary key (user_id,permission)
+    );
+  `);
 }
 
 /**

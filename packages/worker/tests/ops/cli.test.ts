@@ -9,7 +9,7 @@ afterEach(() => f?.close());
 it("lists commands in help without requiring env and rejects unknown commands/flags", async () => {
   const output: string[] = []; const opts = { env: {}, out: (s: string) => output.push(s), err: (s: string) => output.push(s) };
   expect(await runCli(["--help"], opts)).toBe(0);
-  for (const command of ["season", "merge-users", "clerk-precreate-users", "clerk-reconcile-waitlist"]) expect(output.join("\n")).toContain(command);
+  for (const command of ["season", "merge-users", "clerk-precreate-users", "clerk-reconcile-waitlist", "ideas-seed"]) expect(output.join("\n")).toContain(command);
   expect(await runCli(["unknown"], opts)).toBe(1);
   expect(await runCli(["season", "status", "--typo"], opts)).toBe(1);
 });

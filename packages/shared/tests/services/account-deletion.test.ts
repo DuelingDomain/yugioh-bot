@@ -71,6 +71,45 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe("deleteUserAccount", () => {
+  it.each(["removed", "anonymised"] as const)("clears private Ideas data and author links when the account is %s", mode => {
+    const userId = mode === "removed" ? 3 : 1;
+    if (mode === "removed") exec("insert into users(id,clerk_user_id,username,display_name) values(3,'user_three','three','Three')");
+    db.prepare("update users set ideas_prompt_at=123 where id=?").run(userId);
+    const insertIdea = db.prepare("insert into ideas(id,guild_id,title,area,author_user_id,state,decided_by_user_id,show_author) values(?,'g',?,'App',?,?,?,1)");
+    for (const [index, state] of ["waiting", "declined", "open", "in_progress", "done"].entries()) {
+      insertIdea.run(index + 1, `Idea ${index + 1}`, userId, state, userId);
+    }
+    insertIdea.run(6, "Other idea", 2, "open", userId);
+    db.prepare("insert into idea_votes(idea_id,user_id,value) values(6,?,1),(3,2,1),(1,2,1)").run(userId);
+    db.prepare("insert into idea_notices(idea_id,user_id,kind) values(6,?,'done'),(3,2,'done'),(1,2,'declined')").run(userId);
+    db.prepare("insert into user_permissions(user_id,permission,granted_by_user_id) values(?,'ideas_team',2),(2,'ideas_team',?)").run(userId, userId);
+
+    const before = dump();
+    expect(previewUserDeletion(db, userId)).toMatchObject({ exists: true, mode, hasClerkUser: true });
+    expect(dump()).toEqual(before);
+    const result = deleteUserAccount(db, userId);
+    expect(result).toMatchObject({ mode, counts: {
+      idea_votes: 1, idea_notices: 1, user_permissions: 1,
+      ideas_deleted: 2, ideas_author: 3, ideas_decided_by: 4, user_permissions_granted_by: 1,
+    } });
+    expect(db.prepare("select id,author_user_id,decided_by_user_id from ideas order by id").all()).toEqual([
+      { id: 3, author_user_id: null, decided_by_user_id: null },
+      { id: 4, author_user_id: null, decided_by_user_id: null },
+      { id: 5, author_user_id: null, decided_by_user_id: null },
+      { id: 6, author_user_id: 2, decided_by_user_id: null },
+    ]);
+    expect(db.prepare("select idea_id,user_id from idea_votes").all()).toEqual([{ idea_id: 3, user_id: 2 }]);
+    expect(db.prepare("select idea_id,user_id from idea_notices").all()).toEqual([{ idea_id: 3, user_id: 2 }]);
+    expect(db.prepare("select user_id,granted_by_user_id from user_permissions").all()).toEqual([{ user_id: 2, granted_by_user_id: null }]);
+    if (mode === "anonymised") {
+      expect(db.prepare("select ideas_prompt_at from users where id=?").get(userId)).toEqual({ ideas_prompt_at: null });
+    } else expect(db.prepare("select id from users where id=?").get(userId)).toBeUndefined();
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    const after = dump();
+    expect(deleteUserAccount(db, userId).counts).toEqual({});
+    expect(dump()).toEqual(after);
+  });
+
   it("scrubs fork names even when the source is gone and the user has no history", () => {
     exec("insert into users(id,username,display_name) values(3,'three','Gone Source');");
     const setup = { replayFork: { ownerUserId: 2, control: "all-manual", origin: {
