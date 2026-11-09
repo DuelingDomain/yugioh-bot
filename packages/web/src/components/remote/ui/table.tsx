@@ -499,7 +499,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       let updated:RemoteRoom|null=null;
       const witnesses=verifiedWitnesses?.filter(w=>sameObservedCard(w,{cardId:pick.cardId,name:pick.name})&&current.state.seats[seat].twin.some(c=>c.ref===w.ref&&['monster','spell-trap','extra-monster','field','pendulum'].includes(c.zone)))??[];
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-(at.capturedAt??performance.now())))}:undefined;
-      if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),...(at.bestMatch?{bestMatch:true}:{}),faceUp:true,position:physical&&spot.row==='monster'&&at.quad?.length===4&&zoneGrid.calibration?fieldOrientation({quad:at.quad,kind:'face-up',confidence:1,partial:false},1,1,zoneGrid.calibration):'attack'}});
+      if(owns&&spot&&!same)updated=await apply({type:'twin.place',source:'auto',actorSeat:current.solo?seat:current.mySeat,seat,zone:spot.row,...(copyProof?{copyProof}:{}),card:{ref:spot.ref,cardId:pick.cardId,name:pick.name,...(spot.slot?{slot:spot.slot}:{}),...(at.bestMatch?{bestMatch:true}:{}),faceUp:true,position:physical&&(spot.row==='monster'||spot.row==='extra-monster')&&at.quad?.length===4&&zoneGrid.calibration?fieldOrientation({quad:at.quad,kind:'face-up',confidence:1,partial:false},1,1,zoneGrid.calibration):'attack'}});
       else updated=await apply({type:'card.identified',actorSeat:current.mySeat,seat,cardId:pick.cardId,name:pick.name,source,...(at.bestMatch?{bestMatch:true}:{}),...(spot?{cardRef:spot.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})}:{})});
       if(updated&&reading&&spot&&(reading.zone!==spot.row||reading.slot!==spot.slot))updated=await apply({type:'twin.move',actorSeat:current.solo?seat:current.mySeat,seat,cardRef:reading.ref,zone:spot.row,...(spot.slot?{slot:spot.slot}:{})});
       const ref=updated&&owns&&spot ? placedTwin(updated.state.seats[seat].twin,{...spot,zone:spot.row,cardId:pick.cardId})?.ref : spot?.ref;
@@ -726,7 +726,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         if(index<0)return true;onField.splice(index,1);return false;
       }).sort((a,b)=>a.quad.reduce((n,p)=>n+p.x,0)-b.quad.reduce((n,p)=>n+p.x,0));
     const planned=[...current.seats[seat].twin];
-    const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number} }[] = [];
+    const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number;copyProof?:{simultaneousQuads:number;at:number};position?:'attack'|'defense' }[] = [];
+    // The turn the scan saw for a card in a Monster Zone; otherwise the position the board already holds. A scan never turns a Defense card back to Attack.
+    const positionOf=(card:(typeof sure)[number],zone:string,existing?:TwinCard):'attack'|'defense'=>calibration?.orientation&&(zone==='monster'||zone==='extra-monster')&&card.quad?.length===4?fieldOrientation({quad:card.quad,kind:'face-up',confidence:1,partial:false},1,1,calibration):existing?.position??'attack';
     if (tap) for (const card of sure) placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone: "" });
     const tokenCells: string[] = [];
     for (const card of tap ? [] : fresh) {
@@ -743,8 +745,9 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         return !!at&&onField.some(c=>sameObservedCard(c,other)&&c.zone===at.zone&&c.slot===at.slot);
       });
       const copyProof=witnesses.length?{simultaneousQuads:witnesses.length+1,at:Math.floor(serverNow()-999)}:undefined;
-      if(!existing)planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position:'attack'});
-      placed.push({ref,card,zone,slot,copyProof});
+      const position=positionOf(card,zone,existing);
+      if(!existing)planned.push({ref,zone,slot,cardId:card.cardId,faceUp:true,position});
+      placed.push({ref,card,zone,slot,copyProof,position});
     }
     if (tokenCells.length) toast(`A token is in ${tokenCells.join(", ")}. Remove the token first, or move the card to another zone.`, 5000);
     const done: typeof placed = [...reveals];
@@ -753,7 +756,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         const acceptedWitnesses=done.filter(previous=>previous.card!==item.card&&sameObservedCard(previous.card,item.card)&&distinctFieldQuads(previous.card.quad,item.card.quad)&&['monster','spell-trap','extra-monster','field','pendulum'].includes(previous.zone));
         const copies=Math.max(item.copyProof?.simultaneousQuads??1,acceptedWitnesses.length+1);
         const copyProof=copies>=2?{simultaneousQuads:copies,at:Math.floor(serverNow()-999)}:undefined;
-        const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, ...(copyProof?{copyProof}:{}), card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
+        const ok = await act({ type: "twin.place", source: "auto", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, ...(copyProof?{copyProof}:{}), card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: item.position ?? "attack" } });
         if (!ok) break;
         const canonical=placedTwin(ok.state.seats[seat].twin,{ref:item.ref,zone:item.zone,slot:item.slot,cardId:item.card.cardId});
         if(!canonical)break;
@@ -1220,11 +1223,19 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
         void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...(pileEntryFace(subjectCard.zone, zone) !== undefined ? { faceUp: pileEntryFace(subjectCard.zone, zone) } : {}), ...leavePosition(subjectCard, zone) });
       },
-      onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false }),
-      // Any face-up card in a Monster Zone has a battle position, a Trap Monster too (Link monsters stay in Attack).
-      ...(subjectCard.faceUp !== false && (subjectCard.zone === "monster" || subjectCard.zone === "extra-monster") && !isLinkInfo(info(cardCode(subjectCard))) ? { position: {
+      // A card turned face down in a Monster Zone is a Set monster, in Defense (like the camera's face-down proposal).
+      onFlip: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: subjectCard.faceUp === false,
+        ...(subjectCard.faceUp !== false && (subjectCard.zone === "monster" || subjectCard.zone === "extra-monster") ? { position: "defense" as const } : {}) }),
+      // Any face-up card in a Monster Zone has a battle position, a Trap Monster too. A Link monster stays in Attack, so it only offers the way back from Defense.
+      ...(subjectCard.faceUp !== false && (subjectCard.zone === "monster" || subjectCard.zone === "extra-monster") && (subjectCard.position === "defense" || !isLinkInfo(info(cardCode(subjectCard)))) ? { position: {
         defense: subjectCard.position === "defense",
-        onTurn: () => void act({ type: "twin.flip", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, faceUp: true, position: subjectCard.position === "defense" ? "attack" : "defense" }) } } : {}),
+        onTurn: () => {
+          // Read the card again: the camera may have turned it face down since the menu opened (never flip it face up from a stale menu).
+          const { state: cur, room: now } = R.current; const latest = cur.seats[subject.seat]?.twin.find(c => c.ref === subjectCard.ref);
+          if (!latest || latest.faceUp === false || (latest.zone !== "monster" && latest.zone !== "extra-monster")) return;
+          announceManualMove({ slug: now.slug, seat: subject.seat, ref: latest.ref });
+          void act({ type: "twin.flip", actorSeat: now.solo ? subject.seat : now.mySeat, seat: subject.seat, cardRef: latest.ref, faceUp: true, position: latest.position === "defense" ? "attack" : "defense" });
+        } } } : {}),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
       ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),

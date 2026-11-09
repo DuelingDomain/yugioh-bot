@@ -422,7 +422,7 @@ it('departures leave field zones once with a named atomic move and retain physic
   const {describeEvent}=await import('../src/components/remote/ui/describe');
   const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
   const proposal=fieldDepartureProposal(card,0);
-  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras'});
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras',position:'attack'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
   expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('hand');
   for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
@@ -694,8 +694,8 @@ it('field legality: nullable catalog race does not invent a Field Spell subtype'
  expect(fieldZoneCheck(treasures,'field')).toBeUndefined();expect(cardTypeLine(treasures)).toBe('Field Spell');
  // Other type lines from the same resolver: a Quick-Play Spell, a Trap Monster (a Trap with a Level), a Link Monster.
  expect(cardTypeLine(applyEngineCardFacts({type:'Spell Card',frameType:'spell'},{type:0x10002,level:0,def:0}))).toBe('Quick-Play Spell');
- const apophis=applyEngineCardFacts({type:'Trap Card',frameType:'trap',effectText:'Fixture'},{type:0x20004,level:4,def:1400});
- expect(cardTypeLine(apophis)).toBe('Continuous Trap · Trap Monster');expect(fieldZoneCheck(apophis,'monster',3)).toBeUndefined();
+ const apophis=applyEngineCardFacts({type:'Trap Card',frameType:'trap',effectText:'Fixture'},{type:0x20004,level:4,atk:1800,def:1400});
+ expect(apophis).toMatchObject({atk:1800,def:1400,level:4});expect(cardTypeLine(apophis)).toBe('Continuous Trap · Trap Monster');expect(fieldZoneCheck(apophis,'monster',3)).toBeUndefined();
  expect(cardTypeLine(applyEngineCardFacts({type:'Link Monster',frameType:'link'},{type:0x4000021,level:2,def:0x28}))).toBe('Link-2 Monster');
 });
 it('field legality: pile observations remain unchanged for adapter policy',async()=>{
