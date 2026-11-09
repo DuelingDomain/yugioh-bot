@@ -180,6 +180,14 @@ test('uncertain results prompt with five alternatives, require confirmation and 
   assert.equal(r.events.filter(e=>e.type==='placed').length,0);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.reads,1);
   r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
+test('a read that never resolves (soft frames under a colour cast) falls back to the prompt within 8 s, never Identifying for ever',async()=>{
+  const r=fieldRig('not sure');r.detail=20;await r.tick(100);r.detail=8;
+  for(let i=0;i<30;i++)await r.tick(200);
+  assert.equal(r.watcher.getSnapshot().tracks[0].state,'candidate','still waiting before the deadline');assert.equal(r.events.length,0);
+  for(let i=0;i<40;i++)await r.tick(200);
+  const prompts=r.events.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);assert.equal(r.watcher.getSnapshot().tracks[0].state,'prompt');
+  assert.ok(prompts[0].result?.candidates.length,'the read candidates are offered');assert.equal(r.reads,1);r.watcher.dispose();
+});
 test('one-shot owner prompts: best matches settle normally, bound moves stay quiet and dismissal is final',async()=>{
   const r=fieldRig('not sure');r.decklist=[];r.embedding=[1,0];
   for(let i=0;i<8;i++)await r.tick();
