@@ -9,6 +9,19 @@
   min-width: 0;
 }
 
+/* The Clerk profile card is about 830 px wide. Next to the 260 px intro it got 680 px: it spilled past the page edge at
+   1366 and truncated the email at other widths. This section stacks the intro above the card instead. */
+:global(.ms) .section.section {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel :global(.cl-rootBox.cl-userProfile-root),
+.panel :global(.cl-cardBox) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .block {
   display: grid;
   gap: 16px;
