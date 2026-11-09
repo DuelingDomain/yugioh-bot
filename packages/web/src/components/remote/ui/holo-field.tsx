@@ -226,8 +226,8 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const unknown = !!card && card.faceUp && !cardCode(card) && !card.token;
         const down = !!card && !card.faceUp;
         const monsterZone = isMonsterZone(key); const emzCell = key === "e1" || key === "e2";
-        // Only a card in a Monster Zone lies in Defense; a stale position never turns a Spell/Trap Zone card.
-        const defense = (!!card && card.position === "defense" && !pile && monsterZone) || ghost?.position === "defense";
+        // The board mirrors the mat: a sideways card is drawn sideways in any cell. Moves out of a Monster Zone reset the position (leavePosition).
+        const defense = (!!card && card.position === "defense" && !pile) || ghost?.position === "defense";
         const taken = emzCell && !card ? facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(Number(key[1]))) : undefined;
         const carriedHere = !!carried && rv === key;
         const trapHolder = !card && /^s[1-5]$/.test(key) ? twin.find(other => other.trapZone === Number(key[1]) && (other.zone === "monster" || other.zone === "extra-monster")) : undefined;
