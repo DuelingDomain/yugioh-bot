@@ -160,7 +160,13 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper(), clipReady = useFieldClipReady();
   // "Saved to your computer" note after a clip download; it clears itself after a few seconds.
   const [clipNote, setClipNote] = useState(""); const clipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveClip = () => { const stats = saveFieldClip(); if (clipTimer.current) clearTimeout(clipTimer.current); setClipNote(stats ? `Saved to your computer. Contains your camera view of the mat (${stats.frames} frames, ${(stats.bytes / 1e6).toFixed(1)} MB).` : "No clip yet: the card reader is not running."); clipTimer.current = setTimeout(() => setClipNote(""), 6000); };
+  const [clipDetail, setClipDetail] = useState("");
+  const saveClip = () => {
+    const stats = saveFieldClip(); if (clipTimer.current) clearTimeout(clipTimer.current);
+    setClipNote(!stats ? "No clip yet: the card reader is not running." : stats.frames ? "Saved to your computer. Contains your camera view of the mat." : "Saved an empty clip: the card reader has not read the camera yet.");
+    setClipDetail(stats ? `${stats.frames} frames, ${(stats.bytes / 1e6).toFixed(1)} MB, ${stats.events} events` : "");
+    clipTimer.current = setTimeout(() => setClipNote(""), 6000);
+  };
   useEffect(() => () => { if (clipTimer.current) clearTimeout(clipTimer.current); }, []);
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
@@ -578,7 +584,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded.">Save last 30 s</button> : null}
-        {clipNote ? <span className={s.fzchip} role="status" data-testid="field-clip-note"><Icon name="check" />{clipNote}</span> : null}
+        {clipNote ? <span className={`${s.fzchip} ${s.fzchipWrap}`} role="status" data-testid="field-clip-note" title={clipDetail}><Icon name="check" />{clipNote}</span> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />

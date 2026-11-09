@@ -832,6 +832,9 @@
 @media (hover:none){.fctl{opacity:1;pointer-events:auto}}
 .fzchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--gold);color:var(--gold-ink);font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em}
 .fzchip .ic{width:13px;height:13px}
+/* A note that may need two lines on a small camera box. */
+.fzchipWrap{height:auto;min-height:26px;padding:5px 9px;line-height:1.25;white-space:normal;max-width:100%}
+.fzchipWrap .ic{flex:none}
 .fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
 .fzbtn:disabled{opacity:.5;cursor:default;border-color:var(--line2);color:var(--ink2)}
