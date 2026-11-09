@@ -4215,7 +4215,7 @@ describe("account deletion in live remote rooms", () => {
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
-  it.each([[2,"duel"],[2,"siding"]] as const)("ends an active %i-seat table during %s and prevents further actions", (seatCount,phase) => {
+  it.each([[2,"duel"],[2,"siding"]] as const)("a quit during a Bo3 game loses only that game; a quit in siding (%i seats, game lost by %s) ends the match and prevents further actions", (seatCount,phase) => {
     const {db,service,users}=setup();
     let room=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount},1000);
     for(let seat=1;seat<seatCount;seat++) service.join(room.slug,"g",users[seat],"Guest",seat,1001);
@@ -4235,22 +4235,25 @@ describe("account deletion in live remote rooms", () => {
     expect(()=>service.act(room.slug,"g",users[0],{baseSeq:room.lastSeq,action:{type:"log.note",actorSeat:0,text:"hello",idempotencyKey:"after-delete"}})).toThrow(/not active/);
     expect(service.replayFrames(room.slug,"g",users[0]).steps).toHaveLength(room.lastSeq);
 
-    // Quitting forfeits the match: the opponent wins, the table ends as a forfeit, and nothing can undo it.
+    // Quitting between games forfeits the match: the opponent wins, the table ends as a forfeit, and nothing can undo it.
     const quit=service.create({guildId:"g",userId:users[0],displayName:"Owner",gameId:"ygo",seatCount,bestOf:3},3000);
     service.join(quit.slug,"g",users[2],"Guest",1,3001);
     for(let seat=0;seat<seatCount;seat++) service.ready(quit.slug,"g",(seat?users[2]:users[0]),true,3002);
     let table=service.start(quit.slug,"g",users[0],3003);
     const step=(seat:number,action:Record<string,unknown>,at:number)=>table=service.act(table.slug,"g",(seat?users[2]:users[0]),{baseSeq:table.lastSeq,action:remoteActionSchema.parse({actorSeat:seat,idempotencyKey:`quit-${at}`,...action})},at);
-    if(phase==="siding") {
-      step(1,{type:"player.concede"},3004); step(1,{type:"match.continue"},3005);
-      step(0,{type:"side.ready",seat:0},3006); step(1,{type:"side.ready",seat:1},3007);
-      // All ready: the next game starts after 5 seconds. An un-ready cancels it, a new ready restarts it.
-      expect(table.state.match.siding).toMatchObject({ready:[0,1],startAt:8007});
-      step(1,{type:"side.unready",seat:1},3008);
-      expect(table.state.match.siding!.startAt).toBeUndefined();
-      step(1,{type:"side.ready",seat:1},3009);
-      expect(table.state.match.siding).toMatchObject({startAt:8009});
-    }
+    // Game 1 is lost by a surrender or by a quit during the game: both end only that game, and the match goes on to side decking.
+    step(1,{type:phase==="duel"?"player.leave":"player.concede"},3004);
+    expect(table).toMatchObject({status:"active",state:{match:{phase:"result",games:[{winnerSeat:0,reason:"concede"}]}}});
+    expect(table.state.seats[1].accountDeleted).toBeFalsy();
+    step(1,{type:"match.continue"},3005);
+    expect(table.state.match.phase).toBe("siding");
+    step(0,{type:"side.ready",seat:0},3006); step(1,{type:"side.ready",seat:1},3007);
+    // All ready: the next game starts after 5 seconds. An un-ready cancels it, a new ready restarts it.
+    expect(table.state.match.siding).toMatchObject({ready:[0,1],startAt:8007});
+    step(1,{type:"side.unready",seat:1},3008);
+    expect(table.state.match.siding!.startAt).toBeUndefined();
+    step(1,{type:"side.ready",seat:1},3009);
+    expect(table.state.match.siding).toMatchObject({startAt:8009});
     step(1,{type:"player.leave"},3010);
     expect(table).toMatchObject({status:"ended",endReason:"forfeit",state:{ended:true,winnerSeat:0,match:{phase:"done",winnerSeat:0}}});
     expect(table.state.seats[1]).toMatchObject({eliminated:true,accountDeleted:true});
@@ -4279,9 +4282,13 @@ describe("account deletion in live remote rooms", () => {
     const act=(seat:number,action:Record<string,unknown>)=>room=service.act(room.slug,"g",users[seat],{baseSeq:room.lastSeq,action:remoteActionSchema.parse({actorSeat:seat,idempotencyKey:`ffa-quit-${room.lastSeq}-${seat}`,...action})},2000+room.lastSeq);
     act(0,{type:"lp.change",seat:2,delta:-8000,reason:"damage"});
     expect(room.state.seats[2].eliminated).toBe(true);
-    // Seat 2 is out of the game by Life Points and seat 1 quits: seat 0 wins game 1, and seat 2 still plays on in the match.
+    // Seat 2 is out of the game by Life Points and seat 1 quits during the game: it only concedes the game. Seat 0 wins game 1.
     act(1,{type:"player.leave"});
     expect(room).toMatchObject({status:"active",state:{match:{phase:"result",games:[{winnerSeat:0}]}}});
+    expect(room.state.seats[1].accountDeleted).toBeFalsy();
+    // Between games the same seat leaves the match for good, and then it cannot touch the match flow.
+    act(1,{type:"player.leave"});
+    expect(room.state.seats[1].accountDeleted).toBe(true);
     for(const action of [{type:"match.continue"},{type:"side.ready",seat:1}]) expect(()=>act(1,action)).toThrow(/left this match/);
     // A quit does not wait for another action in flight: the stale sequence is not a reason to refuse it.
     expect(()=>service.act(room.slug,"g",users[2],{baseSeq:room.lastSeq-1,action:remoteActionSchema.parse({type:"player.leave",actorSeat:2,idempotencyKey:"ffa-quit-stale"})},9000)).not.toThrow();

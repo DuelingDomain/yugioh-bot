@@ -77,11 +77,13 @@ export type RemoteReductionContext = {
   handKnowledge?: 1;
   /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
   handCountCorrections?: 1;
+  /** A quit during a live game only concedes that game; historic quits left the match at once. */
+  quitGameOnly?: 1;
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
   undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 5, fieldFaceState: 1,
-  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1,
 } as const satisfies RemoteReductionContext;
 
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {

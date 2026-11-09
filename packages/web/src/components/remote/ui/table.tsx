@@ -317,8 +317,11 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   const surrenderSeat = solo ? (surrenderPick ?? state.turnSeat) : mySeat;
   const canSurrender = (solo || mySeat >= 0) && surrenderable(surrenderSeat);
   const surrender = () => matchStep({ type: "player.concede", actorSeat: surrenderSeat });
-  // Quit the match: a seated player of a live match, in any phase (game, die roll, between games). A solo test table has nobody to forfeit to.
-  const canQuit = !solo && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
+  // Quit the match: a seated player between games only (side decking, a result). During a game Surrender is the way out, and it only loses that game.
+  // A solo test table has nobody to forfeit to.
+  const canQuit = !solo && !live && mySeat >= 0 && room.status === "active" && match.phase !== "done" && !!state.seats[mySeat] && !state.seats[mySeat].accountDeleted;
+  // Best of 3, two players: this surrender decides the match when the other player already has the game wins that are left to take.
+  const surrenderEndsMatch = !solo && seatCount === 2 && match.bestOf === 3 && match.games.some(game => game.winnerSeat != null && game.winnerSeat !== surrenderSeat);
   // A seat that left the match watches the rest of it: it cannot ready, continue or choose.
   const leftMatch = mySeat >= 0 && !!state.seats[mySeat]?.accountDeleted;
   const [leaveMode, setLeaveMode] = useState<"game" | "match">("game");
@@ -1466,7 +1469,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       onClose={() => layers.close("flag")} />
     <DeckMenu open={layers.layer === "deck" && !!deckAt && surrenderable(deckAt.seat)} anchor={deckAt?.rect ?? null} deckCards={deckAt ? state.seats[deckAt.seat]?.twin.filter(card => card.zone === "deck").length ?? 0 : 0}
       onView={() => { if (deckAt) openPile(deckAt.seat, "deck", null); }} onSurrender={() => { setSurrenderPick(deckAt?.seat ?? null); layers.open("surrender"); }} />
-    <SurrenderConfirm open={layers.layer === "surrender" && (leaveMode === "match" ? canQuit : canSurrender)} mode={leaveMode} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} name={name(surrenderSeat)} busy={matchBusy}
+    <SurrenderConfirm open={layers.layer === "surrender" && (leaveMode === "match" ? canQuit : canSurrender)} mode={leaveMode} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} endsMatch={surrenderEndsMatch} name={name(surrenderSeat)} busy={matchBusy}
       onConfirm={() => { layers.close(); if (leaveMode === "match") quit(); else surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />

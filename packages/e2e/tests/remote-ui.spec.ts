@@ -214,7 +214,8 @@ test.describe("remote duels screen, solo", () => {
             const hit = Array.from(header.children).filter(c => c !== el && c.getBoundingClientRect().width > 0 && getComputedStyle(c).display !== "none").some(c => { const o = c.getBoundingClientRect(); return o.left < r.right - 0.5 && o.right > r.left + 0.5 && o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5; });
             return !hit && r.left >= 0 && r.right <= window.innerWidth;
           })).toBe(true);
-          await expect(a.getByTestId("quit-button")).toBeVisible(); await a.getByTestId("quit-button").click(); await shot(a, `quit-confirm-${w}`); await a.getByTestId("surrender-no").click();
+          // During a game there is no way to leave the whole match: Surrender only loses this game.
+          await expect(a.getByTestId("quit-button")).toHaveCount(0);
           await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
           await a.locator('[data-zone="deck"][data-seat="0"]').click(); await shot(a, `surrender-3-deck-menu-${w}`); await a.keyboard.press("Escape");
         }
@@ -233,6 +234,7 @@ test.describe("remote duels screen, solo", () => {
       await shot(a, "surrender-3-deck-menu");
       await a.getByTestId("deck-menu-surrender").click();
       await expect(a.getByTestId("surrender-confirm")).toBeVisible();
+      await expect(a.getByTestId("surrender-confirm")).toContainText("Side decking starts next");
       await a.getByTestId("surrender-yes").click();
       // Both players see the end of the game; the loser sees it as a defeat.
       await expect(a.getByTestId("match-result")).toContainText("Defeat", { timeout: 15_000 });
@@ -242,7 +244,7 @@ test.describe("remote duels screen, solo", () => {
       await expect(a.getByTestId("surrender-button")).toHaveCount(0);
       if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(400); await expect(a.getByTestId("dock-quit")).toBeVisible(); await shot(a, `quit-result-${w}`); }
       await a.setViewportSize({ width: 1920, height: 1080 });
-      // Between games, in side decking with nobody ready, the loser quits the match: it asks first, the other player wins and the table ends.
+      // The match goes on to side decking. There, with nobody ready, the loser quits the match: it asks first, the other player wins and the table ends.
       // The fixture cards have no art. Their image requests never end, and a browser runs only a few requests at once, so they would hold back the Quit request.
       for (const page of [a, b]) await page.route("**/api/cards/*/image*", route => route.abort());
       await a.getByTestId("match-continue").click();
