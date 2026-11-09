@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { byAreaDesc, defaultSideFor, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { cameraRates, trafficLine, type CameraRate, type CameraTraffic } from "@/lib/remote/video-stats";
 import { FieldOrientationSelect } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
@@ -35,7 +35,9 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
   // Own feed: the shared rule (zones placed on the mat). Others: any grid the owner shares.
   const calibrated = own ? !!grid.placed : !!calibration;
   const cells = useMemo(() => fieldGridCells(grid.format,calibration?.zoneSpacing,calibration?.zones), [grid.format,calibration?.zoneSpacing,calibration?.zones]);
-  const defaultSide = own ? grid.defaultSide : undefined;
+  // The guess for a seat with no saved side follows its camera: a webcam faces the player (flipped), a phone is held from the player's side.
+  // Another seat used to get the phone guess always, so a webcam seat showed its zones turned the wrong way round.
+  const defaultSide = own ? grid.defaultSide : defaultSideFor(hub.phones.some(p => p.seat === seat && p.paired) ? "phone" : "webcam");
   const shown = displayCalibration(calibration, defaultSide);
   const projected = useMemo(() => byAreaDesc(cells).map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
   const tracks = own ? grid.tracks : [];
