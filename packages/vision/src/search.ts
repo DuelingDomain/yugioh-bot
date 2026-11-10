@@ -107,6 +107,13 @@ export function withDeckSuggestions(deck:Candidate[], catalog:Candidate[], k=5):
 
 /** The legacy two-rule profile has a narrow deck window. Loaded webcam
  * calibrations use one rule and retain their complete, measured limits. */
+/**
+ * Closed-set accept bar (deck list, or cards confirmed in this duel): a read is taken from the small set when its best card scores at least
+ * `score`, leads the set's runner-up by `margin`, and the full catalog does not hold a different card that scores `openBetter` or more above it.
+ * Anything else falls through to the open catalog path and its stricter rules.
+ */
+export const CLOSED_ACCEPT={score:.80,margin:.05,openBetter:.03};
+export const closedConfidenceThresholds=(t:ConfidenceThresholds):ConfidenceThresholds=>({...t,score:Math.min(t.score,CLOSED_ACCEPT.score),margin:Math.min(t.margin,CLOSED_ACCEPT.margin),second:undefined});
 export function deckConfidenceThresholds(t:ConfidenceThresholds):ConfidenceThresholds {
   return t.second ? {...t,score:Math.max(.78,t.score-.02,t.floor),margin:Math.max(.08,t.margin),second:undefined} : t;
 }

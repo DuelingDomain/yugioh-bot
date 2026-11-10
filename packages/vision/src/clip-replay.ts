@@ -125,7 +125,7 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
       try { result = await recognizer.recognize(f, o); } catch (e) { failure = e; }
       // Recorded mode reports the time of the read it answered with; real mode the time this machine took.
       const ms = recorded ? recorded.usedMs : performance.now() - wall, unreplayable = !!recorded && recorded.unreplayable > missesBefore;
-      reads.push(result ? { t, ms, tier: result.tier, backend: result.backend, embeds: result.timingsMs?.embedCount ?? result.quality?.framesUsed, closedSet: result.quality?.searchSource === 'deck' } : { t, ms, error: true, unreplayable });
+      reads.push(result ? { t, ms, tier: result.tier, backend: result.backend, embeds: result.timingsMs?.embedCount ?? result.quality?.framesUsed, closedSet: ['deck','dynamic','likely'].includes(result.quality?.searchSource ?? '') } : { t, ms, error: true, unreplayable });
       if (ms > 0) await new Promise<void>(release => pending.push({ due: start + ms, release }));
       if (failure) throw failure; return result!;
     },

@@ -102,7 +102,7 @@ export interface RecognitionResult {
   /** Opt-in clean visual reference for local tracking; never uploaded or broadcast automatically. */
   identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
   tier: RecognitionTier;
-  quality: { searchSource?: 'deck' | 'gallery' | 'catalog'; sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
+  quality: { searchSource?: 'deck' | 'dynamic' | 'likely' | 'gallery' | 'catalog'; sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number; /** Light/glare pre-clean (Debug line): crop cost, glare %, 1 when the clean crop won, applied RGB gains. */ precleanMs?:number; precleanGlare?:number; precleanShadow?:number; precleanUsed?:number; precleanGainR?:number; precleanGainG?:number; precleanGainB?:number };
   backend: 'webgpu' | 'wasm';
   /** Light/glare pre-clean report for the Debug line: glare share, applied RGB gains and which crop won. */
@@ -120,4 +120,6 @@ export interface RecognitionEvidence {
   frames: { frameIndex:number; hypotheses?:Candidate[][]; clean:Candidate[]; ranked:Candidate[]; deck:Candidate[]; faceDown:boolean; eligible:boolean }[];
   thresholds: ConfidenceThresholds; modelId:string; modelSha256:string; indexVersion:string; layoutKey:string; learningVersion:string;
   priors?:RecognitionPriors; earlyExit:boolean;
+  /** Set when the answer came from a closed set (deck list, cards confirmed in this duel, cards related to them) and passed its accept bar. */
+  closedSet?:'deck'|'dynamic'|'likely';
 }

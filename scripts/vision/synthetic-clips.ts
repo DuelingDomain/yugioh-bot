@@ -10,7 +10,7 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import { buildClipEntries, writeZip, CLIP_VERSION, type ClipFrameMeta, type ClipSession, type ClipTruth, type ClipTruthEvent } from '../../packages/vision/src/clip-format';
 import { createFieldCalibration, fieldZoneCells, type FieldZone } from '../../packages/vision/src/field-zones';
 import { yugioh } from '../../packages/vision/src/games/yugioh';
@@ -60,7 +60,7 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = 1 - .25 * Ma
 
 interface Piece { image: Buffer; x: number; y: number; angle?: number; scaleX?: number; alpha?: number }
 async function render(pieces: Piece[], light = 1, shiftX = 0, shiftY = 0): Promise<{ bytes: Uint8Array }> {
-  const layers: sharp.OverlayOptions[] = [];
+  const layers: OverlayOptions[] = [];
   for (const p of pieces) {
     let img = sharp(p.image); const w = Math.max(4, Math.round(CARD_W * (p.scaleX ?? 1)));
     if (w !== CARD_W) img = img.resize(w, CARD_H, { fit: 'fill' });
