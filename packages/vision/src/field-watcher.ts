@@ -153,6 +153,8 @@ const mat:DetectedQuad={kind:'face-up',confidence:1,partial:false,quad:[{x:0,y:0
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
 /** A face-down outline: from .4, or a light sleeve in a calibrated field cell from the decode floor (its sleeve colour already differs from the mat). */
 const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence>=.4||!!card.cell);
+// A sure read from a closed set (deck list, cards seen this duel) already cleared its own .80 floor, an off-list guard and the catalog check.
+const closedRead=(r:RecognitionResult)=>r.tier==='sure'&&['deck','dynamic','likely'].includes(r.quality.searchSource??'');
 const deckZone=(zone:FieldZone):zone is 'DECK'|'EXTRA'=>zone==='DECK'||zone==='EXTRA';
 /** Median RGB of a flat [r,g,b,...] list. */
 const medianColour=(pixels:number[])=>[0,1,2].map(c=>{const v=pixels.filter((_,i)=>i%3===c).sort((a,b)=>a-b);return v[Math.floor(v.length/2)];});
@@ -697,7 +699,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         debugPath('identity read running',sample.at);pruneFrames();return;
       }
       const readyRead=tracks.some(t=>t.previewEligible&&!t.view.removed&&!t.promptOnly&&!t.identityCheck&&t.read?.result?.tier==='sure'&&
-        (t.read.result.candidates[0]?.score??0)>=.84&&sample.at-t.view.lastSeen<=1500&&(readHolds(t,t.view.card)||evidence.motion(t.view.card)<=.025&&
+        ((t.read.result.candidates[0]?.score??0)>=.84||closedRead(t.read.result))&&sample.at-t.view.lastSeen<=1500&&(readHolds(t,t.view.card)||evidence.motion(t.view.card)<=.025&&
         sameFieldAppearance(t.read.appearance,evidence.appearance?.(t.view.card))));
       // A tiny appearance patch can match the mat after a moving card leaves.
       // Only a new detector result can confirm a candidate on clear background.
