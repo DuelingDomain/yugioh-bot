@@ -165,6 +165,9 @@ try { debugPref = typeof localStorage !== "undefined" && localStorage.getItem("d
 export const fieldDebugEnabled = () => debugOn;
 export function setFieldDeveloper(on: boolean) { if (developer === on) return; developer = on; debugOn = developer && debugPref; if (!debugOn) debugView = null; debugNotify(); }
 export const useFieldDeveloper = () => useSyncExternalStore(subscribeDebug, () => developer, () => false);
+export const fieldDeveloperEnabled = () => developer;
+/** Fires on every developer or debug switch change. */
+export const subscribeFieldDeveloper = (listener: () => void) => subscribeDebug(listener);
 export function setFieldDebugEnabled(on: boolean) { debugPref = on; debugOn = developer && on; if (!debugOn) debugView = null; try { localStorage.setItem("dd-field-debug", on ? "1" : "0"); } catch { /* storage may be blocked */ } debugNotify(); }
 export function publishFieldDebug(next: FieldDebugView | null) { if (!debugOn && next) return; debugView = next; debugNotify(); }
 const subscribeDebug = (listener: () => void) => { debugListeners.add(listener); return () => { debugListeners.delete(listener); }; };

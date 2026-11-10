@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { readTapChoice } from './tap-offer';
 import { e2eFieldHook } from './e2e-field-hook';
 import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
+import { attachClipRecorder, detachClipRecorder, clipEvent, clipAction, clipCalibration } from './clip-capture';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 export type CaptureSize = {width:number;height:number};
@@ -127,7 +128,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const setCalibration=useCallback((grid?:FieldCalibration,markPlaced?:boolean)=>{
     const next=!!grid&&(markPlaced??(!aspectChanged&&(placedRef.current||isPlacedCalibration(grid))));
     if(markPlaced===true)setAspectChanged(false);
-    gridRef.current=grid;setGrid(grid);setPlaced(next);placedRef.current=next;watcher.current?.setCalibration(grid);save(enabled,grid,next,markPlaced===true);
+    gridRef.current=grid;setGrid(grid);setPlaced(next);placedRef.current=next;watcher.current?.setCalibration(grid);clipCalibration(grid);save(enabled,grid,next,markPlaced===true);
   },[enabled,save,aspectChanged]);
   useEffect(()=>{
     if(!options.owner||!options.active||!enabled||loaded!==storageKey){setSnapshot(initial);return;}
@@ -148,8 +149,10 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
         await config.recognizer.prepare?.({priors:config.getPriors?.(),sessionGallery:gallery.current.value.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===config.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
         return;
       }
-      reader=createFieldWatcher({...config,calibration:gridRef.current,gallery:gallery.current.value});watcher.current=reader;
-      reader.subscribe(event=>{if(!cancelled)latest.current.onEvent(event);});
+      // Developer accounts only: the "Save last 30 s" ring records this watcher's frames, detections and reads (clip-capture.ts).
+      const recorded=attachClipRecorder(config,{room:options.duelKey,seat:Number(/\d+$/.exec(options.seatKey)?.[0]),format:config.format,priors:()=>config.getPriors?.(),calibration:()=>gridRef.current});
+      reader=createFieldWatcher({...recorded,calibration:gridRef.current,gallery:gallery.current.value});watcher.current=reader;
+      reader.subscribe(event=>{if(!cancelled){latest.current.onEvent(event);clipEvent(event);}});
       // A still watcher ticks several times a second with nothing new: re-render only on a real change, or once a second.
       let lastKey='',lastAt=0;
       reader.subscribeState(()=>{
@@ -159,15 +162,15 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
         lastKey=key;lastAt=at;if(next.error)warnError(next.error);setSnapshot(next);
       });reader.start();
     }).catch(error=>{if(!cancelled){warnError(error instanceof Error?error.message:'Card watcher unavailable',error);setSnapshot({...initial,status:'error',error:error instanceof Error?error.message:'Card watcher unavailable'});}});
-    return()=>{cancelled=true;reader?.dispose();if(watcher.current===reader)watcher.current=null;};
+    return()=>{cancelled=true;reader?.dispose();detachClipRecorder();if(watcher.current===reader)watcher.current=null;};
     // Calibration updates the running watcher without resetting physical IDs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration,galleryKey]);
   return {placed,aspectChanged,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,/** The saved detection mode is read: `enabled` is not the player's mode before this. */ settingsLoaded:loaded===storageKey,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
-    confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>watcher.current?.confirm(id,cardId,ref,human),[]),
-    dismiss:useCallback((id:string)=>watcher.current?.dismiss(id),[]),
-    forget:useCallback((id:string)=>watcher.current?.forget(id),[]),
+    confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>{clipAction('confirm',{trackId:id,cardId,ref,human,zone:watcher.current?.getSnapshot().tracks.find(t=>t.id===id)?.zone});return watcher.current?.confirm(id,cardId,ref,human);},[]),
+    dismiss:useCallback((id:string)=>{clipAction('dismiss',{trackId:id});return watcher.current?.dismiss(id);},[]),
+    forget:useCallback((id:string)=>{clipAction('forget',{trackId:id});return watcher.current?.forget(id);},[]),
     resetBaselines:useCallback(()=>watcher.current?.resetBaselines(),[]),
     /** Live watcher snapshot (the React `snapshot` can be one render behind). */
     getSnapshot:useCallback(()=>watcher.current?.getSnapshot(),[]),
