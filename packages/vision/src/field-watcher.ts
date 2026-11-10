@@ -357,8 +357,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const stage=(t:InternalTrack,name:string,at=now())=>{if(t.timing){const value=Math.max(0,epochAt()+at-t.timing.originAt);t.timing.stagesMs[name]??=value;t.timing.stagesMs[`${name}Last`]=value;}};
   let timingSerial=0;
   /** Adds the time since this card's last tick to `hold.<reason>` while it waits for a hand, stillness, sharpness or the read slot. */
-  const holdAt=new WeakMap<InternalTrack,{reason:string;at:number}>();
-  const hold=(t:InternalTrack,reason:string,at=now())=>{const last=holdAt.get(t);holdAt.set(t,{reason,at});if(t.timing&&t.timingOpen&&last?.reason===reason&&at-last.at<500)t.timing.durationsMs[`hold.${reason}`]=(t.timing.durationsMs[`hold.${reason}`]??0)+at-last.at;};
+  const holdAt=new WeakMap<InternalTrack,Record<string,number>>();
+  const hold=(t:InternalTrack,reason:string,at=now())=>{const last=holdAt.get(t)??{};holdAt.set(t,last);const before=last[reason];last[reason]=at;if(t.timing&&t.timingOpen&&before!==undefined&&at-before<500)t.timing.durationsMs[`hold.${reason}`]=(t.timing.durationsMs[`hold.${reason}`]??0)+at-before;};
   // Profile counters on the open timing (reads started/dropped, detector passes, motion resets).
   const count=(t:InternalTrack,name:string)=>{if(t.timing&&t.timingOpen)t.timing.durationsMs[`n.${name}`]=(t.timing.durationsMs[`n.${name}`]??0)+1;};
   const notify=()=>{for(const listener of updates)listener();};
