@@ -2,10 +2,11 @@
 // watcher saw and did, saved to the player's own computer. Nothing here is uploaded. One file is a plain
 // zip (STORE only, so browsers and Node write it without a dependency): session.json, frames.json,
 // frames/NNNNN.jpg, events.jsonl, truth.json (labels, empty draft), README.txt.
-import type { DetectedQuad, RecognitionResult } from './types';
+import type { DetectedQuad, RecognitionPriors, RecognitionResult } from './types';
+import type { FieldIdentityEntry } from './field-gallery';
 import type { FieldCalibration, FieldFormat, FieldZone } from './field-zones';
 import { createFieldCalibration } from './field-zones';
-import type { FieldEvent, FieldTiming } from './field-watcher';
+import type { FieldEvent, FieldTiming, KnownFieldCard } from './field-watcher';
 
 export const CLIP_VERSION = 1;
 export const CLIP_EXTENSION = '.ddclip';
@@ -32,6 +33,10 @@ export interface ClipSession {
   model?: { id?: string; sha256?: string }; indexVersion?: string;
   userAgent?: string; hardwareConcurrency?: number;
   seat?: number; room?: string;
+  /** Duel-local identity gallery (confirmed appearances) as it stood when the clip was saved; real-mode replay seeds the watcher with it. */
+  gallery?: FieldIdentityEntry[];
+  /** Frames the save dropped because they were cropped with an older calibration than the last frame. */
+  droppedCropFrames?: number;
   /** Measured recorder cost while the ring buffer ran. */
   cost: ClipRecorderStats;
   note?: string;
@@ -47,7 +52,8 @@ export interface ClipRecorderStats {
   activeS: number;
 }
 
-export interface ClipFrameMeta { at: number; name: string; width: number; height: number; bytes: number }
+/** `crop` is the camera fraction this frame shows (absent: the whole camera frame). */
+export interface ClipFrameMeta { at: number; name: string; width: number; height: number; bytes: number; crop?: ClipRect }
 
 /** A recognition result with the heavy fields removed (embeddings, crops, raw evidence). */
 export interface SlimRecognitionResult {
@@ -65,7 +71,9 @@ export type SlimFieldEvent = Omit<FieldEvent, 'result'> & { result?: SlimRecogni
 export type ClipEvent = { at: number } & (
   | { kind: 'watcher'; event: SlimFieldEvent }
   | { kind: 'detect'; ms: number; cards: DetectedQuad[]; opts?: unknown }
-  | { kind: 'read'; ms: number; frames: number; card?: DetectedQuad; result?: SlimRecognitionResult; error?: string; opts?: { k?: number; closedSet?: boolean } }
+  | { kind: 'read'; ms: number; frames: number; card?: DetectedQuad; result?: SlimRecognitionResult; error?: string; opts?: { k?: number; closedSet?: boolean };
+      /** What the reader knew: priors (deck list, seen, voice, related), gallery size and the board's known cards. */
+      priors?: RecognitionPriors; gallery?: number; known?: KnownFieldCard[] }
   | { kind: 'action'; action: 'confirm' | 'dismiss' | 'forget' | 'undo' | 'scan' | 'calibration' | 'note'; data?: Record<string, unknown> }
   | { kind: 'timing'; timing: FieldTiming }
 );
@@ -91,6 +99,12 @@ export interface ClipTruthEvent {
 }
 export interface ClipTruth { version: 1; clip?: string; draft?: boolean; events: ClipTruthEvent[]; note?: string }
 
+/** Camera-fraction geometry expressed in the saved (cropped) frame: x' = (x - crop.x) / crop.w. */
+export function rebasePoint(p: { x: number; y: number }, crop: ClipRect | undefined) { return crop ? { x: (p.x - crop.x) / crop.w, y: (p.y - crop.y) / crop.h } : { ...p }; }
+export function rebaseQuad<T extends DetectedQuad>(card: T, crop: ClipRect | undefined): T { return crop ? { ...card, quad: card.quad.map(p => rebasePoint(p, crop)) } : card; }
+export function rebaseBox<T extends { x: number; y: number; w: number; h: number }>(box: T, crop: ClipRect | undefined): T { return crop ? { ...box, x: (box.x - crop.x) / crop.w, y: (box.y - crop.y) / crop.h, w: box.w / crop.w, h: box.h / crop.h } : box; }
+export const sameCrop = (a: ClipRect | undefined, b: ClipRect | undefined) => a === b || (!!a && !!b && Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6);
+
 export const EMPTY_TRUTH: ClipTruth = { version: 1, draft: true, events: [] };
 
 export const CLIP_README = `Dueling Domain Remote Duels clip (.ddclip)
@@ -98,6 +112,8 @@ This file was saved on your computer by the "Save last 30 s" button. It was not 
 It contains your camera view of the mat (frames/), the card reader's events (events.jsonl),
 settings (session.json) and a label file (truth.json). It can show your hands and sleeves.
 Replay: npx tsx scripts/vision/replay-clip.ts <file>. Labels: npx tsx scripts/vision/label-clip.ts <file>.
+Detector boxes and reads in events.jsonl use camera fractions; frames/ are cropped (frames.json has each crop).
+The ring restarts empty when the card reader restarts (camera change, backend switch, calibration on/off).
 `;
 
 export function slimResult(result: RecognitionResult): SlimRecognitionResult {

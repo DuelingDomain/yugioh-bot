@@ -4,7 +4,8 @@
 import type { FieldBuffer, FieldEvent, FieldWatcherOptions } from './field-watcher';
 import type { FieldFrame } from './field-motion';
 import type { FieldCalibration } from './field-zones';
-import { buildClipEntries, matCropRect, rebaseCalibration, slimEvent, slimResult, writeZip, type ClipEvent, type ClipFrameMeta, type ClipRecorderStats, type ClipRect, type ClipSession } from './clip-format';
+import type { FieldIdentityEntry } from './field-gallery';
+import { buildClipEntries, matCropRect, rebaseCalibration, sameCrop, slimEvent, slimResult, writeZip, type ClipEvent, type ClipFrameMeta, type ClipRecorderStats, type ClipRect, type ClipSession } from './clip-format';
 
 export interface EncodedFrame { bytes: Uint8Array; width: number; height: number; /** Source camera size and the crop that was applied. */ camera: { width: number; height: number }; crop?: ClipRect }
 /** Encodes one frame. It must copy the pixels before its first `await`: the frame belongs to the watcher and may be closed right after. */
@@ -21,10 +22,10 @@ export interface ClipRecorderOptions {
 
 export type ClipContext = Partial<Omit<ClipSession, 'version' | 'savedAt' | 'clipStartAt' | 'clipEndAt' | 'windowMs' | 'camera' | 'frame' | 'frameCalibration' | 'cost'>>;
 
-type WatcherIo = Pick<FieldWatcherOptions, 'recognizer' | 'buffer'>;
+type WatcherIo = Pick<FieldWatcherOptions, 'recognizer' | 'buffer'> & Partial<Pick<FieldWatcherOptions, 'getKnownCards'>>;
 
 export interface ClipRecorder {
-  /** Wrap the watcher's buffer and recognizer so frames, detections and reads are recorded. */
+  /** Wrap the watcher's buffer, recognizer and known-card lookup so frames, detections, reads and the reader's knowledge are recorded. */
   wrap<T extends WatcherIo>(io: T): T;
   onEvent(event: FieldEvent): void;
   action(action: Extract<ClipEvent, { kind: 'action' }>['action'], data?: Record<string, unknown>): void;
@@ -44,7 +45,7 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
   const now = options.now ?? (() => performance.now()), windowMs = options.windowMs ?? 30_000, gap = options.frameGapMs ?? 200, maxEvents = options.maxEvents ?? 4000;
   const frames: StoredFrame[] = [], events: ClipEvent[] = [];
   let context: ClipContext = {}, calibration: FieldCalibration | undefined;
-  let encoding = false, lastFrameAt = -Infinity, serial = 0, disposed = false;
+  let encoding = false, lastFrameAt = -Infinity, serial = 0, disposed = false, lastKnown: ReturnType<NonNullable<WatcherIo['getKnownCards']>> | undefined, lastGallery: readonly FieldIdentityEntry[] | undefined;
   let encodeMsTotal = 0, encodeMsMax = 0, encoded = 0, dropped = 0;
   const startedAt = now();
   const prune = (at: number) => {
@@ -59,7 +60,7 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
       if (disposed || !result) return;
       const ms = now() - start; encodeMsTotal += ms; encodeMsMax = Math.max(encodeMsMax, ms); encoded++;
       const name = `frames/${String(++serial).padStart(5, '0')}.jpg`;
-      frames.push({ meta: { at, name, width: result.width, height: result.height, bytes: result.bytes.length }, bytes: result.bytes, camera: result.camera, crop: result.crop });
+      frames.push({ meta: { at, name, width: result.width, height: result.height, bytes: result.bytes.length, crop: result.crop }, bytes: result.bytes, camera: result.camera, crop: result.crop });
       prune(at);
     }).catch(() => { /* A failed encode drops the frame; recording never breaks the watcher. */ }).finally(() => { encoding = false; });
   };
@@ -76,11 +77,14 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
         detectCards: async (frame, opts) => { const at = now(), start = now(); const cards = await inner.detectCards(frame, opts); push({ at, kind: 'detect', ms: now() - start, cards: structuredClone(cards), opts: opts ? { ...opts } : undefined }); return cards; },
         recognize: async (frames, opts) => {
           const at = now(), start = now(); const card = opts?.card ? structuredClone(opts.card) : undefined;
-          try { const result = await inner.recognize(frames, opts); push({ at, kind: 'read', ms: now() - start, frames: frames.length, card, result: slimResult(result), opts: { k: opts?.k } }); return result; }
-          catch (error) { push({ at, kind: 'read', ms: now() - start, frames: frames.length, card, error: error instanceof Error ? error.message : String(error) }); throw error; }
+          if (opts?.gallery) lastGallery = opts.gallery;
+          const knowledge = { priors: opts?.priors ? structuredClone(opts.priors) : undefined, gallery: opts?.gallery?.length, known: lastKnown ? structuredClone(lastKnown) : undefined };
+          try { const result = await inner.recognize(frames, opts); push({ at, kind: 'read', ms: now() - start, frames: frames.length, card, result: slimResult(result), opts: { k: opts?.k }, ...knowledge }); return result; }
+          catch (error) { push({ at, kind: 'read', ms: now() - start, frames: frames.length, card, error: error instanceof Error ? error.message : String(error), ...knowledge }); throw error; }
         },
       };
-      return { ...io, buffer, recognizer };
+      const getKnownCards = io.getKnownCards ? () => { const known = io.getKnownCards!(); lastKnown = known; return known; } : undefined;
+      return { ...io, buffer, recognizer, ...(getKnownCards ? { getKnownCards } : {}) };
     },
     onEvent(event) { const at = now(); push({ at, kind: 'watcher', event: slimEvent(event) }); if (event.timing) push({ at, kind: 'timing', timing: structuredClone(event.timing) }); },
     action(action, data) { push({ at: now(), kind: 'action', action, data }); },
@@ -89,8 +93,10 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
     stats, frameCount: () => frames.length,
     save() {
       const at = now(); prune(at);
-      const first = frames[0], last = frames[frames.length - 1];
+      const last = frames[frames.length - 1];
       const camera = last?.camera ?? { width: 0, height: 0 }, crop = last?.crop;
+      // One crop per clip: frames cropped with an older calibration would map onto the wrong zones.
+      const saved = frames.filter(f => sameCrop(f.crop, crop)), first = saved[0];
       const clipStartAt = first ? first.meta.at : at - windowMs, clipEndAt = last ? last.meta.at : at;
       const kept = events.filter(e => e.at >= clipStartAt - 1000);
       const session: ClipSession = {
@@ -100,17 +106,19 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
         frameCalibration: (calibration ?? context.calibration) ? rebaseCalibration((calibration ?? context.calibration)!, crop) : undefined,
         userAgent: context.userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : undefined),
         hardwareConcurrency: context.hardwareConcurrency ?? (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : undefined),
+        gallery: lastGallery?.filter(e => e.cardId).slice(-512).map(e => ({ cardId: e.cardId, embedding: e.embedding })),
+        droppedCropFrames: frames.length - saved.length || undefined,
         cost: stats(),
       };
-      return writeZip(buildClipEntries(session, frames.map(f => ({ meta: f.meta, bytes: f.bytes })), kept));
+      return writeZip(buildClipEntries(session, saved.map(f => ({ meta: f.meta, bytes: f.bytes })), kept));
     },
     dispose() { disposed = true; frames.length = 0; events.length = 0; },
   };
 }
 
-/** Browser encoder: crops to the mat (when calibrated), downscales to `maxSide` and encodes JPEG on an OffscreenCanvas. The draw is synchronous. */
+/** Browser encoder: crops to the mat (when calibrated), downscales to `maxSide` (960 px: a card stays about 90-130 px wide) and encodes JPEG on an OffscreenCanvas. The draw is synchronous. */
 export function createBrowserFrameEncoder(options: { maxSide?: number; quality?: number; crop?: () => FieldCalibration | undefined; margin?: number } = {}): FrameEncoder {
-  const maxSide = options.maxSide ?? 640, quality = options.quality ?? .7;
+  const maxSide = options.maxSide ?? 960, quality = options.quality ?? .7;
   let canvas: OffscreenCanvas | undefined, staging: OffscreenCanvas | undefined;
   return async (frame) => {
     if (typeof OffscreenCanvas === 'undefined') return null;
