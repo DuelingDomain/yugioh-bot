@@ -207,7 +207,7 @@ test('feedback client sends only eligible crop evidence and the confirmed source
 });
 
 test('a verified model is kept in the browser cache and served from it; a bad cached copy is dropped',async()=>{
-  const {fetchModelChecked}=await import('./model-cache');
+  const {fetchModelChecked,warmModelCache}=await import('./model-cache');
   const store=new Map<string,Response>(),bytes=new Uint8Array([1,2,3]);
   const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
   const real=globalThis.fetch;let network=0;
@@ -219,5 +219,10 @@ test('a verified model is kept in the browser cache and served from it; a bad ca
     store.set(`http://x/m.onnx#${sha}`,new Response(new Uint8Array([9])));
     await fetchModelChecked('http://x/m.onnx',sha);assert.equal(network,2);
     await assert.rejects(fetchModelChecked('http://x/other.onnx','0'.repeat(64)),/checksum/);
+    const warm={detector:{url:'http://x/m.onnx',sha256:sha},embedding:{url:'http://x/m.onnx',sha256:sha}} as any;
+    Object.defineProperty(globalThis,'navigator',{value:{connection:{saveData:true}},configurable:true});
+    await warmModelCache(warm,false);assert.equal(network,3);
+    Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
+    store.set(`http://x/m.onnx#${sha}`,new Response(bytes));await warmModelCache(warm,false);assert.equal(network,3);
   } finally {globalThis.fetch=real;delete (globalThis as any).caches;}
 });
