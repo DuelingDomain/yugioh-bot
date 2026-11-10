@@ -84,6 +84,10 @@ test('identity embedding is opt-in and reuses the clean art vector without feedb
   const dynamic=await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:['A']}});
   assert.equal(dynamic.quality.searchSource,'dynamic');assert.equal(dynamic.tier,'sure');
   assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:['B']}})).quality.searchSource,'catalog');
+  // A card the table's banlist forbids never enters the related-cards set.
+  const related=[{cardId:'A',reason:'x'}];
+  assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:[],related}})).quality.searchSource,'likely');
+  assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:[],related,forbidden:['A']}})).quality.searchSource,'catalog');
   const disabled=await fixture(false).recognize([frame],{card:selected,includeIdentityEmbedding:false});
   assert.equal('identityEmbedding' in disabled,false);assert.equal('identityEmbedding' in feedback,false);
 });

@@ -54,6 +54,8 @@ export interface RecognitionPriors {
   /** Epoch time, checked when ranking so a queued read cannot revive an expired hint. */
   voiceExpiresAt?: number;
   related?: { cardId: string; reason: string }[];
+  /** Cards the table's banlist forbids. The no-list closed sets leave them out unless they were already confirmed in this duel. */
+  forbidden?: string[];
   /** Explicit caller restriction; inferred border colour remains a soft filter. */
   frameClasses?: string[];
 }

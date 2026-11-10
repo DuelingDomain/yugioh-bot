@@ -159,7 +159,7 @@ export class RecognitionPipeline {
       const known=(id?:string):id is string=>Boolean(id&&this.catalog.has(id));
       const seen=new Set([...(opts.priors?.seen??[]),...(opts.gallery??[]).map(e=>e.cardId)].filter(known));
       if(seen.size)closedTiers.push({source:'dynamic',ids:new Set([...seen,backId])});
-      const likely=new Set([...seen,...(opts.priors?.related??[]).map(r=>r.cardId).filter(known)]);
+      const forbidden=new Set(opts.priors?.forbidden??[]),likely=new Set([...seen,...(opts.priors?.related??[]).map(r=>r.cardId).filter(id=>known(id)&&!forbidden.has(id))]);
       if(likely.size>seen.size)closedTiers.push({source:'likely',ids:new Set([...likely,backId])});
     }
     const deckFirst=opts.deckFirst!==false && closedTiers.length>0;
