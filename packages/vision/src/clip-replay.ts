@@ -1,19 +1,24 @@
 // Deterministic replay of a .ddclip through the real field watcher, scoring against the label file.
 // The clock is the clip's frame times: no timers, no camera. Recognition is either the recorded reads
 // (tracker-only replay, no models) or a real recognizer the caller supplies (onnxruntime-node).
-import { createFieldWatcher, type FieldEvent, type FieldWatcherOptions } from './field-watcher';
-import type { FieldZone } from './field-zones';
-import type { GameProfile, RecognitionResult, DetectedQuad } from './types';
+import { createFieldWatcher, type FieldEvent, type FieldWatcherOptions, type KnownFieldCard } from './field-watcher';
+import { createFieldIdentityGallery } from './field-gallery';
+import { fieldCenter, type FieldZone } from './field-zones';
+import type { GameProfile, RecognitionResult, RecognitionPriors, DetectedQuad, FractionalBox } from './types';
 import type { RGBAImage } from './pixels';
 import { yugioh } from './games/yugioh';
-import type { ClipBundle, ClipEvent, ClipTruth, ClipTruthEvent, ClipTruthPlace, ClipSession } from './clip-format';
+import { rebaseBox, rebaseQuad, sameCrop, type ClipBundle, type ClipEvent, type ClipRect, type ClipTruth, type ClipTruthEvent, type ClipTruthPlace, type ClipSession } from './clip-format';
 
 export interface ReplayEvent { at: number; t: number; event: FieldEvent; /** The harness answered this track's prompt from the labels. */ answered?: boolean }
-export interface ReplayRead { t: number; ms: number; tier?: string; backend?: string; embeds?: number; closedSet?: boolean; error?: boolean }
+export interface ReplayRead { t: number; ms: number; tier?: string; backend?: string; embeds?: number; closedSet?: boolean; error?: boolean; /** Recorded mode: no recorded read matched this request (within 1 s, same spot). */ unreplayable?: boolean }
 export interface ReplayResult {
   mode: 'recorded' | 'real'; events: ReplayEvent[]; reads: ReplayRead[]; detects: number; ticks: number; frames: number; wallMs: number; errors: number;
   /** Clip time span (ms) and the watcher's own metrics at the end. */
   spanMs: number; dutyPercent: number;
+  /** Recorded-mode reads with no matching recorded read, and frames skipped because their crop differs from the clip's. */
+  unreplayable: number; skippedFrames: number;
+  /** Median gap between replayed frames (ms). The watcher ticks once per frame here; live it ticks every 33-66 ms. */
+  tickMs: number;
 }
 export interface ReplayOptions {
   bundle: ClipBundle;
@@ -36,37 +41,66 @@ const DEPARTURE_KINDS = new Set(['destroy', 'tribute', 'banish', 'return', 'remo
 export const isArrival = (e: ClipTruthEvent) => ARRIVAL_KINDS.has(e.kind) && onField(e.to?.zone) && (!e.from || !onField(e.from.zone) || e.from.zone !== e.to!.zone);
 export const isDeparture = (e: ClipTruthEvent) => DEPARTURE_KINDS.has(e.kind) && onField(e.from?.zone) && (!e.to || !onField(e.to.zone) || e.to.zone !== e.from!.zone);
 
-/** Plays back the clip's own detector boxes and reads by clip time. */
-export function recordedRecognizer(events: ClipEvent[], now: () => number): FieldWatcherOptions['recognizer'] {
-  const detects = events.filter((e): e is Extract<ClipEvent, { kind: 'detect' }> => e.kind === 'detect').sort((a, b) => a.at - b.at);
-  const reads = events.filter((e): e is Extract<ClipEvent, { kind: 'read' }> => e.kind === 'read').sort((a, b) => a.at - b.at);
-  const used = new Set<number>();
-  const nearest = <T extends { at: number }>(list: T[], at: number, skip?: Set<number>) => {
-    let best: { i: number; d: number } | undefined;
-    for (let i = 0; i < list.length; i++) { if (skip?.has(i)) continue; const d = Math.abs(list[i].at - at); if (!best || d < best.d) best = { i, d }; }
-    return best;
+type RecordedDetect = Extract<ClipEvent, { kind: 'detect' }>; type RecordedRead = Extract<ClipEvent, { kind: 'read' }>;
+export interface RecordedRecognizer extends NonNullable<FieldWatcherOptions['recognizer']> { /** Recorded time of the read answered last (0 after a miss). */ usedMs: number; /** Requests no recorded read could answer. */ unreplayable: number }
+const overlaps = (a: FractionalBox, b: FractionalBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/** Plays back the clip's own detector boxes and reads by clip time. Recorded geometry is in camera fractions; the saved frames are cropped,
+ *  so every quad and region is rebased with `crop` before it meets the watcher (which runs on the frame-based calibration). */
+export function recordedRecognizer(events: ClipEvent[], now: () => number, crop?: ClipRect): RecordedRecognizer {
+  const detects = events.filter((e): e is RecordedDetect => e.kind === 'detect').sort((a, b) => a.at - b.at);
+  const reads = events.filter((e): e is RecordedRead => e.kind === 'read').sort((a, b) => a.at - b.at);
+  const regionOf = (d: RecordedDetect) => (d.opts as { region?: FractionalBox } | undefined)?.region;
+  const fulls = detects.filter(d => !regionOf(d)), partials = detects.filter(d => !!regionOf(d));
+  const used = new Set<RecordedRead>();
+  const nearest = <T extends { at: number }>(list: T[], at: number, within: number, ok: (item: T) => boolean = () => true) => {
+    let best: { item: T; d: number } | undefined;
+    for (const item of list) { const d = Math.abs(item.at - at); if (d <= within && ok(item) && (!best || d < best.d)) best = { item, d }; }
+    return best?.item;
   };
-  return {
-    detectorBackend: 'wasm', separateDetector: true,
-    async detectCards() { const hit = nearest(detects, now()); return hit && hit.d <= 1000 ? structuredClone(detects[hit.i].cards) : []; },
-    async recognize() {
-      const at = now(); const hit = nearest(reads, at, used) ?? nearest(reads, at);
-      if (!hit) throw new Error('No recorded read in this clip');
-      used.add(hit.i); const read = reads[hit.i];
+  const cards = (d: RecordedDetect | undefined) => d ? structuredClone(d.cards).map(c => rebaseQuad(c, crop)) : [];
+  const self: RecordedRecognizer = {
+    detectorBackend: 'wasm', separateDetector: true, usedMs: 0, unreplayable: 0,
+    async detectCards(_frame, opts) {
+      const at = now();
+      // A full pass is answered only by a recorded full pass (a region answer would make every other card vanish).
+      if (!opts?.region) return cards(nearest(fulls, at, 2500) ?? nearest(fulls, at, Infinity));
+      // A region pass takes a recorded region pass over the same spot; none means [] and the watcher runs its own full pass.
+      return cards(nearest(partials, at, 1000, d => overlaps(rebaseBox(regionOf(d)!, crop), opts.region!)));
+    },
+    async recognize(_frames, opts) {
+      const at = now(), want = opts?.card ? fieldCenter(opts.card) : undefined;
+      const candidates = reads.filter(r => !used.has(r) && Math.abs(r.at - at) <= 1000);
+      const distance = (r: RecordedRead) => { if (!want || !r.card) return want || r.card ? 1 : 0; const c = fieldCenter(rebaseQuad(r.card, crop)); return Math.hypot(c.x - want.x, c.y - want.y); };
+      const read = candidates.filter(r => distance(r) < .15).sort((a, b) => distance(a) - distance(b) || Math.abs(a.at - at) - Math.abs(b.at - at))[0];
+      if (!read) { self.usedMs = 0; self.unreplayable++; throw new Error('unreplayable: no recorded read within 1 s at this spot'); }
+      used.add(read); self.usedMs = read.ms;
       if (!read.result) throw new Error(read.error ?? 'Recorded read failed');
-      return structuredClone(read.result) as RecognitionResult;
+      const result = structuredClone(read.result) as RecognitionResult;
+      if (result.detectedCard) result.detectedCard = rebaseQuad(result.detectedCard, crop);
+      return result;
     },
   };
+  return self;
 }
+
+/** What the live reader knew at each read (priors, known board cards), looked up by clip time: the last read at or before `at`, else the first after it. */
+function knowledgeAt(reads: RecordedRead[], at: number) { let best: RecordedRead | undefined; for (const r of reads) { if (r.at <= at) best = r; else { best ??= r; break; } } return best; }
 
 export async function replayClip(options: ReplayOptions): Promise<ReplayResult> {
   const { bundle } = options, { session, truth } = bundle;
-  const frames = [...bundle.frames].sort((a, b) => a.at - b.at);
+  const crop = session.frame.crop;
+  const all = [...bundle.frames].sort((a, b) => a.at - b.at), frames = all.filter(f => sameCrop(f.crop ?? crop, crop));
   if (!frames.length) throw new Error('Clip has no frames');
   let at = frames[0].at - 1, index = 0;
   const now = () => at;
-  const recognizer = options.recognizer ?? recordedRecognizer(bundle.events, now);
+  const recorded = options.recognizer ? undefined : recordedRecognizer(bundle.events, now, crop);
+  const recognizer = options.recognizer ?? recorded!;
   const mode: ReplayResult['mode'] = options.recognizer ? 'real' : 'recorded';
+  const recordedReads = bundle.events.filter((e): e is RecordedRead => e.kind === 'read').sort((a, b) => a.at - b.at);
+  // A read's answer reaches the watcher only when the clip clock has moved on by the read's own time (recorded, or measured in real mode).
+  const pending: { due: number; release: () => void }[] = [];
+  const releaseDue = (all = false) => { for (let i = pending.length - 1; i >= 0; i--) if (all || pending[i].due <= at) { const [p] = pending.splice(i, 1); p.release(); } };
   const decoded = new Map<string, RGBAImage>();
   const buffer: FieldWatcherOptions['buffer'] = { sample: async () => { const meta = frames[Math.min(index, frames.length - 1)]; let frame = decoded.get(meta.name); if (!frame) { const bytes = bundle.frameBytes(meta.name); if (!bytes) throw new Error(`Clip frame ${meta.name} is missing`); frame = await options.decode(bytes); decoded.set(meta.name, frame); if (decoded.size > 8) decoded.delete(decoded.keys().next().value!); } return { frame: frame as unknown as ImageData, at: meta.at }; } };
   const reads: ReplayRead[] = [], events: ReplayEvent[] = [];
@@ -75,17 +109,26 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
     get detectorBackend() { return recognizer.detectorBackend; }, get detectorTimingsMs() { return recognizer.detectorTimingsMs; }, get separateDetector() { return recognizer.separateDetector; },
     prepare: recognizer.prepare ? o => recognizer.prepare!(o) : undefined,
     detectCards: async (f, o) => { detects++; return recognizer.detectCards(f, o); },
-    recognize: async (f, o) => { const t = at - session.clipStartAt, start = performance.now(); try { const r = await recognizer.recognize(f, o); reads.push({ t, ms: performance.now() - start, tier: r.tier, backend: r.backend, embeds: r.timingsMs?.embedCount ?? r.quality?.framesUsed, closedSet: r.quality?.searchSource === 'deck' }); return r; } catch (e) { reads.push({ t, ms: performance.now() - start, error: true }); throw e; } },
+    recognize: async (f, o) => {
+      const start = at, t = start - session.clipStartAt, wall = performance.now(), missesBefore = recorded?.unreplayable ?? 0;
+      let result: RecognitionResult | undefined, failure: unknown;
+      try { result = await recognizer.recognize(f, o); } catch (e) { failure = e; }
+      // Recorded mode reports the time of the read it answered with; real mode the time this machine took.
+      const ms = recorded ? recorded.usedMs : performance.now() - wall, unreplayable = !!recorded && recorded.unreplayable > missesBefore;
+      reads.push(result ? { t, ms, tier: result.tier, backend: result.backend, embeds: result.timingsMs?.embedCount ?? result.quality?.framesUsed, closedSet: result.quality?.searchSource === 'deck' } : { t, ms, error: true, unreplayable });
+      if (ms > 0) await new Promise<void>(release => pending.push({ due: start + ms, release }));
+      if (failure) throw failure; return result!;
+    },
   };
-  if (mode === 'recorded') { // Recorded reads carry their own measured time.
-    const recorded = bundle.events.filter((e): e is Extract<ClipEvent, { kind: 'read' }> => e.kind === 'read');
-    timed.recognize = async (f, o) => { const t = at - session.clipStartAt; try { const r = await recognizer.recognize(f, o); const near = recorded.reduce<Extract<ClipEvent, { kind: 'read' }> | undefined>((b, e) => !b || Math.abs(e.at - at) < Math.abs(b.at - at) ? e : b, undefined); reads.push({ t, ms: near?.ms ?? 0, tier: r.tier, backend: r.backend, embeds: r.timingsMs?.embedCount ?? r.quality?.framesUsed, closedSet: r.quality?.searchSource === 'deck' }); return r; } catch (e) { reads.push({ t, ms: 0, error: true }); throw e; } };
-  }
   const decklist = session.decklist;
+  const priorsAt = (): RecognitionPriors | undefined => { const k = knowledgeAt(recordedReads, at); return k?.priors ?? (decklist ? { decklist } : undefined); };
+  const knownRecorded = recordedReads.some(r => r.known), knownAt = (): KnownFieldCard[] => knowledgeAt(recordedReads, at)?.known ?? [];
   const watcher = createFieldWatcher({
     profile: options.profile ?? yugioh, recognizer: timed, buffer, now, hidden: () => false, cpuBusy: () => false, clone: async f => f,
     calibration: session.frameCalibration ?? session.calibration, format: session.format, earlyExitMargin: .02, analyze: options.analyze,
-    getPriors: decklist ? () => ({ decklist }) : undefined,
+    getPriors: decklist || recordedReads.some(r => r.priors) ? priorsAt : undefined,
+    getKnownCards: knownRecorded ? knownAt : undefined,
+    gallery: mode === 'real' && session.gallery?.length ? createFieldIdentityGallery(session.gallery) : undefined,
   });
   const answered = new Set<string>();
   const truthFor = (zone: FieldZone, t: number) => truth.events.filter(e => isArrival(e) && e.to!.zone === zone && e.cardId && Math.abs(e.t - t) < 20_000).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
@@ -98,22 +141,26 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
     }
   });
   const wallStart = performance.now();
+  const settle = async (rounds: number) => { for (let i = 0; i < rounds; i++) await new Promise<void>(r => setTimeout(r, 0)); };
+  const gaps = frames.slice(1).map((f, i) => f.at - frames[i].at), tickMs = gaps.length ? percentile(gaps, .5) : 200;
   try {
     for (index = 0; index < frames.length; index++) {
       at = frames[index].at;
+      releaseDue(); await settle(2);
       await watcher.tick();
-      // Let read promises settle before the next frame, as the browser's event loop would.
-      for (let i = 0; i < 4; i++) await new Promise<void>(r => setTimeout(r, 0));
+      // Let read promises start before the next frame, as the browser's event loop would.
+      await settle(4);
     }
-    // A few extra ticks on the last frame let pending publish gates close.
-    for (let i = 0; i < 10; i++) { at += 200; await watcher.tick(); await new Promise<void>(r => setTimeout(r, 0)); }
+    // A few extra ticks on the last frame let pending reads land and publish gates close.
+    for (let i = 0; i < 10; i++) { at += tickMs; releaseDue(); await settle(2); await watcher.tick(); await settle(1); }
+    releaseDue(true); await settle(2);
     const snapshot = watcher.getSnapshot();
-    return { mode, events, reads, detects, ticks: frames.length + 10, frames: frames.length, wallMs: performance.now() - wallStart, errors: snapshot.metrics.errors, spanMs: frames[frames.length - 1].at - frames[0].at, dutyPercent: snapshot.metrics.dutyPercent };
-  } finally { watcher.dispose(); }
+    return { mode, events, reads, detects, ticks: frames.length + 10, frames: frames.length, wallMs: performance.now() - wallStart, errors: snapshot.metrics.errors, spanMs: frames[frames.length - 1].at - frames[0].at, dutyPercent: snapshot.metrics.dutyPercent, unreplayable: recorded?.unreplayable ?? 0, skippedFrames: all.length - frames.length, tickMs: Math.round(tickMs) };
+  } finally { releaseDue(true); watcher.dispose(); }
 }
 
 export interface ReplayMetrics {
-  clip: string; mode: string; frames: number; spanS: number; wallS: number;
+  clip: string; mode: string; /** 'owner' labels, a 'draft' made from the watcher's own events (scores are then self-referential), or 'none'. */ labels: string; frames: number; spanS: number; wallS: number;
   /** Labelled arrivals on the field, how many the watcher put on the board, how many with the right identity. */
   arrivals: number; onBoard: number; identityOk: number; identityPct: number;
   wrongAutomatic: number; falseRemovals: number; stale: number; twins: number;
@@ -123,6 +170,8 @@ export interface ReplayMetrics {
   stableP50: number; readStartP50: number; readEndP50: number; publishP50: number;
   prompts: number; promptsAnswered: number; promptTop5: number;
   reads: number; readMsP50: number; readMsP95: number; embedsPerRead: number; closedSetPct: number; backend: string;
+  /** Recorded mode: read requests no recorded read could answer. */
+  unreplayable: number;
   /** Label kinds the watcher does not emit yet (hand activations, counters, LP, phases...). Listed so the gap stays visible. */
   unmeasured: number; unmeasuredKinds: string;
   errors: number;
@@ -138,7 +187,9 @@ export function scoreReplay(result: ReplayResult, truth: ClipTruth, session: Cli
   let onBoard = 0, identityOk = 0, wrongAutomatic = 0; const ttb: number[] = [], stable: number[] = [], readStart: number[] = [], readEnd: number[] = [], publish: number[] = [];
   for (const a of arrivals) {
     const zone = a.to!.zone as FieldZone, wantDown = a.to!.faceUp === false;
-    const hits = result.events.filter(e => (e.event.type === 'placed' || e.event.type === 'flipped' || e.event.type === 'moved') && e.event.track.zone === zone && !e.event.track.removed && e.t >= a.t - 1000 && e.t <= a.t + 20_000);
+    // The hit window closes at the next labelled departure from that zone: a later card there is not this one.
+    const nextLeave = departures.filter(d => d.from!.zone === zone && d.t > a.t).reduce((m, d) => Math.min(m, d.t), Infinity), windowEnd = Math.min(a.t + 20_000, nextLeave);
+    const hits = result.events.filter(e => (e.event.type === 'placed' || e.event.type === 'flipped' || e.event.type === 'moved') && e.event.track.zone === zone && !e.event.track.removed && e.t >= a.t - 1000 && e.t <= windowEnd);
     const first = hits.find(e => wantDown ? e.event.track.faceDown : e.event.track.cardId) ?? hits[0];
     if (!first) continue;
     onBoard++; ttb.push(Math.max(0, first.t - a.t));
@@ -174,14 +225,14 @@ export function scoreReplay(result: ReplayResult, truth: ClipTruth, session: Cli
   const okReads = result.reads.filter(r => !r.error);
   const unmeasuredEvents = truth.events.filter(e => !isArrival(e) && !isDeparture(e) && e.kind !== 'flip' && e.kind !== 'position');
   return {
-    clip, mode: result.mode, frames: result.frames, spanS: round(spanMs / 1000), wallS: round(result.wallMs / 1000),
+    clip, mode: result.mode, labels: truth.draft ? 'draft' : truth.events.length ? 'owner' : 'none', frames: result.frames, spanS: round(spanMs / 1000), wallS: round(result.wallMs / 1000),
     arrivals: arrivals.length, onBoard, identityOk, identityPct: arrivals.length ? round(100 * identityOk / arrivals.length) : 0,
     wrongAutomatic, falseRemovals, stale, twins, departures: departures.length, removedOk,
     ttbP50: round(percentile(ttb, .5)), ttbP95: round(percentile(ttb, .95)),
     stableP50: round(percentile(stable, .5)), readStartP50: round(percentile(readStart, .5)), readEndP50: round(percentile(readEnd, .5)), publishP50: round(percentile(publish, .5)),
     prompts: prompts.length, promptsAnswered, promptTop5,
     reads: result.reads.length, readMsP50: round(percentile(okReads.map(r => r.ms), .5)), readMsP95: round(percentile(okReads.map(r => r.ms), .95)), embedsPerRead: okReads.length ? round(okReads.reduce((n, r) => n + (r.embeds ?? 1), 0) / okReads.length) : 0, closedSetPct: okReads.length ? round(100 * okReads.filter(r => r.closedSet).length / okReads.length) : 0,
-    backend: okReads[0]?.backend ?? session.backend ?? '-',
+    backend: okReads[0]?.backend ?? session.backend ?? '-', unreplayable: result.unreplayable,
     unmeasured: unmeasuredEvents.length, unmeasuredKinds: [...new Set(unmeasuredEvents.map(e => e.kind))].join(','),
     errors: result.errors,
   };
@@ -210,19 +261,27 @@ export function draftTruth(bundle: ClipBundle, clipName?: string): ClipTruth {
   return { version: 1, clip: clipName, draft: true, note: 'Draft from watcher events and your answers. Fix card ids, destinations and add what the watcher missed (hand activations, materials, counters, LP, phases). t is ms from the first saved frame.', events: out.map(({ trackId: _trackId, ...e }) => e) };
 }
 
-/** Baseline gate for CI: p95 time to board +15 % (or +100 ms, whichever is more), any new false removal or wrong automatic card. */
+/** Baseline gate for CI: same clips in the same mode; p95 time to board or p95 read time +15 % (at least +100 / +10 ms), any new false removal or
+ *  wrong automatic card, or fewer right identities than before. */
 export function gateAgainstBaseline(current: ReplayMetrics[], baseline: ReplayMetrics[]): string[] {
   const failures: string[] = [];
+  for (const was of baseline) if (!current.some(c => c.clip === was.clip)) failures.push(`${was.clip}: in the baseline but not in this run`);
   for (const now of current) {
     const was = baseline.find(b => b.clip === now.clip); if (!was) continue;
+    if (now.mode !== was.mode) { failures.push(`${now.clip}: mode ${now.mode} differs from the baseline's ${was.mode}; numbers are not comparable`); continue; }
     if (now.ttbP95 > Math.max(was.ttbP95 * 1.15, was.ttbP95 + 100)) failures.push(`${now.clip}: p95 time to board ${now.ttbP95} ms > ${was.ttbP95} ms +15 %`);
+    if (now.readMsP95 > Math.max(was.readMsP95 * 1.15, was.readMsP95 + 10)) failures.push(`${now.clip}: p95 read time ${now.readMsP95} ms > ${was.readMsP95} ms +15 %`);
     if (now.falseRemovals > was.falseRemovals) failures.push(`${now.clip}: false removals ${now.falseRemovals} > ${was.falseRemovals}`);
     if (now.wrongAutomatic > was.wrongAutomatic) failures.push(`${now.clip}: wrong automatic cards ${now.wrongAutomatic} > ${was.wrongAutomatic}`);
+    if (now.identityOk < was.identityOk) failures.push(`${now.clip}: right identities ${now.identityOk} < ${was.identityOk}`);
   }
   return failures;
 }
 
-const COLUMNS: [keyof ReplayMetrics, string][] = [['clip', 'clip'], ['mode', 'mode'], ['spanS', 'span s'], ['arrivals', 'arrivals'], ['onBoard', 'on board'], ['identityPct', 'identity %'], ['wrongAutomatic', 'wrong auto'], ['falseRemovals', 'false rm'], ['stale', 'stale'], ['twins', 'twins'], ['ttbP50', 'ttb p50'], ['ttbP95', 'ttb p95'], ['stableP50', 'stable'], ['readStartP50', 'read start'], ['readEndP50', 'read end'], ['publishP50', 'publish'], ['prompts', 'prompts'], ['promptTop5', 'top5'], ['reads', 'reads'], ['readMsP50', 'read ms p50'], ['embedsPerRead', 'embeds'], ['closedSetPct', 'closed %'], ['backend', 'backend'], ['unmeasured', 'unmeasured'], ['errors', 'errors']];
+/** One line for the tools: how replay time differs from live time. */
+export const replayTimingNote = (result: Pick<ReplayResult, 'tickMs' | 'mode'>) => `Replay ticks once per saved frame (~${result.tickMs} ms); live the watcher ticks every 33-66 ms, so time-to-board is coarser here. Read time: ${result.mode === 'recorded' ? 'as recorded live' : 'measured on this machine'}; each answer lands only once the clip clock has passed read start + read time.`;
+
+const COLUMNS: [keyof ReplayMetrics, string][] = [['clip', 'clip'], ['mode', 'mode'], ['labels', 'labels'], ['spanS', 'span s'], ['arrivals', 'arrivals'], ['onBoard', 'on board'], ['identityPct', 'identity %'], ['wrongAutomatic', 'wrong auto'], ['falseRemovals', 'false rm'], ['stale', 'stale'], ['twins', 'twins'], ['ttbP50', 'ttb p50'], ['ttbP95', 'ttb p95'], ['stableP50', 'stable'], ['readStartP50', 'read start'], ['readEndP50', 'read end'], ['publishP50', 'publish'], ['prompts', 'prompts'], ['promptTop5', 'top5'], ['reads', 'reads'], ['readMsP50', 'read ms p50'], ['readMsP95', 'read ms p95'], ['unreplayable', 'unrepl'], ['embedsPerRead', 'embeds'], ['closedSetPct', 'closed %'], ['backend', 'backend'], ['unmeasured', 'unmeasured'], ['errors', 'errors']];
 export function formatMetricsTable(rows: ReplayMetrics[]): string {
   const cells = rows.map(r => COLUMNS.map(([key]) => String(r[key] ?? '')));
   const widths = COLUMNS.map(([, label], i) => Math.max(label.length, ...cells.map(c => c[i].length)));
