@@ -1091,3 +1091,11 @@ it('identifies a Reading placeholder in its existing slot with one write',async(
   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref,cardId:46986414,zone:'monster',slot:4})]);
  }finally{fixture.dispose();}
 });
+
+it('the Debug profile row carries the card trace: stable, read start and end, source, tier and publish',async()=>{
+  const {useFieldProfile}=await import("../src/lib/remote/field-profile");
+  const {result}=renderHook(()=>useFieldProfile());
+  act(()=>{window.dispatchEvent(new CustomEvent("remote-field-latency",{detail:{id:"s:7:placed",stage:"watcher",type:"placed",originAt:0,elapsedMs:0,
+    stagesMs:{stable:120,embedStart:300,searchDone:520,commit:700},durationsMs:{readMs:210,embedCount:1,"hold.hand":80},notes:{source:"deck",tier:"sure"}}}));});
+  expect(result.current.last?.trace).toEqual({stable:120,readStart:300,readEnd:520,publish:700,source:"deck",tier:"sure"});
+});

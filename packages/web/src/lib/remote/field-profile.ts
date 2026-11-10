@@ -14,7 +14,7 @@ import type { FieldTiming } from "@yugidraft/vision";
  *   write    = write start → HTTP reply (server round trip)
  *   render   = HTTP reply → room state rendered
  */
-export interface FieldProfileRow { id: string; type: string; at: number; segments: Record<string, number>; detail: Record<string, number>; totalMs: number }
+export interface FieldProfileRow { id: string; type: string; at: number; segments: Record<string, number>; detail: Record<string, number>; totalMs: number; /** The card's own trace: ms from card down to stable, read start, read end and publish, plus search source and tier. */ trace?: { stable?: number; readStart: number; readEnd: number; publish: number; source?: string; tier?: string } }
 export const PROFILE_SEGMENTS = ["detect", "gate", "read", "decide", "queue", "write", "render"] as const;
 
 const open = new Map<string, { timing: FieldTiming; type: string; marks: Record<string, number> }>();
@@ -34,7 +34,8 @@ function build(entry: { timing: FieldTiming; type: string; marks: Record<string,
   };
   const detail: Record<string, number> = {};
   for (const [key, value] of Object.entries(d)) if (Number.isFinite(value)) detail[key] = value;
-  return { id: entry.timing.id, type: entry.type, at: Date.now(), segments, detail, totalMs: final ? rendered : commit };
+  const trace = { stable: st.stable, readStart, readEnd: searchDone, publish: commit, source: entry.timing.notes?.source, tier: entry.timing.notes?.tier };
+  return { id: entry.timing.id, type: entry.type, at: Date.now(), segments, detail, totalMs: final ? rendered : commit, trace };
 }
 
 if (typeof window !== "undefined") window.addEventListener("remote-field-latency", (raw: Event) => {
@@ -43,7 +44,7 @@ if (typeof window !== "undefined") window.addEventListener("remote-field-latency
   let entry = open.get(event.id);
   if (event.stage === "watcher") {
     if (event.type !== "placed" && event.type !== "prompt") return;
-    entry = { timing: { id: event.id, originAt: event.originAt, stagesMs: event.stagesMs, durationsMs: event.durationsMs }, type: event.type, marks: {} };
+    entry = { timing: { id: event.id, originAt: event.originAt, stagesMs: event.stagesMs, durationsMs: event.durationsMs, notes: event.notes }, type: event.type, marks: {} };
     open.set(event.id, entry);
     while (open.size > 32) open.delete(open.keys().next().value!);
     rows.push(build(entry, false)); while (rows.length > 50) rows.shift(); publish(); return;
