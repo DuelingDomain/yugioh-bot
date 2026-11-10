@@ -99,6 +99,23 @@ test('fresh Set settles from independent pixels and a reveal reads its front onc
  }finally{watcher.dispose();}
 });
 
+test('a resting front shows its Reading card before the crop is sharp enough to read, and is removed when the card leaves',async()=>{
+ let at=0,present=true,reads=0;
+ const events:FieldEvent[]=[],outline=():DetectedQuad=>({kind:'face-up',confidence:.99,partial:false,quad:[{x:.3,y:.3},{x:.5,y:.3},{x:.5,y:.5},{x:.3,y:.5}]});
+ const watcher=createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,
+  buffer:{sample:async()=>({frame:{width:120,height:176,data:front.data} as ImageData,at})},clone:async f=>f,
+  analyze:()=>({crop:()=>front,motion:()=>0,sharpness:()=>2,appearance:()=>Array(288).fill(.05)}),
+  recognizer:{detectCards:async()=>present?[outline()]:[],recognize:async()=>{reads++;return {candidates:[{cardId:'A',score:.95}],tier:'sure',quality:{fallback:false,covered:false,partial:false,faceDown:false},timingsMs:{embed:20,search:1,total:21},backend:'wasm'} as RecognitionResult;}}});
+ watcher.subscribe(e=>events.push(e));
+ const tick=async(ms=100)=>{at+=ms;await watcher.tick();await Promise.resolve();};
+ try{
+  for(let i=0;i<12;i++)await tick();
+  assert.ok(events.some(e=>e.type==='reading'),'the Reading card shows while the crop is still too soft to read');assert.equal(reads,0,'the read still waits for a sharp crop');
+  present=false;at+=3000;for(let i=0;i<30;i++)await tick();
+  assert.ok(events.some(e=>e.type==='removed'),'the Reading card goes away when the card leaves');
+ }finally{watcher.dispose();}
+});
+
 test('CPU budget, 1.2 s detector: a flip in place settles soon and a Set moved after 7 s still keeps its id',async()=>{
  let at=0,down=false,x=.3,moving=0,dirty=0,motion=0,passes=0,passAt=0,oldest=0;
  const back=image(()=>[15,15,15]),events:FieldEvent[]=[];
