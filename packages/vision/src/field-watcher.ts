@@ -477,14 +477,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(t.view.state!=='identified'){t.softDismiss=t.view.state==='candidate';t.view.state='dismissed';}
   }
   async function startRead(t:InternalTrack,frame:FieldFrame,card:DetectedQuad,crop:RGBAImage|undefined,at:number,generation:number) {
-    softCamera=false;
     if(reading||t.read||!t.needsRead){if(reading&&t.needsRead)hold(t,'slot');return;}
     // A first read waits for the first frame without a hand on the card: an
     // embed of card plus fingers is rarely sure and costs a second read.
     if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&handBlocks(t,latestEvidence?.touched?.(card))){hold(t,'hand');return;}
     t.handWaitAt=undefined;
     const pending:PendingRead={sharp:t.lastSharp,at,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
-    t.read=pending;t.needsRead=false;
+    t.read=pending;t.needsRead=false;softCamera=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
     if(generation!==epoch||disposed||t.read!==pending||!tracks.includes(t)){closeFieldFrame(input);return;}
     lastReadHeld=false;
