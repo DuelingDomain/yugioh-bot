@@ -1248,7 +1248,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // The Reading card shows as soon as the card rests face-up on the mat; only the read itself waits for a sharp crop.
         // Publish geometry before identity inference; never invent an identity
         // or a public front while face-state evidence is still ambiguous.
-        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&restOk(t)&&faceClean&&observation.state==='up'&&
+        if(!t.placeholder&&!t.binding&&!t.promptOnly&&t.view.state==='candidate'&&restOk(t)&&faceClean&&observation.state==='up'&&!blurHold&&
           !['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)) {
           t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.view.visible=true;t.halo=evidence.halo?.(c);
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
