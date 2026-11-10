@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { createClipRecorder, createBrowserFrameEncoder, CLIP_EXTENSION, type ClipRecorder, type ClipRecorderStats, type ClipEvent, type FieldCalibration, type FieldEvent, type FieldFormat, type FieldWatcherOptions } from '@yugidraft/vision';
 import { fieldDeveloperEnabled, subscribeFieldDeveloper } from './zone-grid';
 
-type WatcherIo = Pick<FieldWatcherOptions, 'recognizer' | 'buffer'>;
+type WatcherIo = Pick<FieldWatcherOptions, 'recognizer' | 'buffer'> & Partial<Pick<FieldWatcherOptions, 'getKnownCards'>>;
 type ClipAction = Extract<ClipEvent, { kind: 'action' }>['action'];
 export interface ClipAttachContext { room?: string; seat?: number; format?: FieldFormat; priors?: () => { decklist?: string[] } | undefined; calibration: () => FieldCalibration | undefined }
 
@@ -46,7 +46,8 @@ export function attachClipRecorder<T extends WatcherIo>(config: T, context: Clip
     detectCards: (frame, opts) => io().recognizer.detectCards(frame, opts),
     recognize: (frames, opts) => io().recognizer.recognize(frames, opts),
   };
-  return { ...config, recognizer, buffer: { sample: opts => io().buffer.sample(opts) } };
+  // The known-card lookup goes through the ring too, so each read's board knowledge is recorded (the raw config would bypass it).
+  return { ...config, recognizer, buffer: { sample: opts => io().buffer.sample(opts) }, getKnownCards: config.getKnownCards ? () => io().getKnownCards!() : undefined };
 }
 export function detachClipRecorder() { offDeveloper?.(); offDeveloper = null; if (!attached) return; attached.recorder?.dispose(); attached = null; notify(); }
 export const clipEvent = (event: FieldEvent) => attached?.recorder?.onEvent(event);
