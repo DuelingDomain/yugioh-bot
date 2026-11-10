@@ -827,7 +827,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const c=t.view.card,pixels=evidence.appearance?.(c);
         if(!t.previewEligible||t.view.state!=='candidate'||!restOk(t)||t.view.removed||t.promptOnly||sample.at-t.view.lastSeen>500||c.confidence<.7||c.partial||c.covered||
           (evidence.motion(c)>.025||evidence.occluded?.(c)||!sameFieldAppearance(t.appearance,pixels))&&!artStill(t,c)||
-          !sharpOk(t,evidence.sharpness(c),sample.at)&&(t.placeholder||!!t.binding||['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)))continue;
+          !sharpOk(t,evidence.sharpness(c),sample.at))continue;
         const crop=evidence.crop?.(c);if(!crop)continue;
         const observation=classifyFaceState(crop,{detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined});
         if(observation.state!=='up')continue;
@@ -835,7 +835,6 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.halo=evidence.halo?.(c);
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
-        if(!sharpOk(t,evidence.sharpness(c),sample.at)){hold(t,'sharp');continue;}
         if(!busy&&observation.state==='up'){t.halo=evidence.halo?.(c);await startRead(t,current,c,crop,sample.at,generation);}
         if(reading)break;
       }
