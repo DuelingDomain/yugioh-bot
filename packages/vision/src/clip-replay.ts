@@ -206,7 +206,7 @@ export function scoreReplay(result: ReplayResult, truth: ClipTruth, session: Cli
     if (!first) continue;
     onBoard++; ttb.push(Math.max(0, first.t - a.t));
     const timing = first.event.timing?.stagesMs;
-    if (timing) { const base = timing.firstOutline ?? 0; if (timing.tracker !== undefined) stable.push(timing.tracker - base); if (timing.embedStart !== undefined) readStart.push(timing.embedStart - base); if (timing.searchDone !== undefined) readEnd.push(timing.searchDone - base); if (timing.commit !== undefined) publish.push(timing.commit - base); }
+    if (timing) { const base = timing.firstOutline ?? 0; if (timing.stable !== undefined) stable.push(timing.stable - base); if (timing.embedStart !== undefined) readStart.push(timing.embedStart - base); if (timing.searchDone !== undefined) readEnd.push(timing.searchDone - base); if (timing.commit !== undefined) publish.push(timing.commit - base); }
     if (wantDown) { if (first.event.track.faceDown) identityOk++; continue; }
     if (!a.cardId) { identityOk++; continue; }
     const named = hits.find(e => e.event.track.cardId);
