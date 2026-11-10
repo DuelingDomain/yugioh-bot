@@ -22,6 +22,8 @@ export interface ReplayResult {
   tickMs: number;
 }
 export interface ReplayOptions {
+  /** Real mode: multiplies each measured read time, to stand in for a slower machine (a laptop browser reads about 8x slower than Node here). */
+  readScale?: number;
   bundle: ClipBundle;
   /** JPEG bytes to RGBA pixels (Node: sharp). */
   decode: (bytes: Uint8Array) => Promise<RGBAImage>;
@@ -124,7 +126,7 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
       let result: RecognitionResult | undefined, failure: unknown;
       try { result = await recognizer.recognize(f, o); } catch (e) { failure = e; }
       // Recorded mode reports the time of the read it answered with; real mode the time this machine took.
-      const ms = recorded ? recorded.usedMs : performance.now() - wall, unreplayable = !!recorded && recorded.unreplayable > missesBefore;
+      const ms = recorded ? recorded.usedMs : (performance.now() - wall) * (options.readScale ?? 1), unreplayable = !!recorded && recorded.unreplayable > missesBefore;
       reads.push(result ? { t, ms, tier: result.tier, backend: result.backend, embeds: result.timingsMs?.embedCount ?? result.quality?.framesUsed, closedSet: ['deck','dynamic','likely'].includes(result.quality?.searchSource ?? '') } : { t, ms, error: true, unreplayable });
       if (ms > 0) await new Promise<void>(release => pending.push({ due: start + ms, release }));
       if (failure) throw failure; return result!;
