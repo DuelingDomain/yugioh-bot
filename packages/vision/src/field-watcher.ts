@@ -348,7 +348,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** Last full pass's pile-cell scores; motion-crop passes keep showing them. */
   let lastPileScores:FieldDebug['pileScores'];
   const note=(t:InternalTrack,reason:string)=>{t.reason=reason;};
-  let softCamera=false,softHinted=false;
+  let softCamera=false,softHinted=false,softTrack:InternalTrack|undefined;
   let gridOffPasses=0,gridOffAt=-Infinity,gridShift:{gap:number;outside:number;suspect:boolean}|undefined,lastMotionAt:number|undefined,untracked=0,debugAt=0,debugTick='',emptySince:number|undefined,emptyPasses=0,emptyPassAt=-Infinity;
   const debugPath=(path:string,at:number)=>{debugTick=path;debugAt=at;};
   const suppressed:{card:DetectedQuad;appearance?:number[];halo?:number[];clearAt?:number;samples:number}[]=[];let guarded=false;
@@ -1587,8 +1587,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // Reads run one at a time, so a queued card waits for the others too; a hand on the card waits for the hand.
         if(handNear(evidence,t.view.card))continue;
         if(sample.at-t.view.lastSeen>500||sample.at-t.identifyingSince<IDENTIFY_DEADLINE_MS*(reading?2:1))continue;
-        // Never sharp enough to read (soft camera): keep the Reading card and read when a sharp crop arrives. One camera hint per sitting, no prompt per card.
-        if(!t.read&&!t.lastResult&&t.lastSharp!==undefined&&t.lastSharp<sharpLimit()){if(!softHinted){softHinted=true;softCamera=true;}continue;}
+        // Never sharp enough to read (soft camera): the first such card keeps its Reading card for 3 deadlines and raises ONE camera hint per sitting; any other card, or that card after 3 deadlines, is asked as usual.
+        if(!t.read&&!t.lastResult&&t.lastSharp!==undefined&&t.lastSharp<sharpLimit()&&(!softHinted||softTrack===t)&&sample.at-t.identifyingSince<3*IDENTIFY_DEADLINE_MS){if(!softHinted){softHinted=true;softCamera=true;softTrack=t;}continue;}
         const result=t.read?.result??t.lastResult;
         // A look the player already dismissed stays quiet; any other gallery answer still asks, remembered name first.
         const answer=gallery.resolve(result?.identityEmbedding);
