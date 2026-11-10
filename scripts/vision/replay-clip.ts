@@ -3,7 +3,7 @@
  *  Without models in --data (or VISION_DATA_DIR) the recorded detections and reads are played back (tracker-only). */
 import { readFile, writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { replayClip, scoreReplay, formatMetricsTable } from '../../packages/vision/src/clip-replay';
+import { replayClip, scoreReplay, formatMetricsTable, replayTimingNote } from '../../packages/vision/src/clip-replay';
 import type { ClipTruth } from '../../packages/vision/src/clip-format';
 import { clipName, defaultDataDir, jpegDecoder, loadNodeRecognizer, readClip } from './clip-node';
 
@@ -19,5 +19,9 @@ try {
   const metrics = scoreReplay(result, bundle.truth, bundle.session, clipName(file));
   console.log(`Clip ${file}: ${bundle.frames.length} frames over ${metrics.spanS} s, ${bundle.truth.events.length} labels${bundle.truth.draft ? ' (draft)' : ''}, replay ${metrics.wallS} s wall, mode ${result.mode}`);
   console.log(formatMetricsTable([metrics]));
+  console.log(replayTimingNote(result));
+  if (result.skippedFrames) console.log(`${result.skippedFrames} frames skipped: saved with another camera crop than the clip's last frame.`);
+  if (result.unreplayable) console.log(`${result.unreplayable} read requests had no recorded read within 1 s at that spot (unreplayable); rerun with models for a real read.`);
+  if (bundle.truth.draft) console.log('Labels are a draft made from the watcher\'s own events: the scores only show that replay repeats the live run. Label the clip (label-clip.ts) for a true score.');
   if (values.json) await writeFile(values.json, JSON.stringify({ metrics, reads: result.reads }, null, 1));
 } finally { await loaded?.release(); }
