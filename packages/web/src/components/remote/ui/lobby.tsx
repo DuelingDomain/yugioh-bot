@@ -66,6 +66,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
       if (note) { setDeckNote(note); sessionStorage.removeItem(key); }
     } catch { /* storage may be blocked */ }
   }, [room.slug]);
+  // Fetch and verify the reader's models while the players set up, so the first card read does not wait for the download.
+  useEffect(() => { void import("@yugidraft/vision").then(vision => vision.warmModelCache(vision.yugioh)).catch(() => {}); }, []);
   const current = room.format ?? normalizeRemoteFormat();
   const [formatDraft, setFormat] = useState<string>(current.id);
   // The open formats, and the format of an older room, which that room keeps until the host changes it.

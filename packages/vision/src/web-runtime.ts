@@ -130,14 +130,16 @@ export function webRuntime(deps: WebRuntimeDeps = {}): WebRuntime {
 export interface WebGpuTimeouts {
   adapterMs: number;
   importMs: number;
-  /** One session's creation (after any created before it: see gpuCreates). */
+  /** One session's creation (after any created before it: see gpuCreates). The model download is not part of it. */
   createMs: number;
+  /** One model download. A cold download of a 25 MB model on a slow link must not eat the creation limit; this only stops a download that hangs. */
+  fetchMs: number;
   /** Cold shader compilation for each new input shape can exceed a resident inference. */
   firstRunMs: number;
   /** One run (the watchdog). */
   runMs: number;
 }
-export const WEBGPU_TIMEOUTS: WebGpuTimeouts = { adapterMs: 3_000, importMs: 3_000, createMs: 10_000, firstRunMs: 60_000, runMs: 10_000 };
+export const WEBGPU_TIMEOUTS: WebGpuTimeouts = { adapterMs: 3_000, importMs: 3_000, createMs: 10_000, fetchMs: 120_000, firstRunMs: 60_000, runMs: 10_000 };
 
 class WebGpuTimeout extends Error {}
 
@@ -377,7 +379,7 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     for (const gpuPath of paths) {
       let creating: Promise<Opened> | undefined;
       try {
-        const bytes = await within(wasm.bytes(gpuPath, what), limits.createMs, `fetching ${gpuPath}`);
+        const bytes = await within(wasm.bytes(gpuPath, what), limits.fetchMs, `fetching ${gpuPath}`);
         if (gpuPath === path) model = bytes;
         creating = createOnGpu(gpu.ort, bytes, gpu.device);
         const got = await within(creating, limits.createMs, `creating the WebGPU session for ${gpuPath}`);

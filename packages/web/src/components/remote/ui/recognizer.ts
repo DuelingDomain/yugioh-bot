@@ -138,6 +138,7 @@ const priorsFor = (found: Meta, priors: Priors, voice = true): RecognitionPriors
   decklist: idsFor(found, priors.decklist), seen: idsFor(found, priors.seen),
   voiceMentioned: idsFor(found, hint.cards), voiceExpiresAt: hint.expiresAt,
   related: cache.get(key),
+  forbidden: idsFor(found, priors.forbidden ?? []),
   };
 };
 const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });

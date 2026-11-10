@@ -11,7 +11,7 @@ import { replayClip, scoreReplay, formatMetricsTable, gateAgainstBaseline, repla
 import type { ClipTruth } from '../../packages/vision/src/clip-format';
 import { clipName, defaultDataDir, evalDir, jpegDecoder, loadNodeRecognizer, readClip } from './clip-node';
 
-const { values } = parseArgs({ options: { data: { type: 'string' }, dir: { type: 'string' }, recorded: { type: 'boolean' }, baseline: { type: 'string' }, 'write-baseline': { type: 'string' }, json: { type: 'string' }, threads: { type: 'string' } } });
+const { values } = parseArgs({ options: { data: { type: 'string' }, dir: { type: 'string' }, recorded: { type: 'boolean' }, 'read-scale': { type: 'string' }, baseline: { type: 'string' }, 'write-baseline': { type: 'string' }, json: { type: 'string' }, threads: { type: 'string' } } });
 const dir = values.dir ?? evalDir(), clipsDir = join(dir, 'clips'), labelsDir = join(dir, 'labels');
 let files: string[] = [];
 try { files = (await readdir(clipsDir)).filter(f => f.endsWith('.ddclip')).sort(); } catch { /* no set yet */ }
@@ -24,7 +24,7 @@ try {
   for (const file of files) {
     const name = clipName(file), bundle = await readClip(join(clipsDir, file));
     try { bundle.truth = JSON.parse(await readFile(join(labelsDir, `${name}.json`), 'utf8')) as ClipTruth; } catch { console.error(`${name}: no labels in ${labelsDir}; scoring against the clip's own truth.json (${bundle.truth.events.length} events).`); }
-    const result = await replayClip({ bundle, decode, recognizer: loaded?.recognizer }); last = result;
+    const result = await replayClip({ bundle, decode, recognizer: loaded?.recognizer, readScale: Number(values['read-scale'] ?? 1) }); last = result;
     rows.push(scoreReplay(result, bundle.truth, bundle.session, name));
   }
 } finally { await loaded?.release(); }

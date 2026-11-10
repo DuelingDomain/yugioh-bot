@@ -1,8 +1,18 @@
 import { remotePublicCard, type RemoteRoom } from '@yugidraft/shared/remote';
+import { banlistLimitsFor } from '@yugidraft/shared/deck-legality/banlists/index';
 import { VoicePrior } from '@yugidraft/vision';
 const cardCode = (card: {cardId?:number;passcode?:number}) => card.cardId ?? card.passcode;
 
-export type Priors = { decklist: number[]; seen: number[]; context?: number[]; scope?: string };
+export type Priors = { decklist: number[]; seen: number[]; context?: number[]; scope?: string; /** Passcodes the table's banlist forbids (empty without a banlist). */ forbidden?: number[] };
+const forbiddenCache = new Map<string, number[]>();
+/** Forbidden passcodes for the room's banlist; none for an unknown list or when the table has no banlist. */
+function forbiddenFor(room: RemoteRoom): number[] {
+  const id = room.format?.settings?.banlist;
+  if (!id) return [];
+  let found = forbiddenCache.get(id);
+  if (!found) { try { found = Object.entries(banlistLimitsFor(id) ?? {}).filter(([, limit]) => limit === 0).map(([code]) => Number(code)); } catch { found = []; } forbiddenCache.set(id, found); }
+  return found;
+}
 const voice = new VoicePrior();
 const scopeFor = (room: RemoteRoom, seat: number) => `${room.slug}:${room.state.match.games?.length ?? 0}:${seat}`;
 /** Public hook for a resolved voice intent. Each hint expires after ten seconds. */
@@ -49,5 +59,5 @@ export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
   }
   const deck=room.seats.find(s=>s.seat===seat)?.deck?.deck;
   return { decklist: deck?[...deck.main,...deck.extra,...deck.side]:[], seen: [...seen].slice(-512),
-    context: [...new Set([...board, ...recent.slice(-24), ...opposing.slice(-16)])].slice(0, 64), scope: scopeFor(room, seat) };
+    context: [...new Set([...board, ...recent.slice(-24), ...opposing.slice(-16)])].slice(0, 64), scope: scopeFor(room, seat), forbidden: forbiddenFor(room) };
 }

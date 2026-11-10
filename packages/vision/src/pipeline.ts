@@ -21,7 +21,7 @@ import { warpQuadMasked, fillUnseen } from './truncation';
 import { buildHypotheses } from './hypotheses';
 import { detect, chooseCard, refinedCorners } from './detector/run';
 import { sharpness, classifyBorder } from './quality';
-import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions, rankWithPriors } from './search';
+import { normalize, topK, prepareSearch, mergeCandidates, decide, preferDeck, withDeckSuggestions, rankWithPriors, CLOSED_ACCEPT } from './search';
 import type { GameProfile, LoadedIndex, RecognizeOptions, RecognitionResult, Point, Candidate, IndexEntry, PeekOptions, PeekResult, ReadAllOptions, BoardResult, RecognitionEvidence } from './types';
 
 /** Worker-only source ownership; never included in its public reply. */
@@ -145,19 +145,46 @@ export class RecognitionPipeline {
       return ranked.filter((c):c is Candidate=>Boolean(c.cardId && this.catalog.has(c.cardId)));
     };
     let shortlistExit=false;
-    let searchSource:'deck'|'gallery'|'catalog'='catalog';
+    let searchSource:'deck'|'dynamic'|'likely'|'gallery'|'catalog'='catalog';
     // Reuse unboosted evidence for each hypothesis and the single-frame final
     // decision. This cache lasts one read, so mutable caller queries cannot go stale.
     // The back must compete even when the detector mistakes a face-down card for a front.
     const deckIds=opts.priors?.decklist?.length?new Set([...opts.priors.decklist,this.profile.cardBack.cardId]):undefined;
-    const deckFirst=opts.deckFirst!==false && Boolean(deckIds);
-    const clearDeck=(list:Candidate[])=>clearShortlist(list) && list[0].score>=Math.max(.92,thresholds.score)
-      && list[0].cardId!==this.profile.cardBack.cardId && list[0].score-(list[1]?.score??0)>=Math.max(.08,earlyExitMargin);
+    const backId=this.profile.cardBack.cardId;
+    // Closed sets are searched before the catalog. With a deck list: the list. Without one: cards confirmed in this duel (and the
+    // gallery), then cards related to them. Off-list cards simply miss every set and take the open path below.
+    const closedTiers:{source:'deck'|'dynamic'|'likely';ids:Set<string>}[]=[];
+    if(deckIds)closedTiers.push({source:'deck',ids:deckIds});
+    else if(opts.deckFirst!==false) {
+      const known=(id?:string):id is string=>Boolean(id&&this.catalog.has(id));
+      const seen=new Set([...(opts.priors?.seen??[]),...(opts.gallery??[]).map(e=>e.cardId)].filter(known));
+      if(seen.size)closedTiers.push({source:'dynamic',ids:new Set([...seen,backId])});
+      const forbidden=new Set(opts.priors?.forbidden??[]),likely=new Set([...seen,...(opts.priors?.related??[]).map(r=>r.cardId).filter(id=>known(id)&&!forbidden.has(id))]);
+      if(likely.size>seen.size)closedTiers.push({source:'likely',ids:new Set([...likely,backId])});
+    }
+    const deckFirst=opts.deckFirst!==false && closedTiers.length>0;
+    const acceptClosed=(list:Candidate[],open:Candidate[],source:'deck'|'dynamic'|'likely')=>{
+      const top=list[0];
+      if(!top||top.cardId===backId||top.score<CLOSED_ACCEPT.score||top.score-(list[1]?.score??0)<Math.max(CLOSED_ACCEPT.margin,earlyExitMargin)||this.confused(list))return false;
+      if(opts.priors?.frameClasses?.length&&!opts.priors.frameClasses.includes(this.catalog.get(top.cardId)?.frameClass??''))return false;
+      // Never force a set card: the catalog's best card wins when it is clearly better.
+      if(!open[0]||open[0].cardId===top.cardId)return true;
+      // A deck list is a strong hint, so a near tie with a catalog card still goes to the deck card. Sets built without a list are only
+      // a guess, so there the set card must itself be the catalog's best card.
+      return source==='deck'&&open[0].score-top.score<CLOSED_ACCEPT.openBetter;
+    };
     const deckCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
     const deckSearch=(query:Float32Array,index:LoadedIndex)=>{
       if(!deckIds)return [];
       let indexes=deckCache.get(query);if(!indexes){indexes=new Map();deckCache.set(query,indexes);}
       let candidates=indexes.get(index);if(!candidates){candidates=topK(query,index,Math.max(10,opts.k??5),undefined,undefined,deckIds);indexes.set(index,candidates);}return candidates;
+    };
+    const setCache=new Map<Set<string>,WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>>();
+    const closedSearch=(ids:Set<string>,query:Float32Array,index:LoadedIndex)=>{
+      if(ids===deckIds)return deckSearch(query,index);
+      let byQuery=setCache.get(ids);if(!byQuery){byQuery=new WeakMap();setCache.set(ids,byQuery);}
+      let indexes=byQuery.get(query);if(!indexes){indexes=new Map();byQuery.set(query,indexes);}
+      let candidates=indexes.get(index);if(!candidates){candidates=topK(query,index,Math.max(10,opts.k??5),undefined,undefined,ids);indexes.set(index,candidates);}return candidates;
     };
     const cleanCache=new WeakMap<Float32Array,Map<LoadedIndex,Candidate[]>>();
     const cleanSearch=(query:Float32Array,index:LoadedIndex)=>{
@@ -248,10 +275,14 @@ export class RecognitionPipeline {
           if(!deckFirst && !opts.gallery?.some(e=>e.embedding.space===(hypothesis.index===this.fullArtIndex?'whole-card':'art-box')))continue;
           const vector=await embed(hypothesis.image),started=performance.now();
           const gallery=opts.gallery?.length?gallerySearch(vector,hypothesis.index):[];
-          const deck=deckFirst?deckSearch(vector,hypothesis.index):[];
-          const candidates=clearDeck(deck)?deck:gallery.length?gallery:[];
+          let closed:Candidate[]=[],closedSource:typeof closedTiers[number]['source']|undefined;
+          if(deckFirst) {
+            const open=cleanSearch(vector,hypothesis.index);
+            for(const tier of closedTiers) {const list=closedSearch(tier.ids,vector,hypothesis.index);if(acceptClosed(list,open,tier.source)){closed=list;closedSource=tier.source;break;}}
+          }
+          const candidates=closed.length?closed:gallery.length?gallery:[];
           timings.search+=performance.now()-started;
-          if(candidates.length) {searchSource=candidates===deck?'deck':'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+          if(candidates.length) {searchSource=closedSource??'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
           // A weak upright deck view falls through immediately; do not pay for extra
           // orientations before the ordinary catalog path has assessed that view.
           if(deckFirst && !opts.gallery?.length)break;
@@ -359,7 +390,7 @@ export class RecognitionPipeline {
     if(views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId)blocked.push('face-down');
     if(this.confused(visual) && (visual[0].score-(visual[1]?.score??0)<.06 || !views.every(v=>v.confusionChecked)))blocked.push('confusion');
     const raw:RecognitionEvidence={visual,ranked:candidates,winnerId:candidates[0]?.cardId,cardBackId:this.profile.cardBack.cardId,blocked,frames:frameEvidence,
-      thresholds,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(this.index.meta),layoutKey:this.index.meta.layoutKey??'',learningVersion:this.learning.version,priors:opts.priors,earlyExit};
+      thresholds,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(this.index.meta),layoutKey:this.index.meta.layoutKey??'',learningVersion:this.learning.version,priors:opts.priors,earlyExit,...(searchSource==='deck'||searchSource==='dynamic'||searchSource==='likely'?{closedSet:searchSource}:{})};
     const tier=replayTier(raw,thresholds);
     timings.search += performance.now() - t; timings.total = performance.now() - start;
     const evidence=views[0];
