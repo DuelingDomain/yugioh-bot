@@ -7,7 +7,7 @@ export type Priors = { decklist: number[]; seen: number[]; context?: number[]; s
 const forbiddenCache = new Map<string, number[]>();
 /** Forbidden passcodes for the room's banlist; none for an unknown list or when the table has no banlist. */
 function forbiddenFor(room: RemoteRoom): number[] {
-  const id = room.format?.settings.banlist;
+  const id = room.format?.settings?.banlist;
   if (!id) return [];
   let found = forbiddenCache.get(id);
   if (!found) { try { found = Object.entries(banlistLimitsFor(id) ?? {}).filter(([, limit]) => limit === 0).map(([code]) => Number(code)); } catch { found = []; } forbiddenCache.set(id, found); }
