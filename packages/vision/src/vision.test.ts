@@ -205,3 +205,19 @@ test('feedback client sends only eligible crop evidence and the confirmed source
     await reader.recordFeedback(result,'B','voice');const sent:any=body;assert.equal(sent.source,'voice');assert.equal(sent.chosenCardId,'B');assert.equal(sent.jpegBase64,'jpeg');assert.equal(sent.warpedCard,undefined);assert.equal(sent.deltaVersion,undefined);assert.equal(sent.identityEmbedding,undefined);
   }finally{globalThis.fetch=oldFetch;reader.dispose();}
 });
+
+test('a verified model is kept in the browser cache and served from it; a bad cached copy is dropped',async()=>{
+  const {fetchModelChecked}=await import('./model-cache');
+  const store=new Map<string,Response>(),bytes=new Uint8Array([1,2,3]);
+  const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const real=globalThis.fetch;let network=0;
+  (globalThis as any).caches={open:async()=>({match:async(k:string)=>store.get(k)?.clone(),put:async(k:string,r:Response)=>{store.set(k,r);},delete:async(k:string)=>store.delete(k)})};
+  globalThis.fetch=(async()=>{network++;return new Response(bytes);}) as typeof fetch;
+  try {
+    await fetchModelChecked('http://x/m.onnx',sha);await fetchModelChecked('http://x/m.onnx',sha);
+    assert.equal(network,1);
+    store.set(`http://x/m.onnx#${sha}`,new Response(new Uint8Array([9])));
+    await fetchModelChecked('http://x/m.onnx',sha);assert.equal(network,2);
+    await assert.rejects(fetchModelChecked('http://x/other.onnx','0'.repeat(64)),/checksum/);
+  } finally {globalThis.fetch=real;delete (globalThis as any).caches;}
+});

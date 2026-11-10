@@ -1,4 +1,5 @@
 export { createRecognizer } from './client';
+export { warmModelCache } from './model-cache';
 export {fitToMat} from './client';
 export {fitMat,matFitCalibration} from './mat-fit';
 export type {MatFitResult,MatFitOptions} from './mat-fit';
