@@ -18,6 +18,8 @@ export interface ClipRecorderOptions {
   now?: () => number;
   /** Events kept beyond the window (actions, prompts) up to this count; frames are strictly windowed. */
   maxEvents?: number;
+  /** Frame bytes the ring may hold (default 32 MB): a noisy camera drops its oldest frames before the 30 s window is full. */
+  maxBytes?: number;
 }
 
 export type ClipContext = Partial<Omit<ClipSession, 'version' | 'savedAt' | 'clipStartAt' | 'clipEndAt' | 'windowMs' | 'camera' | 'frame' | 'frameCalibration' | 'cost'>>;
@@ -42,14 +44,14 @@ export interface ClipRecorder {
 interface StoredFrame { meta: ClipFrameMeta; bytes: Uint8Array; camera: { width: number; height: number }; crop?: ClipRect }
 
 export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
-  const now = options.now ?? (() => performance.now()), windowMs = options.windowMs ?? 30_000, gap = options.frameGapMs ?? 200, maxEvents = options.maxEvents ?? 4000;
+  const now = options.now ?? (() => performance.now()), windowMs = options.windowMs ?? 30_000, gap = options.frameGapMs ?? 200, maxEvents = options.maxEvents ?? 4000, maxBytes = options.maxBytes ?? 32 * 1024 * 1024;
   const frames: StoredFrame[] = [], events: ClipEvent[] = [];
   let context: ClipContext = {}, calibration: FieldCalibration | undefined;
   let encoding = false, lastFrameAt = -Infinity, serial = 0, disposed = false, lastKnown: ReturnType<NonNullable<WatcherIo['getKnownCards']>> | undefined, lastGallery: readonly FieldIdentityEntry[] | undefined;
-  let encodeMsTotal = 0, encodeMsMax = 0, encoded = 0, dropped = 0;
+  let encodeMsTotal = 0, encodeMsMax = 0, encoded = 0, dropped = 0, frameBytes = 0;
   const startedAt = now();
   const prune = (at: number) => {
-    while (frames.length && frames[0].meta.at < at - windowMs) frames.shift();
+    while (frames.length && (frames[0].meta.at < at - windowMs || (frameBytes > maxBytes && frames.length > 1))) frameBytes -= frames.shift()!.bytes.length;
     while (events.length && (events.length > maxEvents || events[0].at < at - windowMs * 2)) events.shift();
   };
   const push = (event: ClipEvent) => { if (disposed) return; events.push(event); prune(event.at); };
@@ -60,11 +62,11 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
       if (disposed || !result) return;
       const ms = now() - start; encodeMsTotal += ms; encodeMsMax = Math.max(encodeMsMax, ms); encoded++;
       const name = `frames/${String(++serial).padStart(5, '0')}.jpg`;
-      frames.push({ meta: { at, name, width: result.width, height: result.height, bytes: result.bytes.length, crop: result.crop }, bytes: result.bytes, camera: result.camera, crop: result.crop });
+      frames.push({ meta: { at, name, width: result.width, height: result.height, bytes: result.bytes.length, crop: result.crop }, bytes: result.bytes, camera: result.camera, crop: result.crop }); frameBytes += result.bytes.length;
       prune(at);
     }).catch(() => { /* A failed encode drops the frame; recording never breaks the watcher. */ }).finally(() => { encoding = false; });
   };
-  const stats = (): ClipRecorderStats => ({ frames: frames.length, bytes: frames.reduce((n, f) => n + f.bytes.length, 0), events: events.length, encodeMsMean: encoded ? encodeMsTotal / encoded : 0, encodeMsMax, encodeMsTotal, dropped, activeS: (now() - startedAt) / 1000 });
+  const stats = (): ClipRecorderStats => ({ frames: frames.length, bytes: frameBytes, events: events.length, encodeMsMean: encoded ? encodeMsTotal / encoded : 0, encodeMsMax, encodeMsTotal, dropped, activeS: (now() - startedAt) / 1000 });
   return {
     wrap(io) {
       const buffer: FieldBuffer = { sample: async opts => { const sample = await io.buffer.sample(opts); record(sample.frame, sample.at); return sample; } };
@@ -112,7 +114,7 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
       };
       return writeZip(buildClipEntries(session, saved.map(f => ({ meta: f.meta, bytes: f.bytes })), kept));
     },
-    dispose() { disposed = true; frames.length = 0; events.length = 0; },
+    dispose() { disposed = true; frames.length = 0; frameBytes = 0; events.length = 0; },
   };
 }
 

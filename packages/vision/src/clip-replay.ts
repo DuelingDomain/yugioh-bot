@@ -2,10 +2,11 @@
 // The clock is the clip's frame times: no timers, no camera. Recognition is either the recorded reads
 // (tracker-only replay, no models) or a real recognizer the caller supplies (onnxruntime-node).
 import { createFieldWatcher, type FieldEvent, type FieldWatcherOptions, type KnownFieldCard } from './field-watcher';
+import { createFieldAnalyzer } from './field-motion';
 import { createFieldIdentityGallery } from './field-gallery';
 import { fieldCenter, type FieldZone } from './field-zones';
 import type { GameProfile, RecognitionResult, RecognitionPriors, DetectedQuad, FractionalBox } from './types';
-import type { RGBAImage } from './pixels';
+import { cropRGBA, resizeRGBA, type RGBAImage } from './pixels';
 import { yugioh } from './games/yugioh';
 import { rebaseBox, rebaseQuad, sameCrop, type ClipBundle, type ClipEvent, type ClipRect, type ClipTruth, type ClipTruthEvent, type ClipTruthPlace, type ClipSession } from './clip-format';
 
@@ -31,6 +32,8 @@ export interface ReplayOptions {
   answerPrompts?: boolean;
   /** Test injection: a fake frame analyzer (sharpness, motion, crops). */
   analyze?: FieldWatcherOptions['analyze'];
+  /** Real mode runs one detect and one read on the first frame before the clock starts, so the cold first model run does not set read p95 (default on). */
+  warmUp?: boolean;
   onEvent?: (event: ReplayEvent) => void;
 }
 
@@ -102,6 +105,13 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
   const pending: { due: number; release: () => void }[] = [];
   const releaseDue = (all = false) => { for (let i = pending.length - 1; i >= 0; i--) if (all || pending[i].due <= at) { const [p] = pending.splice(i, 1); p.release(); } };
   const decoded = new Map<string, RGBAImage>();
+  if (options.recognizer && options.warmUp !== false) {
+    const bytes = bundle.frameBytes(frames[0].name); if (!bytes) throw new Error(`Clip frame ${frames[0].name} is missing`);
+    const first = await options.decode(bytes); decoded.set(frames[0].name, first);
+    const found = await options.recognizer.detectCards(first as unknown as ImageData);
+    const patch = found[0] ? first : resizeRGBA(cropRGBA(first, 0, 0, Math.max(2, Math.round(first.width / 4)), Math.max(2, Math.round(first.height / 4))), 96, 140);
+    try { await options.recognizer.recognize([patch as unknown as ImageData], found[0] ? { card: found[0], maxFrames: 1, k: 1 } : { maxFrames: 1, k: 1 }); } catch { /* A warm-up read may not match anything; only the model load matters. */ }
+  }
   const buffer: FieldWatcherOptions['buffer'] = { sample: async () => { const meta = frames[Math.min(index, frames.length - 1)]; let frame = decoded.get(meta.name); if (!frame) { const bytes = bundle.frameBytes(meta.name); if (!bytes) throw new Error(`Clip frame ${meta.name} is missing`); frame = await options.decode(bytes); decoded.set(meta.name, frame); if (decoded.size > 8) decoded.delete(decoded.keys().next().value!); } return { frame: frame as unknown as ImageData, at: meta.at }; } };
   const reads: ReplayRead[] = [], events: ReplayEvent[] = [];
   let detects = 0;
@@ -125,7 +135,7 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
   const knownRecorded = recordedReads.some(r => r.known), knownAt = (): KnownFieldCard[] => knowledgeAt(recordedReads, at)?.known ?? [];
   const watcher = createFieldWatcher({
     profile: options.profile ?? yugioh, recognizer: timed, buffer, now, hidden: () => false, cpuBusy: () => false, clone: async f => f,
-    calibration: session.frameCalibration ?? session.calibration, format: session.format, earlyExitMargin: .02, analyze: options.analyze,
+    calibration: session.frameCalibration ?? session.calibration, format: session.format, earlyExitMargin: .02, analyze: options.analyze ?? createFieldAnalyzer({ downsampleRGBA: true }),
     getPriors: decklist || recordedReads.some(r => r.priors) ? priorsAt : undefined,
     getKnownCards: knownRecorded ? knownAt : undefined,
     gallery: mode === 'real' && session.gallery?.length ? createFieldIdentityGallery(session.gallery) : undefined,
