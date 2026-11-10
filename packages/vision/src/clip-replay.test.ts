@@ -41,6 +41,8 @@ test('a saved clip replays deterministically through the field watcher and score
   const bundle=parseClip(bytes);
   assert.equal(bundle.frames.length,stats.frames);
   assert.ok(bundle.events.some(e=>e.kind==='read')&&bundle.events.some(e=>e.kind==='watcher'&&e.event.type==='placed'),'clip holds reads and watcher events');
+  // The per-card trace rides along: search source and the publish wait are in the saved timing record.
+  assert.ok(bundle.events.some(e=>e.kind==='timing'&&e.timing.notes?.source==='deck'&&e.timing.durationsMs['hold.publish']!==undefined),'clip timing holds the read trace');
   assert.deepEqual(bundle.session.decklist,['A','B']);
   assert.deepEqual(bundle.session.frame.crop,crop); assert.ok(bundle.session.frameCalibration,'clip carries the frame-based calibration');
   // The recorded outline is still in camera fractions: against the frame calibration it would land in another zone.

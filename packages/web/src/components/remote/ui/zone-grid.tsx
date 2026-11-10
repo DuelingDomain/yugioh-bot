@@ -145,6 +145,7 @@ function TrackLabel({ t, reason, face }: { t: FieldTrack; reason?: string; face?
     onClick={() => setOpen(v => !v)}>{line}{open ? `${t.cardId ? ` · card ${t.cardId}` : ""} — ${reason || "…"}` : t.state === "candidate" && reason ? ` — ${reason}` : ""}</span>;
 }
 
+const HOLDS: [string, string][] = [["hand", "hand"], ["still", "still"], ["sharp", "sharp"], ["read slot", "slot"], ["publish gate", "publish"]];
 const ms = (v: number | undefined) => v === undefined || !Number.isFinite(v) ? "–" : String(Math.round(v));
 /** Placement profile (owner debug): last event per stage plus rolling p50/p90 over the last 50 placements. */
 function FieldProfilePanel() {
@@ -161,6 +162,7 @@ function FieldProfilePanel() {
     {`\n${"total".padEnd(7)}${ms(last.totalMs).padStart(6)}  ${stat(r => r.totalMs).padStart(11)}\n`}
     {detail.map(([name, key]) => `${name.padEnd(15)}${ms(d[key]).padStart(5)}  ${stat(r => r.detail[key]).padStart(9)}`).join("\n")}
     {`\npreclean: on, cast=${d.precleanGainR === undefined ? "–" : [d.precleanGainR, d.precleanGainG, d.precleanGainB].map(v => (v ?? 1).toFixed(2)).join(",")}, glare=${d.precleanGlare === undefined ? "–" : d.precleanGlare.toFixed(1)}%, shadow=${d.precleanShadow === undefined ? "–" : d.precleanShadow.toFixed(0)}%, used=${d.precleanUsed === undefined ? "–" : d.precleanUsed ? "clean" : "raw"}${d.precleanMs === undefined ? "" : ` (${d.precleanMs.toFixed(1)} ms)`}`}
+    {last.trace ? `\ncard ${last.id.split(":").at(-2)}: down→stable ${ms(last.trace.stable)} → read ${ms(last.trace.readStart)}-${ms(last.trace.readEnd)} (${ms(d.readMs)} ms, ${d.embedCount ?? 0} crops, ${last.trace.source ?? "–"}/${last.trace.tier ?? "–"})\n  → publish ${ms(last.trace.publish)}\nheld: ${HOLDS.map(([name, key]) => `${name} ${ms(d[`hold.${key}`] ?? 0)}`).join(" · ")}` : null}
     {`\nreads ${d["n.reads"] ?? 0} · dropped ${d["n.readsDropped"] ?? 0} · embeds ${d.embedCount ?? 0} · det passes ${d["n.detects"] ?? 0} · face resets ${d["n.faceResets"] ?? 0}`}
   </span>;
 }
