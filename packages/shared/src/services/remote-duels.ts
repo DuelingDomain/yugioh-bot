@@ -578,8 +578,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
         if (row.status === "active" && idleExpired(row, now) && command.type !== "player.leave") { closeIdle(row, now); return room(load(slug, guildId), userId); }
         remoteAssert(row.status === "active" || (row.end_reason === "game" && command.type === "undo"), "Table is not active", 409, "TABLE_ENDED");
-        const action = { ...command, at: now };
         const before = timeoutState ?? readState(row);
+        // `now` was read before this write lock. A request that waited for another writer (a second web worker or the sweep) can carry a time just before the state it now sees; the reducer refuses a time before the state, which would drop a valid move. Event time never goes backward.
+        const stamp = Math.max(now, before.updatedAt);
+        const action = { ...command, at: stamp };
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         if(command.type==='hand.add')effects.privateHandIdentity=command.source==='deck'&&before.showCardsSetFromDeck===false||command.source==='field'&&
           !!before.seats[command.actorSeat].twin.find(c=>(c.cardId??c.passcode)===command.cardId&&['monster','extra-monster','spell-trap','field','pendulum'].includes(c.zone)&&!c.faceUp);
@@ -664,7 +666,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
           const target = before.undoHistory?.find(e=>e.actionId===command.targetActionId);
           if (target) messages.push({seat:command.actorSeat,text:": Undone: "+remoteUndoLabel(target.action, target.after)});
         }
-        append(row, action, now, userId, command.actorSeat, true, effects, messages);
+        append(row, action, stamp, userId, command.actorSeat, true, effects, messages);
         syncDecks(row, state);
         const matchDone = state.match.phase === "done";
         // A forfeit is a quit between games. A quit during a live game was a conceded game, with a normal game result.
