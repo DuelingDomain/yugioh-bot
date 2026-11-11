@@ -1250,7 +1250,7 @@
 
 /* A card held up from the hand, for every seat and spectator: big art and one line, over the board, never a click. */
 .hact{position:fixed;left:50%;top:calc(var(--hdr,48px) + 16px);transform:translateX(-50%);z-index:72;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:92vw;pointer-events:none;animation:pop .3s var(--ease)}
-.hact img{width:clamp(120px,min(24vh,34vw),240px);aspect-ratio:59/86;object-fit:cover;border-radius:8px;border:1px solid var(--gold-ink,#e8b94f);box-shadow:0 14px 44px rgb(0 0 0/.7)}
+.hact img{width:clamp(96px,min(18vh,34vw),240px);aspect-ratio:59/86;object-fit:cover;border-radius:8px;border:1px solid var(--gold-ink,#e8b94f);box-shadow:0 14px 44px rgb(0 0 0/.7)}
 .hact p{margin:0;padding:6px 14px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 8px 24px rgb(0 0 0/.6);font-size:14px;text-align:center}
 .hact b{color:var(--gold-ink)}
 /* Quick look at a revealed hand card: fixed, no clicks. */
