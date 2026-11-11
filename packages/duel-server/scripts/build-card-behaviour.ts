@@ -24,12 +24,18 @@ for (const r of rows) if (r.alias) aliases.set(r.alias, [...(aliases.get(r.alias
 db.close();
 
 const dirs = ["official", "pre-release", "prerelease"].map(d => join(dataDir, "card-scripts", d)).filter(existsSync);
-const script = (id: number) => { for (const d of dirs) { const p = join(d, `c${id}.lua`); if (existsSync(p)) return readFileSync(p, "utf8"); } return undefined; };
+const read = (id: number) => { for (const d of dirs) { const p = join(d, `c${id}.lua`); if (existsSync(p)) return readFileSync(p, "utf8"); } return undefined; };
+/** The script of a card. A stub that only loads another script (Duel.LoadCardScriptAlias / LoadCardScript) is that other script. */
+const script = (id: number, depth = 0): string | undefined => {
+  const text = read(id);
+  const stub = text && text.split("\n").filter(line => line.trim() && !line.startsWith("--")).length <= 2 ? /Duel\.LoadCardScript(?:Alias)?\(\s*(?:"c(\d+)\.lua"|(\d+)|(CARD_POLYMERIZATION))\s*\)/.exec(text) : null;
+  return stub && depth < 2 ? script(Number(stub[1] ?? stub[2] ?? 24094653), depth + 1) ?? text : text;
+};
 
 const records = new Map<number, CardBehaviour>();
 const stats = { scripts: 0, withBehaviour: 0, handQuick: 0, cost: 0, costOther: 0, detach: 0, attach: 0, leaves: 0, sends: 0, banishDown: 0, draws: 0 };
 for (const { id, type, alias } of rows) {
-  if (alias) continue; // alt arts take the record of the card they alias
+  // Alt arts take the record of the card they alias, unless they have a script of their own (then they are a different card).
   const text = script(id); if (!text) continue;
   stats.scripts++;
   const record = scanScript(text, { extraDeckMonster: (type & EXTRA_DECK_TYPES) !== 0 });
@@ -45,7 +51,7 @@ for (const { id, type, alias } of rows) {
   if (record.leaves?.includes("banishDown") || record.sends?.some(s => s.to === "banishDown")) stats.banishDown++;
   if (record.draws) stats.draws++;
   records.set(id, record);
-  for (const a of aliases.get(id) ?? []) records.set(a, record);
+  for (const a of aliases.get(id) ?? []) if (!script(a)) records.set(a, record);
 }
 
 // Canonical JSON (2-space indent, final newline): scripts/ci/publish-engine-data.mjs checks the exact bytes. SHAPES = the distinct
