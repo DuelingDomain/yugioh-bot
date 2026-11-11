@@ -1445,6 +1445,32 @@ test('a low-score white back in an empty field cell is placed as a Set; the same
  }
 });
 
+// Owner 2026-11-11 (hand activation): a card held up over a zone is shown to the table and must never become a field card or a
+// Reading placeholder. Put down flat and still AFTER that, it is a field placement, but only once it has settled for stableMs.
+test('a lifted card over a monster zone gives no placeholder or placement until it lies flat and settled',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const resting=card(.33,.38,.1,.259),lifted=card(.5,.42,.13,.337),flat=card(.5,.42,.1,.259);
+ const isHeld=(c:DetectedQuad)=>zones.fieldCenter(c).x>.5;r.appearanceAt=c=>isHeld(c)?Array(12).fill(.9):Array.from({length:12},(_,i)=>i%2?.6:.2);
+ let now=0;const tick=async()=>{now+=100;await r.tick(100);};
+ r.outlines=[resting];for(let i=0;i<12;i++)await tick();
+ const base=r.events.find(e=>e.type==='placed')!;r.watcher.confirm(base.track.id,'A');r.known=[{id:base.track.id,zone:'M2',cardId:'A',faceDown:false}];
+ for(let i=0;i<4;i++)await tick();all.length=0;
+ // Held over M3 with fingers on it, 1.3x the resting size, for a long time: a sure read of another card never places it.
+ r.identityAt=c=>isHeld(c)?'B':'A';r.touchedAt=c=>isHeld(c)?.04:0;r.outlines=[resting,lifted];
+ for(let i=0;i<15;i++)await tick();
+ assert.equal(r.watcher.getSnapshot().held?.length,1,'the held-card reader owns it');
+ const field=(e:field.FieldEvent)=>e.track.id!==base.track.id;
+ assert.deepEqual(all.filter(field).map(e=>e.type),[],'no Reading, placement or prompt while it is held up');
+ // The hand lets go and it lies flat in the zone: it waits stableMs after the last lifted sample, then it is placed once.
+ const liftedUntil=now;r.touchedAt=()=>0;r.outlines=[resting,flat];all.length=0;
+ const firstAt:number[]=[];r.watcher.subscribe(e=>{if(field(e)&&firstAt.length===0)firstAt.push(now);});
+ for(let i=0;i<20;i++)await tick();
+ assert.equal(all.filter(e=>e.type==='placed'&&e.track.cardId==='B').length,1,JSON.stringify(all.map(e=>[e.type,e.track.zone,e.track.cardId])));
+ assert.ok(firstAt[0]-liftedUntil>=300,`first field event ${firstAt[0]-liftedUntil} ms after it was last lifted`);
+ r.watcher.dispose();
+});
+
 test('centre assignment accepts full camera quads that cross calibrated field and side-zone edges',async()=>{
  const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}],{playerSide:'bottom',mirrored:false});
  for(const [x,zone] of [[.045,'FIELD'],[.955,'GY'],[.5,'M3']] as const){

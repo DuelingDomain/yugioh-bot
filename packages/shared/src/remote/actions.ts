@@ -43,7 +43,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     delta: z.number().int().min(-999999).max(999999).optional(),
     value: z.number().int().min(0).max(999999).optional() })
     .refine(a => (a.delta !== undefined) !== (a.value !== undefined), "Choose either a hand count delta or value"),
-  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource }),
+  /** `fromHand`: a card the player held up from the hand. The card stays in the hand; it becomes public and the log says so. */
+  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource, fromHand: z.literal(true).optional() }),
   z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
   z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),
   z.strictObject({ ...meta, type: z.literal("effect.context.clear") }),
