@@ -6,6 +6,10 @@
  *    synth-flip   a Set card flipped face up, and a face-up card swapped for another one
  *    synth-offlist  four cards, two of them missing from the deck list (deck variant only)
  *    synth-move   a card moved to another zone, a card removed, a still card with camera jitter and light flicker
+ *    synth-hand   three cards set down with an arm resting over the card edge for about 0.7 s before it withdraws
+ *    synth-focus  three cards set down while the camera focus ramps from soft to sharp over 1.5 s
+ *    synth-shake  three cards set down while the camera shakes (5 px, fading over 1 s)
+ *    synth-two    four cards set down two at a time
  *  The clips are git-ignored output (about 6 MB each): delete them after use. */
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -59,7 +63,10 @@ const mat = Buffer.alloc(W * H * 3);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = 1 - .25 * Math.hypot((x - W / 2) / W, (y - H / 2) / H), n = (random() - .5) * 8, i = (y * W + x) * 3; mat[i] = 24 * v + n; mat[i + 1] = 46 * v + n; mat[i + 2] = 52 * v + n; }
 
 interface Piece { image: Buffer; x: number; y: number; angle?: number; scaleX?: number; alpha?: number }
-async function render(pieces: Piece[], light = 1, shiftX = 0, shiftY = 0): Promise<{ bytes: Uint8Array }> {
+/** An arm over the mat: a skin-coloured ellipse (centre, half-sizes, tilt in degrees). */
+interface Arm { x: number; y: number; rx: number; ry: number; angle?: number }
+const armSvg = (arms: Arm[]) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${arms.map(a => `<ellipse cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" rx="${a.rx}" ry="${a.ry}" transform="rotate(${a.angle ?? 0} ${a.x.toFixed(1)} ${a.y.toFixed(1)})" fill="rgb(228,172,132)"/>`).join('')}</svg>`);
+async function render(pieces: Piece[], light = 1, shiftX = 0, shiftY = 0, arms: Arm[] = [], blur = 0): Promise<{ bytes: Uint8Array }> {
   const layers: OverlayOptions[] = [];
   for (const p of pieces) {
     let img = sharp(p.image); const w = Math.max(4, Math.round(CARD_W * (p.scaleX ?? 1)));
@@ -68,7 +75,11 @@ async function render(pieces: Piece[], light = 1, shiftX = 0, shiftY = 0): Promi
     if (p.angle) { const r = await sharp(buf).rotate(p.angle, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer({ resolveWithObject: true }); buf = r.data; width = r.info.width; height = r.info.height; }
     layers.push({ input: buf, left: Math.round(p.x - width / 2 + shiftX), top: Math.round(p.y - height / 2 + shiftY) });
   }
-  const raw = await sharp(mat, { raw: { width: W, height: H, channels: 3 } }).composite(layers).removeAlpha().raw().toBuffer();
+  if (arms.length) layers.push({ input: armSvg(arms), left: 0, top: 0 });
+  let composed = sharp(mat, { raw: { width: W, height: H, channels: 3 } }).composite(layers).removeAlpha();
+  // A soft camera: the whole picture blurred (autofocus still settling).
+  if (blur > .3) composed = sharp(await composed.raw().toBuffer(), { raw: { width: W, height: H, channels: 3 } }).blur(blur);
+  const raw = await composed.raw().toBuffer();
   const px = Buffer.from(raw);
   for (let i = 0; i < px.length; i++) px[i] = Math.max(0, Math.min(255, px[i] * light + (random() - .5) * 4));
   return { bytes: new Uint8Array(await sharp(px, { raw: { width: W, height: H, channels: 3 } }).jpeg({ quality: 88 }).toBuffer()) };
@@ -85,7 +96,7 @@ function pose(p: Place, t: number): { x: number; y: number; scaleX: number; down
   return { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, scaleX, down };
 }
 
-interface Scenario { name: string; seconds: number; places: Place[]; labels: ClipTruthEvent[]; jitter?: (t: number) => { dx: number; dy: number; light: number }; jitterOnly?: string; /** Cards that are on the mat but missing from the deck list (a side-deck swap, a wrong list, an opponent card). */ offList?: string[]; variants?: ('deck' | 'open')[] }
+interface Scenario { name: string; seconds: number; places: Place[]; labels: ClipTruthEvent[]; jitter?: (t: number) => { dx: number; dy: number; light: number }; jitterOnly?: string; /** Arms (a hand resting on a card) and camera focus blur (sigma px) as functions of time. */ arms?: (t: number) => Arm[]; blur?: (t: number) => number; /** Cards that are on the mat but missing from the deck list (a side-deck swap, a wrong list, an opponent card). */ offList?: string[]; variants?: ('deck' | 'open')[] }
 const a = onMat.map(e => e.cardId);
 const label = (t: number, kind: ClipTruthEvent['kind'], cardId: string | undefined, zone: FieldZone, extra: Partial<ClipTruthEvent> = {}): ClipTruthEvent => ({ t, kind, cardId, to: { zone, faceUp: kind !== 'set' }, source: 'owner', ...extra });
 const scenarios: Scenario[] = [
@@ -110,6 +121,31 @@ const scenarios: Scenario[] = [
     ], labels: [label(1000, 'summon', a[0], 'M2'), label(2000, 'summon', a[2], 'M3'), label(3000, 'summon', a[1], 'M4'), label(4000, 'summon', a[3], 'S2')] },
 ];
 
+/** Seconds-since-last-placement helpers for the harder scenarios. */
+const sinceLast = (ats: number[], t: number) => { const past = ats.filter(x => x <= t); return past.length ? t - Math.max(...past) : Infinity; };
+const HAND_ATS = [1000, 3000, 5000], HAND_CARDS: { zone: FieldZone; at: number }[] = [{ zone: 'M2', at: 1000 }, { zone: 'M3', at: 3000 }, { zone: 'M4', at: 5000 }];
+/** An arm that follows the card down, rests over its top edge for 700 ms after it arrives (400 ms slide), then withdraws upward over 400 ms. */
+const handOver = (t: number): Arm[] => HAND_CARDS.flatMap(({ zone, at }) => {
+  const leave = at + 400 + 700, end = leave + 400, q = pose({ id: '', zone, at }, t); if (!q || t >= end) return [];
+  return [{ x: q.x + 8, y: q.y - CARD_H * .6 - (t < leave ? 0 : (t - leave) / 400 * 200), rx: 34, ry: 80 }];
+});
+const SHAKE_ATS = [1000, 3000, 5000];
+scenarios.push(
+  { name: 'synth-hand', seconds: 8, arms: handOver, places: [
+      { id: a[0], zone: 'M2', at: 1000 }, { id: a[1], zone: 'M3', at: 3000 }, { id: a[2], zone: 'M4', at: 5000 },
+    ], labels: [label(1000, 'summon', a[0], 'M2'), label(3000, 'summon', a[1], 'M3'), label(5000, 'summon', a[2], 'M4')] },
+  { name: 'synth-focus', seconds: 8, blur: t => 2.6 * Math.max(0, 1 - sinceLast(SHAKE_ATS, t) / 1500), places: [
+      { id: a[3], zone: 'M2', at: 1000 }, { id: a[4], zone: 'M3', at: 3000 }, { id: a[5], zone: 'M4', at: 5000 },
+    ], labels: [label(1000, 'summon', a[3], 'M2'), label(3000, 'summon', a[4], 'M3'), label(5000, 'summon', a[5], 'M4')] },
+  { name: 'synth-shake', seconds: 8, jitter: t => { const k = Math.max(0, 1 - sinceLast(SHAKE_ATS, t) / 1000); return { dx: Math.round((random() - .5) * 10 * k), dy: Math.round((random() - .5) * 10 * k), light: 1 }; }, places: [
+      { id: a[6], zone: 'M2', at: 1000 }, { id: a[7], zone: 'M3', at: 3000 }, { id: a[0], zone: 'M4', at: 5000 },
+    ], labels: [label(1000, 'summon', a[6], 'M2'), label(3000, 'summon', a[7], 'M3'), label(5000, 'summon', a[0], 'M4')] },
+  { name: 'synth-two', seconds: 8, places: [
+      { id: a[1], zone: 'M2', at: 1000 }, { id: a[2], zone: 'M4', at: 1000 },
+      { id: a[3], zone: 'S2', at: 4000, from: { x: centre('S2').x, y: H + CARD_H } }, { id: a[4], zone: 'S4', at: 4000, from: { x: centre('S4').x, y: H + CARD_H } },
+    ], labels: [label(1000, 'summon', a[1], 'M2'), label(1000, 'summon', a[2], 'M4'), label(4000, 'summon', a[3], 'S2'), label(4000, 'summon', a[4], 'S4')] },
+);
+
 await mkdir(join(out, 'clips'), { recursive: true }); await mkdir(join(out, 'labels'), { recursive: true });
 for (const s of scenarios) {
   const frames: { meta: ClipFrameMeta; bytes: Uint8Array }[] = [];
@@ -122,7 +158,7 @@ for (const s of scenarios) {
     }
     // The jitter case moves the whole camera view a pixel or two and flickers the light, like a hand-held phone under a lamp.
     const j = s.jitter?.(t);
-    const { bytes } = await render(pieces, j?.light ?? 1, j?.dx ?? 0, j?.dy ?? 0);
+    const { bytes } = await render(pieces, j?.light ?? 1, j?.dx ?? 0, j?.dy ?? 0, s.arms?.(t), s.blur?.(t));
     const name = `frames/${String(i).padStart(5, '0')}.jpg`;
     frames.push({ meta: { at: START_MS + t, name, width: W, height: H, bytes: bytes.length }, bytes });
   }
