@@ -455,8 +455,6 @@ test.describe("remote duels screen, solo", () => {
     for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
       for (const shape of ["16:9"] as const) for (const view of ["Both", "Webcam only"] as const) {
         test(`video box matches the camera and controls fit: ${label} ${mode} ${shape} ${view}`, async ({ page, context }) => {
-          // Known app issue: in Both view with Auto detection the camera is about 9% of the seat at 1366 x 768 (limit 33%). Remove this line when the layout is fixed.
-          test.fixme(view === "Both", "the camera is about 9% of the seat in Both view at 1366 x 768, below the 33% limit");
           test.setTimeout(120_000);
           await page.setViewportSize({ width, height });
           const slug = await soloTable(context.request, count);
